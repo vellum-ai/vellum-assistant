@@ -108,12 +108,16 @@ const mockHandleCallerUtterance = jest.fn(async () => {});
 const mockHandleInterrupt = jest.fn();
 const mockDestroy = jest.fn();
 
+const mockHandleBargeIn = jest.fn(() => false);
+
 mock.module("../calls/call-controller.js", () => ({
   CallController: jest.fn().mockImplementation(() => ({
     startInitialGreeting: mockStartInitialGreeting,
     handleCallerUtterance: mockHandleCallerUtterance,
     handleInterrupt: mockHandleInterrupt,
+    handleBargeIn: mockHandleBargeIn,
     destroy: mockDestroy,
+    getState: jest.fn(() => "idle"),
     setTrustContext: jest.fn(),
     markNextCallerTurnAsOpeningAck: jest.fn(),
     getPendingConsultationQuestionId: jest.fn(),
@@ -313,6 +317,8 @@ beforeEach(() => {
   mockStartInitialGreeting.mockClear();
   mockHandleCallerUtterance.mockClear();
   mockHandleInterrupt.mockClear();
+  mockHandleBargeIn.mockClear();
+  mockHandleBargeIn.mockReturnValue(false);
   mockDestroy.mockClear();
   (registerCallController as jest.Mock).mockClear();
   (recordCallEvent as jest.Mock).mockClear();
@@ -1076,6 +1082,153 @@ describe("media-stream setup outcome scenarios", () => {
 
       // Initial greeting should fire
       expect(mockStartInitialGreeting).toHaveBeenCalled();
+    });
+  });
+
+  // ── Barge-in regression ──────────────────────────────────────────
+
+  describe("barge-in gating", () => {
+    test("immediate inbound audio after stream start does not trigger handleInterrupt", () => {
+      const mockWs = createMockWs();
+      mockSessions.set("call-bargein-1", {
+        id: "call-bargein-1",
+        conversationId: "conv-bargein-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        toNumber: "+15551234567",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-1");
+
+      // Stream start bootstraps the controller
+      session.handleMessage(makeStartMessage());
+      expect(mockStartInitialGreeting).toHaveBeenCalled();
+
+      // Immediate inbound audio (speech-like payloads) — before the
+      // assistant has spoken. The speech detector classifies these as
+      // speech, so onSpeechStart fires and calls handleBargeIn. Since
+      // the controller mock returns false (not speaking), handleInterrupt
+      // should NOT be called.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      session.handleMessage(makeMediaMessage(speechPayload, "1"));
+      session.handleMessage(makeMediaMessage(speechPayload, "2"));
+      session.handleMessage(makeMediaMessage(speechPayload, "3"));
+
+      // handleBargeIn was called but returned false
+      expect(mockHandleBargeIn).toHaveBeenCalled();
+      expect(mockHandleInterrupt).not.toHaveBeenCalled();
+
+      // voice_session_aborted should NOT appear in recorded events
+      const abortEvents = mockEvents.filter(
+        (e) =>
+          e.callSessionId === "call-bargein-1" &&
+          e.eventType === "voice_session_aborted",
+      );
+      expect(abortEvents.length).toBe(0);
+
+      session.destroy();
+    });
+
+    test("barge-in is accepted when controller is speaking", () => {
+      // Configure mock to indicate the controller is speaking
+      mockHandleBargeIn.mockReturnValue(true);
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-bargein-2", {
+        id: "call-bargein-2",
+        conversationId: "conv-bargein-2",
+        status: "in_progress",
+        task: null,
+        startedAt: Date.now() - 5000,
+        toNumber: "+15551234567",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-2");
+      session.handleMessage(makeStartMessage());
+
+      // Simulate inbound speech audio while assistant is speaking.
+      // Use a high-amplitude mu-law payload so speech detection triggers.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      session.handleMessage(makeMediaMessage(speechPayload, "1"));
+
+      // handleBargeIn should have been called (returning true)
+      expect(mockHandleBargeIn).toHaveBeenCalled();
+
+      session.destroy();
+    });
+  });
+
+  // ── E2E regression scenario ──────────────────────────────────────
+
+  describe("end-to-end regression: connected call that stays active", () => {
+    test("stream connects, inbound audio starts, call remains active for a turn, controller only destroyed at stop/hangup", () => {
+      const mockWs = createMockWs();
+      mockSessions.set("call-e2e-1", {
+        id: "call-e2e-1",
+        conversationId: "conv-e2e-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        toNumber: "+15551234567",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-e2e-1");
+
+      // 1. Stream connects — start event arrives
+      session.handleMessage(makeStartMessage());
+      expect(registerCallController).toHaveBeenCalledWith(
+        "call-e2e-1",
+        expect.anything(),
+      );
+      expect(mockStartInitialGreeting).toHaveBeenCalled();
+
+      // Verify session was updated to in_progress
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-e2e-1",
+        expect.objectContaining({ status: "in_progress" }),
+      );
+
+      // 2. Inbound audio starts immediately (controller idle — barge-in ignored)
+      const payload = Buffer.from("test-audio").toString("base64");
+      for (let i = 1; i <= 5; i++) {
+        session.handleMessage(makeMediaMessage(payload, String(i)));
+      }
+
+      // handleInterrupt should NOT have been called (gated barge-in)
+      expect(mockHandleInterrupt).not.toHaveBeenCalled();
+
+      // 3. Controller is NOT destroyed yet — still active
+      expect(mockDestroy).not.toHaveBeenCalled();
+
+      // 4. More media frames arrive (simulating ongoing call)
+      for (let i = 6; i <= 10; i++) {
+        session.handleMessage(makeMediaMessage(payload, String(i)));
+      }
+
+      // Controller still not destroyed
+      expect(mockDestroy).not.toHaveBeenCalled();
+
+      // 5. Stop event arrives — controller should be cleaned up
+      //    only when the session is fully destroyed
+      session.handleMessage(makeStopMessage());
+
+      // WebSocket close triggers full teardown
+      mockSessions.set("call-e2e-1", {
+        ...mockSessions.get("call-e2e-1")!,
+        status: "in_progress",
+        startedAt: Date.now() - 30000,
+      });
+      session.handleTransportClosed(1000, "normal-close");
+
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-e2e-1",
+        expect.objectContaining({ status: "completed" }),
+      );
+
+      // Now destroy
+      session.destroy();
+      expect(mockDestroy).toHaveBeenCalled();
     });
   });
 });

@@ -345,7 +345,43 @@ export class CallController {
   }
 
   /**
+   * Handle a barge-in attempt from inbound caller audio.
+   *
+   * Only interrupts the in-flight turn when the assistant is actively
+   * speaking. When the controller is idle or still processing (no TTS
+   * output yet), the barge-in is ignored — this prevents false
+   * interruption on initial inbound media frames that arrive before
+   * the assistant has had a chance to produce its first response.
+   *
+   * @returns `true` if the barge-in was accepted (assistant was speaking),
+   *   `false` if it was ignored (assistant idle or processing).
+   */
+  handleBargeIn(): boolean {
+    if (this.state !== "speaking") {
+      log.debug(
+        {
+          callSessionId: this.callSessionId,
+          state: this.state,
+        },
+        "Barge-in ignored — assistant not speaking",
+      );
+      return false;
+    }
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      "Barge-in accepted — interrupting assistant speech",
+    );
+    this.handleInterrupt();
+    return true;
+  }
+
+  /**
    * Handle caller interrupting the assistant's speech.
+   *
+   * This is the hard interrupt path used for explicit teardown and
+   * internal abort scenarios. For barge-in from inbound audio, prefer
+   * {@link handleBargeIn} which gates on the speaking state.
    */
   handleInterrupt(): void {
     const wasSpeaking = this.state === "speaking";
