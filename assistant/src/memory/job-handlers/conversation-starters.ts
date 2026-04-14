@@ -250,7 +250,7 @@ Favor what is live over what is merely true. Recent changes matter more than old
 ## Output format
 
 Each starter has:
-- label: 3-6 words, max 40 chars, starts with a verb. Written in the user's voice — something they'd want to do, not something the assistant is offering.
+- label: 3-6 words, max 40 chars, starts with a verb. Written in the user's voice — something they'd want to do, not something the assistant is offering. MUST be a grammatically complete phrase: if it uses an adjective ("quarterly", "weekly"), include the noun it modifies ("quarterly review", "weekly sync"). Never end on a dangling modifier, preposition, or trailing "the/my/a". Prefer completeness over tightness when you have room under 40 chars.
 - prompt: 1-2 natural sentences, as the user would actually say them.
 - category: one of ${CONVERSATION_STARTER_CATEGORIES.join(", ")}
 
@@ -276,7 +276,12 @@ Bad → Good (ticket-speak → natural):
 
 Bad → Good (assistant voice → user voice):
 - "You've got a busy week ahead" → "Plan my week ahead"
-- "Let me check your calendar" → "Check my Thursday schedule"`;
+- "Let me check your calendar" → "Check my Thursday schedule"
+
+Bad → Good (incomplete phrase → complete):
+- "Prep for Friday's quarterly" → "Prep for Friday's quarterly review"
+- "Finish the onboarding" → "Finish the onboarding guide"
+- "Draft the release" → "Draft the release notes"`;
 
   const { signal, cleanup } = createTimeout(20000);
   try {
@@ -356,12 +361,13 @@ Bad → Good (assistant voice → user voice):
         (s) =>
           typeof s.label === "string" &&
           s.label.length > 0 &&
+          s.label.length <= 40 &&
           typeof s.prompt === "string" &&
           s.prompt.length > 0
       )
       .slice(0, 4)
       .map((s) => ({
-        label: truncate(s.label, 40, ""),
+        label: s.label,
         prompt: truncate(s.prompt, 500, ""),
         category:
           typeof s.category === "string" &&
