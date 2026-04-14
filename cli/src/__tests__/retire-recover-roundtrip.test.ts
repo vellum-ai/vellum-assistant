@@ -43,7 +43,7 @@ process.env.XDG_DATA_HOME = xdgDataHome;
 // (which nothing mocks) for the recover side. That's enough to regression-
 // guard both halves of the bug: archive format (contents, no wrapper dir)
 // and extraction target (entry.resources.instanceDir).
-import { extractArchive } from "../commands/recover";
+import { extractArchive, resolveExtractTarget } from "../commands/recover";
 import {
   saveAssistantEntry,
   type AssistantEntry,
@@ -246,6 +246,84 @@ describe("retire → recover round-trip", () => {
     // THEN both the top-level file AND the nested .vellum file are restored
     expect(readFileSync(topLevelPath, "utf-8")).toBe("TOP");
     expect(readFileSync(vellumFilePath, "utf-8")).toBe("INSIDE");
+  });
+
+  test("collision guard: existing instanceDir without .vellum child aborts recovery", () => {
+    // Regression guard for the Codex P1 on PR #25528: the old collision
+    // check looked at `<instanceDir>/.vellum`, but `extractArchive` writes to
+    // `<instanceDir>` directly for named instances. If a bare instanceDir
+    // existed (partial cleanup, operator-created, …), the guard passed and
+    // tar clobbered the unrelated contents. The fix funnels both sides
+    // through `resolveExtractTarget` so they can't drift.
+    //
+    // We assert two things:
+    // 1. The helper resolves to the SAME path the guard checks — i.e. the
+    //    exact path that would be tarred into. For a named instance that's
+    //    the instanceDir itself, NOT `<instanceDir>/.vellum`.
+    // 2. `existsSync(resolveExtractTarget(entry))` is true when instanceDir
+    //    exists but has no `.vellum` child — the exact scenario the old
+    //    guard missed.
+    const name = "collision-guard-bare-instance";
+    const instanceDir = join(instancesRoot, name);
+    // Create instanceDir with UNRELATED content, but NO .vellum child.
+    mkdirSync(instanceDir, { recursive: true });
+    const strayPath = join(instanceDir, "stray.txt");
+    writeFileSync(strayPath, "DO-NOT-CLOBBER");
+    expect(existsSync(join(instanceDir, ".vellum"))).toBe(false);
+
+    const entry = makeNamedInstanceEntry(name, instanceDir);
+
+    // The helper must resolve to instanceDir (the same path extractArchive
+    // writes to). The old guard resolved to `<instanceDir>/.vellum`, missing
+    // this bare-directory scenario.
+    const target = resolveExtractTarget(entry);
+    expect(target).toBe(instanceDir);
+
+    // And existsSync on that target returns true — so the guard in recover()
+    // will correctly abort before tar runs.
+    expect(existsSync(target)).toBe(true);
+
+    // The stray file is still untouched (sanity check that we didn't
+    // accidentally run tar in this test).
+    expect(readFileSync(strayPath, "utf-8")).toBe("DO-NOT-CLOBBER");
+  });
+
+  test("resolveExtractTarget: legacy default instance resolves to <instanceDir>/.vellum", () => {
+    // The legacy default first-local case: instanceDir === getBaseDir()
+    // (homedir, or BASE_DATA_DIR under test). We override BASE_DATA_DIR for
+    // this test so the helper's `instanceDir !== getBaseDir()` check takes
+    // the "default" branch. This is a backwards-compat path — all new
+    // hatches go through the named-instance branch above.
+    const prevBase = process.env.BASE_DATA_DIR;
+    const fakeBase = mkdtempSync(join(tmpdir(), "cli-legacy-base-"));
+    process.env.BASE_DATA_DIR = fakeBase;
+    try {
+      const entry = makeNamedInstanceEntry("legacy-default", fakeBase);
+      const target = resolveExtractTarget(entry);
+      expect(target).toBe(join(fakeBase, ".vellum"));
+    } finally {
+      if (prevBase !== undefined) {
+        process.env.BASE_DATA_DIR = prevBase;
+      } else {
+        delete process.env.BASE_DATA_DIR;
+      }
+      rmSync(fakeBase, { recursive: true, force: true });
+    }
+  });
+
+  test("resolveExtractTarget: legacy entry without resources resolves to ~/.vellum", () => {
+    // Legacy pre-env-data-layout entries may have no `resources` block at
+    // all. The helper falls back to the original single-tenant path so
+    // ancient archives can still be recovered.
+    const entry: AssistantEntry = {
+      assistantId: "legacy-no-resources",
+      runtimeUrl: `http://localhost:${DEFAULT_DAEMON_PORT}`,
+      cloud: "local",
+    };
+    const target = resolveExtractTarget(entry);
+    // homedir() is imported indirectly — we assert on structure rather than
+    // the literal, to avoid coupling the test to the host user's homedir.
+    expect(target.endsWith("/.vellum")).toBe(true);
   });
 
   test("archive format: `tar -C <stagingDir> .` writes no wrapper directory", () => {
