@@ -6,10 +6,9 @@ import type { EnvironmentDefinition, PortMap } from "./types.js";
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
 /**
- * Production lockfile filenames in priority order. Mirrors `LOCKFILE_NAMES`
- * in `cli/src/lib/constants.ts`. The current name is `.vellum.lock.json`;
- * `.vellum.lockfile.json` is the legacy name kept for backward compatibility
- * with installs that predate the rename.
+ * Production lockfile filenames in priority order. The current name is
+ * `.vellum.lock.json`; `.vellum.lockfile.json` is the legacy name kept for
+ * backward compatibility with installs that predate the rename.
  */
 const PRODUCTION_LOCKFILE_NAMES = [
   ".vellum.lock.json",
