@@ -111,6 +111,22 @@ struct InlineAppCreatedCard: View {
                 )
             }
         }
+        .onChange(of: isToolCallComplete) { oldValue, newValue in
+            // Build just completed — request the authoritative post-build preview.
+            // This is the primary trigger for live surfaces; the onAppear fallback
+            // above only handles history-loaded surfaces where the build already
+            // finished before the view appeared.
+            if newValue && !oldValue, previewImage == nil, let appId = appId {
+                var userInfo: [String: Any] = ["appId": appId]
+                if let html = html { userInfo["html"] = html }
+                userInfo["forceRecapture"] = true
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.requestAppPreview"),
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("MainWindow.appPreviewImageCaptured"))) { notification in
             guard let notifAppId = notification.userInfo?["appId"] as? String,
                   notifAppId == appId,
