@@ -1,9 +1,11 @@
 /**
  * Syncs the assistant's avatar to the Slack bot profile via users.setPhoto.
  *
- * Requires the `users:write` bot token scope. If the scope is missing,
- * Slack returns a `missing_scope` error — logged as a warning so the user
- * can add the scope to their Slack App configuration.
+ * NOTE: users.setPhoto is a user-token method — it requires a user token
+ * (xoxp) with the `users.profile:write` scope. Bot tokens (xoxb) cannot
+ * call this endpoint regardless of scopes. This implementation currently
+ * uses the bot token as a placeholder; it will begin working once user
+ * token support is added to the Slack channel integration.
  */
 
 import { getLogger } from "../logger.js";
@@ -49,10 +51,12 @@ export class SlackAvatarSyncer implements ChannelAvatarSyncer {
         return true;
       }
 
-      if (body.error === "missing_scope") {
+      if (body.error === "missing_scope" || body.error === "not_allowed_token_type") {
         log.warn(
-          "Slack bot token is missing the 'users:write' scope — add it " +
-            "to your Slack App's bot token scopes to enable avatar sync",
+          "Slack avatar sync requires a user token (xoxp) with the " +
+            "'users.profile:write' scope — bot tokens (xoxb) cannot call " +
+            "users.setPhoto. Avatar sync will work once user token support " +
+            "is added to the Slack channel integration.",
         );
       } else {
         log.warn({ error: body.error }, "Failed to sync avatar to Slack");

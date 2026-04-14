@@ -1653,6 +1653,9 @@ async function main() {
 
       // Sync avatar to Slack bot profile on credential change (including
       // initial startup). Gated behind channel-avatar-sync feature flag.
+      // Known limitation: if the flag is toggled off without a credential
+      // change, the syncer stays registered until the next credential
+      // change triggers this callback.
       if (slackReady && getMergedFeatureFlags()["channel-avatar-sync"]) {
         avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
         avatarChannelSyncer.syncToChannel("slack").catch((err) => {
