@@ -758,6 +758,7 @@ export class CallController {
     format: "mp3" | "wav" | "opus" = "mp3",
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
+    let playUrlSent = false;
     try {
       // When format is WAV (media-stream transport), request raw PCM from
       // the provider so the audio bytes match the store's content-type.
@@ -775,12 +776,17 @@ export class CallController {
       const config = loadConfig();
       const baseUrl = getPublicBaseUrl(config);
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-      this.transport.sendPlayUrl(url);
+      const sendPlayUrlOnce = (): void => {
+        if (playUrlSent) return;
+        this.transport.sendPlayUrl(url);
+        playUrlSent = true;
+      };
 
       const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
 
       if (provider.synthesizeStream) {
+        let streamedChunk = false;
         await provider.synthesizeStream(
           {
             text,
@@ -788,8 +794,22 @@ export class CallController {
             outputFormat,
             signal: abortController.signal,
           },
-          (chunk) => handle!.push(chunk),
+          (chunk) => {
+            if (chunk.byteLength === 0) return;
+            if (!streamedChunk) {
+              sendPlayUrlOnce();
+              streamedChunk = true;
+            }
+            handle!.push(chunk);
+          },
         );
+
+        // Some provider adapters may return a buffer without invoking
+        // onChunk. If that happens, do not leave a dangling unspeakable
+        // turn; degrade to native token TTS below by treating it as no-audio.
+        if (!streamedChunk) {
+          throw new Error("Streaming TTS returned no audio chunks");
+        }
       } else {
         // Fallback: buffer-oriented synthesis for providers that don't
         // implement streaming (shouldn't normally reach here since
@@ -800,6 +820,10 @@ export class CallController {
           outputFormat,
           signal: abortController.signal,
         });
+        if (result.audio.byteLength === 0) {
+          throw new Error("Buffer TTS returned an empty audio payload");
+        }
+        sendPlayUrlOnce();
         handle.push(result.audio);
       }
     } catch (err) {
@@ -813,6 +837,12 @@ export class CallController {
           { err, provider: provider.id },
           "TTS synthesis failed — skipping",
         );
+        // If synthesis fails before any audio has started, degrade to
+        // token-based speech on ConversationRelay so the caller still
+        // hears a response instead of silence.
+        if (!playUrlSent && !this.transport.requiresWavAudio) {
+          this.transport.sendTextToken(text, false);
+        }
       }
     } finally {
       this.activeSynthesisAbort = null;

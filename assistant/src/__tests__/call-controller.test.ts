@@ -224,6 +224,7 @@ import {
 } from "../calls/call-store.js";
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+import { loadConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
@@ -432,6 +433,10 @@ describe("call-controller", () => {
     // Reset consultation timeout to the default (long) value
     mockConsultationTimeoutMs = 90_000;
     mockSilenceTimeoutMs = 30_000;
+    // Reset TTS config to defaults so per-test mutations don't leak.
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "elevenlabs";
+    cfg.services.tts.providers["fish-audio"].referenceId = "";
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
   });
@@ -2446,6 +2451,56 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: if synthesis fails before first chunk, falls back to text-token speech without sending play URL", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderRegistry();
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    registerTtsProvider(elevenlabs);
+
+    const fishAudioFailing: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        throw new Error("fish-audio synth failure");
+      },
+      async synthesizeStream() {
+        throw new Error("fish-audio stream failure");
+      },
+    };
+    registerTtsProvider(fishAudioFailing);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from synthesized path"]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // No play URL should be emitted when synthesis fails before first chunk.
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    // Fallback token speech should still reach the caller.
+    const fallbackText = relay.sentTokens.map((t) => t.token).join("");
+    expect(fallbackText).toContain("Hello from synthesized path");
+
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken.last).toBe(true);
+
+    controller.destroy();
+  });
+
   // ── TTS provider abstraction: interruption behavior ─────────────────
 
   test("handleInterrupt: cancels synthesis abort controller for native provider path", async () => {
@@ -2508,6 +2563,17 @@ describe("call-controller", () => {
 
     test("returns fallback when provider registry is empty", () => {
       _resetTtsProviderRegistry();
+      const result = resolveCallTtsProvider();
+      expect(result.provider).toBeNull();
+      expect(result.useSynthesizedPath).toBe(false);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("degrades fish-audio synthesized path when referenceId is missing", () => {
+      const cfg = loadConfig();
+      cfg.services.tts.provider = "fish-audio";
+      cfg.services.tts.providers["fish-audio"].referenceId = "";
+
       const result = resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
