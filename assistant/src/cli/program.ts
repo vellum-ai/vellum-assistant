@@ -99,9 +99,10 @@ Examples:
   // created by `vellum hatch` and must be present for any command to work.
   // Commander handles --help and --version before preAction fires, so those
   // remain available even without a workspace.
-  // Diagnostic commands (doctor) are exempt — they need to run precisely when
-  // the workspace is missing to help users diagnose setup issues.
-  const workspaceExemptCommands = new Set(["doctor"]);
+  // Diagnostic and workspace-independent commands are exempt:
+  //   doctor      — diagnoses setup issues, must run when workspace is missing
+  //   completions — pure shell-script generation, no workspace files needed
+  const workspaceExemptCommands = new Set(["doctor", "completions"]);
   program.hook("preAction", (_thisCommand, actionCommand) => {
     if (workspaceExemptCommands.has(actionCommand.name())) {
       return;
