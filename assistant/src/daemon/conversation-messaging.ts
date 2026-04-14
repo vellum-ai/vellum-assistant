@@ -8,6 +8,8 @@
 import { v4 as uuid } from "uuid";
 
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
@@ -227,6 +229,16 @@ export function enqueueMessage(
 ): { queued: boolean; requestId: string; rejected?: boolean } {
   if (!ctx.processing) {
     return { queued: false, requestId };
+  }
+
+  if (!isAssistantFeatureFlagEnabled("chat-message-queue", getConfig())) {
+    onEvent({
+      type: "error",
+      message:
+        "The assistant is busy processing another message. Please wait for it to finish before sending a new one.",
+      category: "queue_disabled",
+    });
+    return { queued: false, requestId, rejected: true };
   }
 
   const turnChannelContext =
