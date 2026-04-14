@@ -412,9 +412,10 @@ extension ChatViewModel {
         // Eagerly request preview for app surfaces that don't have one yet.
         // Include the HTML so the handler can fall back to offscreen capture
         // when the daemon has no stored preview (e.g. brand new app).
+        // Fire when preview is absent entirely OR when it exists but lacks a
+        // previewImage — both cases need a preview to be fetched/captured.
         if case .dynamicPage(let dpData) = surface.data,
            let appId = dpData.appId,
-           dpData.preview != nil,
            dpData.preview?.previewImage == nil {
             var userInfo: [String: Any] = ["appId": appId]
             userInfo["html"] = dpData.html

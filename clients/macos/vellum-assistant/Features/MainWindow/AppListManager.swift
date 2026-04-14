@@ -201,10 +201,25 @@ final class AppListManager {
 
         for daemonApp in daemonApps {
             if existingIds.contains(daemonApp.id) {
-                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
-                   apps[index].description != daemonApp.description {
-                    apps[index].description = daemonApp.description
-                    updatedCount += 1
+                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }) {
+                    var changed = false
+                    if apps[index].name != daemonApp.name {
+                        apps[index].name = daemonApp.name
+                        changed = true
+                    }
+                    if apps[index].description != daemonApp.description {
+                        apps[index].description = daemonApp.description
+                        changed = true
+                    }
+                    if let icon = daemonApp.icon, apps[index].icon != icon {
+                        apps[index].icon = icon
+                        changed = true
+                    }
+                    if let appType = daemonApp.appType, apps[index].appType != appType {
+                        apps[index].appType = appType
+                        changed = true
+                    }
+                    if changed { updatedCount += 1 }
                 }
                 continue
             }

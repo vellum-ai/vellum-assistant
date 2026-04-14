@@ -2,10 +2,12 @@
 import SwiftUI
 
 /// Rich card shown inline in chat when a new app is created via `app_create`.
-/// Displays a preview image, icon + title + description, and action buttons.
+/// Displays a preview image, icon + title + description, metrics, and action buttons.
 struct InlineAppCreatedCard: View {
     let preview: DynamicPagePreview
     let appId: String?
+    /// Raw HTML for offscreen preview capture fallback (history-loaded surfaces).
+    let html: String?
     /// Whether the parent tool call has finished. When `false`, the "Open App"
     /// button is disabled so the user can't navigate to partially-written HTML.
     let isToolCallComplete: Bool
@@ -48,6 +50,14 @@ struct InlineAppCreatedCard: View {
                     .lineLimit(3)
             }
 
+            if let metrics = preview.metrics, !metrics.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
+                        metricPill(label: metric.label, value: metric.value)
+                    }
+                }
+            }
+
             // Action buttons
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, isDisabled: !isToolCallComplete) {
@@ -78,10 +88,14 @@ struct InlineAppCreatedCard: View {
             // ChatViewModel+MessageHandling may have already fired; the duplicate
             // is harmless since the daemon treats preview requests idempotently.
             if previewImage == nil, let appId = appId {
+                var userInfo: [String: Any] = ["appId": appId]
+                if let html = html {
+                    userInfo["html"] = html
+                }
                 NotificationCenter.default.post(
                     name: Notification.Name("MainWindow.requestAppPreview"),
                     object: nil,
-                    userInfo: ["appId": appId]
+                    userInfo: userInfo
                 )
             }
             // Query initial pin state
@@ -105,6 +119,22 @@ struct InlineAppCreatedCard: View {
                   let pinned = notification.userInfo?["isPinned"] as? Bool else { return }
             isPinned = pinned
         }
+    }
+
+    private func metricPill(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+            Text(value)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 }
 #endif
