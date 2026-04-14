@@ -1349,19 +1349,22 @@ async function main() {
     lastRecordActivityTs = now;
 
     try {
-      const [platformBaseUrl, assistantApiKey, assistantId] = await Promise.all(
-        [
+      const [platformBaseUrl, assistantApiKey, assistantIdRaw] =
+        await Promise.all([
           getPlatformBaseUrl(credentialCache),
           credentialCache.get(credentialKey("vellum", "assistant_api_key")),
           credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
-        ],
-      );
+        ]);
+
+      const assistantId =
+        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+        assistantIdRaw?.trim() ||
+        undefined;
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 
-      const id = assistantId.trim();
       const res = await fetchImpl(
-        `${platformBaseUrl}/v1/assistants/${id}/record-activity/`,
+        `${platformBaseUrl}/v1/assistants/${assistantId}/record-activity/`,
         {
           method: "POST",
           headers: { Authorization: `Api-Key ${assistantApiKey.trim()}` },
