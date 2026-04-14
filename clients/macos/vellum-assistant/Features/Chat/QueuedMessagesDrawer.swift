@@ -42,6 +42,7 @@ struct QueuedMessagesDrawer: View {
             RoundedRectangle(cornerRadius: VSpacing.md, style: .continuous)
                 .strokeBorder(VColor.borderBase, lineWidth: 1)
         )
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity, alignment: .center)
     }
