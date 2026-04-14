@@ -87,6 +87,7 @@ import {
   createTrustRulesStarterBundleHandler,
 } from "./http/routes/trust-rules.js";
 import { getLogger, initLogger } from "./logger.js";
+import { getPlatformBaseUrl } from "./platform-url.js";
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
@@ -1351,6 +1352,53 @@ async function main() {
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
+  /** Fire-and-forget: notify the platform of inbound Slack activity so the
+   *  idle-sleep timer is reset for this assistant.
+   *  Throttled to at most one outbound POST per 30 seconds. */
+  let lastRecordActivityTs = 0;
+  async function notifyRecordActivity(): Promise<void> {
+    const now = Date.now();
+    if (now - lastRecordActivityTs < 30_000) return;
+    lastRecordActivityTs = now;
+
+    try {
+      const [platformBaseUrl, assistantApiKey, assistantIdRaw] =
+        await Promise.all([
+          getPlatformBaseUrl(credentialCache),
+          credentialCache.get(credentialKey("vellum", "assistant_api_key")),
+          credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
+        ]);
+
+      const assistantId =
+        assistantIdRaw?.trim() ||
+        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+        undefined;
+
+      if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
+
+      const res = await fetchImpl(
+        `${platformBaseUrl}/v1/assistants/${assistantId}/record-activity/`,
+        {
+          method: "POST",
+          headers: { Authorization: `Api-Key ${assistantApiKey.trim()}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+
+      if (!res.ok) {
+        log.warn(
+          { status: res.status },
+          "Non-OK response from record-activity endpoint",
+        );
+      }
+    } catch (err) {
+      log.debug(
+        { err },
+        "Failed to notify platform of Slack activity for idle sleep",
+      );
+    }
+  }
+
   async function startSlackSocket(): Promise<void> {
     if (slackSocketClient) {
       slackSocketClient.stop();
@@ -1368,6 +1416,10 @@ async function main() {
     slackSocketClient = createSlackSocketModeClient(
       { appToken, botToken, gatewayConfig: config },
       (normalized) => {
+        // Notify the platform of inbound activity so the idle-sleep timer
+        // is reset for this assistant (fire-and-forget).
+        notifyRecordActivity();
+
         const { threadTs, channel } = normalized;
         const params = new URLSearchParams({ channel });
         if (threadTs) params.set("threadTs", threadTs);
