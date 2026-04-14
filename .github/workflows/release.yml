@@ -101,7 +101,7 @@ jobs:
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
-            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environments=["staging"]' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
             echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
