@@ -1511,7 +1511,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
@@ -1935,7 +1934,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
