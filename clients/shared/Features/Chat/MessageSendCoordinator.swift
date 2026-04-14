@@ -214,7 +214,7 @@ final class MessageSendCoordinator {
                 delegate.pendingUserMessageDisplayText = rawText
                 delegate.pendingUserMessageAutomated = hidden
                 delegate.pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
                 }
                 messageManager.isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
@@ -300,7 +300,7 @@ final class MessageSendCoordinator {
         delegate.flushCoalescedPublish()
 
         let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the

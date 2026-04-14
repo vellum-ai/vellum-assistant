@@ -1747,7 +1747,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             lastFailedMessageBypassSecretCheck = false
             // Preserve attachments so they are resent with the retry.
             lastFailedMessageAttachments = lastMsg.attachments.compactMap { att in
-                guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                guard !att.data.isEmpty || att.filePath != nil || att.rawData != nil else { return nil }
                 return UserMessageAttachment(
                     id: att.id,
                     filename: att.filename,
@@ -1756,7 +1756,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     extractedText: nil,
                     sizeBytes: att.sizeBytes,
                     thumbnailData: att.thumbnailData?.base64EncodedString(),
-                    filePath: att.filePath
+                    filePath: att.filePath,
+                    rawData: att.rawData
                 )
             }
             retryLastMessage()
@@ -1835,7 +1836,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // Keep file-path-based attachments even when data is empty,
         // since the daemon can read the file from disk.
         let userAttachments: [UserMessageAttachment]? = message.attachments.isEmpty ? nil : message.attachments.compactMap { att in
-            guard !att.data.isEmpty || att.filePath != nil else { return nil }
+            guard !att.data.isEmpty || att.filePath != nil || att.rawData != nil else { return nil }
             return UserMessageAttachment(
                 id: att.id,
                 filename: att.filename,
@@ -1844,7 +1845,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 extractedText: nil,
                 sizeBytes: att.sizeBytes,
                 thumbnailData: att.thumbnailData?.base64EncodedString(),
-                filePath: att.filePath
+                filePath: att.filePath,
+                rawData: att.rawData
             )
         }
 
