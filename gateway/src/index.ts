@@ -87,6 +87,7 @@ import {
   createTrustRulesStarterBundleHandler,
 } from "./http/routes/trust-rules.js";
 import { getLogger, initLogger } from "./logger.js";
+import { getPlatformBaseUrl } from "./platform-url.js";
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
@@ -1350,7 +1351,7 @@ async function main() {
     try {
       const [platformBaseUrl, assistantApiKey, assistantId] = await Promise.all(
         [
-          credentialCache.get(credentialKey("vellum", "platform_base_url")),
+          getPlatformBaseUrl(credentialCache),
           credentialCache.get(credentialKey("vellum", "assistant_api_key")),
           credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
         ],
@@ -1358,7 +1359,6 @@ async function main() {
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 
-      const baseUrl = platformBaseUrl.trim().replace(/\/+$/, "");
       const id = assistantId.trim();
       const res = await fetchImpl(
         `${baseUrl}/v1/assistants/${id}/record-activity/`,
