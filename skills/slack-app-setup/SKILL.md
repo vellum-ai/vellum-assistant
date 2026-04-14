@@ -15,12 +15,13 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 ## Value Classification
 
-| Value     | Type       | Storage method            | Secret? |
-| --------- | ---------- | ------------------------- | ------- |
-| App Token | Credential | `credential_store` prompt | **Yes** |
-| Bot Token | Credential | `credential_store` prompt | **Yes** |
+| Value      | Type       | Storage method            | Secret? |
+| ---------- | ---------- | ------------------------- | ------- |
+| App Token  | Credential | `credential_store` prompt | **Yes** |
+| Bot Token  | Credential | `credential_store` prompt | **Yes** |
+| User Token | Credential | `credential_store` prompt | **Yes** |
 
-- Both tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
+- All tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
 
 # Setup Steps
 
@@ -30,10 +31,14 @@ Before starting setup, check whether Slack is already configured by calling `cre
 
 - Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "app_token"`
 - Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "bot_token"`
+- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "user_token"`
 
-- If both credentials have `"hasSecret": true` and the connection is active — Slack is fully configured. Offer to show status or reconfigure.
-- If only one token is present — offer to resume setup from the missing step.
-- If neither is present — continue to Step 1.
+- If all three credentials have `"hasSecret": true` and the connection is active — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
+- If `app_token` and `bot_token` are present but `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
+- If only one of `app_token` or `bot_token` is present — offer to resume setup from the missing step.
+- If none are present — continue to Step 1.
+
+Note: `user_token` is optional. Missing `user_token` is **not** blocking — setup is considered complete with just the app and bot tokens (bot-only visibility).
 
 ## Step 1: Generate Manifest & Create Slack App
 
@@ -111,6 +116,25 @@ Show the user their setup progress:
 
 Almost there — let's do a quick test!"
 
+## Step 3.5: Collect User OAuth Token (Optional, Recommended)
+
+**This step is optional but recommended.** The User OAuth Token lets the assistant READ messages in every channel the user is in — including channels the bot isn't a member of — for triage purposes. Writes (posting, reacting, editing) always go through the bot token; the assistant will never post, react, or edit as the user.
+
+Tell the user to go back to the **Install App** page in their Slack app settings and scroll down past the Bot User OAuth Token. Look for the **User OAuth Token** (starts with `xoxp-`).
+
+**If there is no User OAuth Token shown on the Install App page**, the workspace admin may have restricted user-scope installs. Skip this step — setup works without it (bot-only visibility). Continue to Step 4.
+
+Otherwise, collect the user token securely:
+
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "Optional — lets the assistant read messages in channels the bot isn't a member of. Writes always go through the bot."`
+
+The handler validates the token against Slack (auth.test) **and** confirms the token is for the same workspace as the bot. Treat the tool result as authoritative:
+
+- If it succeeds, continue to Step 4.
+- If it returns an error (invalid token or workspace mismatch), ask the user to re-copy the User OAuth Token from the Install App page and try again.
+
+If the user explicitly declines to provide a user token, continue to Step 4. They can add it later by re-running this skill.
+
 ## Step 4: Test Your Connection
 
 Now let's test the connection by verifying the user can receive messages from the bot. This confirms everything works and links the user's Slack identity for future message delivery.
@@ -132,6 +156,7 @@ If identity was verified:
 ✅ Tokens configured
 ✅ Connection active
 ✅ Connection tested
+{triage_line}
 
 Connected: @{botUsername} in {workspace}
 Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
@@ -144,10 +169,16 @@ If identity was skipped:
 ✅ Tokens configured
 ✅ Connection active
 ⬜ Connection tested — you can complete this anytime by saying 'verify me on slack'
+{triage_line}
 
 Connected: @{botUsername} in {workspace}
 Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 Identity: skipped"
+
+For `{triage_line}`, use:
+
+- If `user_token` was collected: `✅ Triage visibility: full (can read all your channels)`
+- If `user_token` was skipped: `⬜ Triage visibility: bot-only (only channels the bot is a member of) — you can collect a user token anytime to enable full triage`
 
 ## Troubleshooting
 
