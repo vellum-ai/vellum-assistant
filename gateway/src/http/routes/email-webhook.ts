@@ -232,6 +232,12 @@ export function createEmailWebhookHandler(
           "Email message forwarded to runtime",
         );
       }
+
+      // Propagate the runtime's full response (including denied/reason/replyText)
+      // so the platform can decide whether to persist the email and how to respond
+      // to the sender.
+      const runtimeBody = result.runtimeResponse ?? {};
+      return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(
         err,
@@ -245,8 +251,6 @@ export function createEmailWebhookHandler(
       dedupCache.unreserve(eventId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
-
-    return Response.json({ ok: true });
   };
 
   return { handler, dedupCache };
