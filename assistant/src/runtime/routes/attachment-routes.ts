@@ -97,7 +97,153 @@ export function resolveAllowedFileBackedAttachmentPath(
   return null;
 }
 
-export async function handleUploadAttachment(req: Request): Promise<Response> {
+/** 100 MB — maximum file size for binary uploads (multipart / octet-stream). */
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Build the standard JSON success response for an uploaded attachment.
+ */
+function attachmentResponse(
+  attachment: attachmentsStore.StoredAttachment,
+): Response {
+  return Response.json({
+    id: attachment.id,
+    original_filename: attachment.originalFilename,
+    mime_type: attachment.mimeType,
+    size_bytes: attachment.sizeBytes,
+    kind: attachment.kind,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Content-Type dispatched upload handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle multipart/form-data upload.
+ * Expects: "file" (Blob), "filename" (string), "mimeType" (string).
+ */
+async function handleMultipartUpload(req: Request): Promise<Response> {
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return httpError("BAD_REQUEST", "Invalid multipart form data", 400);
+  }
+
+  const file = formData.get("file");
+  if (!file || !(file instanceof Blob)) {
+    return httpError(
+      "BAD_REQUEST",
+      'Multipart upload requires a "file" field',
+      400,
+    );
+  }
+
+  const filename = formData.get("filename");
+  if (!filename || typeof filename !== "string") {
+    return httpError("BAD_REQUEST", "filename field is required", 400);
+  }
+
+  const mimeType = formData.get("mimeType");
+  if (!mimeType || typeof mimeType !== "string") {
+    return httpError("BAD_REQUEST", "mimeType field is required", 400);
+  }
+
+  // Enforce body-level size limit (the overall request may contain form
+  // overhead beyond the file part, but checking the file size is the
+  // meaningful limit here).
+  if (file.size > MAX_UPLOAD_BODY_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      413,
+    );
+  }
+
+  const validation = validateAttachmentUpload(filename, mimeType);
+  if (!validation.ok) {
+    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `File is ${Math.round(bytes.length / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
+      413,
+    );
+  }
+
+  const attachment = attachmentsStore.uploadAttachmentFromBytes(
+    filename,
+    mimeType,
+    bytes,
+  );
+  return attachmentResponse(attachment);
+}
+
+/**
+ * Handle application/octet-stream upload.
+ * filename and mimeType come from URL query params.
+ */
+async function handleOctetStreamUpload(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const filename = url.searchParams.get("filename");
+  if (!filename || typeof filename !== "string") {
+    return httpError(
+      "BAD_REQUEST",
+      "filename query parameter is required",
+      400,
+    );
+  }
+
+  const mimeType = url.searchParams.get("mimeType");
+  if (!mimeType || typeof mimeType !== "string") {
+    return httpError(
+      "BAD_REQUEST",
+      "mimeType query parameter is required",
+      400,
+    );
+  }
+
+  const rawBody = await req.arrayBuffer();
+  if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      413,
+    );
+  }
+
+  const validation = validateAttachmentUpload(filename, mimeType);
+  if (!validation.ok) {
+    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
+  }
+
+  const bytes = new Uint8Array(rawBody);
+
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `File is ${Math.round(bytes.length / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
+      413,
+    );
+  }
+
+  const attachment = attachmentsStore.uploadAttachmentFromBytes(
+    filename,
+    mimeType,
+    bytes,
+  );
+  return attachmentResponse(attachment);
+}
+
+/**
+ * Handle application/json upload (existing behaviour — base64 or file-path).
+ */
+async function handleJsonUpload(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
     return httpError(
@@ -205,13 +351,22 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
     }
   }
 
-  return Response.json({
-    id: attachment.id,
-    original_filename: attachment.originalFilename,
-    mime_type: attachment.mimeType,
-    size_bytes: attachment.sizeBytes,
-    kind: attachment.kind,
-  });
+  return attachmentResponse(attachment);
+}
+
+export async function handleUploadAttachment(req: Request): Promise<Response> {
+  const contentType = req.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    return handleMultipartUpload(req);
+  }
+
+  if (contentType.includes("application/octet-stream")) {
+    return handleOctetStreamUpload(req);
+  }
+
+  // Default: JSON+base64 (existing behaviour)
+  return handleJsonUpload(req);
 }
 
 export async function handleDeleteAttachment(req: Request): Promise<Response> {
@@ -392,7 +547,7 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       summary: "Upload attachment",
       description:
-        "Upload an attachment as base64 data or file path reference.",
+        "Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query params).",
       tags: ["attachments"],
       requestBody: z.object({
         filename: z.string(),
