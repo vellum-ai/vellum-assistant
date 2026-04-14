@@ -131,37 +131,60 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
-                onStartConversation: { startNewConversation() },
-                onCapabilityCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
-                    }
-                },
-                onCapabilityShortcutCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
-                    }
-                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
-                homeStore: homeStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
+        case .home:
+            homePanelView(onDismiss: { windowState.selection = nil })
+        }
+    }
+
+    @ViewBuilder
+    func homePanelView(onDismiss: @escaping () -> Void) -> some View {
+        VPageContainer(title: "Home") {
+            HomePageView(
+                store: homeStore,
+                onStartConversation: {
+                    startNewConversation()
+                    onDismiss()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
+                onPrimaryCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    onDismiss()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
+                onShortcutCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    onDismiss()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                }
+            )
+            .onAppear {
+                homeStore.isHomeTabVisible = true
+                homeStore.markSeen()
+            }
+            .onDisappear {
+                homeStore.isHomeTabVisible = false
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .clipped()
         }
     }
 
@@ -612,41 +635,19 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
-                onStartConversation: {
-                    startNewConversation()
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onCapabilityCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onCapabilityShortcutCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
-                homeStore: homeStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
+        case .home:
+            homePanelView(onDismiss: { windowState.dismissOverlay() })
         }
     }
 
