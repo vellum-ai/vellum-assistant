@@ -1,0 +1,195 @@
+name: CI Register Dev Images
+
+on:
+  workflow_run:
+    workflows:
+      - CI Main Assistant Checks
+      - CI Main Gateway Checks
+      - CI Main Credential Executor Checks
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  register-dev-images:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image references and get digests
+        id: images
+        run: |
+          ASSISTANT_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CE_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+
+          ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+
+          echo "assistant_image=$ASSISTANT_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "gateway_image=$GATEWAY_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "ce_image=$CE_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "assistant_digest=$ASSISTANT_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=$GATEWAY_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "ce_digest=$CE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Compute migration ceilings
+        id: migration-ceilings
+        run: |
+          # Extract max DB migration version from the registry
+          DB_VERSION=$(node -e "
+            const fs = require('fs');
+            const content = fs.readFileSync('assistant/src/memory/migrations/registry.ts', 'utf-8');
+            const versions = [...content.matchAll(/version:\s*(\d+)/g)].map(m => parseInt(m[1]));
+            console.log(Math.max(...versions));
+          ")
+          echo "db_version=$DB_VERSION" >> "$GITHUB_OUTPUT"
+
+          # Extract last workspace migration ID from the registry
+          WS_ID=$(node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const registry = fs.readFileSync('assistant/src/workspace/migrations/registry.ts', 'utf-8');
+            const importMap = {};
+            for (const m of registry.matchAll(/import\s+\{\s*(\w+)\s*\}\s+from\s+['\x22]\.\/([^'\x22]+)['\x22];/g)) {
+              importMap[m[1]] = m[2];
+            }
+            const arrayMatch = registry.match(/WORKSPACE_MIGRATIONS[^=]*=\s*\[([\s\S]*?)\]/);
+            const entries = arrayMatch[1].match(/\w+/g);
+            const lastVar = entries[entries.length - 1];
+            const relPath = importMap[lastVar];
+            const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
+            const src = fs.readFileSync(filePath, 'utf-8');
+            const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            console.log(idMatch[1]);
+          ")
+          echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
+          echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
+
+      - name: Register with platform
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          VERSION="dev.${SHA:0:7}"
+          ASSISTANT_REPO="${{ steps.images.outputs.assistant_image }}"
+          GATEWAY_REPO="${{ steps.images.outputs.gateway_image }}"
+          CREDENTIAL_EXECUTOR_REPO="${{ steps.images.outputs.ce_image }}"
+          IS_STABLE="false"
+
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson is_stable "$IS_STABLE" \
+            --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
+            --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
+            --arg assistant_repo "$ASSISTANT_REPO" \
+            --arg assistant_tag "dev" \
+            --arg assistant_sha "$SHA" \
+            --arg assistant_digest "${{ steps.images.outputs.assistant_digest }}" \
+            --arg gateway_repo "$GATEWAY_REPO" \
+            --arg gateway_tag "dev" \
+            --arg gateway_sha "$SHA" \
+            --arg gateway_digest "${{ steps.images.outputs.gateway_digest }}" \
+            --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
+            --arg credential_executor_tag "dev" \
+            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_digest "${{ steps.images.outputs.ce_digest }}" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              is_stable: $is_stable,
+              db_migration_version: $db_migration_version,
+              last_workspace_migration_id: $last_workspace_migration_id,
+              assistant_image: {
+                repository: $assistant_repo,
+                tag: $assistant_tag,
+                sha: $assistant_sha,
+                digest: $assistant_digest
+              },
+              gateway_image: {
+                repository: $gateway_repo,
+                tag: $gateway_tag,
+                sha: $gateway_sha,
+                digest: $gateway_digest
+              },
+              credential_executor_image: {
+                repository: $credential_executor_repo,
+                tag: $credential_executor_tag,
+                sha: $credential_executor_sha,
+                digest: $credential_executor_digest
+              }
+            }')
+
+          DELAYS=(5 15 30)
+          MAX_ATTEMPTS=3
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            CURL_EXIT=0
+            echo "Registering dev images ${VERSION} with platform [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+              -X POST "${{ secrets.PLATFORM_API_URL }}/v1/internal/assistant-image-releases/" \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Service-Api-Key: ${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" \
+              -d "$PAYLOAD") || CURL_EXIT=$?
+
+            if [ "${CURL_EXIT:-0}" -ne 0 ]; then
+              echo "::warning::curl transport error (exit code $CURL_EXIT) on attempt ${attempt}"
+              HTTP_STATUS="000"
+            else
+              echo "HTTP Status: $HTTP_STATUS"
+              cat /tmp/response.json
+            fi
+
+            if [ "$HTTP_STATUS" -ge 200 ] 2>/dev/null && [ "$HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+              echo "Registration succeeded on attempt ${attempt}"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              DELAY=${DELAYS[$((attempt - 1))]}
+              echo "::warning::Attempt ${attempt} failed (HTTP $HTTP_STATUS). Retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            else
+              echo "::error::Dev image registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
+
+      - name: Summary
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          VERSION="dev.${SHA:0:7}"
+          echo "## Dev Images Registered" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** Registered successfully" >> $GITHUB_STEP_SUMMARY
