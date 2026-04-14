@@ -45,7 +45,7 @@ Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen 
 
 ```
 bash {
-  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
   activity: "to generate the Slack app manifest link"
 }
 ```
@@ -82,6 +82,8 @@ The `slack_channel` secure prompt already routes through the same Slack settings
 **IMPORTANT: The bot token only becomes available AFTER the app is installed. The user MUST install the app first — do NOT ask for the bot token before this step. The bot token is found under Install App (NOT under OAuth & Permissions).**
 
 Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
+
+**Note:** This app requests user scopes so your assistant can read messages in channels the bot isn't a member of. Some Slack workspaces require admin approval for user-scope installs. If the install page shows "Request approval" instead of "Allow", you'll need your workspace admin to approve it before continuing.
 
 After installation, the **Bot User OAuth Token** will appear on the same Install App page. Collect it securely:
 
