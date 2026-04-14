@@ -443,7 +443,14 @@ final class ChatActionHandler {
         vm.cancelTimeoutTask = nil
         vm.isCancelling = false
         vm.isThinking = false
-        vm.isCompacting = false
+        // Only clear the compaction indicator on main-turn completions. Aux
+        // `message_complete` events (call notifiers, watch updates) can arrive
+        // while `/compact` is still running — activity phase may be `tool_running`
+        // (so `isThinking == false`) with no assistant message yet, so the
+        // nil-messageId filter above does not catch them.
+        if complete.source != "aux" {
+            vm.isCompacting = false
+        }
         // When a send-direct is pending, this messageComplete is the
         // cancel acknowledgment. Reset all queue state so the follow-up
         // sendMessage() starts a fresh send instead of re-queuing.
