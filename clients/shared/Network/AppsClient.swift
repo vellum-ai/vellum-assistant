@@ -40,8 +40,39 @@ public struct AppsClient: AppsClientProtocol {
 
     // MARK: - REST Response Shapes
 
+    /// Wrapper that decodes each element individually, discarding items
+    /// that fail instead of failing the entire array.
+    private struct LossyDecodable<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws {
+            value = try? T(from: decoder)
+        }
+    }
+
     private struct HTTPAppsListResponse: Decodable {
         let apps: [HTTPAppsListItem]
+        /// Number of items the daemon returned that failed to decode.
+        let droppedCount: Int
+
+        private enum CodingKeys: String, CodingKey { case apps }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let lossy = try container.decode([LossyDecodable<HTTPAppsListItem>].self, forKey: .apps)
+            let decoded = lossy.compactMap(\.value)
+            // If the daemon returned items but every single one failed to
+            // decode, treat it as a hard error so the caller sees
+            // success=false and preserves the existing local cache.
+            if decoded.isEmpty && !lossy.isEmpty {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: container.codingPath + [CodingKeys.apps],
+                        debugDescription: "All \(lossy.count) app items failed to decode individually"
+                    )
+                )
+            }
+            self.apps = decoded
+            self.droppedCount = lossy.count - decoded.count
+        }
     }
 
     private struct HTTPAppsListItem: Decodable {
@@ -102,6 +133,9 @@ public struct AppsClient: AppsClientProtocol {
                 )
             }
             let decoded = try JSONDecoder().decode(HTTPAppsListResponse.self, from: response.data)
+            if decoded.droppedCount > 0 {
+                log.warning("fetchAppsList: \(decoded.droppedCount) malformed items dropped from daemon response")
+            }
             let apps = decoded.apps.map { app in
                 AppsListResponseApp(
                     id: app.id,
@@ -114,11 +148,15 @@ public struct AppsClient: AppsClientProtocol {
                     contentId: app.contentId
                 )
             }
+            // Partial decode: return the successfully decoded apps with
+            // success=false so callers know the list is incomplete and can
+            // sync without pruning (add/update but not remove).
             return AppsListResponse(
-                type: "apps_list_response", apps: apps
+                type: "apps_list_response", apps: apps,
+                success: decoded.droppedCount == 0
             )
         } catch {
-            log.error("fetchAppsList error: \(error.localizedDescription)")
+            log.error("fetchAppsList decode error: \(error)")
             return AppsListResponse(
                 type: "apps_list_response", apps: [], success: false
             )

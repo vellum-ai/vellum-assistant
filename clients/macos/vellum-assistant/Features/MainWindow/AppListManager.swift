@@ -188,23 +188,47 @@ final class AppListManager {
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
     /// Removes local apps the daemon no longer reports.
     /// Always propagates daemon descriptions to existing apps when they differ.
-    func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
+    /// Sync local app list with daemon state.
+    /// - Parameter skipPrune: When `true`, new apps are added and existing apps
+    ///   are updated but local-only apps are NOT removed. Use this when the
+    ///   daemon response is incomplete (e.g. some items failed to decode) to
+    ///   avoid pruning apps that merely failed to transfer.
+    func syncFromDaemon(_ daemonApps: [AppItem_Daemon], skipPrune: Bool = false) {
         let existingIds = Set(apps.map(\.id))
         let daemonIds = Set(daemonApps.map(\.id))
         var newCount = 0
         var updatedCount = 0
 
-        // Remove local apps the daemon no longer reports
-        let prunedCount = apps.count
-        apps.removeAll { !daemonIds.contains($0.id) }
-        let removedCount = prunedCount - apps.count
+        // Remove local apps the daemon no longer reports (skip when the
+        // response is known to be incomplete).
+        var removedCount = 0
+        if !skipPrune {
+            let prunedCount = apps.count
+            apps.removeAll { !daemonIds.contains($0.id) }
+            removedCount = prunedCount - apps.count
+        }
 
         for daemonApp in daemonApps {
             if existingIds.contains(daemonApp.id) {
-                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
-                   apps[index].description != daemonApp.description {
-                    apps[index].description = daemonApp.description
-                    updatedCount += 1
+                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }) {
+                    var changed = false
+                    if apps[index].name != daemonApp.name {
+                        apps[index].name = daemonApp.name
+                        changed = true
+                    }
+                    if apps[index].description != daemonApp.description {
+                        apps[index].description = daemonApp.description
+                        changed = true
+                    }
+                    if let icon = daemonApp.icon, apps[index].icon != icon {
+                        apps[index].icon = icon
+                        changed = true
+                    }
+                    if let appType = daemonApp.appType, apps[index].appType != appType {
+                        apps[index].appType = appType
+                        changed = true
+                    }
+                    if changed { updatedCount += 1 }
                 }
                 continue
             }
