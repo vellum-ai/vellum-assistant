@@ -151,22 +151,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
             log.warning("Failed to start management socket: \(error.localizedDescription, privacy: .public) — exec will be unavailable")
         }
 
-        // Write the lockfile entry early so the CLI can discover this
-        // assistant immediately (e.g. `vellum ps`). The runtimeUrl is
-        // already known — it is derived from the pod IP assigned during
-        // start(). We will NOT update the entry again later; all fields
-        // that matter are populated here.
-        let previousActiveId = LockfileAssistant.loadActiveAssistantId()
-        let hatchedAt = ISO8601DateFormatter().string(from: Date())
-        Self.writeLockfileEntry(
-            assistantId: assistantName,
-            hatchedAt: hatchedAt,
-            signingKey: signingKey,
-            runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketPath
-        )
-        LockfileAssistant.setActiveAssistantId(assistantName)
-
         // Lease a guardian token so the desktop app can authenticate with the
         // gateway. The CLI does this in hatch-local.ts after the gateway starts;
         // for apple containers we do it directly from Swift.
@@ -175,6 +159,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // GUARDIAN_BOOTSTRAP_SECRET that is consumed on the first successful
         // call. If we fail here, the fallback path in performInitialBootstrap()
         // generates a new random secret that the gateway will reject with 403.
+        //
+        // IMPORTANT: The lockfile entry is written AFTER the token is leased
+        // (below). Writing the lockfile earlier would set the active assistant
+        // ID, causing AppDelegate to notice the new assistant and trigger
+        // performInitialBootstrap() — which races with this lease by sending
+        // a random bootstrap secret that the runtime rejects with 403.
         if let gatewayURL = runtime.gatewayURL {
             onProgress?("Securing connection...")
 
@@ -183,8 +173,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !gatewayReady {
-                Self.removeLockfileEntry(assistantId: assistantName)
-                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? FileManager.default.removeItem(atPath: mgmtSocketPath)
@@ -202,8 +190,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 onProgress: onProgress
             )
             if !tokenLeased {
-                Self.removeLockfileEntry(assistantId: assistantName)
-                LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
                 try? FileManager.default.removeItem(atPath: mgmtSocketPath)
@@ -214,6 +200,21 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 )
             }
         }
+
+        // Write the lockfile entry only after the guardian token has been
+        // leased and saved to disk. This ensures that when AppDelegate
+        // detects the new active assistant, the token file already exists
+        // and performInitialBootstrap() can import it directly instead of
+        // racing to call /v1/guardian/init with a random secret.
+        let hatchedAt = ISO8601DateFormatter().string(from: Date())
+        Self.writeLockfileEntry(
+            assistantId: assistantName,
+            hatchedAt: hatchedAt,
+            signingKey: signingKey,
+            runtimeUrl: runtime.gatewayURL,
+            mgmtSocket: mgmtSocketPath
+        )
+        LockfileAssistant.setActiveAssistantId(assistantName)
 
         onProgress?("Finalizing setup...")
         log.info("Apple container '\(assistantName, privacy: .public)' is running")
