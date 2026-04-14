@@ -51,14 +51,8 @@ export async function recover(): Promise<void> {
     );
   }
 
-  // 3. Check that the recovering entry's own target directory is free. Only
-  //    this one path matters — iterating all lockfile entries would block
-  //    recovery whenever any unrelated local assistant is still installed.
-  //    Fall back to the legacy `~/.vellum` path for entries without
-  //    resources (pre env-data-layout installs).
-  const target = entry.resources?.instanceDir
-    ? join(entry.resources.instanceDir, ".vellum")
-    : join(homedir(), ".vellum");
+  // 3. Check that the recovering entry's own target directory is free.
+  const target = join(entry.resources.instanceDir, ".vellum");
   if (existsSync(target)) {
     console.error(
       `Error: ${target} already exists (owned by ${entry.assistantId}). ` +
