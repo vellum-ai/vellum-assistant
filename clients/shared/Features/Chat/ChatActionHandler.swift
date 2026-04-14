@@ -132,6 +132,21 @@ final class ChatActionHandler {
                 break
             }
 
+            // History-loaded dedup: for channel conversations, a Slack/Telegram
+            // user message may already be in `vm.messages` from history
+            // reconstruction with a different daemonMessageId than the echo
+            // carries. If an existing .user row has matching text and a tagged
+            // daemonMessageId, treat the echo as a redundant notification for an
+            // already-visible message and do not append.
+            if vm.isChannelConversation,
+               vm.messages.contains(where: {
+                   $0.role == .user
+                       && $0.text == echo.text
+                       && $0.daemonMessageId != nil
+               }) {
+                break
+            }
+
             // Passive client (or nil messageId for back-compat surface-action
             // echoes): append a new user row and enter "reply incoming" state.
             var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)

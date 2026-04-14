@@ -328,8 +328,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         // loadHistoryIfNeeded fetches fresh data from the daemon.
         if let conversation = listStore.conversations.first(where: { $0.id == id }),
            conversation.isChannelConversation,
-           let vm = selectionStore.chatViewModels[id], vm.isHistoryLoaded {
-            vm.prepareForChannelRefresh()
+           let vm = selectionStore.chatViewModels[id] {
+            vm.isChannelConversation = true
+            if vm.isHistoryLoaded {
+                vm.prepareForChannelRefresh()
+            }
         }
 
         selectionStore.performActivation(for: id)
@@ -812,6 +815,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         if selectionStore.chatViewModels[id] == nil {
             let viewModel = makeViewModel()
             viewModel.conversationId = conversation.conversationId
+            viewModel.isChannelConversation = conversation.isChannelConversation
             selectionStore.chatViewModels[id] = viewModel
             activityStore.observeBusyState(for: id, messageManager: viewModel.messageManager)
             activityStore.observeAssistantActivity(for: id, messageManager: viewModel.messageManager)
@@ -821,8 +825,11 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         selectionStore.touchVMAccessOrder(id)
 
-        if conversation.isChannelConversation, let vm = selectionStore.chatViewModels[id], vm.isHistoryLoaded {
-            vm.prepareForChannelRefresh()
+        if conversation.isChannelConversation, let vm = selectionStore.chatViewModels[id] {
+            vm.isChannelConversation = true
+            if vm.isHistoryLoaded {
+                vm.prepareForChannelRefresh()
+            }
         }
 
         selectionStore.performActivation(for: id)
@@ -1286,15 +1293,17 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if let existingIdx = listStore.conversations.firstIndex(where: { $0.conversationId == item.id }) {
             let existingConversation = listStore.conversations[existingIdx]
-            listStore.conversations[existingIdx] = listStore.conversationModel(
+            let updatedConversation = listStore.conversationModel(
                 from: item,
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived
             )
+            listStore.conversations[existingIdx] = updatedConversation
             listStore.mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = selectionStore.chatViewModels[existingConversation.id] {
                 viewModel.conversationId = item.id
+                viewModel.isChannelConversation = updatedConversation.isChannelConversation
                 viewModel.ensureMessageLoopStarted()
             }
             return existingConversation.id
@@ -1303,6 +1312,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         let conversationModel = listStore.conversationModel(from: item, isArchived: isArchived)
         let viewModel = makeViewModel()
         viewModel.conversationId = item.id
+        viewModel.isChannelConversation = conversationModel.isChannelConversation
         viewModel.startMessageLoop()
 
         listStore.conversations.insert(conversationModel, at: 0)
