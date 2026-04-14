@@ -16,11 +16,8 @@ mock.module("../../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-// Auth is disabled in tests by default (no VELLUM_JWT_SECRET), so
-// requireBoundGuardian bypasses. We mock isHttpAuthDisabled to control it.
-let authDisabled = true;
 mock.module("../../config/env.js", () => ({
-  isHttpAuthDisabled: () => authDisabled,
+  isHttpAuthDisabled: () => true,
   getAssistantDomain: () => "vellum.me",
 }));
 
@@ -43,7 +40,24 @@ function makeRequest(body: unknown): Request {
   });
 }
 
-function makeAuthContext(overrides: Partial<AuthContext> = {}): AuthContext {
+function makeServiceAuthContext(
+  overrides: Partial<AuthContext> = {},
+): AuthContext {
+  return {
+    subject: "platform-service",
+    principalType: "svc_gateway",
+    assistantId: "test-assistant",
+    actorPrincipalId: undefined,
+    scopeProfile: "service_v1",
+    scopes: new Set(),
+    policyEpoch: 0,
+    ...overrides,
+  } as AuthContext;
+}
+
+function makeActorAuthContext(
+  overrides: Partial<AuthContext> = {},
+): AuthContext {
   return {
     subject: "test-subject",
     principalType: "actor",
@@ -91,25 +105,6 @@ function seedGuardian(
   return { contactId };
 }
 
-function seedVellumGuardianChannel(
-  contactId: string,
-  principalId: string,
-): void {
-  const db = getDb();
-  db.insert(contactChannels)
-    .values({
-      id: "ch-vellum-001",
-      contactId,
-      type: "vellum",
-      address: principalId,
-      externalUserId: principalId,
-      status: "active",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    .run();
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -119,10 +114,11 @@ describe("POST /v1/contacts/guardian/channel", () => {
     const db = getDb();
     db.delete(contactChannels).run();
     db.delete(contacts).run();
-    authDisabled = true;
   });
 
-  test("adds an email channel to an existing guardian", async () => {
+  // ── Service token (platform) calls — the only permitted path ────────────
+
+  test("adds an email channel to an existing guardian (service auth)", async () => {
     const { contactId } = seedGuardian();
 
     const res = await handleAddGuardianChannel(
@@ -131,7 +127,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
         address: "owner@example.com",
         externalUserId: "owner@example.com",
       }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
 
     expect(res.status).toBe(200);
@@ -159,14 +155,14 @@ describe("POST /v1/contacts/guardian/channel", () => {
     expect(rows[0].status).toBe("active");
   });
 
-  test("returns 404 when no guardian exists", async () => {
+  test("returns 404 when no guardian exists (service auth)", async () => {
     const res = await handleAddGuardianChannel(
       makeRequest({
         type: "email",
         address: "owner@example.com",
         externalUserId: "owner@example.com",
       }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
 
     expect(res.status).toBe(404);
@@ -176,32 +172,32 @@ describe("POST /v1/contacts/guardian/channel", () => {
     expect(body.error.message).toContain("No guardian contact exists");
   });
 
-  test("returns 400 when type is missing", async () => {
+  test("returns 400 when type is missing (service auth)", async () => {
     seedGuardian();
 
     const res = await handleAddGuardianChannel(
       makeRequest({ address: "owner@example.com" }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 when address is missing", async () => {
+  test("returns 400 when address is missing (service auth)", async () => {
     seedGuardian();
 
     const res = await handleAddGuardianChannel(
       makeRequest({ type: "email", externalUserId: "owner@example.com" }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
     expect(res.status).toBe(400);
   });
 
-  test("returns 400 when externalUserId is missing", async () => {
+  test("returns 400 when externalUserId is missing (service auth)", async () => {
     seedGuardian();
 
     const res = await handleAddGuardianChannel(
       makeRequest({ type: "email", address: "owner@example.com" }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -210,7 +206,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
     expect(body.error.message).toContain("externalUserId is required");
   });
 
-  test("preserves existing channels when adding new ones", async () => {
+  test("preserves existing channels when adding new ones (service auth)", async () => {
     const { contactId } = seedGuardian();
 
     await handleAddGuardianChannel(
@@ -219,7 +215,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
         address: "owner@example.com",
         externalUserId: "owner@example.com",
       }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
 
     // Guardian should still have the telegram channel + new email channel
@@ -234,7 +230,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
     expect(types).toEqual(["email", "telegram"]);
   });
 
-  test("defaults channel status to active", async () => {
+  test("defaults channel status to active (service auth)", async () => {
     seedGuardian();
 
     const res = await handleAddGuardianChannel(
@@ -243,7 +239,7 @@ describe("POST /v1/contacts/guardian/channel", () => {
         address: "owner@example.com",
         externalUserId: "owner@example.com",
       }),
-      makeAuthContext(),
+      makeServiceAuthContext(),
     );
 
     expect(res.status).toBe(200);
@@ -257,20 +253,18 @@ describe("POST /v1/contacts/guardian/channel", () => {
     expect(emailChannel?.status).toBe("active");
   });
 
-  test("returns 403 when a non-guardian verified contact calls the endpoint", async () => {
-    authDisabled = false;
-    const guardianPrincipalId = "guardian-principal-001";
-    const { contactId } = seedGuardian("Guardian", guardianPrincipalId);
-    seedVellumGuardianChannel(contactId, guardianPrincipalId);
+  // ── Actor calls — all rejected (security fix ATL-102) ──────────────────
 
-    // Caller is a different principal — not the guardian
+  test("rejects actor calls with 403 (guardian takeover prevention)", async () => {
+    seedGuardian();
+
     const res = await handleAddGuardianChannel(
       makeRequest({
         type: "email",
-        address: "intruder@example.com",
-        externalUserId: "intruder@example.com",
+        address: "owner@example.com",
+        externalUserId: "owner@example.com",
       }),
-      makeAuthContext({ actorPrincipalId: "some-other-principal" }),
+      makeActorAuthContext(),
     );
 
     expect(res.status).toBe(403);
@@ -278,5 +272,23 @@ describe("POST /v1/contacts/guardian/channel", () => {
       error: { code: string; message: string };
     };
     expect(body.error.code).toBe("FORBIDDEN");
+    expect(body.error.message).toContain("restricted to platform service");
+  });
+
+  test("rejects actor calls even from the bound guardian", async () => {
+    const guardianPrincipalId = "guardian-principal-001";
+    seedGuardian("Guardian", guardianPrincipalId);
+
+    // Caller IS the guardian — but actor calls are still rejected
+    const res = await handleAddGuardianChannel(
+      makeRequest({
+        type: "email",
+        address: "guardian@example.com",
+        externalUserId: "guardian@example.com",
+      }),
+      makeActorAuthContext({ actorPrincipalId: guardianPrincipalId }),
+    );
+
+    expect(res.status).toBe(403);
   });
 });

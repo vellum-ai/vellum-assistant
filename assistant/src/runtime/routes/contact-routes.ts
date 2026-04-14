@@ -34,7 +34,7 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
+
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -427,12 +427,17 @@ export async function handleAddGuardianChannel(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
-  // Service tokens (gateway control-plane proxy) are trusted — the platform
-  // has already authenticated the caller. Only enforce guardian binding for
-  // direct actor calls.
-  if (authContext.principalType === "actor") {
-    const guardianError = requireBoundGuardian(authContext);
-    if (guardianError) return guardianError;
+  // This endpoint is restricted to gateway service tokens only — the
+  // platform calls it during email registration to auto-verify the owner's
+  // email as a guardian channel. Direct actor/local calls are not permitted
+  // because the endpoint bypasses normal channel verification (no code sent,
+  // no confirmation) and would allow guardian channel takeover (ATL-102).
+  if (authContext.principalType !== "svc_gateway") {
+    return httpError(
+      "FORBIDDEN",
+      "This endpoint is restricted to platform service calls",
+      403,
+    );
   }
 
   const body = (await req.json()) as {
