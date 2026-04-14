@@ -1491,7 +1491,7 @@ public struct ChatAttachment: Identifiable {
     /// Raw binary data for multipart upload in managed mode. Nil for file-backed
     /// (local) attachments. When set, ``data`` also contains the base64 encoding
     /// of the same bytes as a fallback for JSON+base64 upload and the offline queue.
-    public let rawData: Data?
+    public var rawData: Data?
 
     /// Whether this attachment's binary data was omitted to keep the payload small.
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
@@ -1871,6 +1871,7 @@ public struct ChatMessage: Identifiable, Equatable {
         for i in attachments.indices {
             attachments[i].data = ""
             attachments[i].dataLength = 0
+            attachments[i].rawData = nil
         }
         for i in inlineSurfaces.indices {
             if inlineSurfaces[i].completionState != nil {
