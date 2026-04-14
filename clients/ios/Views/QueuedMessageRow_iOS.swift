@@ -28,7 +28,6 @@ struct QueuedMessageRow_iOS: View {
             RoundedRectangle(cornerRadius: 1, style: .continuous)
                 .fill(VColor.systemPendingSoft)
                 .frame(width: 2)
-                .frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
 
             Text(positionLabel)
