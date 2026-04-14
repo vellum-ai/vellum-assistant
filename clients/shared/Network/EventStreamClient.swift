@@ -538,6 +538,7 @@ public final class EventStreamClient {
     }
 
     deinit {
+        sseSession?.invalidateAndCancel()
         let continuations = subscribers.values
         for continuation in continuations {
             continuation.finish()
