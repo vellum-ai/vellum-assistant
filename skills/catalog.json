@@ -105,19 +105,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "email-setup",
-      "name": "email-setup",
-      "description": "Register the assistant's own @vellum.me email address (one-time setup)",
-      "metadata": {
-        "emoji": "📧",
-        "vellum": {
-          "display-name": "Email Setup",
-          "feature-flag": "email-channel"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "fish-audio",
       "name": "fish-audio",
       "description": "Generate expressive audio clips using Fish Audio S2 TTS with bracket emotion tags. Record voice memos, narration, audio messages, or any spoken content.",

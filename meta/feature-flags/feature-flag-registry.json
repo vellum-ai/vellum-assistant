@@ -30,7 +30,7 @@
       "scope": "assistant",
       "key": "email-channel",
       "label": "Email Channel",
-      "description": "Enable the entire email integration: email CLI commands, email channel, sequences, email readiness probes, invite adapters, and the email-setup skill",
+      "description": "Enable the entire email integration: email CLI commands, email channel, sequences, email readiness probes, and invite adapters",
       "defaultEnabled": false
     },
     {
