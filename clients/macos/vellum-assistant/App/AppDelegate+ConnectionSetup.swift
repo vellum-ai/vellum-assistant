@@ -337,7 +337,7 @@ extension AppDelegate {
                 case .avatarUpdated(let msg):
                     AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
                 case .soundsConfigUpdated:
-                    SoundManager.shared.reloadConfig()
+                    SoundManager.shared.handleSoundsConfigBroadcast()
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
                 case .featureFlagsChanged:
