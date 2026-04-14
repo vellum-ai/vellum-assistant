@@ -69,13 +69,11 @@ That's it. The extension auto-reconnects on browser restarts, network drops, and
 
 The macOS app installs the native messaging host automatically. If pairing fails, set it up manually:
 
-1. Build the helper:
+1. Install the helper's dependencies (no build step — the dev wrapper runs `bun` against `src/index.ts` directly, so the `dist/` directory is only needed for tests and release builds):
 
 ```bash
 cd clients/chrome-extension/native-host
 bun install
-bun run build
-chmod +x dist/index.js
 ```
 
 2. Find your extension ID in `chrome://extensions` and export it. Chrome assigns this ID the first time you **Load unpacked**, so the snippet below needs it as an env var:
@@ -98,21 +96,21 @@ JSON
 
 Restart the assistant after creating or editing this file — the allowlist is cached at startup. The IDs are public Chrome extension identifiers, so no special file permissions are needed.
 
-4. Install the Chrome native messaging manifest. **Run this from the same `native-host/` directory as step 1** — the snippet reads `$(pwd)/dist/index.js`:
+4. Install the Chrome native messaging manifest. **Run this from the same `native-host/` directory as step 1** — the snippet reads `$(pwd)/src/index.ts`:
 
 ```bash
-NATIVE_HOST_JS="$(pwd)/dist/index.js"
-NODE_BIN="$(command -v node)"
+NATIVE_HOST_ENTRY="$(pwd)/src/index.ts"
+BUN_BIN="$(command -v bun)"
 NATIVE_HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
-if [ -z "$NODE_BIN" ]; then echo "node not found on PATH" >&2; exit 1; fi
+if [ -z "$BUN_BIN" ]; then echo "bun not found on PATH" >&2; exit 1; fi
 if [ -z "$EXTENSION_ID" ]; then echo "Set EXTENSION_ID=<id from chrome://extensions> first" >&2; exit 1; fi
 
 mkdir -p "$NATIVE_HOSTS_DIR"
 
 cat > "$NATIVE_HOSTS_DIR/com.vellum.daemon.sh" <<BASH
 #!/bin/bash
-exec "$NODE_BIN" "$NATIVE_HOST_JS" "\$@"
+exec "$BUN_BIN" "$NATIVE_HOST_ENTRY" "\$@"
 BASH
 chmod 755 "$NATIVE_HOSTS_DIR/com.vellum.daemon.sh"
 
@@ -128,7 +126,9 @@ JSON
 chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 ```
 
-> Chrome launches native hosts with a minimal environment, so `#!/usr/bin/env node` often fails. Use a wrapper script with an absolute Node path instead.
+> Chrome launches native hosts with a minimal environment, so `#!/usr/bin/env bun` often fails. Use a wrapper script with an absolute Bun path instead.
+>
+> Pointing the wrapper at `src/index.ts` (rather than `dist/index.js`) means the helper always runs the current source — no stale-`dist/` failures after editing `src/`. Bun executes TypeScript natively.
 
 5. Fully quit and relaunch Chrome.
 
@@ -145,7 +145,7 @@ chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 | Error | Cause / Fix |
 |---|---|
 | `Access to the specified native messaging host is forbidden` | Manifest missing/invalid, or extension ID not in the allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` (see Native Messaging Host Setup, step 3). |
-| `Native host has exited` | Chrome couldn't launch Node. Use a wrapper script with an absolute Node path in the manifest. |
+| `Native host has exited` | Chrome couldn't launch Bun. Use a wrapper script with an absolute Bun path in the manifest. |
 | `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the assistant (the allowlist is cached at assistant startup). |
 | `failed to reach assistant at http://127.0.0.1:<port>/...` | Assistant not running, wrong port, or firewall blocking. |
 | `Automatic cloud sign-in failed` | Use "Re-sign in" in the popup's Troubleshooting section, then click Connect. |

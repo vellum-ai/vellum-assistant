@@ -218,8 +218,13 @@ bun run build       # produces dist/index.js
 
 `bun run build` is a thin wrapper around `tsc -p tsconfig.json`. The
 output is a single ES module file under `dist/` that can be invoked
-directly with `node dist/index.js`. This form is convenient for local
-development and unit tests.
+directly with `node dist/index.js`. This form is used by the integration
+tests in `src/__tests__/` and by the manual smoke-test snippets below.
+
+The dev Chrome wrapper documented in
+`clients/chrome-extension/README.md` does **not** rely on `dist/` — it
+points Bun at `src/index.ts` directly, so `src/` edits take effect
+immediately without a rebuild.
 
 ## Bundling into the macOS app
 
