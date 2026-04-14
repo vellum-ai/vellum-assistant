@@ -32,6 +32,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
+  getConfigReadOnly: () => currentConfig,
   loadConfig: () => currentConfig,
   loadRawConfig: () => ({}),
   saveConfig: () => {},
