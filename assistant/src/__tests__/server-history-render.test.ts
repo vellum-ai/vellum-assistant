@@ -283,6 +283,55 @@ describe("renderHistoryContent", () => {
     expect(output2.textSegments).toEqual(["raw string"]);
     expect(output2.contentOrder).toEqual(["text:0"]);
   });
+
+  test("skips empty text blocks between consecutive tool_use blocks (consolidated message scenario)", () => {
+    // Simulates message consolidation where empty text blocks from intermediate
+    // API turns end up between tool_use blocks. Without the fix, these create
+    // phantom text segments that break tool-call grouping in the UI.
+    const output = renderHistoryContent([
+      { type: "text", text: "Let me check." },
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "" },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+      { type: "text", text: "Done." },
+    ]);
+
+    expect(output.textSegments).toEqual(["Let me check.", "Done."]);
+    expect(output.contentOrder).toEqual([
+      "text:0",
+      "tool:0",
+      "tool:1",
+      "text:1",
+    ]);
+  });
+
+  test("skips whitespace-only text blocks between consecutive tool_use blocks", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "   \n  " },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+    ]);
+
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual(["tool:0", "tool:1"]);
+  });
+
+  test("preserves non-empty text blocks between tool_use blocks", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "bash", input: { command: "ls" } },
+      { type: "tool_result", tool_use_id: "tu_1", content: "file.txt" },
+      { type: "text", text: "Now let me try something else." },
+      { type: "tool_use", id: "tu_2", name: "bash", input: { command: "pwd" } },
+      { type: "tool_result", tool_use_id: "tu_2", content: "/home" },
+    ]);
+
+    expect(output.textSegments).toEqual(["Now let me try something else."]);
+    expect(output.contentOrder).toEqual(["tool:0", "text:0", "tool:1"]);
+  });
 });
 
 describe("getAttachmentsForMessage", () => {

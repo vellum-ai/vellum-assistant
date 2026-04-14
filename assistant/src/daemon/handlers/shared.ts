@@ -309,6 +309,12 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
 
     if (block.type === "text" && typeof block.text === "string") {
+      // Skip empty/whitespace-only text blocks. During streaming the client
+      // discards empty text deltas (guard !text.isEmpty), so including them
+      // here produces a contentOrder that differs from the live streaming
+      // path — e.g. empty segments between consecutive tool_use blocks that
+      // break tool-call grouping in the UI.
+      if (block.text.trim().length === 0) continue;
       textParts.push(block.text);
       ensureSegment();
       currentSegmentParts.push(block.text);
