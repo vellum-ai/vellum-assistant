@@ -348,7 +348,7 @@ export function splitLongTextSegment(
   text: string,
   maxChars: number = SLACK_SECTION_MAX_CHARS,
 ): string[] {
-  if (text.length <= maxChars) return [text];
+  if (maxChars <= 0 || text.length <= maxChars) return [text];
 
   const chunks: string[] = [];
   let remaining = text;

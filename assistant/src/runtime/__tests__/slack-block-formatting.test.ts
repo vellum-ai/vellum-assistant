@@ -120,6 +120,12 @@ describe("splitLongTextSegment", () => {
     expect(chunks[0]).toBe(lineA);
     expect(chunks[1]).toBe(lineB);
   });
+
+  test("returns input unchanged when maxChars is non-positive (avoids infinite loop)", () => {
+    const text = "a".repeat(100);
+    expect(splitLongTextSegment(text, 0)).toEqual([text]);
+    expect(splitLongTextSegment(text, -1)).toEqual([text]);
+  });
 });
 
 describe("textToSlackBlocks long-text splitting", () => {
