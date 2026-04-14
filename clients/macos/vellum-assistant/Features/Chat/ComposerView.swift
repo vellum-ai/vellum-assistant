@@ -110,8 +110,6 @@ struct ComposerView: View, Equatable {
     @Environment(\.dropActions) private var dropActions
     #endif
     @State private var composerFocus: Bool = false
-    @State private var isComposerFocused = false
-    @State private var textViewIsFocused: Bool = false
 
     @State var textReplacer = TextReplacementProxy()
     @State var composerController = ComposerController()
@@ -170,7 +168,7 @@ struct ComposerView: View, Equatable {
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .disabled(!isInteractionEnabled)
-        .animation(VAnimation.fast, value: isComposerFocused)
+        .animation(VAnimation.fast, value: composerFocus)
         .task {
             // Delay focus slightly so the NSTextView is fully installed
             // in the view hierarchy before requesting first-responder
@@ -256,7 +254,7 @@ struct ComposerView: View, Equatable {
                 .padding(.top, ComposerTextEditor.textInsetY)
             ComposerTextEditor(
                 text: $inputText,
-                isFocused: $textViewIsFocused,
+                isFocused: composerFocus,
                 font: nsFont,
                 lineSpacing: 4,
                 insertionPointColor: NSColor(VColor.primaryBase),
@@ -307,12 +305,13 @@ struct ComposerView: View, Equatable {
                     composerController.isPopupVisible
                 },
                 onCursorPositionChanged: { composerController.cursorMoved(to: $0) },
+                onFocusChanged: { composerFocus = $0 },
                 textReplacer: textReplacer
             )
             .fixedSize(horizontal: false, vertical: true)
             // Prevent inherited .animation() modifiers from creating animation
             // transactions that snapshot the NSView's CALayer. Without this,
-            // parent animations (e.g. .animation(value: isComposerFocused)) can
+            // parent animations (e.g. .animation(value: composerFocus)) can
             // freeze the text view's rendering, making typed text invisible.
             .transaction { $0.animation = nil }
         }
@@ -331,19 +330,10 @@ struct ComposerView: View, Equatable {
             )
         )
         .onChange(of: composerFocus) {
-            if textViewIsFocused != composerFocus {
-                textViewIsFocused = composerFocus
-            }
-            isComposerFocused = composerFocus
             if composerFocus {
                 if let window = NSApp.keyWindow as? TitleBarZoomableWindow {
                     window.clearComposerDismissed()
                 }
-            }
-        }
-        .onChange(of: textViewIsFocused) {
-            if composerFocus != textViewIsFocused {
-                composerFocus = textViewIsFocused
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

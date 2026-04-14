@@ -31,11 +31,23 @@ final class IntrinsicScrollView: NSScrollView {
 }
 
 /// NSViewRepresentable wrapper that hosts a ``ComposerTextView`` inside an
-/// ``IntrinsicScrollView``. Manages two-way text and focus binding with
-/// SwiftUI, height measurement via TextKit layout, and callback wiring
-/// for key events, image paste, and submit actions.
+/// ``IntrinsicScrollView``.
+///
+/// Callbacks flow through the Coordinator — closures are wired once in
+/// `makeNSView` and route through `coordinator.parent` which is updated
+/// at the top of every `updateNSView` call. This avoids reassigning ~10
+/// closure properties on the NSTextView per keystroke.
+///
+/// Focus and cursor-position changes flow from the NSTextView to SwiftUI
+/// via callbacks (not bindings) to avoid triggering body re-evaluation
+/// for transient AppKit state changes.
+///
+/// `updateNSView` guards every property update behind a change check so
+/// it is essentially a no-op for text-only changes (the common case on
+/// every keystroke).
 ///
 /// Ref: https://developer.apple.com/documentation/swiftui/nsviewrepresentable
+/// Ref: WWDC 2022 "Use SwiftUI with AppKit" — only update changed props.
 struct ComposerTextEditor: NSViewRepresentable {
     /// Inset values matching NSTextView's internal layout offsets.
     /// Used to align SwiftUI overlays (ghost text, slash highlighting)
@@ -44,7 +56,12 @@ struct ComposerTextEditor: NSViewRepresentable {
     static let textInsetY: CGFloat = 6   // textContainerInset.height
 
     @Binding var text: String
-    @Binding var isFocused: Bool
+
+    /// Whether the text view should be first responder. One-way: the
+    /// parent sets this, and `updateNSView` drives the NSTextView's
+    /// first-responder state when the value changes. Focus changes
+    /// originating from the NSTextView flow back via `onFocusChanged`.
+    let isFocused: Bool
 
     let font: NSFont
     let lineSpacing: CGFloat
@@ -62,6 +79,7 @@ struct ComposerTextEditor: NSViewRepresentable {
     var onPasteImage: (() -> Void)? = nil
     var shouldOverrideReturn: (() -> Bool)? = nil
     var onCursorPositionChanged: ((Int) -> Void)? = nil
+    var onFocusChanged: ((Bool) -> Void)? = nil
     var textReplacer: TextReplacementProxy? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -94,7 +112,8 @@ struct ComposerTextEditor: NSViewRepresentable {
         layoutManager.addTextContainer(textContainer)
 
         let textView = ComposerTextView(frame: .zero, textContainer: textContainer)
-        context.coordinator.textView = textView
+        let coordinator = context.coordinator
+        coordinator.textView = textView
         textView.isRichText = false
         textView.importsGraphics = false
         textView.drawsBackground = false
@@ -132,7 +151,37 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         scrollView.contentHeight = minHeight
         scrollView.documentView = textView
-        textView.delegate = context.coordinator
+        textView.delegate = coordinator
+
+        // Wire callbacks through the Coordinator once. The closures capture
+        // `coordinator` weakly and forward to `coordinator.parent.*` which
+        // is updated at the top of every `updateNSView` call, so they
+        // always invoke the latest closure without per-update reassignment.
+        textView.onSubmit = { [weak coordinator] in
+            coordinator?.parent.onSubmit?()
+        }
+        textView.onTab = { [weak coordinator] in
+            coordinator?.parent.onTab?() ?? false
+        }
+        textView.onUpArrow = { [weak coordinator] in
+            coordinator?.parent.onUpArrow?() ?? false
+        }
+        textView.onDownArrow = { [weak coordinator] in
+            coordinator?.parent.onDownArrow?() ?? false
+        }
+        textView.onEscape = { [weak coordinator] in
+            coordinator?.parent.onEscape?() ?? false
+        }
+        textView.onPasteImage = { [weak coordinator] in
+            coordinator?.parent.onPasteImage?()
+        }
+        textView.shouldOverrideReturn = { [weak coordinator] in
+            coordinator?.parent.shouldOverrideReturn?() ?? false
+        }
+        textView.onFocusChanged = { [weak coordinator] focused in
+            coordinator?.scheduleFocusCallback(focused)
+        }
+        textView.cmdEnterToSend = cmdEnterToSend
 
         if let proxy = textReplacer {
             proxy.replaceText = { [weak textView] range, replacement in
@@ -140,7 +189,14 @@ struct ComposerTextEditor: NSViewRepresentable {
             }
         }
 
-        let coordinator = context.coordinator
+        // Seed last-applied tracking so the first updateNSView skips
+        // properties that haven't changed from their makeNSView values.
+        coordinator.lastAppliedFont = font
+        coordinator.lastAppliedLineSpacing = lineSpacing
+        coordinator.lastAppliedTextColor = defaultColor
+        coordinator.lastIsEditable = isEditable
+        coordinator.lastCmdEnterToSend = cmdEnterToSend
+        coordinator.lastFocused = isFocused
 
         coordinator.frameObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification,
@@ -168,26 +224,24 @@ struct ComposerTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: IntrinsicScrollView, context: Context) {
-        context.coordinator.parent = self
+        let coordinator = context.coordinator
+        coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
+        // --- Text sync (only when SwiftUI pushed a new value) ---
         if textView.string != text {
             textView.string = text
             textView.scrollRangeToVisible(textView.selectedRange())
         }
 
-        textView.isEditable = isEditable
+        // --- Editable (guarded) ---
+        if coordinator.lastIsEditable != isEditable {
+            coordinator.lastIsEditable = isEditable
+            textView.isEditable = isEditable
+        }
 
-        // Guard attribute updates behind change checks to avoid triggering
-        // redundant TextKit re-layouts during the SwiftUI render cycle.
-        // Each keystroke fires textDidChange → binding update → updateNSView;
-        // unconditionally re-stamping font/color/typingAttributes here would
-        // cause a layout pass on every character, which can leave glyphs
-        // un-drawn until the *next* display cycle (appearing invisible).
-        // Ref: WWDC 2022 "Use SwiftUI with AppKit" — only update changed props.
-        let coordinator = context.coordinator
+        // --- Font / color (already guarded) ---
         let textColor = textColorOverride ?? NSColor(VColor.contentDefault)
-
         let fontChanged = coordinator.lastAppliedFont != font
             || coordinator.lastAppliedLineSpacing != lineSpacing
         let colorChanged = coordinator.lastAppliedTextColor != textColor
@@ -211,37 +265,48 @@ struct ComposerTextEditor: NSViewRepresentable {
             ]
         }
 
-        textView.cmdEnterToSend = cmdEnterToSend
-        textView.onSubmit = onSubmit
-        textView.onTab = onTab
-        textView.onUpArrow = onUpArrow
-        textView.onDownArrow = onDownArrow
-        textView.onEscape = onEscape
-        textView.onPasteImage = onPasteImage
-        textView.shouldOverrideReturn = shouldOverrideReturn
-        textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
-            coordinator?.scheduleFocusBindingUpdate(focused)
+        // --- cmdEnterToSend (guarded) ---
+        if coordinator.lastCmdEnterToSend != cmdEnterToSend {
+            coordinator.lastCmdEnterToSend = cmdEnterToSend
+            textView.cmdEnterToSend = cmdEnterToSend
         }
 
+        // --- Text replacer proxy ---
         if let proxy = textReplacer {
             proxy.replaceText = { [weak textView] range, replacement in
                 textView?.insertText(replacement, replacementRange: range)
             }
         }
 
-        // Re-strip drag types in case TextKit re-registered them during
-        // font or attribute updates above.
-        textView.unregisterDraggedTypes()
-
-        if let window = textView.window {
-            coordinator.scheduleFirstResponderUpdate(
-                in: window,
-                textView: textView,
-                shouldFocus: isFocused
-            )
+        // Re-strip drag types only when TextKit may have re-registered
+        // them (after font or attribute changes), not on every keystroke.
+        if fontChanged || colorChanged {
+            textView.unregisterDraggedTypes()
         }
 
-        context.coordinator.measureHeight(textView)
+        // --- Focus (guarded — only schedules work when intent changed) ---
+        if coordinator.lastFocused != isFocused {
+            coordinator.lastFocused = isFocused
+            if let window = textView.window {
+                coordinator.scheduleFirstResponderUpdate(
+                    in: window,
+                    textView: textView,
+                    shouldFocus: isFocused
+                )
+            }
+        }
+
+        // Height measurement is handled by frame/bounds notification
+        // observers registered in makeNSView. Calling measureHeight here
+        // would force a redundant TextKit ensureLayout on every keystroke.
+        // We only re-measure when text was externally replaced (the
+        // textView.string != text path above) since that bypasses the
+        // NSTextView delegate which normally triggers frame notifications.
+        if textView.string == text, !fontChanged {
+            // No external text change and no font change — skip.
+        } else {
+            coordinator.measureHeight(textView)
+        }
     }
 
     static func dismantleNSView(_ scrollView: IntrinsicScrollView, coordinator: Coordinator) {
@@ -262,12 +327,15 @@ struct ComposerTextEditor: NSViewRepresentable {
         var frameObserver: NSObjectProtocol?
         var boundsObserver: NSObjectProtocol?
 
-        // Track last-applied values so updateNSView only touches the text
-        // storage when something actually changed.
+        // Track last-applied values so updateNSView only touches
+        // properties that actually changed.
         var lastAppliedFont: NSFont?
         var lastAppliedLineSpacing: CGFloat?
         var lastAppliedTextColor: NSColor?
-        var pendingFocusBindingValue: Bool?
+        var lastIsEditable: Bool?
+        var lastCmdEnterToSend: Bool?
+        var lastFocused: Bool?
+        var pendingFocusCallbackValue: Bool?
         var pendingFirstResponderValue: Bool?
         weak var textView: ComposerTextView?
 
@@ -287,15 +355,11 @@ struct ComposerTextEditor: NSViewRepresentable {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
-            // Focus state is primarily driven by ComposerTextView's
-            // becomeFirstResponder / resignFirstResponder callbacks.
-            // This delegate fires only once editing begins (on first
-            // keyDown), so it serves as a secondary sync only.
-            scheduleFocusBindingUpdate(true)
+            scheduleFocusCallback(true)
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            scheduleFocusBindingUpdate(false)
+            scheduleFocusCallback(false)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -310,22 +374,20 @@ struct ComposerTextEditor: NSViewRepresentable {
             let usedHeight = ceil(lm.usedRect(for: tc).height)
             let contentHeight = usedHeight + textView.textContainerInset.height * 2
             let clamped = max(parent.minHeight, min(contentHeight, parent.maxHeight))
-            // Update the scroll view's intrinsic content size so SwiftUI
-            // sizes the NSViewRepresentable correctly without bouncing the
-            // measured height back through SwiftUI state during view updates.
             if let scrollView = textView.enclosingScrollView as? IntrinsicScrollView {
                 scrollView.contentHeight = clamped
             }
         }
 
-        func scheduleFocusBindingUpdate(_ focused: Bool) {
-            pendingFocusBindingValue = focused
+        /// Delivers focus changes from the NSTextView to SwiftUI via callback.
+        /// Deferred to the next run-loop to coalesce rapid focus transitions
+        /// (e.g. becomeFirstResponder immediately followed by resignFirstResponder).
+        func scheduleFocusCallback(_ focused: Bool) {
+            pendingFocusCallbackValue = focused
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.pendingFocusBindingValue == focused else { return }
-                self.pendingFocusBindingValue = nil
-                if self.parent.isFocused != focused {
-                    self.parent.isFocused = focused
-                }
+                guard let self, self.pendingFocusCallbackValue == focused else { return }
+                self.pendingFocusCallbackValue = nil
+                self.parent.onFocusChanged?(focused)
             }
         }
 
