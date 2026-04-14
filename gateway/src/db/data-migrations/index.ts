@@ -3,20 +3,23 @@
  *
  * Each migration is guarded by the `one_time_migrations` table: once a
  * migration key is recorded, it never runs again. Migrations execute
- * sequentially in the order they are registered in the MIGRATIONS array.
+ * sequentially in filename order.
  *
  * To add a data migration:
- *   1. Create `m<NNNN>_<name>.ts` in this folder exporting up() and down().
- *   2. Import it here and append `{ key: "m<NNNN>_<name>", mod }` to MIGRATIONS.
+ *   1. Create `m<NNNN>-<name>.ts` in this folder exporting up() and down().
+ *   2. Import it below and append an entry to STATIC_MIGRATIONS.
  *
- * Migrations are registered statically (not discovered via readdirSync) so
- * this module works inside a Bun-compiled binary, where `import.meta.dir`
- * resolves to the virtual filesystem and `readdirSync` throws ENOENT.
+ * Static registration is required because the gateway is compiled into a
+ * native binary for macOS distribution via `bun build --compile`. In a
+ * compiled Bun binary, `import.meta.dirname` resolves to the virtual
+ * filesystem and `readdirSync` throws ENOENT.
  */
 
 import type { Database } from "bun:sqlite";
 
 import { getLogger } from "../../logger.js";
+
+import * as m0001 from "./m0001-guardian-init-lock.js";
 
 const log = getLogger("data-migrations");
 
@@ -27,7 +30,9 @@ type MigrationModule = {
   down: () => MigrationResult;
 };
 
-const MIGRATIONS: { key: string; mod: MigrationModule }[] = [];
+const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
+  { key: "m0001-guardian-init-lock", mod: m0001 },
+];
 
 /**
  * Execute any one-time data migrations that haven't run yet.

@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
-import { getRootDir } from "../../credential-reader.js";
+import { getGatewaySecurityDir } from "../../paths.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
@@ -180,7 +180,7 @@ export function createChannelVerificationSessionProxyHandler(
       req: Request,
       clientIp?: string,
     ): Promise<Response> {
-      const lockDir = process.env.GATEWAY_SECURITY_DIR || getRootDir();
+      const lockDir = getGatewaySecurityDir();
       const lockPath = join(lockDir, "guardian-init.lock");
       const consumedPath = join(lockDir, "guardian-init-consumed.json");
 

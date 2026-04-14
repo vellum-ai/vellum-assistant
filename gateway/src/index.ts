@@ -127,6 +127,7 @@ import {
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
+import { getGatewayDb } from "./db/connection.js";
 
 const log = getLogger("main");
 
@@ -223,6 +224,8 @@ async function main() {
   const signingKey = loadOrCreateSigningKey();
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
+
+  getGatewayDb();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.

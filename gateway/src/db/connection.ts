@@ -32,7 +32,7 @@ function safeUserInfoHomedir(): string {
  * `--user <uid>` without a matching `/etc/passwd` line); catching keeps the
  * `homedir()` fallback reachable.
  */
-function getLegacyRootDir(): string {
+export function getLegacyRootDir(): string {
   return join(
     process.env.BASE_DATA_DIR?.trim() ||
       process.env.HOME ||
