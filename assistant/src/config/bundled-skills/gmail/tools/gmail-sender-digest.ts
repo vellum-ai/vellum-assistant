@@ -52,7 +52,7 @@ export async function run(
   const query =
     (input.query as string) ?? "in:inbox category:promotions newer_than:90d";
   const maxMessages = Math.min(
-    (input.max_messages as number) ?? 5000,
+    (input.max_messages as number) ?? 2000,
     MAX_MESSAGES_CAP,
   );
   const maxSenders = (input.max_senders as number) ?? 50;

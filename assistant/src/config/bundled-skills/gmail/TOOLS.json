@@ -494,7 +494,7 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 5000, cap 10000)"
+            "description": "Maximum messages to scan (default 2000, cap 10000)"
           },
           "max_senders": {
             "type": "number",

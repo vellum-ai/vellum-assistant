@@ -24,7 +24,7 @@ const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 /** Max sub-requests per batch HTTP call (Gmail API limit) */
 const BATCH_SUB_LIMIT = 100;
 /** Max concurrent batch calls */
-const BATCH_CONCURRENCY = 5;
+const BATCH_CONCURRENCY = 8;
 
 export class GmailApiError extends Error {
   constructor(
