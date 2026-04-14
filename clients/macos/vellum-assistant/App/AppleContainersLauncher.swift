@@ -210,7 +210,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(
-                    "Failed to initialize guardian token — the assistant runtime did not respond to bootstrap requests after \(Self.guardianInitMaxAttempts) attempts."
+                    "Failed to initialize guardian token after \(Self.guardianInitMaxAttempts) attempts. The assistant runtime may have failed to start — check system logs for details."
                 )
             }
         }
@@ -408,9 +408,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             }
 
             if attempt < gatewayReadyMaxAttempts {
-                if attempt % 5 == 0 {
-                    onProgress?("Waiting for gateway to start (attempt \(attempt)/\(gatewayReadyMaxAttempts))...")
-                }
+                await onProgress?("Waiting for gateway to start (\(attempt)/\(gatewayReadyMaxAttempts))...")
                 try? await Task.sleep(nanoseconds: gatewayReadyRetryDelay)
                 guard !Task.isCancelled else { return false }
             }
@@ -429,11 +427,10 @@ final class AppleContainersLauncher: AssistantManagementClient {
     ///
     /// The gateway proxies this request to the assistant runtime, which may
     /// still be booting after the gateway becomes healthy. We retry with
-    /// exponential backoff (2s → 4s → 8s, capped at 8s) for up to 30
-    /// attempts (~222s of sleep time, plus request timeouts) to
-    /// accommodate slow runtime startup.
+    /// exponential backoff (1s → 2s → 4s → 8s, capped at 8s) for up to
+    /// 30 attempts to accommodate slow runtime startup.
     private static let guardianInitMaxAttempts = 30
-    private static let guardianInitBaseDelay: UInt64 = 2_000_000_000 // 2 seconds
+    private static let guardianInitBaseDelay: UInt64 = 1_000_000_000 // 1 second
     private static let guardianInitMaxDelay: UInt64 = 8_000_000_000  // 8 seconds
 
     @discardableResult
@@ -474,26 +471,33 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 }
                 guard httpResponse.statusCode == 200 else {
                     let elapsed = ContinuousClock.now - startTime
-                    let responseBody = String(data: data, encoding: .utf8) ?? ""
-                    log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) failed (HTTP \(httpResponse.statusCode), \(elapsed, privacy: .public)): \(responseBody, privacy: .public)")
+                    let status = httpResponse.statusCode
 
                     // A 403 means the bootstrap secret was already consumed or
                     // is invalid — retrying won't help.
-                    if httpResponse.statusCode == 403 {
-                        log.error("Guardian token lease rejected with 403 — bootstrap secret consumed or invalid")
+                    if status == 403 {
+                        log.error("Guardian token lease rejected with 403 after \(attempt) attempt(s) (\(elapsed, privacy: .public)) — bootstrap secret consumed or invalid")
                         return false
                     }
 
+                    // 502/503 mean the gateway can't reach the runtime yet —
+                    // this is expected while the runtime is still booting.
+                    // Don't log the full HTML error page, just the status.
+                    if status == 502 || status == 503 {
+                        log.info("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts): HTTP \(status) — runtime still starting (\(elapsed, privacy: .public))")
+                    } else {
+                        let responseBody = String(data: data, encoding: .utf8) ?? ""
+                        log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) failed (HTTP \(status), \(elapsed, privacy: .public)): \(responseBody, privacy: .public)")
+                    }
+
                     if attempt < guardianInitMaxAttempts {
-                        if attempt % 5 == 0 {
-                            onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
-                        }
+                        await onProgress?("Waiting for assistant runtime (\(attempt)/\(guardianInitMaxAttempts))...")
                         try? await Task.sleep(nanoseconds: currentDelay)
                         guard !Task.isCancelled else { return false }
                         currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                         continue
                     }
-                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public))")
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public)) — last HTTP status: \(status)")
                     return false
                 }
 
@@ -521,14 +525,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 let elapsed = ContinuousClock.now - startTime
                 log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) error (\(elapsed, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                 if attempt < guardianInitMaxAttempts {
-                    if attempt % 5 == 0 {
-                        onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
-                    }
+                    await onProgress?("Waiting for assistant runtime (\(attempt)/\(guardianInitMaxAttempts))...")
                     try? await Task.sleep(nanoseconds: currentDelay)
                     guard !Task.isCancelled else { return false }
                     currentDelay = min(currentDelay * 2, guardianInitMaxDelay)
                 } else {
-                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public))")
+                    log.error("Guardian token lease failed after \(guardianInitMaxAttempts) attempts (\(elapsed, privacy: .public)) — last error: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
