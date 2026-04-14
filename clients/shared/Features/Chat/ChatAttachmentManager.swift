@@ -235,6 +235,10 @@ public final class ChatAttachmentManager {
         log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
         let acquired = await loadSemaphore.wait()
         guard acquired else { return .failure(.message("Attachment load cancelled.")) }
+        // Resolve connection mode before entering the detached task so the
+        // file-backed upload optimisation is only used when the assistant is
+        // running locally and can read the file from disk.
+        let useFileBackedUpload = (try? GatewayHTTPClient.isConnectionManaged()) != true
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
@@ -251,11 +255,15 @@ public final class ChatAttachmentManager {
                 return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
-            // For non-image files, use file-backed upload: skip reading the file
-            // into memory entirely. The assistant reads the file directly from disk,
-            // avoiding the 33% base64 overhead and the large HTTP body that can
-            // hit cloud proxy limits.
-            if !isImage {
+            // For non-image files on a local connection, use file-backed upload:
+            // skip reading the file into memory entirely. The assistant reads the
+            // file directly from disk, avoiding the 33% base64 overhead and the
+            // large HTTP body that can hit cloud proxy limits.
+            //
+            // In managed mode the assistant runs in a remote container that
+            // cannot access the client's local filesystem, so we fall back to
+            // reading the file and base64-encoding it inline.
+            if !isImage && useFileBackedUpload {
                 log.info("[Attachment] using file-backed upload id=\(attachmentId) sizeBytes=\(fileSize)")
                 return .success(ProcessedAttachmentData(
                     id: attachmentId,
