@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "IdentityInfoStore")
@@ -20,7 +21,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Ident
 enum IdentityInfoStore {
     private static var fileURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("vellum-assistant/assistant-identities.json")
+        return appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("assistant-identities.json")
     }
 
     static func load() -> [String: IdentityInfo] {

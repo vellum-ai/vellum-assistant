@@ -562,7 +562,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("apple-containers", isDirectory: true)
             .appendingPathComponent(assistantName, isDirectory: true)
     }
@@ -574,7 +574,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("apple-containers", isDirectory: true)
             .appendingPathComponent(".retired", isDirectory: true)
     }

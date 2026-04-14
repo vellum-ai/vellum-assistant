@@ -2,6 +2,7 @@ import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import Foundation
+import VellumAssistantShared
 
 /// Manages the VM boot infrastructure: the bundled Kata kernel and the
 /// vminit guest-init image pulled from the containerization registry.
@@ -87,7 +88,7 @@ struct KataKernelStore: Sendable {
             .appendingPathComponent("Library/Application Support", isDirectory: true)
 
         return appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("apple-containers", isDirectory: true)
     }
 

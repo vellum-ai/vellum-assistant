@@ -2,6 +2,7 @@ import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import Foundation
+import VellumAssistantShared
 import os
 
 private let developerVMLog = Logger(
@@ -162,7 +163,7 @@ struct DeveloperHelloWorldVMService: Sendable {
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
         return appSupport
-            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("developer-vm", isDirectory: true)
     }
 
