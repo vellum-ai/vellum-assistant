@@ -289,6 +289,11 @@ async function startDaemonFromSource(
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
+    env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
@@ -410,6 +415,11 @@ async function startDaemonWatchFromSource(
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
+    env.GATEWAY_SECURITY_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
@@ -860,6 +870,7 @@ export async function startLocalDaemon(
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
         "BASE_DATA_DIR",
+        "GATEWAY_SECURITY_DIR",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
@@ -885,6 +896,11 @@ export async function startLocalDaemon(
       // all paths under the instance directory and listens on its own port.
       if (resources) {
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
+        daemonEnv.GATEWAY_SECURITY_DIR = join(
+          resources.instanceDir,
+          ".vellum",
+          "protected",
+        );
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
         daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
@@ -1044,9 +1060,19 @@ export async function startGateway(
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
     ...(watch ? { VELLUM_DEV: "1" } : {}),
-    // Set BASE_DATA_DIR so the gateway loads the correct credentials and
-    // workspace config for this instance (mirrors the daemon env setup).
-    ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
+    // Set BASE_DATA_DIR and GATEWAY_SECURITY_DIR so the gateway loads the
+    // correct credentials and workspace config for this instance (mirrors
+    // the daemon env setup).
+    ...(resources
+      ? {
+          BASE_DATA_DIR: resources.instanceDir,
+          GATEWAY_SECURITY_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "protected",
+          ),
+        }
+      : {}),
   };
   if (publicUrl) {
     console.log(`   Ingress URL: ${publicUrl}`);
