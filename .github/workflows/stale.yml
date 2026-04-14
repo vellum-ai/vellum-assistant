@@ -14,9 +14,9 @@ jobs:
     steps:
       - uses: actions/stale@v9
         with:
-          only-issues: true
           days-before-stale: 90
           days-before-close: 14
+          days-before-pr-stale: -1
           stale-issue-label: stale
           stale-issue-message: >
             This issue has been inactive for 90 days. It will be closed in 14
@@ -29,9 +29,9 @@ jobs:
     steps:
       - uses: actions/stale@v9
         with:
-          only-pr: true
           days-before-stale: 30
           days-before-close: 7
+          days-before-issue-stale: -1
           stale-pr-label: stale
           stale-pr-message: >
             This PR has been inactive for 30 days. It will be closed in 7 days

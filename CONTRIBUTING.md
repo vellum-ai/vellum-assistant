@@ -10,24 +10,12 @@ Thank you for your interest in Vellum Assistant! We welcome contributions of all
 
 ## Development setup
 
-### Prerequisites
-
-- [Bun](https://bun.sh) (v1.x)
-- [Docker](https://docs.docker.com/get-docker/) — required for the sandbox runtime
-- macOS with [Homebrew](https://brew.sh) — needed for native client development (xcodegen is installed automatically)
-
 ### Getting started
 
 ```bash
 git clone https://github.com/vellum-ai/vellum-assistant.git
 cd vellum-assistant
-./setup.sh    # installs deps, links packages, registers the global vellum CLI
-```
-
-Copy the environment template:
-
-```bash
-cp .env.example .env
+./setup.sh    # installs Bun (if needed), installs deps, links packages, registers the global vellum CLI
 ```
 
 Verify your setup:
@@ -46,11 +34,13 @@ vellum --version
 
 **CLI only:**
 
+> **Note:** CLI interaction hasn't been heavily tested — we welcome contributions to improve the experience.
+
 ```bash
 vellum hatch   # first-time setup (only needed once)
-vellum wake    # start the assistant + gateway
-vellum client  # interact through the terminal
-vellum sleep   # stop services
+vellum wake    # start an existing assistant
+vellum client  # interact with your assistant through the terminal
+vellum sleep   # stop but do not remove an existing assistant
 ```
 
 ### Running tests
@@ -93,7 +83,7 @@ For deeper architectural context, see [ARCHITECTURE.md](ARCHITECTURE.md) and the
 1. Fork the repo and create a branch from `main`.
 2. Make your changes. Write tests where applicable.
 3. Make sure CI passes locally: `bun run lint && bun run typecheck && bun run test` in the relevant package(s).
-4. Open a PR against `main`. Fill out the PR template — especially the **Rationale**, **Test plan**, and **Prompt/plan** sections.
+4. Open a PR against `main`. Fill out the PR template.
 5. A maintainer will review your PR. We aim to respond within a few business days.
 
 ### PR guidelines
