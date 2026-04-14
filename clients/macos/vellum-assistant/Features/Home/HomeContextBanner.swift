@@ -5,7 +5,7 @@ import VellumAssistantShared
 ///
 /// Renders three server-composed segments — greeting, time-away label, and
 /// optional "N new" count — separated by middot dividers. The greeting and
-/// time-away strings are prepared by the daemon, so this view is pure
+/// time-away strings are prepared by the assistant, so this view is pure
 /// layout: no date math, no localization, no store coupling.
 ///
 /// When `banner.newCount == 0` the "N new" segment *and* its leading
@@ -31,8 +31,7 @@ struct HomeContextBannerView: View {
         }
         .font(VFont.bodySmallDefault)
         .foregroundStyle(VColor.contentSecondary)
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
         .accessibilityElement(children: .combine)
     }
 

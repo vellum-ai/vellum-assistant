@@ -2,7 +2,7 @@ import Foundation
 
 /// Shared network contract for the Home page context banner.
 ///
-/// The daemon returns this as part of the `GET /v1/home/feed` response
+/// The assistant returns this as part of the `GET /v1/home/feed` response
 /// alongside the list of `FeedItem`s. It carries the small, one-line
 /// "greeting · time-away · N new" strip that sits above the activity
 /// feed so the user immediately knows what's changed since they last
