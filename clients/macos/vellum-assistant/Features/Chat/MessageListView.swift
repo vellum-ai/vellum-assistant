@@ -140,8 +140,8 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — threads open at top.
-            .defaultScrollAnchor(.top, for: .initialOffset)
+            // Apply only to .initialOffset — threads open at bottom (latest messages).
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)

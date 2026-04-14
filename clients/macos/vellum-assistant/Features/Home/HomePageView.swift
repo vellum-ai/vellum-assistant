@@ -2,15 +2,13 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Assembles the Home page: identity column on the left, and the facts +
-/// capabilities columns on the right. This view is rendered inside
-/// ``IntelligencePanel``'s existing `VPageContainer`, so it does NOT wrap
-/// itself in another page container.
+/// capabilities columns on the right. This view is rendered inside the
+/// Home panel's `VPageContainer` in ``PanelCoordinator``, so it does NOT
+/// wrap itself in another page container.
 ///
 /// The parent owns all navigation decisions — the "Start a conversation"
 /// and capability CTAs are plain closures plumbed through from the
-/// ``PanelCoordinator``. PR 14 wires only `onStartConversation`; the
-/// capability CTAs ship as no-op stubs that PR 15 replaces with seeded
-/// new-chat handlers. Loading is driven by `store.load()` on appear; on
+/// ``PanelCoordinator``. Loading is driven by `store.load()` on appear; on
 /// transport failure the store keeps the last-good state so we never
 /// blank the UI between refreshes.
 struct HomePageView: View {

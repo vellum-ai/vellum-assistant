@@ -264,6 +264,7 @@ public struct InlineSurfaceRouter: View {
                     InlineAppCreatedCard(
                         preview: preview,
                         appId: data.appId,
+                        html: data.html,
                         isToolCallComplete: surface.isToolCallComplete,
                         onOpenApp: {
                             if let ref = surface.surfaceRef {

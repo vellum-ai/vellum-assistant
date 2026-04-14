@@ -6,6 +6,11 @@
  * exports named functions for HTTP methods (GET, POST, PUT, etc.) using
  * the standard Web API Request/Response signature.
  *
+ * Handlers receive a second `context` argument with runtime singletons
+ * (event hub, assistant ID, etc.) that would otherwise be unreachable
+ * from dynamically imported modules because Bun's cache-busting import
+ * creates separate module instances.
+ *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
  * Bun's dynamic `import()` with a cache-busting query parameter.
@@ -16,9 +21,34 @@ import { join, resolve } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceRoutesDir } from "../../util/platform.js";
+import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
 
 const log = getLogger("user-routes");
+
+// ---------------------------------------------------------------------------
+// User route context — injected into every handler as the second argument
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime context passed to user-defined route handlers.
+ *
+ * Because user route modules are loaded via dynamic `import()` with
+ * cache-busting query parameters, they get isolated module instances
+ * and cannot import process-level singletons like the event hub
+ * directly. This context bridges the gap by carrying references to
+ * the daemon's real singletons.
+ */
+export interface UserRouteContext {
+  /** The daemon's event hub singleton — use this to publish events to connected SSE clients. */
+  readonly assistantEventHub: AssistantEventHub;
+  /** The logical assistant ID used by the daemon (typically "self"). */
+  readonly assistantId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Route handler types
+// ---------------------------------------------------------------------------
 
 /** HTTP methods that can be exported from a handler module. */
 const HTTP_METHODS = [
@@ -33,8 +63,18 @@ const HTTP_METHODS = [
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
-/** The function signature that user-defined route handlers must follow. */
-type RouteHandler = (request: Request) => Response | Promise<Response>;
+/**
+ * The function signature that user-defined route handlers must follow.
+ *
+ * Handlers may accept an optional second `context` argument with runtime
+ * singletons (event hub, assistant ID). Legacy handlers that only accept
+ * `request` continue to work — the context is passed positionally but
+ * ignored if the handler doesn't declare the parameter.
+ */
+type RouteHandler = (
+  request: Request,
+  context: UserRouteContext,
+) => Response | Promise<Response>;
 
 /** A loaded handler module with its cached metadata. */
 interface CachedModule {
@@ -55,10 +95,15 @@ const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
+  private context: UserRouteContext;
 
-  constructor(options?: { handlerTimeoutMs?: number }) {
+  constructor(options: {
+    handlerTimeoutMs?: number;
+    context: UserRouteContext;
+  }) {
     this.handlerTimeoutMs =
-      options?.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
+      options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
+    this.context = Object.freeze({ ...options.context });
   }
 
   /**
@@ -192,7 +237,7 @@ export class UserRouteDispatcher {
   ): Promise<Response> {
     try {
       const result = await Promise.race([
-        Promise.resolve(handler(request)),
+        Promise.resolve(handler(request, this.context)),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("Handler timed out")),

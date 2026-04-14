@@ -5,7 +5,6 @@ import VellumAssistantShared
 /// conversation timeout, text-to-speech provider, and speech-to-text provider.
 struct VoiceSettingsView: View {
     @ObservedObject var store: SettingsStore
-    var isSttServiceEnabled: Bool = false
 
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @AppStorage("voiceConversationTimeoutSeconds") private var conversationTimeoutSeconds: Int = 30
@@ -95,9 +94,7 @@ struct VoiceSettingsView: View {
             pttCard
             conversationTimeoutCard
             ttsProviderCard
-            if isSttServiceEnabled {
-                sttProviderCard
-            }
+            sttProviderCard
         }
         .onDisappear {
             stopRecordingCustomKey()

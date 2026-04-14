@@ -383,6 +383,7 @@ export function ensureDataDir(): void {
     join(wsData, "memory"),
     join(wsData, "memory", "knowledge"),
     join(wsData, "apps"),
+    join(wsData, "attachments"),
     join(wsData, "interfaces"),
     join(wsData, "sounds"),
   ];

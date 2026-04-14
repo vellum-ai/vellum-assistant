@@ -137,23 +137,49 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
-                onStartConversation: { startNewConversation() },
-                onCapabilityCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                    conversationManager.openConversation(message: seed, forceNew: true)
+                connectionManager: connectionManager,
+                eventStreamClient: eventStreamClient,
+                store: settingsStore,
+                conversationManager: conversationManager,
+                authManager: authManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
+                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                pendingSkillId: $windowState.pendingSkillId
+            )
+        case .home:
+            homePanelView(onDismiss: { windowState.selection = nil })
+        }
+    }
+
+    @ViewBuilder
+    func homePanelView(onDismiss: @escaping () -> Void) -> some View {
+        VPageContainer(title: "Home") {
+            HomePageView(
+                store: homeStore,
+                feedStore: feedStore,
+                onStartConversation: {
+                    startNewConversation()
+                    onDismiss()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
                     }
                 },
-                onCapabilityShortcutCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                onPrimaryCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
                     conversationManager.openConversation(message: seed, forceNew: true)
+                    onDismiss()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
+                    }
+                },
+                onShortcutCTA: { capability in
+                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                    conversationManager.openConversation(message: seed, forceNew: true)
+                    onDismiss()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
                     }
                 },
                 onFeedConversationOpened: { conversationId in
@@ -169,21 +195,19 @@ extension MainWindowView {
                         windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                         return
                     }
+                    onDismiss()
                     windowState.selection = .conversation(uuid)
-                },
-                connectionManager: connectionManager,
-                eventStreamClient: eventStreamClient,
-                store: settingsStore,
-                conversationManager: conversationManager,
-                authManager: authManager,
-                homeStore: homeStore,
-                feedStore: feedStore,
-                assistantFeatureFlagStore: assistantFeatureFlagStore,
-                showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId,
-                pendingSkillId: $windowState.pendingSkillId
+                }
             )
+            .onAppear {
+                homeStore.isHomeTabVisible = true
+                homeStore.markSeen()
+            }
+            .onDisappear {
+                homeStore.isHomeTabVisible = false
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .clipped()
         }
     }
 
@@ -634,53 +658,19 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
-                onStartConversation: {
-                    startNewConversation()
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onCapabilityCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onCapabilityShortcutCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    windowState.dismissOverlay()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onFeedConversationOpened: { conversationId in
-                    windowState.dismissOverlay()
-                    guard let uuid = UUID(uuidString: conversationId) else {
-                        panelCoordinatorLog.error(
-                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
-                        )
-                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
-                        return
-                    }
-                    windowState.selection = .conversation(uuid)
-                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
-                homeStore: homeStore,
-                feedStore: feedStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
+        case .home:
+            homePanelView(onDismiss: { windowState.dismissOverlay() })
         }
     }
 

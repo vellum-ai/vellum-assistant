@@ -81,13 +81,12 @@ struct MainWindowView: View {
     @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State var isInFullscreen: Bool = false
-    /// Long-lived store for the Home page. Constructed eagerly so the
-    /// Intelligence panel's Home sub-tab always has a backing store the
-    /// instant the user toggles the `home-tab` flag on, even if the panel
-    /// is opened without a relaunch. The cost (one SSE subscriber + one
-    /// foreground observer + one cached HTTP client) is small enough that
-    /// gating construction on the flag isn't worth the runtime-toggle
-    /// surface bug it created.
+    /// Long-lived store for the Home page. Constructed eagerly so the Home
+    /// sidebar panel always has a backing store the instant the user toggles
+    /// the `home-tab` flag on, even if the panel is opened without a
+    /// relaunch. The cost (one SSE subscriber + one foreground observer +
+    /// one cached HTTP client) is small enough that gating construction on
+    /// the flag isn't worth the runtime-toggle surface bug it created.
     @State var homeStore: HomeStore
     @State var feedStore: HomeFeedStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {

@@ -120,6 +120,13 @@ final class VoiceInputManager {
     /// Whether the microphone is currently recording for PTT/dictation.
     private(set) var isRecording = false
 
+    /// Set to `true` after `handleFinalTranscription` delivers a transcription
+    /// via `onTranscription` for the current recording session. Prevents
+    /// `stopRecording()` from re-delivering via the conversation+STT block
+    /// when the native recognizer's `isFinal` callback already handled delivery.
+    /// Reset to `false` at the start of each new recording session.
+    private var transcriptionDelivered = false
+
     /// Timestamp when the current recording session started. Used to detect
     /// micro-recordings that stop almost immediately (likely failures).
     private var recordingStartTime: CFAbsoluteTime = 0
@@ -739,6 +746,7 @@ final class VoiceInputManager {
 
     private func beginRecording() {
         log.info("beginRecording() called — origin=\(String(describing: self.activeOrigin)) mode=\(String(describing: self.currentMode)) isRecording=\(self.isRecording)")
+        transcriptionDelivered = false
 
         let sttConfigured = STTProviderRegistry.isServiceConfigured
 
@@ -1233,6 +1241,7 @@ final class VoiceInputManager {
                 resolvedText = text
             }
             VoiceFeedback.playDeactivationChime()
+            transcriptionDelivered = true
             onTranscription?(resolvedText)
         case .dictation:
             guard let context = currentDictationContext else {
@@ -1534,7 +1543,13 @@ final class VoiceInputManager {
         // In conversation mode with STT-only recording (no recognition task),
         // check if the streaming session produced finals before falling back
         // to batch STT resolution.
-        if currentMode == .conversation && recognitionTask == nil && STTProviderRegistry.isServiceConfigured {
+        //
+        // Skip this block when handleFinalTranscription already delivered the
+        // transcription (e.g. native recognizer isFinal fired, which sets
+        // recognitionTask = nil before calling stopRecording). Without this
+        // guard the transcription would be delivered twice — once by
+        // handleFinalTranscription and again here.
+        if currentMode == .conversation && recognitionTask == nil && !transcriptionDelivered && STTProviderRegistry.isServiceConfigured {
             // Signal end-of-recording to the streaming client so it can flush
             // any remaining finals before we check the results.
             //
@@ -1584,6 +1599,7 @@ final class VoiceInputManager {
             if !accumulatedBuffers.isEmpty, let format = audioFormat {
                 log.info("Conversation mode batch fallback — resolving transcription via STT service (\(accumulatedBuffers.count) buffers)")
                 let sttClient = self.sttClient
+                let generation = self.recordingGeneration
                 isRecording = false
                 onRecordingStateChanged?(false)
                 activeOrigin = .hotkey
@@ -1602,6 +1618,12 @@ final class VoiceInputManager {
                         sttClient: sttClient
                     )
                     guard let self else { return }
+                    // A new recording session started while the batch STT
+                    // request was in flight — discard this stale result.
+                    guard self.recordingGeneration == generation else {
+                        log.info("Batch STT result arrived for generation \(generation) but current is \(self.recordingGeneration) — discarding stale transcription")
+                        return
+                    }
                     let trimmed = resolvedText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         VoiceFeedback.playDeactivationChime()

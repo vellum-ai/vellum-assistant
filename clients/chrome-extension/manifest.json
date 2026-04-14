@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vellum Assistant Browser Relay",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "minimum_chrome_version": "116",
   "description": "Bridges the Vellum assistant to your live browser session via Chrome DevTools Protocol (CDP) through chrome.debugger.",
 

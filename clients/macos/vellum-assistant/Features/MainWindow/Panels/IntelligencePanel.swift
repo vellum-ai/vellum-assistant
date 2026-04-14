@@ -8,17 +8,11 @@ struct IntelligencePanel: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onCreateSkill: (() -> Void)?
     var onImportMemory: ((String) -> Void)?
-    var onStartConversation: () -> Void
-    var onCapabilityCTA: ((Capability) -> Void)?
-    var onCapabilityShortcutCTA: ((Capability) -> Void)?
-    var onFeedConversationOpened: ((String) -> Void)?
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var authManager: AuthManager?
-    var homeStore: HomeStore?
-    var feedStore: HomeFeedStore?
     var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
@@ -29,41 +23,25 @@ struct IntelligencePanel: View {
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, onStartConversation: @escaping () -> Void = {}, onCapabilityCTA: ((Capability) -> Void)? = nil, onCapabilityShortcutCTA: ((Capability) -> Void)? = nil, onFeedConversationOpened: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, homeStore: HomeStore? = nil, feedStore: HomeFeedStore? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
         self.onImportMemory = onImportMemory
-        self.onStartConversation = onStartConversation
-        self.onCapabilityCTA = onCapabilityCTA
-        self.onCapabilityShortcutCTA = onCapabilityShortcutCTA
-        self.onFeedConversationOpened = onFeedConversationOpened
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
         self.authManager = authManager
-        self.homeStore = homeStore
-        self.feedStore = feedStore
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
         _pendingSkillId = pendingSkillId
-        // `home-tab` is a macos-scope flag, so it lives in
-        // `MacOSClientFeatureFlagManager`, NOT the assistant-scope
-        // `AssistantFeatureFlagStore`. The assistant store filters out
-        // macos-scope flags from its registry defaults, so calling
-        // `.isEnabled("home-tab")` on it falls through to its `?? true`
-        // fallback and silently shows the tab even when the registry says
-        // `defaultEnabled: false`. Same fix in `visibleTabs` below.
-        let homeTabFlagOn = MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
-        let defaultTab: IntelligenceTab = homeTabFlagOn ? .home : .identity
-        _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? defaultTab)
+        _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
     }
 
     private enum IntelligenceTab: String, CaseIterable {
-        case home = "Home"
         case identity = "Identity"
         case installedSkills = "Skills"
         case workspace = "Workspace"
@@ -77,7 +55,7 @@ struct IntelligencePanel: View {
         VPageContainer(title: "About \(cachedAssistantName)") {
             // Tab bar
             VTabs(
-                items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
+                items: IntelligenceTab.allCases.map { (label: $0.rawValue, tag: $0) },
                 selection: $selectedTab
             )
             .padding(.bottom, VSpacing.md)
@@ -90,36 +68,9 @@ struct IntelligencePanel: View {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }
             }
         }
-        .onChange(of: selectedTab) { _, newValue in
-            // Clear the sidebar unseen-changes dot as soon as the user
-            // navigates onto the Home sub-tab. `.onAppear` on the Home
-            // branch covers the first render; this onChange covers every
-            // subsequent tab switch back to Home.
-            if newValue == .home {
-                homeStore?.markSeen()
-            }
-        }
-        .onDisappear {
-            // Belt-and-suspenders cleanup: when the entire Intelligence
-            // panel goes away (user navigates to a conversation or another
-            // panel), make sure the Home tab is no longer counted as
-            // visible. Without this, `homeStore.isHomeTabVisible` could
-            // remain `true` if the parent removes the panel without
-            // SwiftUI firing the inner `.onDisappear` on the .home branch
-            // first, and the sidebar dot would never light up again.
-            homeStore?.isHomeTabVisible = false
-        }
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-        }
-    }
-
-    private var visibleTabs: [IntelligenceTab] {
-        let flagOn = MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
-        return IntelligenceTab.allCases.filter { tab in
-            if tab == .home { return flagOn }
-            return true
         }
     }
 
@@ -128,32 +79,6 @@ struct IntelligencePanel: View {
     @ViewBuilder
     private var tabContent: some View {
         switch selectedTab {
-        case .home:
-            if let homeStore, let feedStore {
-                HomePageView(
-                    store: homeStore,
-                    feedStore: feedStore,
-                    onStartConversation: onStartConversation,
-                    onPrimaryCTA: { capability in onCapabilityCTA?(capability) },
-                    onShortcutCTA: { capability in onCapabilityShortcutCTA?(capability) },
-                    onFeedConversationOpened: { conversationId in
-                        onFeedConversationOpened?(conversationId)
-                    }
-                )
-                .onAppear {
-                    homeStore.isHomeTabVisible = true
-                    homeStore.markSeen()
-                }
-                .onDisappear {
-                    homeStore.isHomeTabVisible = false
-                }
-                .padding(.top, VSpacing.sm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .clipped()
-            } else {
-                EmptyView()
-            }
-
         case .identity:
             IdentityPanel(
                 onClose: onClose,

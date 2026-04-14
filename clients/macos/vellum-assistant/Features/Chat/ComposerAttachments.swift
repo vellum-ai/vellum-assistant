@@ -42,7 +42,12 @@ extension ComposerView {
     }
 
     func attachmentChip(_ attachment: ChatAttachment) -> some View {
-        let fileSize = formattedFileSize(base64Length: attachment.dataLength)
+        let fileSize: String
+        if let sizeBytes = attachment.sizeBytes, attachment.dataLength == 0 {
+            fileSize = formattedFileSizeBytes(sizeBytes)
+        } else {
+            fileSize = formattedFileSize(base64Length: attachment.dataLength)
+        }
         let isImage = attachment.mimeType.hasPrefix("image/")
 
         return HStack(spacing: VSpacing.xs) {
@@ -144,7 +149,10 @@ extension ComposerView {
 
 extension ComposerView {
     func formattedFileSize(base64Length: Int) -> String {
-        let bytes = base64Length * 3 / 4
+        formattedFileSizeBytes(base64Length * 3 / 4)
+    }
+
+    func formattedFileSizeBytes(_ bytes: Int) -> String {
         if bytes < 1024 {
             return "\(bytes) B"
         } else if bytes < 1024 * 1024 {
