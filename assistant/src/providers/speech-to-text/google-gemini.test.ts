@@ -94,7 +94,7 @@ describe("GoogleGeminiProvider", () => {
     expect(inlineData?.data).toBe(audioData.toString("base64"));
   });
 
-  test("uses default model gemini-2.0-flash", async () => {
+  test("uses default model gemini-2.5-flash", async () => {
     const provider = createProviderWithMock({
       response: { text: "text" },
     });
@@ -103,7 +103,7 @@ describe("GoogleGeminiProvider", () => {
 
     const call = (mockGenerateContent as ReturnType<typeof mock>).mock
       .calls[0][0] as { model: string };
-    expect(call.model).toBe("gemini-2.0-flash");
+    expect(call.model).toBe("gemini-2.5-flash");
   });
 
   test("uses custom model when specified", async () => {

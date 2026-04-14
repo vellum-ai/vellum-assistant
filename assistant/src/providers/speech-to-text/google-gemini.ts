@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 
 import type { SttTranscribeResult } from "../../stt/types.js";
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const TRANSCRIPTION_PROMPT =
@@ -13,7 +13,7 @@ const TRANSCRIPTION_PROMPT =
 // ---------------------------------------------------------------------------
 
 export interface GoogleGeminiProviderOptions {
-  /** Gemini model to use (default: "gemini-2.0-flash"). */
+  /** Gemini model to use (default: "gemini-2.5-flash"). */
   model?: string;
   /** Override the Google AI API base URL (useful for proxies or on-prem). */
   baseUrl?: string;
