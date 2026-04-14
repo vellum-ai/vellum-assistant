@@ -299,10 +299,33 @@ struct MessageListContentView: View, Equatable {
                 let textHeight = ceil(textRect.height)
                 // Bubble padding (24) + timestamp (24) + spacing (12)
                 let cellOverhead: CGFloat = 60
-                // Estimate attachment height (images ~200pt, file chips ~40pt each)
-                let attachmentHeight: CGFloat = lastUser.message.attachments.isEmpty
-                    ? 0
-                    : lastUser.message.attachments.reduce(0) { total, _ in total + 200 }
+                // Estimate attachment height by type
+                let attachmentHeight: CGFloat = {
+                    guard !lastUser.message.attachments.isEmpty else { return 0 }
+                    var imageCount = 0
+                    var videoCount = 0
+                    var audioCount = 0
+                    var fileCount = 0
+                    for attachment in lastUser.message.attachments {
+                        if attachment.mimeType.hasPrefix("image/") {
+                            imageCount += 1
+                        } else if attachment.mimeType.hasPrefix("video/") {
+                            videoCount += 1
+                        } else if attachment.mimeType.hasPrefix("audio/") {
+                            audioCount += 1
+                        } else {
+                            fileCount += 1
+                        }
+                    }
+                    // Image grid: adaptive columns at min 160px width
+                    let columnsPerRow = max(1, Int(contentWidth / 160))
+                    let imageRows = imageCount > 0 ? CGFloat((imageCount + columnsPerRow - 1) / columnsPerRow) : 0
+                    let imageHeight = imageRows * 130 // 120pt cell + spacing
+                    let videoHeight = CGFloat(videoCount) * 200
+                    let audioHeight = CGFloat(audioCount) * 60
+                    let fileHeight = CGFloat(fileCount) * 40
+                    return imageHeight + videoHeight + audioHeight + fileHeight
+                }()
                 let isHeuristicCollapse = lastUser.message.text.count > 3_000
                     || ChatBubble.exceedsLineLimit(lastUser.message.text, limit: 40)
                 if isHeuristicCollapse {
