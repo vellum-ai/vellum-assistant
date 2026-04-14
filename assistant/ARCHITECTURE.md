@@ -335,9 +335,9 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 | Endpoint                                | Method | Description                                                                                                                                          |
 | --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`) |
-| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }`                                                                   |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata                                                                     |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                  |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears Slack channel credentials. Deleting `field=user_token` is surgical — it clears only the user token via `clearSlackUserToken` and leaves the `oauth_connection` row intact. Deleting `bot_token` or `app_token` does a full teardown. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
