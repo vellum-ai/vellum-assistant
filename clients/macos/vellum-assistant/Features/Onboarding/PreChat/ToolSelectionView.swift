@@ -62,14 +62,9 @@ struct ToolSelectionView: View {
                     onContinue()
                 }
 
-                Button {
+                VButton(label: "I'll set this up later", style: .ghost) {
                     onSkip()
-                } label: {
-                    Text("I'll set this up later")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentTertiary)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, VSpacing.xxl)
             .padding(.bottom, VSpacing.xxl)
@@ -77,13 +72,13 @@ struct ToolSelectionView: View {
             .offset(y: showFooter ? 0 : 12)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showTitle = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showGrid = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
+            withAnimation(VAnimation.slow.delay(0.5)) {
                 showFooter = true
             }
         }

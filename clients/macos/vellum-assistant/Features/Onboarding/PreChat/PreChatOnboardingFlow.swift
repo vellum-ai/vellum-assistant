@@ -52,7 +52,7 @@ struct PreChatOnboardingFlow: View {
                 }
             }
         }
-        .animation(.spring(duration: 0.5, bounce: 0.1), value: state.currentScreen)
+        .animation(VAnimation.panel, value: state.currentScreen)
         .transition(.asymmetric(
             insertion: .move(edge: .trailing).combined(with: .opacity),
             removal: .move(edge: .leading).combined(with: .opacity)
@@ -64,17 +64,15 @@ struct PreChatOnboardingFlow: View {
     @ViewBuilder
     private func backButton(action: @escaping () -> Void) -> some View {
         HStack {
-            Button {
+            VButton(
+                label: "Back",
+                leftIcon: VIcon.chevronLeft.rawValue,
+                style: .ghost,
+                size: .compact,
+                tintColor: VColor.contentSecondary
+            ) {
                 action()
-            } label: {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.chevronLeft, size: 12)
-                    Text("Back")
-                        .font(VFont.bodyMediumDefault)
-                }
-                .foregroundStyle(VColor.contentSecondary)
             }
-            .buttonStyle(.plain)
             Spacer()
         }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg, bottom: 0, trailing: VSpacing.lg))
@@ -83,7 +81,7 @@ struct PreChatOnboardingFlow: View {
     // MARK: - Navigation
 
     private func advanceTo(_ screen: Int) {
-        withAnimation(.spring(duration: 0.5, bounce: 0.1)) {
+        withAnimation(VAnimation.panel) {
             state.currentScreen = screen
         }
         state.persist()
