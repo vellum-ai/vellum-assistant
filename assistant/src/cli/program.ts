@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
+
 import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
@@ -90,6 +93,20 @@ Examples:
 
   registerShotgunCommand(program);
   registerSequenceCommand(program);
+
+  // Fail fast when no assistant workspace exists on disk. The workspace is
+  // created by `vellum hatch` and must be present for any command to work.
+  // Commander handles --help and --version before preAction fires, so those
+  // remain available even without a workspace.
+  program.hook("preAction", () => {
+    const workspaceDir = getWorkspaceDir();
+    if (!existsSync(workspaceDir)) {
+      console.error(
+        `No assistant workspace found at ${workspaceDir}.\nRun 'vellum hatch' to create an assistant first.`,
+      );
+      process.exit(1);
+    }
+  });
 
   return program;
 }
