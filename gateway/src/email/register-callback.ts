@@ -91,6 +91,10 @@ export async function registerEmailCallbackRoute(caches?: {
     ?.trim()
     .replace(/\/+$/, "");
 
+  // Best-effort: resolve email address for source_identifier display.
+  const emailAddress =
+    caches?.configFile?.getString("email", "address")?.trim() || "";
+
   const requestBody: Record<string, string> = {
     assistant_id: assistantId,
     callback_path: EMAIL_CALLBACK_PATH,
@@ -98,6 +102,9 @@ export async function registerEmailCallbackRoute(caches?: {
   };
   if (ingressUrl) {
     requestBody.callback_base_url = ingressUrl;
+  }
+  if (emailAddress) {
+    requestBody.source_identifier = emailAddress;
   }
 
   const response = await fetchImpl(
