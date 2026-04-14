@@ -12,7 +12,8 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,27 @@ if (!version) {
 
 function git(cmd: string): string {
   return execSync(`git ${cmd}`, { encoding: "utf-8" }).trim();
+}
+
+interface FeatureFlag {
+  id: string;
+  scope: string;
+  key: string;
+  label: string;
+  description: string;
+  defaultEnabled: boolean;
+}
+
+function loadDisabledFeatureFlags(): FeatureFlag[] {
+  try {
+    const registryPath = join(import.meta.dirname, "..", "meta", "feature-flags", "feature-flag-registry.json");
+    const raw = readFileSync(registryPath, "utf-8");
+    const registry = JSON.parse(raw) as { flags: FeatureFlag[] };
+    return registry.flags.filter((f) => !f.defaultEnabled);
+  } catch (error) {
+    console.warn("Failed to load feature flag registry, proceeding without flag data:", error);
+    return [];
+  }
 }
 
 function buildBasicNotes(): string {
@@ -109,6 +131,18 @@ async function main(): Promise<void> {
 
   const commitList = commits.map((c, i) => `${i + 1}. ${c}`).join("\n");
 
+  // Load feature flags that are not yet enabled by default
+  const disabledFlags = loadDisabledFeatureFlags();
+  let featureFlagRule: string;
+  if (disabledFlags.length > 0) {
+    const flagList = disabledFlags
+      .map((f) => `  - "${f.key}": ${f.description}`)
+      .join("\n");
+    featureFlagRule = `- Exclude any changes related to the following feature-flagged features (these are not yet enabled for users):\n${flagList}`;
+  } else {
+    featureFlagRule = "- Exclude all feature-flagged features from the release notes";
+  }
+
   const stream = client.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 64000,
@@ -131,7 +165,7 @@ Rules:
 - The output should ONLY be the Highlights section — no other sections
 - Do not add any text outside of the Highlights section
 - Do not wrap the output in a code fence
-- Exclude all feature-flagged features from the release notes
+${featureFlagRule}
 
 Here are the commits:
 
