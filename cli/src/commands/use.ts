@@ -2,6 +2,7 @@ import {
   findAssistantByName,
   getActiveAssistant,
   setActiveAssistant,
+  syncActiveAssistantConfigToLockfile,
 } from "../lib/assistant-config.js";
 
 export async function use(): Promise<void> {
@@ -40,5 +41,10 @@ export async function use(): Promise<void> {
   }
 
   setActiveAssistant(name);
+  // Refresh the lockfile's top-level platformBaseUrl from the newly-active
+  // assistant's workspace config so getPlatformUrl() — and downstream code
+  // like `vellum login`, ensureRegistration, and rollback — targets the
+  // right tenant.
+  syncActiveAssistantConfigToLockfile(name);
   console.log(`Active assistant set to '${name}'.`);
 }
