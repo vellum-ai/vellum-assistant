@@ -34,7 +34,6 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
