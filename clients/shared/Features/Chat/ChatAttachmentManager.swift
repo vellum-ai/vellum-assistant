@@ -252,7 +252,7 @@ public final class ChatAttachmentManager {
             }
 
             // For non-image files, use file-backed upload: skip reading the file
-            // into memory entirely. The daemon reads the file directly from disk,
+            // into memory entirely. The assistant reads the file directly from disk,
             // avoiding the 33% base64 overhead and the large HTTP body that can
             // hit cloud proxy limits.
             if !isImage {
