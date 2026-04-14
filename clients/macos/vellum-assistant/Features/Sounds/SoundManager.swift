@@ -52,6 +52,14 @@ final class SoundManager {
     /// headroom.
     private static let echoSuppressionWindow: TimeInterval = 2.0
 
+    /// Whether a valid config has ever been decoded from disk. While `false`,
+    /// fetch failures fall back to `.defaultConfig` so first-run (no file
+    /// yet) still renders sensible state. Once `true`, fetch failures
+    /// preserve the in-memory config rather than clobbering a known-good
+    /// state with defaults on a transient read error (e.g. a read that
+    /// raced a concurrent write).
+    @ObservationIgnored private var hasLoadedConfig = false
+
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
@@ -84,22 +92,33 @@ final class SoundManager {
     // MARK: - Config Loading & Saving
 
     /// Fetches and decodes config.json from the assistant's workspace via the
-    /// gateway. Falls back to `SoundsConfig.defaultConfig` if the file doesn't
-    /// exist or is malformed.
+    /// gateway. Before a successful decode has been observed, falls back to
+    /// `SoundsConfig.defaultConfig` so first-run (no file yet) still renders
+    /// sensible state. After a successful decode, transient failures (empty
+    /// body from a read that raced a concurrent write, decode errors,
+    /// network errors) preserve the in-memory config instead of clobbering
+    /// a known-good state with defaults.
     private func fetchConfig() async {
         do {
             let data = try await WorkspaceClient().fetchWorkspaceFileContent(
                 path: "data/sounds/config.json", showHidden: false
             )
             guard !data.isEmpty else {
-                config = .defaultConfig
+                if !hasLoadedConfig {
+                    config = .defaultConfig
+                }
                 return
             }
             let decoded = try JSONDecoder().decode(SoundsConfig.self, from: data)
             config = decoded
+            hasLoadedConfig = true
         } catch {
-            log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
-            config = .defaultConfig
+            if hasLoadedConfig {
+                log.warning("Failed to fetch sounds config via gateway, keeping existing: \(error.localizedDescription)")
+            } else {
+                log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
+                config = .defaultConfig
+            }
         }
     }
 
@@ -132,6 +151,7 @@ final class SoundManager {
     func saveConfig(_ newConfig: SoundsConfig) {
         config = newConfig
         lastLocalSaveAt = Date()
+        hasLoadedConfig = true
 
         Task {
             let encoder = JSONEncoder()
