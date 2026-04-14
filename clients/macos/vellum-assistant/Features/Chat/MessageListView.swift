@@ -140,8 +140,10 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — threads open at bottom (latest messages).
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // Apply only to .initialOffset — .top is reliable with LazyVStack
+            // (offset 0, no estimation needed). Imperative scroll in
+            // handleConversationSwitched() handles bottom positioning.
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
