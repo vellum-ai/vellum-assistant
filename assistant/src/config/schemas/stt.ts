@@ -5,9 +5,9 @@ import { z } from "zod";
  * an adapter.
  */
 export const VALID_STT_PROVIDERS = [
-  "openai-whisper",
   "deepgram",
   "google-gemini",
+  "openai-whisper",
 ] as const;
 
 /**

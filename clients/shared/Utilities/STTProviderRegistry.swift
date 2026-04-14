@@ -42,6 +42,19 @@ public enum STTConversationStreamingMode: String, Decodable, Sendable {
     }
 }
 
+/// Guide for obtaining API credentials from a provider.
+///
+/// Contains a short description of the steps, a URL to the provider's
+/// key-management page, and a human-readable link label for display.
+public struct STTCredentialsGuide: Decodable {
+    /// Brief instructions for obtaining an API key (1-2 sentences).
+    public let description: String
+    /// URL to the provider's API key or console page.
+    public let url: String
+    /// Human-readable label for the link (e.g. "Open Deepgram Console").
+    public let linkLabel: String
+}
+
 /// A single entry in the client-facing STT provider catalog.
 ///
 /// This struct captures the subset of provider metadata that client apps
@@ -68,6 +81,8 @@ public struct STTProviderCatalogEntry: Decodable {
     /// this to decide whether to attempt WebSocket streaming for real-time
     /// transcription or fall back to batch STT.
     public let conversationStreamingMode: STTConversationStreamingMode
+    /// Guide for obtaining API credentials from this provider.
+    public let credentialsGuide: STTCredentialsGuide?
 }
 
 /// Top-level schema for `stt-provider-catalog.json`.
@@ -157,22 +172,18 @@ private let fallbackRegistry = STTProviderRegistry(
     version: 0,
     providers: [
         STTProviderCatalogEntry(
-            id: "openai-whisper",
-            displayName: "OpenAI Whisper",
-            subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
-            apiKeyProviderName: "openai",
-            conversationStreamingMode: .incrementalBatch
-        ),
-        STTProviderCatalogEntry(
             id: "deepgram",
             displayName: "Deepgram",
             subtitle: "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
             setupMode: .apiKey,
             setupHint: "Enter your Deepgram API key to enable speech-to-text.",
             apiKeyProviderName: "deepgram",
-            conversationStreamingMode: .realtimeWs
+            conversationStreamingMode: .realtimeWs,
+            credentialsGuide: STTCredentialsGuide(
+                description: "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
+                url: "https://console.deepgram.com/",
+                linkLabel: "Open Deepgram Console"
+            )
         ),
         STTProviderCatalogEntry(
             id: "google-gemini",
@@ -181,7 +192,26 @@ private let fallbackRegistry = STTProviderRegistry(
             setupMode: .apiKey,
             setupHint: "Enter your Gemini API key to enable Google Gemini transcription.",
             apiKeyProviderName: "gemini",
-            conversationStreamingMode: .incrementalBatch
+            conversationStreamingMode: .incrementalBatch,
+            credentialsGuide: STTCredentialsGuide(
+                description: "Visit Google AI Studio, sign in with your Google account, and create an API key.",
+                url: "https://aistudio.google.com/apikey",
+                linkLabel: "Open Google AI Studio"
+            )
+        ),
+        STTProviderCatalogEntry(
+            id: "openai-whisper",
+            displayName: "OpenAI Whisper",
+            subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+            setupMode: .apiKey,
+            setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
+            apiKeyProviderName: "openai",
+            conversationStreamingMode: .incrementalBatch,
+            credentialsGuide: STTCredentialsGuide(
+                description: "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
+                url: "https://platform.openai.com/api-keys",
+                linkLabel: "Open OpenAI Platform"
+            )
         ),
     ]
 )

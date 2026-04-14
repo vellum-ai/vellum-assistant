@@ -566,16 +566,8 @@ struct VoiceSettingsView: View {
                 // API key field — label and placeholder adapt to the selected provider
                 sttApiKeyField
 
-                // Provider-specific setup hint
-                if let hint = selectedSTTProvider?.setupHint, !hint.isEmpty {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.info, size: 10)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text(hint)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                }
+                // Credentials guide — contextual help for obtaining an API key
+                sttCredentialsGuideView
 
                 // Save + Reset actions — reset is only shown for
                 // exclusive-key providers to avoid clearing shared
@@ -589,6 +581,10 @@ struct VoiceSettingsView: View {
                     onReset: { resetSTTKey() },
                     showReset: sttResetAllowed
                 )
+
+                if let sttSaveError {
+                    VInlineMessage(sttSaveError, tone: .error)
+                }
             }
         }
     }
@@ -607,9 +603,29 @@ struct VoiceSettingsView: View {
             placeholder: placeholder,
             text: $sttApiKeyText,
             isSecure: true,
-            errorMessage: sttSaveError
+            errorMessage: nil
         )
         .disabled(sttSaving)
+    }
+
+    // MARK: - STT Credentials Guide
+
+    @ViewBuilder
+    private var sttCredentialsGuideView: some View {
+        if let guide = selectedSTTProvider?.credentialsGuide,
+           let attributed = try? AttributedString(
+               markdown: "\(guide.description) [\(guide.linkLabel)](\(guide.url))"
+           ) {
+            Text(attributed)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .tint(VColor.primaryBase)
+                .lineSpacing(1)
+                .environment(\.openURL, OpenURLAction { url in
+                    NSWorkspace.shared.open(url)
+                    return .handled
+                })
+        }
     }
 
     // MARK: - STT Reset
@@ -636,22 +652,49 @@ struct VoiceSettingsView: View {
             draftSTTProvider = resolved
         }
 
-        // Persist provider change if needed
-        if draftSTTProvider != sttProviderRaw {
-            store.setSTTProvider(draftSTTProvider)
-            sttProviderRaw = draftSTTProvider
-        }
-
-        // Persist API key if provided. Clear the field and update hasKey
-        // optimistically so the UI reflects the save immediately.
+        let providerToSave = draftSTTProvider
+        let providerChanged = providerToSave != sttProviderRaw
         let trimmedKey = sttApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedKey.isEmpty {
-            sttApiKeyText = ""
-            sttProviderHasKey = true
-            store.saveSTTKey(trimmedKey, sttProviderId: draftSTTProvider)
-        }
 
-        initialSTTProvider = draftSTTProvider
-        sttSaving = false
+        Task {
+            var providerSaveSucceeded = true
+            var keySaveSucceeded = true
+
+            if providerChanged {
+                providerSaveSucceeded = await store.setSTTProvider(providerToSave).value
+                if providerSaveSucceeded {
+                    sttProviderRaw = providerToSave
+                } else {
+                    sttSaveError = "Could not save speech-to-text provider selection. Please try again."
+                }
+            }
+
+            if !trimmedKey.isEmpty {
+                let keyResult = await store.saveSTTKeyResult(
+                    trimmedKey,
+                    sttProviderId: providerToSave
+                )
+                keySaveSucceeded = keyResult.success
+                if keyResult.success {
+                    sttApiKeyText = ""
+                    sttProviderHasKey = true
+                } else {
+                    sttSaveError = keyResult.error
+                        ?? "Could not save speech-to-text API key. Please try again."
+                }
+            }
+
+            if providerSaveSucceeded {
+                initialSTTProvider = providerToSave
+            }
+
+            if providerSaveSucceeded && keySaveSucceeded {
+                sttSaveError = nil
+            } else if !providerSaveSucceeded && !keySaveSucceeded {
+                sttSaveError = "Could not save speech-to-text settings. Please try again."
+            }
+
+            sttSaving = false
+        }
     }
 }
