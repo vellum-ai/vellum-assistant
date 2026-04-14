@@ -13,6 +13,10 @@ extension DynamicPageSurfaceView {
         var onPageChanged: ((String) -> Void)?
         var onSnapshotCaptured: ((String) -> Void)?
         var onLinkOpen: ((String, [String: Any]?) -> Void)?
+        /// Called when the page requests an in-app browser overlay (e.g. for URLs
+        /// that block iframe embedding like GitHub). The native side shows a
+        /// top-level WKWebView that bypasses X-Frame-Options.
+        var onOpenInAppBrowser: ((URL) -> Void)?
         var currentHTML: String
         /// The page currently displayed in a multi-page app (e.g. "settings.html").
         var currentPage: String = "index.html"
@@ -273,6 +277,26 @@ extension DynamicPageSurfaceView {
                 }
                 let metadata = body["metadata"] as? [String: Any]
                 onLinkOpen?(urlString, metadata)
+                return
+            }
+
+            // Handle in-app browser requests from the JS bridge.
+            // Opens a native WKWebView overlay for URLs that block iframe embedding
+            // (e.g. GitHub's X-Frame-Options: DENY).
+            if let type = body["type"] as? String, type == "open_in_app_browser" {
+                guard let urlString = body["url"] as? String,
+                      let url = URL(string: urlString),
+                      let scheme = url.scheme?.lowercased(),
+                      ["http", "https"].contains(scheme) else {
+                    log.warning("open_in_app_browser: invalid URL")
+                    return
+                }
+                if sandboxMode {
+                    log.warning("open_in_app_browser: blocked in sandbox mode")
+                    return
+                }
+                log.info("open_in_app_browser: \(urlString, privacy: .public)")
+                onOpenInAppBrowser?(url)
                 return
             }
 

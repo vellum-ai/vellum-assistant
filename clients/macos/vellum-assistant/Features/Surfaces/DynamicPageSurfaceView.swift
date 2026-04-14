@@ -185,6 +185,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     /// Called with a base64-encoded PNG screenshot after the page finishes loading.
     let onSnapshotCaptured: ((String) -> Void)?
     var onLinkOpen: ((String, [String: Any]?) -> Void)?
+    /// Called when the page requests a native in-app browser overlay for a URL.
+    var onOpenInAppBrowser: ((URL) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
     let topContentInset: CGFloat
@@ -203,6 +205,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         onPageChanged: ((String) -> Void)? = nil,
         onSnapshotCaptured: ((String) -> Void)? = nil,
         onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
+        onOpenInAppBrowser: ((URL) -> Void)? = nil,
         sandboxMode: Bool = false,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
@@ -217,6 +220,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.onPageChanged = onPageChanged
         self.onSnapshotCaptured = onSnapshotCaptured
         self.onLinkOpen = onLinkOpen
+        self.onOpenInAppBrowser = onOpenInAppBrowser
         self.sandboxMode = sandboxMode
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
@@ -227,6 +231,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         let fetchBaseURL = GatewayHTTPClient.resolveWebViewCredentials()?.baseURL
         let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode, allowedFetchBaseURL: fetchBaseURL)
+        coordinator.onOpenInAppBrowser = onOpenInAppBrowser
         coordinator.surfaceId = data.appId ?? "ephemeral"
         coordinator.appId = appId
         coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
@@ -283,6 +288,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 openLink: function(url, metadata) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({
                         type: 'open_link', url: String(url), metadata: metadata || {}
+                    });
+                },
+                openInAppBrowser: function(url) {
+                    window.webkit.messageHandlers.vellumBridge.postMessage({
+                        type: 'open_in_app_browser', url: String(url)
                     });
                 },
                 _confirmPending: {},
@@ -613,6 +623,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.onDataRequest = onDataRequest
         context.coordinator.onPageChanged = onPageChanged
         context.coordinator.onLinkOpen = onLinkOpen
+        context.coordinator.onOpenInAppBrowser = onOpenInAppBrowser
 
         // Refresh timing context when the coordinator is reused across surface navigations
         // so diagnostic logs are attributed to the correct surface/app.

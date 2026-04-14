@@ -25,6 +25,7 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showShareDrawer = false
     @State private var shareButtonFrame: CGRect = .zero
     @State private var isDeployToVercelEnabled = false
+    @State private var inAppBrowserURL: URL?
 
     private static let deployToVercelFlagKey = "deploy-to-vercel"
 
@@ -197,13 +198,26 @@ struct DynamicWorkspaceWrapper: View {
                     onLinkOpen: { url, metadata in
                         surfaceManager.onLinkOpen?(url, metadata)
                     },
+                    onOpenInAppBrowser: { url in
+                        inAppBrowserURL = url
+                    },
                     topContentInset: 0,
                     bottomContentInset: 0,
                     cornerRadius: webViewCornerRadius,
                     maskedCorners: webViewMaskedCorners
                 )
-                .opacity(showVersionHistory ? 0 : 1)
-                .allowsHitTesting(!showVersionHistory)
+                .opacity(showVersionHistory || inAppBrowserURL != nil ? 0 : 1)
+                .allowsHitTesting(!showVersionHistory && inAppBrowserURL == nil)
+
+                if let browserURL = inAppBrowserURL {
+                    InAppBrowserView(
+                        url: browserURL,
+                        onClose: { inAppBrowserURL = nil },
+                        onOpenExternal: { url in
+                            NSWorkspace.shared.open(url)
+                        }
+                    )
+                }
 
                 if showVersionHistory, let appId = data.appId {
                     AppVersionHistoryPanel(
