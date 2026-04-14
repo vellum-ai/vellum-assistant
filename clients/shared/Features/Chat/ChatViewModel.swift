@@ -667,6 +667,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// underlying `ConversationModel.isChannelConversation` is true. Used by
     /// `ChatActionHandler` to suppress echo duplication when a channel user
     /// message is already visible from history reconstruction.
+    ///
+    /// NOTE: Only the macOS client currently populates this flag. iOS does not
+    /// yet plumb `isChannelConversation` from the platform layer into
+    /// `ChatViewModel`, so channel-specific echo dedup is effectively a no-op on
+    /// iOS. If iOS gains support for channel-mirrored conversations, the iOS
+    /// conversation-loading path must set this flag alongside `conversationId`.
     public var isChannelConversation: Bool = false
     /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.

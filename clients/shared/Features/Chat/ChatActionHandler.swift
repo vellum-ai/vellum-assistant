@@ -132,13 +132,18 @@ final class ChatActionHandler {
                 break
             }
 
-            // History-loaded dedup: for channel conversations, a Slack/Telegram
-            // user message may already be in `vm.messages` from history
-            // reconstruction with a different daemonMessageId than the echo
-            // carries. If an existing .user row has matching text and a tagged
-            // daemonMessageId, treat the echo as a redundant notification for an
-            // already-visible message and do not append.
-            if vm.isChannelConversation,
+            // History-loaded dedup: surface-action echoes (from
+            // conversation-surfaces.ts) can arrive with a nil messageId. For
+            // channel conversations, if an existing user row already has
+            // matching text and a daemonMessageId (loaded from history), treat
+            // the echo as a redundant notification and do not append.
+            // Channel-inbound echoes always carry a messageId, so check 1 above
+            // handles them correctly by exact-id match — scoping this branch to
+            // nil messageId avoids suppressing legitimate repeat sends (e.g. a
+            // user sending "hello" twice on Slack would otherwise collapse into
+            // a single visible bubble).
+            if echo.messageId == nil,
+               vm.isChannelConversation,
                vm.messages.contains(where: {
                    $0.role == .user
                        && $0.text == echo.text
