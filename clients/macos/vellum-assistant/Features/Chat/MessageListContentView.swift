@@ -175,6 +175,7 @@ struct MessageListContentView: View, Equatable {
                     typographyGeneration: typographyGeneration,
                     isProcessingAfterTools: state.canInlineProcessing && row.isLatestAssistant,
                     processingStatusText: state.canInlineProcessing && row.isLatestAssistant ? state.effectiveStatusText : nil,
+                    isStreamingContinuation: state.isStreamingWithText && row.isLatestAssistant,
                     hideInlineAvatar: row.isLatestAssistant && isUnanchoredThinking,
                     showAnchoredThinkingIndicator: row.isAnchoredThinkingRow,
                     anchoredThinkingLabel: row.isAnchoredThinkingRow ? thinkingLabel : "",

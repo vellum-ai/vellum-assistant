@@ -67,6 +67,7 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             typographyGeneration: typographyGeneration,
             isProcessingAfterTools: false,
             processingStatusText: nil,
+            isStreamingContinuation: false,
             hideInlineAvatar: false,
             showAnchoredThinkingIndicator: false,
             anchoredThinkingLabel: "",

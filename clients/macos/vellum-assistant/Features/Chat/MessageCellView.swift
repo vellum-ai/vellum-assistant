@@ -19,6 +19,7 @@ struct MessageCellView: View, Equatable {
             && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.isStreamingContinuation == rhs.isStreamingContinuation
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.showAnchoredThinkingIndicator == rhs.showAnchoredThinkingIndicator
             && lhs.anchoredThinkingLabel == rhs.anchoredThinkingLabel
@@ -45,6 +46,7 @@ struct MessageCellView: View, Equatable {
     let typographyGeneration: Int
     let isProcessingAfterTools: Bool
     let processingStatusText: String?
+    let isStreamingContinuation: Bool
     let hideInlineAvatar: Bool
     let showAnchoredThinkingIndicator: Bool
     let anchoredThinkingLabel: String
@@ -129,6 +131,7 @@ struct MessageCellView: View, Equatable {
                 typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
+                isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: hideInlineAvatar
             )
@@ -220,6 +223,7 @@ struct MessageCellView: View, Equatable {
                 typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
+                isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: hideInlineAvatar
             )

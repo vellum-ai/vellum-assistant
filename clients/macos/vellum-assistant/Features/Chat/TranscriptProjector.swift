@@ -150,6 +150,11 @@ enum TranscriptProjector {
             && !hasActiveToolCall
             && !canInlineProcessing
 
+        let isStreamingWithText = isSending
+            && (lastVisible?.isStreaming == true)
+            && !(lastVisible?.text.isEmpty ?? true)
+            && !hasActiveToolCall
+
         // --- Build row models ---
 
         var rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
@@ -199,6 +204,7 @@ enum TranscriptProjector {
             canInlineProcessing: canInlineProcessing,
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
             isStreamingWithoutText: isStreamingWithoutText,
+            isStreamingWithText: isStreamingWithText,
             hasMessages: !visibleMessages.isEmpty,
             hasUserMessage: hasUserMessage,
             hasActiveToolCall: hasActiveToolCall,
