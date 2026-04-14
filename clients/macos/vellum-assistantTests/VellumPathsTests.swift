@@ -6,14 +6,12 @@ final class VellumPathsTests: XCTestCase {
     // Explicit test roots so we don't depend on process environment
     private let testHome = URL(fileURLWithPath: "/tmp/test-home")
     private let testXdgConfig = URL(fileURLWithPath: "/tmp/test-home/.config")
-    private let testXdgData = URL(fileURLWithPath: "/tmp/test-home/.local/share")
 
     private func makePaths(_ env: VellumEnvironment) -> VellumPaths {
         VellumPaths(
             environment: env,
             homeDirectory: testHome,
-            xdgConfigHome: testXdgConfig,
-            xdgDataHome: testXdgData
+            xdgConfigHome: testXdgConfig
         )
     }
 
