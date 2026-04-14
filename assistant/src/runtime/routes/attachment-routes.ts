@@ -125,12 +125,13 @@ function attachmentResponse(
  */
 async function handleMultipartUpload(req: Request): Promise<Response> {
   // Pre-check Content-Length before parsing to reject oversized requests
-  // without buffering the full multipart body into memory.
+  // without buffering the full multipart body into memory. Binary uploads
+  // have no base64 overhead, so use the raw file size limit directly.
   const contentLength = req.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_UPLOAD_BODY_BYTES) {
+  if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
-      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      `File too large (limit: ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB)`,
       413,
     );
   }
@@ -161,12 +162,12 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "mimeType field is required", 400);
   }
 
-  // Secondary check on the file part itself (Content-Length may be absent
-  // or inaccurate; this catches the actual parsed file size).
-  if (file.size > MAX_UPLOAD_BODY_BYTES) {
+  // Check file part size against the raw file limit (Content-Length may be
+  // absent or inaccurate, so this is the authoritative check).
+  if (file.size > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
-      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      `File is ${Math.round(file.size / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
       413,
     );
   }
@@ -177,14 +178,6 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-
-  if (bytes.length > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
-      `File is ${Math.round(bytes.length / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
-      413,
-    );
-  }
 
   const attachment = attachmentsStore.uploadAttachmentFromBytes(
     filename,
@@ -199,6 +192,17 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
  * filename and mimeType come from URL query params.
  */
 async function handleOctetStreamUpload(req: Request): Promise<Response> {
+  // Pre-check Content-Length before buffering to reject oversized requests
+  // without reading the full body into memory.
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `File too large (limit: ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB)`,
+      413,
+    );
+  }
+
   const url = new URL(req.url);
   const filename = url.searchParams.get("filename");
   if (!filename || typeof filename !== "string") {
@@ -219,10 +223,11 @@ async function handleOctetStreamUpload(req: Request): Promise<Response> {
   }
 
   const rawBody = await req.arrayBuffer();
-  if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
+  // Post-read check (Content-Length may be absent or inaccurate).
+  if (rawBody.byteLength > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
-      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      `File is ${Math.round(rawBody.byteLength / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
       413,
     );
   }
@@ -233,14 +238,6 @@ async function handleOctetStreamUpload(req: Request): Promise<Response> {
   }
 
   const bytes = new Uint8Array(rawBody);
-
-  if (bytes.length > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
-      `File is ${Math.round(bytes.length / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
-      413,
-    );
-  }
 
   const attachment = attachmentsStore.uploadAttachmentFromBytes(
     filename,
