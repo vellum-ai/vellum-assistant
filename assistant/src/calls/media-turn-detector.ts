@@ -15,10 +15,11 @@
  * 2. **Max turn duration** — to prevent unbounded accumulation, a turn
  *    is forcibly ended when its total duration exceeds `maxTurnDurationMs`.
  *
- * Unlike the previous chunk-gap-only approach, continuous inbound media
- * frames (which Twilio sends at a steady cadence regardless of speech)
- * do not prevent turn boundaries. Only frames classified as containing
- * speech reset the silence timer.
+ * Continuous inbound media frames (which Twilio sends at a steady
+ * cadence regardless of speech) do not prevent turn boundaries. Only
+ * frames classified as containing speech reset the silence timer. Turns
+ * that never contain a speech-bearing chunk are silently discarded
+ * without firing the `onTurnEnd` callback.
  *
  * Design:
  * - Stateful but single-threaded (no locking; runs on the main event loop).
@@ -193,7 +194,14 @@ export class MediaTurnDetector {
       clearTimeout(this.silenceTimer);
     }
     this.silenceTimer = setTimeout(() => {
-      this.endTurn("silence");
+      if (this.hasSpeechInTurn) {
+        this.endTurn("silence");
+      } else {
+        // No speech was detected during the turn — reset state without
+        // emitting a turn-end callback to avoid bogus empty turns.
+        this.clearTimers();
+        this.active = false;
+      }
     }, this.silenceThresholdMs);
   }
 

@@ -59,7 +59,7 @@ const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 // ---------------------------------------------------------------------------
 
 export interface MediaStreamSttSessionCallbacks {
-  /** Called when the turn detector transitions to active (first audio chunk). */
+  /** Called when the turn detector transitions to active (first speech-bearing chunk). */
   onSpeechStart?: () => void;
 
   /**
@@ -127,6 +127,9 @@ export class MediaStreamSttSession {
 
     this.turnDetector = new MediaTurnDetector(config.turnDetector, {
       onTurnStart: () => {
+        // Clear inter-turn silence that accumulated while idle so each
+        // transcription request contains only speech-relevant chunks.
+        this.currentTurnChunks = [];
         this.callbacks.onSpeechStart?.();
       },
       onTurnEnd: (reason, durationMs) => {

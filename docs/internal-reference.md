@@ -688,7 +688,7 @@ Search daemon logs for the `media-stream-server` and `media-stt-session` logger 
 | `Media-stream barge-in accepted — cleared outbound audio` | `media-stream-server` | Caller spoke while assistant was speaking; turn interrupted |
 | `Media-stream barge-in ignored — assistant not speaking` | `media-stream-server` | Inbound audio arrived but assistant was idle/processing; no interrupt |
 | `Media stream stop event received` | `media-stream-server` | Twilio sent `stop`; call is ending |
-| `Media stream transport closed — session diagnostics` | `media-stream-server` | WebSocket closed; includes `turnsSegmented`, `transcriptFinalsProduced`, `bargeInAccepted`, `bargeInIgnored`, `terminationReason` |
+| `Media stream transport closed — session diagnostics` | `media-stream-server` | WebSocket closed; includes `turnStarts`, `transcriptFinalsProduced`, `bargeInAccepted`, `bargeInIgnored`, `terminationReason` |
 | `Media stream call session destroyed` | `media-stream-server` | Full teardown; includes session-lifetime diagnostic counters |
 | `Media stream STT session started` | `media-stt-session` | STT session initialized with stream metadata |
 | `Barge-in ignored — assistant not speaking` | `call-controller` | Controller received barge-in but was idle or processing |
@@ -700,16 +700,16 @@ Search daemon logs for the `media-stream-server` and `media-stt-session` logger 
 | --- | --- | --- |
 | **Connected but no reply** | False barge-in abort: initial inbound audio interrupted the first turn before the assistant could respond | Check logs for `barge-in accepted` immediately after `session started`. If present, the gating fix is not active. Verify `handleBargeIn` (not `handleInterrupt`) is called from `handleSpeechStart`. |
 | **Connected but no reply (no barge-in)** | Handshake/setup failure: `start` event never arrived or setup policy denied the call | Check for `Media stream session started` log. If absent, verify gateway WebSocket proxy is forwarding to the daemon. Check for `setup denied` events. |
-| **Call active but no transcript** | Turn segmentation blocked by continuous chunk cadence (pre-fix behavior) | Check `turnsSegmented` and `transcriptFinalsProduced` in the session diagnostics log. If `turnsSegmented=0`, the speech-aware detector is not receiving speech-bearing chunks. Verify audio encoding and energy levels. |
+| **Call active but no transcript** | Turn segmentation not detecting speech-bearing chunks | Check `turnStarts` and `transcriptFinalsProduced` in the session diagnostics log. If `turnStarts=0`, the speech-aware detector is not receiving speech-bearing chunks. Verify audio encoding and energy levels. |
 | **Transcript only at hangup** | Turn boundaries not detected mid-call; only `forceEnd` at stream stop produced a transcript | Check `transcriptFinalsProduced` — if it equals 1 and the call was long, speech-to-silence transitions are not being detected. Verify `detectSpeechActivity` thresholds match the audio characteristics. |
 | **Immediate abort after connect** | Controller destroyed before first turn completes | Check for `Media stream call session destroyed` appearing within 1-2 seconds of `session started`. Cross-reference with `terminationReason` in transport-close diagnostics. |
-| **Repeated bogus transcriptions** | Silent/noise frames classified as speech | Check `turnsSegmented` — if much higher than expected, the speech energy threshold is too low. Tune `SPEECH_ENERGY_THRESHOLD` in `media-stream-stt-session.ts`. |
+| **Repeated bogus transcriptions** | Silent/noise frames classified as speech | Check `turnStarts` — if much higher than expected, the speech energy threshold is too low. Tune `SPEECH_ENERGY_THRESHOLD` in `media-stream-stt-session.ts`. |
 
 #### Session Diagnostic Fields
 
 The `Media stream transport closed — session diagnostics` and `Media stream call session destroyed` log entries include:
 
-- **`turnsSegmented`** — Number of speech turns detected by the turn detector.
+- **`turnStarts`** — Number of turn-start transitions detected by the turn detector.
 - **`transcriptFinalsProduced`** — Number of non-empty transcripts delivered to the controller.
 - **`bargeInAccepted`** — Interrupts that fired (assistant was speaking).
 - **`bargeInIgnored`** — Interrupts that were suppressed (assistant idle/processing).

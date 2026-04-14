@@ -95,8 +95,8 @@ export class MediaStreamCallSession {
   private bargeInAccepted = 0;
   /** Number of barge-in attempts that were ignored (assistant not speaking). */
   private bargeInIgnored = 0;
-  /** Number of turns segmented by the STT session. */
-  private turnsSegmented = 0;
+  /** Number of turn-start transitions detected by the STT session. */
+  private turnStarts = 0;
   /** Number of transcript finals produced (non-empty). */
   private transcriptFinalsProduced = 0;
 
@@ -179,7 +179,7 @@ export class MediaStreamCallSession {
         terminationReason,
         closeCode: code,
         closeReason: reason,
-        turnsSegmented: this.turnsSegmented,
+        turnStarts: this.turnStarts,
         transcriptFinalsProduced: this.transcriptFinalsProduced,
         bargeInAccepted: this.bargeInAccepted,
         bargeInIgnored: this.bargeInIgnored,
@@ -284,7 +284,7 @@ export class MediaStreamCallSession {
     log.info(
       {
         callSessionId: this.callSessionId,
-        turnsSegmented: this.turnsSegmented,
+        turnStarts: this.turnStarts,
         transcriptFinalsProduced: this.transcriptFinalsProduced,
         bargeInAccepted: this.bargeInAccepted,
         bargeInIgnored: this.bargeInIgnored,
@@ -495,17 +495,21 @@ export class MediaStreamCallSession {
   // ── STT callbacks ─────────────────────────────────────────────────
 
   private handleSpeechStart(): void {
-    this.turnsSegmented++;
+    this.turnStarts++;
 
     // Barge-in: clear queued outbound audio and abort the in-flight LLM
     // turn only when the assistant is actively speaking. Uses the gated
     // handleBargeIn path so initial inbound audio frames do not cancel a
     // still-starting initial turn.
+    //
+    // clearAudio runs BEFORE handleBargeIn so that the end-of-turn mark
+    // enqueued by handleInterrupt (called within handleBargeIn) is not
+    // wiped by the queue flush.
     if (this.output && this.controller) {
+      this.output.clearAudio();
       const accepted = this.controller.handleBargeIn();
       if (accepted) {
         this.bargeInAccepted++;
-        this.output.clearAudio();
         log.info(
           { callSessionId: this.callSessionId },
           "Media-stream barge-in accepted — cleared outbound audio",
