@@ -38,21 +38,46 @@ interface SubscriberEntry {
   onEvict?: () => void;
 }
 
+// ── Ring-buffer constants ─────────────────────────────────────────────────────
+
+/** Max events retained per conversation for SSE replay. */
+const EVENT_BUFFER_CAPACITY = 128;
+
+/** Max number of distinct conversations tracked in the replay buffer.
+ *  Oldest conversation buffer is evicted when this cap is reached. */
+const MAX_BUFFERED_CONVERSATIONS = 256;
+
 /**
  * Lightweight pub/sub hub for `AssistantEvent` messages.
  *
  * Filtering is applied at subscription level — subscribers receive only
  * events that match their `assistantId` (and optionally `conversationId`).
  *
- * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection lives in the SSE route.
+ * Each conversation's events are retained in a capped ring buffer so that
+ * SSE reconnects with `Last-Event-ID` can replay missed events without a
+ * full history fetch.
+ *
+ * Slow-consumer protection lives in the SSE route.
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
 
-  constructor(options?: { maxSubscribers?: number }) {
+  /** Per-conversation ring buffer keyed by conversationId. */
+  private readonly conversationBuffers = new Map<string, AssistantEvent[]>();
+  private readonly eventBufferCapacity: number;
+  private readonly maxBufferedConversations: number;
+
+  constructor(options?: {
+    maxSubscribers?: number;
+    eventBufferCapacity?: number;
+    maxBufferedConversations?: number;
+  }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+    this.eventBufferCapacity =
+      options?.eventBufferCapacity ?? EVENT_BUFFER_CAPACITY;
+    this.maxBufferedConversations =
+      options?.maxBufferedConversations ?? MAX_BUFFERED_CONVERSATIONS;
   }
 
   /**
@@ -148,6 +173,9 @@ export class AssistantEventHub {
       }
     }
 
+    // Buffer the event for replay after subscriber fanout.
+    this.bufferEvent(event);
+
     if (errors.length > 0) {
       throw new AggregateError(
         errors,
@@ -186,6 +214,76 @@ export class AssistantEventHub {
   /** Returns true if the hub can accept a subscriber without evicting anyone. */
   hasCapacity(): boolean {
     return this.subscribers.size < this.maxSubscribers;
+  }
+
+  // ── Ring-buffer API ──────────────────────────────────────────────────────
+
+  /**
+   * Return all buffered events for `conversationId` whose `id` is
+   * lexicographically **after** `lastEventId` in publish order.
+   *
+   * Returns an empty array when:
+   * - `lastEventId` is null/undefined (client has no checkpoint)
+   * - `lastEventId` is not found in the buffer (too old — caller should
+   *   fall back to a full history fetch via GET /conversations/:id/history)
+   * - No events exist for this conversation
+   */
+  getEventsSince(
+    conversationId: string,
+    lastEventId: string | null,
+  ): AssistantEvent[] {
+    if (!lastEventId) return [];
+    const buffer = this.conversationBuffers.get(conversationId);
+    if (!buffer || buffer.length === 0) return [];
+
+    const idx = buffer.findIndex((e) => e.id === lastEventId);
+    if (idx === -1) return []; // id not in buffer — gap too large
+    return buffer.slice(idx + 1);
+  }
+
+  /**
+   * Remove the replay buffer for a deleted conversation to free memory.
+   */
+  onConversationDeleted(conversationId: string): void {
+    this.conversationBuffers.delete(conversationId);
+  }
+
+  /** Number of conversations currently tracked in the replay buffer. */
+  bufferedConversationCount(): number {
+    return this.conversationBuffers.size;
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────────────
+
+  /** Append an event to its conversation's ring buffer, enforcing caps. */
+  private bufferEvent(event: AssistantEvent): void {
+    const convId = event.conversationId;
+    if (!convId) return; // system events with no conversationId are not buffered
+
+    let buffer = this.conversationBuffers.get(convId);
+    if (!buffer) {
+      // Evict least-recently-used conversation buffer if at capacity.
+      if (this.conversationBuffers.size >= this.maxBufferedConversations) {
+        const oldestKey = this.conversationBuffers.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.conversationBuffers.delete(oldestKey);
+        }
+      }
+      buffer = [];
+    } else {
+      // Re-insert to move this conversation to the end of Map iteration
+      // order, ensuring LRU eviction targets the least-recently-active
+      // conversation rather than the first-inserted one.
+      this.conversationBuffers.delete(convId);
+    }
+    this.conversationBuffers.set(convId, buffer);
+
+    buffer.push(event);
+
+    // Trim oldest entries when over capacity.
+    if (buffer.length > this.eventBufferCapacity) {
+      buffer.splice(0, buffer.length - this.eventBufferCapacity);
+    }
   }
 }
 
