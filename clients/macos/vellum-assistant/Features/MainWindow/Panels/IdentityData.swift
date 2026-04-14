@@ -356,7 +356,15 @@ extension LockfileAssistant {
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
         case "apple-container":
-            let base = instanceDir ?? NSHomeDirectory()
+            // New entries write instanceDir to the lockfile. Old entries only
+            // had mgmtSocket inside the instanceDir, so fall back to deriving
+            // from the socket parent — but NOT when the socket is under /tmp
+            // (the new short-path location).
+            let base = instanceDir
+                ?? mgmtSocket.flatMap { sock in
+                    sock.hasPrefix("/tmp/") ? nil : URL(fileURLWithPath: sock).deletingLastPathComponent().path
+                }
+                ?? NSHomeDirectory()
             return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()
