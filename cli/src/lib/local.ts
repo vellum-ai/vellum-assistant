@@ -867,7 +867,10 @@ export async function startLocalDaemon(
         HOME: process.env.HOME || home,
         PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
       };
-      // Forward optional config env vars the daemon may need
+      // Forward optional config env vars the daemon may need.
+      // `VELLUM_ENVIRONMENT` must be forwarded so the daemon resolves
+      // env-scoped paths (device ID, platform/guardian tokens, XDG
+      // config dir) to the same location as the CLI that spawned it.
       for (const key of [
         "ANTHROPIC_API_KEY",
         "APP_VERSION",
