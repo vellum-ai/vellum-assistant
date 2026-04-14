@@ -22,7 +22,6 @@ public struct VellumPaths {
     public let environment: VellumEnvironment
     public let homeDirectory: URL
     public let xdgConfigHome: URL
-    public let xdgDataHome: URL
 
     /// Resolved path bundle for the current process environment.
     ///
@@ -33,21 +32,18 @@ public struct VellumPaths {
         VellumPaths(
             environment: .current,
             homeDirectory: URL(fileURLWithPath: NSHomeDirectory()),
-            xdgConfigHome: Self.resolveXdgConfigHome(),
-            xdgDataHome: Self.resolveXdgDataHome()
+            xdgConfigHome: Self.resolveXdgConfigHome()
         )
     }()
 
     public init(
         environment: VellumEnvironment,
         homeDirectory: URL,
-        xdgConfigHome: URL,
-        xdgDataHome: URL
+        xdgConfigHome: URL
     ) {
         self.environment = environment
         self.homeDirectory = homeDirectory
         self.xdgConfigHome = xdgConfigHome
-        self.xdgDataHome = xdgDataHome
     }
 
     // MARK: - Path getters
@@ -113,23 +109,15 @@ public struct VellumPaths {
     private static func resolveXdgConfigHome() -> URL {
         if let raw = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
+            !raw.isEmpty,
+            // XDG Base Directory spec requires absolute paths; relative values
+            // are ignored for parity with the TypeScript env package which
+            // also doesn't resolve them.
+            raw.hasPrefix("/")
         {
             return URL(fileURLWithPath: raw)
         }
         return URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".config")
-    }
-
-    private static func resolveXdgDataHome() -> URL {
-        if let raw = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
-        {
-            return URL(fileURLWithPath: raw)
-        }
-        return URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".local")
-            .appendingPathComponent("share")
     }
 }
