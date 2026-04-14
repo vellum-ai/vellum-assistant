@@ -111,9 +111,6 @@ struct MessageListView: View {
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
-    /// Starts false on fresh mount; set to true after scroll restore settles.
-    /// Hides the scroll view during the restore window to prevent jitter.
-    @State var isScrollRestored = false
 
     // MARK: - Body
 
@@ -143,13 +140,14 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
+            // Apply only to .initialOffset — threads open at top.
             .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
+            .id(conversationId)
             .frame(width: widths.scrollSurfaceWidth)
-            .opacity(isScrollRestored ? 1 : 0)
             .overlay(alignment: .bottom) {
                 ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
             }

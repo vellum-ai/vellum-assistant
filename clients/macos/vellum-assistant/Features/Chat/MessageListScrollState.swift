@@ -176,8 +176,6 @@ final class MessageListScrollState {
         paginationTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
-        switchRestoreTask?.cancel()
-        switchRestoreTask = nil
 
         // Briefly hide scroll indicators during switch
         hideScrollIndicatorsBriefly()
@@ -194,8 +192,6 @@ final class MessageListScrollState {
         paginationTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
-        switchRestoreTask?.cancel()
-        switchRestoreTask = nil
         isPaginationInFlight = false
         lastMessageId = nil
         scrollContentHeight = 0
@@ -212,8 +208,5 @@ final class MessageListScrollState {
     @ObservationIgnored var isPaginationInFlight: Bool = false
     @ObservationIgnored var paginationTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
-    /// Multi-stage scroll-to-bottom task fired on conversation switch / first mount.
-    /// Cancelled on rapid switching and when a deep-link anchor is pending.
-    @ObservationIgnored var switchRestoreTask: Task<Void, Never>?
 
 }

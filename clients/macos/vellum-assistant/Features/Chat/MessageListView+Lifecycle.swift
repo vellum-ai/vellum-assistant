@@ -35,9 +35,6 @@ extension MessageListView {
         // Handle pending anchor if already set.
         if let id = anchorMessageId,
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
-            // Deep-link anchor found — cancel any restore so it isn't overridden.
-            scrollState.switchRestoreTask?.cancel()
-            scrollState.switchRestoreTask = nil
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
             $scrollPosition.wrappedValue.scrollTo(id: displayId, anchor: .center)
@@ -45,10 +42,6 @@ extension MessageListView {
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
         } else if anchorMessageId != nil {
-            // Anchor pending but not yet found — cancel restore so deep-link
-            // anchors aren't overridden by the bottom-scroll restore.
-            scrollState.switchRestoreTask?.cancel()
-            scrollState.switchRestoreTask = nil
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
             if scrollState.anchorSetTime == nil { scrollState.anchorSetTime = Date() }
             // Start the independent timeout if not already running.
@@ -65,29 +58,9 @@ extension MessageListView {
                     scrollState.anchorTimeoutTask = nil
                 }
             }
-        } else if !isConversationSwitch {
-            // First mount (no prior conversationId, no anchor) — also needs
-            // multi-stage scroll since the first conversation load must land
-            // at the bottom, same as a switch.
-            scrollState.switchRestoreTask?.cancel()
-            let scrollBinding = $scrollPosition
-            scrollState.switchRestoreTask = Task { @MainActor in
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-                withAnimation(VAnimation.fast) {
-                    isScrollRestored = true
-                }
-
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-                scrollState.switchRestoreTask = nil
-            }
         }
+        // For initial load (no anchor, no conversation switch),
+        // `.defaultScrollAnchor(.top)` handles positioning declaratively.
     }
 
     // MARK: - onChange handlers
@@ -222,32 +195,8 @@ extension MessageListView {
         scrollState.lastAutoFocusedRequestId = nil
         // Seed lastMessageId so scroll-to-bottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Multi-stage scroll-to-bottom: gives LazyVStack time to materialize
-        // bottom cells across multiple layout passes. Targets "scroll-bottom-anchor"
-        // (a real Color.clear view at the absolute content bottom) instead of a
-        // message ID, avoiding height estimation errors from unmaterialized cells.
-        scrollState.switchRestoreTask?.cancel()
-        let scrollBinding = $scrollPosition
-        scrollState.switchRestoreTask = Task { @MainActor in
-            // Stage 0: immediate — catches conversations already laid out
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-            // Stage 1: ~3 frames (50ms) — LazyVStack initial materialization
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-            // Fade in after scroll is positioned
-            withAnimation(VAnimation.fast) {
-                isScrollRestored = true
-            }
-
-            // Stage 2: slower content (150ms) — final correction
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-            scrollState.switchRestoreTask = nil
-        }
+        // Don't write to scrollPosition — `.defaultScrollAnchor(.top)` handles
+        // positioning via the `.id(conversationId)` recreation.
     }
 
     func handleAnchorMessageTask() async {
