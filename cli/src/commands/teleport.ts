@@ -898,7 +898,29 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    const { assistant: result } = await hatchAssistant(token);
+    const { assistant: result, reusedExisting } = await hatchAssistant(token);
+
+    // Defensive safety net — should not happen because of the pre-check in
+    // teleport(), but guards against a TOCTOU race between the pre-check and
+    // hatch (e.g. another client hatches in the GCS-upload window).
+    if (reusedExisting) {
+      const entry: AssistantEntry = {
+        assistantId: result.id,
+        runtimeUrl: getPlatformUrl(),
+        cloud: "vellum",
+        species: "vellum",
+        hatchedAt: new Date().toISOString(),
+      };
+      saveAssistantEntry(entry);
+      console.error(
+        `Error: You already have a platform assistant '${result.id}'.`,
+      );
+      console.error(
+        `Retire it first with 'vellum retire ${result.id}', then retry the teleport.`,
+      );
+      process.exit(1);
+    }
+
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),

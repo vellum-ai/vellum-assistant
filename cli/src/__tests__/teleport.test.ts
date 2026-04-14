@@ -785,7 +785,7 @@ describe("resolveOrHatchTarget", () => {
     expect(result.assistantId).toBe("platform-new-id");
   });
 
-  test("platform with no name -> hatch reusedExisting passes through (pre-check is in teleport)", async () => {
+  test("platform with no name -> blocks when hatch returns reusedExisting (defensive safety net)", async () => {
     findAssistantByNameMock.mockReturnValue(null);
     hatchAssistantMock.mockResolvedValue({
       assistant: {
@@ -796,10 +796,25 @@ describe("resolveOrHatchTarget", () => {
       reusedExisting: true,
     });
 
-    // resolveOrHatchTarget no longer blocks on reusedExisting — the pre-check
-    // in teleport() handles that before the GCS upload.
-    const result = await resolveOrHatchTarget("platform", undefined);
-    expect(result.assistantId).toBe("existing-platform-id");
+    // Defensive safety net: even though the pre-check in teleport() should
+    // catch this first, resolveOrHatchTarget still blocks on reusedExisting
+    // to guard against a TOCTOU race (matching the Swift client behavior).
+    await expect(resolveOrHatchTarget("platform", undefined)).rejects.toThrow(
+      "process.exit:1",
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("already have a platform assistant"),
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Retire it first"),
+    );
+    // The existing assistant is saved to the lockfile so `vellum retire` can find it
+    expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantId: "existing-platform-id",
+        cloud: "vellum",
+      }),
+    );
   });
 
   test("existing assistant with wrong cloud -> rejects", async () => {
