@@ -22,11 +22,18 @@ final class PodRuntimeTests: XCTestCase {
         XCTAssertEqual(config.rootfsSizeInBytes, 1024 * 1024 * 1024)
         XCTAssertNil(config.bootstrapSecret)
         XCTAssertNil(config.cesServiceToken)
+        XCTAssertFalse(config.skipRegistryPull)
     }
 
     func testMissingImageRefErrorDescription() {
         let error = AppleContainersPodRuntime.PodRuntimeError.missingImageRef(.gateway)
         XCTAssertTrue(error.errorDescription!.contains("vellum-gateway"))
+    }
+
+    func testLocalImageNotFoundErrorDescription() {
+        let error = AppleContainersPodRuntime.PodRuntimeError.localImageNotFound("docker.io/vellumai/vellum-assistant:latest")
+        XCTAssertTrue(error.errorDescription!.contains("vellum-assistant"))
+        XCTAssertTrue(error.errorDescription!.contains("locally-built image not found".lowercased()) || error.errorDescription!.contains("Locally-built image not found"))
     }
 }
 

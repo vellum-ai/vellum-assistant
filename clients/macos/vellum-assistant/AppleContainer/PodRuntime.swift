@@ -27,6 +27,10 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         var bootstrapSecret: String?
         var cesServiceToken: String?
         var platformURL: String?
+        /// When `true`, `pullImage` only looks in the local cache and never
+        /// contacts a remote registry. Set by the launcher when local builds
+        /// have pre-populated the image store.
+        var skipRegistryPull: Bool = false
         /// Size of the ext4 rootfs block device per service container.
         /// Size declared in ext4 superblock metadata. Must be >= the unpacked
         /// image content. APFS uses sparse files so this doesn't consume real
@@ -352,6 +356,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
 
     enum PodRuntimeError: LocalizedError {
         case missingImageRef(VellumServiceName)
+        case localImageNotFound(String)
         case networkSetupFailed
         case podNotRunning
 
@@ -359,6 +364,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             switch self {
             case .missingImageRef(let service):
                 return "No image reference provided for \(service.rawValue)."
+            case .localImageNotFound(let ref):
+                return "Locally-built image not found in cache: \(ref). Ensure Docker is available and the local build succeeded."
             case .networkSetupFailed:
                 return "Failed to create vmnet network interface for pod."
             case .podNotRunning:
@@ -383,6 +390,10 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
     }
 
     /// Pulls an OCI image (or returns it from cache).
+    ///
+    /// When `config.skipRegistryPull` is `true` (local builds), only the
+    /// local cache is consulted — a missing image is a hard error rather
+    /// than triggering a Docker Hub pull.
     private func pullImage(
         reference: String,
         store: ImageStore,
@@ -391,6 +402,9 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         do {
             return try await store.get(reference: reference)
         } catch let error as ContainerizationError where error.code == .notFound {
+            if config.skipRegistryPull {
+                throw PodRuntimeError.localImageNotFound(reference)
+            }
             await progress("Pulling \(reference)...")
             return try await store.pull(reference: reference)
         }
