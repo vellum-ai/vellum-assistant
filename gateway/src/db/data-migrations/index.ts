@@ -7,14 +7,19 @@
  *
  * To add a data migration:
  *   1. Create `m<NNNN>-<name>.ts` in this folder exporting up() and down().
- *      The file is auto-discovered at startup — no manual registration needed.
+ *   2. Import it below and append an entry to STATIC_MIGRATIONS.
+ *
+ * Static registration is required because the gateway is compiled into a
+ * native binary for macOS distribution via `bun build --compile`. In a
+ * compiled Bun binary, `import.meta.dirname` resolves to the virtual
+ * filesystem and `readdirSync` throws ENOENT.
  */
 
 import type { Database } from "bun:sqlite";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
+
+import * as m0001 from "./m0001-guardian-init-lock.js";
 
 const log = getLogger("data-migrations");
 
@@ -25,18 +30,9 @@ type MigrationModule = {
   down: () => MigrationResult;
 };
 
-const MIGRATION_RE = /^m\d{4}-.+\.ts$/;
-
-const MIGRATIONS: { key: string; mod: MigrationModule }[] = readdirSync(
-  import.meta.dirname!,
-)
-  .filter((f) => MIGRATION_RE.test(f))
-  .sort()
-  .map((f) => ({
-    key: f.replace(/\.ts$/, ""),
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    mod: require(join(import.meta.dirname!, f)) as MigrationModule,
-  }));
+const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
+  { key: "m0001-guardian-init-lock", mod: m0001 },
+];
 
 /**
  * Execute any one-time data migrations that haven't run yet.

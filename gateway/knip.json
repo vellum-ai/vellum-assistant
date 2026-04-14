@@ -1,8 +1,4 @@
 {
-  "entry": [
-    "src/**/*.test.ts",
-    "src/**/__tests__/**/*.ts",
-    "src/db/data-migrations/m[0-9][0-9][0-9][0-9]-*.ts"
-  ],
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
   "project": ["src/**/*.ts"]
 }
