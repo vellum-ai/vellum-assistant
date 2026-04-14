@@ -46,6 +46,12 @@ public final class HomeStore {
     @ObservationIgnored var sseTask: Task<Void, Never>?
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
 
+    /// Monotonically-increasing generation token bumped on every `load()`
+    /// entry. Used to discard out-of-order responses when concurrent
+    /// `load()` calls overlap (SSE handler + foreground observer +
+    /// HomePageView.task can all fire in the same tick).
+    @ObservationIgnored private var loadGeneration: UInt64 = 0
+
     // MARK: - Lifecycle
 
     public init(client: HomeStateClient, messageStream: AsyncStream<ServerMessage>) {
@@ -68,11 +74,27 @@ public final class HomeStore {
     ///
     /// Leaves `state` unchanged on failure so the UI keeps showing whatever
     /// we last successfully fetched. Errors are logged, never thrown out.
+    ///
+    /// Concurrent calls are guarded by `loadGeneration`: each call captures
+    /// its own generation token at entry, and only applies its result if it
+    /// is still the latest call when the network response lands. This makes
+    /// the SSE handler / foreground observer / HomePageView.task triple-fire
+    /// race safe — older responses are silently discarded instead of
+    /// overwriting newer state.
     public func load() async {
+        loadGeneration &+= 1
+        let myGeneration = loadGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            // Only the latest in-flight call should clear `isLoading`.
+            if loadGeneration == myGeneration {
+                isLoading = false
+            }
+        }
         do {
             let next = try await client.fetchRelationshipState()
+            // Drop the result if a newer `load()` started while we awaited.
+            guard loadGeneration == myGeneration else { return }
             self.state = next
         } catch {
             log.error("HomeStore.load failed: \(error.localizedDescription)")

@@ -71,7 +71,7 @@ extension MainWindowView {
     @ViewBuilder
     var intelligenceUnseenChangesDot: some View {
         if assistantFeatureFlagStore.isEnabled("home-tab")
-            && homeStore.hasUnseenChanges
+            && (homeStore?.hasUnseenChanges ?? false)
             && windowState.selection != .panel(.intelligence) {
             Circle()
                 .fill(VColor.systemNegativeStrong)
