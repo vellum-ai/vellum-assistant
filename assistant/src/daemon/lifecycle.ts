@@ -490,10 +490,10 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
-      // Write a dev-only fallback capability token to `~/.vellum/daemon-token`
-      // so developers can manually pair the chrome extension without the
-      // native messaging helper. Production pairing goes through
-      // `POST /v1/browser-extension-pair` via the native helper.
+      // Write a dev-only fallback capability token to the per-instance
+      // protected directory so developers can manually pair the chrome
+      // extension without the native messaging helper. Production pairing
+      // goes through `POST /v1/browser-extension-pair` via the native helper.
       try {
         writeDaemonTokenFallback(localGuardianPrincipalId);
       } catch (err) {

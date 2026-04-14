@@ -27,7 +27,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -375,18 +374,19 @@ export function verifyHostBrowserCapability(
  * (PRs 7/12/13).
  */
 export function getDaemonTokenFilePath(): string {
-  // Always under `~/.vellum/` (not the configurable workspace dir) so the
-  // native messaging helper can find it at a fixed path regardless of
-  // workspace overrides. This is a dev-only convenience path — production
-  // pairing goes through the native messaging flow.
-  return join(homedir(), ".vellum", "daemon-token");
+  // Stored under the per-instance protected directory. Both writer and
+  // reader run in the same daemon process, so they resolve the same
+  // per-instance path (honoring BASE_DATA_DIR for multi-instance setups).
+  // This is a dev-only convenience path — production pairing goes through
+  // the native messaging flow.
+  return join(getProtectedDir(), "daemon-token");
 }
 
 /**
- * Write a freshly-minted capability token to `~/.vellum/daemon-token` with
- * 0600 permissions. Swallows errors so a failure here never blocks daemon
- * startup — this is a dev-convenience path, not a production auth
- * requirement.
+ * Write a freshly-minted capability token to the per-instance dev token
+ * file (see `getDaemonTokenFilePath`) with 0600 permissions. Swallows
+ * errors so a failure here never blocks daemon startup — this is a
+ * dev-convenience path, not a production auth requirement.
  */
 export function writeDaemonTokenFallback(guardianId: string): void {
   try {
