@@ -3,6 +3,7 @@ import AuthenticationServices
 import Carbon.HIToolbox
 import Combine
 import Foundation
+import Observation
 import os
 import VellumAssistantShared
 
@@ -613,12 +614,27 @@ public final class SettingsStore: ObservableObject {
 
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
+        // Uses a direct observation loop instead of observationStream because
+        // ModelInfoMessage (generated type) does not conform to Equatable.
         modelInfoObservationTask?.cancel()
         if let connectionManager {
             modelInfoObservationTask = Task { @MainActor [weak self] in
-                for await info in observationStream({ connectionManager.latestModelInfo }) {
+                while !Task.isCancelled {
+                    let box = CancellableContinuationBox()
+                    await withTaskCancellationHandler {
+                        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                            withObservationTracking {
+                                _ = connectionManager.latestModelInfo
+                            } onChange: {
+                                box.resume()
+                            }
+                            box.set(resume)
+                        }
+                    } onCancel: {
+                        box.resume()
+                    }
                     guard let self, !Task.isCancelled else { break }
-                    if let info {
+                    if let info = connectionManager.latestModelInfo {
                         self.applyModelInfoResponse(info)
                     }
                 }

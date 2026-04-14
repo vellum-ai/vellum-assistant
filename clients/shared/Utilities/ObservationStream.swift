@@ -64,7 +64,7 @@ public func observationStream<Value: Equatable & Sendable>(
 /// Thread-safe one-shot box that pairs a `CheckedContinuation` with a resume
 /// signal that may arrive before the continuation is stored (from `onChange` on
 /// another thread) or after task cancellation (from `onCancel`).
-private final class CancellableContinuationBox: @unchecked Sendable {
+public final class CancellableContinuationBox: @unchecked Sendable {
     private enum State {
         case empty
         case continuation(CheckedContinuation<Void, Never>)
@@ -74,9 +74,11 @@ private final class CancellableContinuationBox: @unchecked Sendable {
     private var state: State = .empty
     private let lock = NSLock()
 
+    public init() {}
+
     /// Store the continuation. If `resume()` was already called (by `onChange`
     /// or `onCancel` racing ahead), resumes immediately.
-    func set(_ c: CheckedContinuation<Void, Never>) {
+    public func set(_ c: CheckedContinuation<Void, Never>) {
         let shouldResume: Bool = lock.withLock {
             switch state {
             case .empty:
@@ -93,7 +95,7 @@ private final class CancellableContinuationBox: @unchecked Sendable {
 
     /// Signal that the continuation should resume. Safe to call from any thread,
     /// and idempotent — only the first call has an effect.
-    func resume() {
+    public func resume() {
         let c: CheckedContinuation<Void, Never>? = lock.withLock {
             switch state {
             case .empty:
