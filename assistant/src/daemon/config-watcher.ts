@@ -328,7 +328,7 @@ export class ConfigWatcher {
   }
 
   private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
-    const protectedDir = process.env.GATEWAY_SECURITY_DIR ?? getProtectedDir();
+    const protectedDir = process.env.GATEWAY_SECURITY_DIR || getProtectedDir();
 
     try {
       if (!existsSync(protectedDir)) {
