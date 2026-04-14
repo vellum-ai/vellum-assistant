@@ -13,10 +13,10 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
+import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 import { AssistantEventHub } from "../../assistant-event-hub.js";
 import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
-import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
