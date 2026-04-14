@@ -4,6 +4,12 @@ import VellumAssistantShared
 
 // MARK: - Lifecycle & Notification Handlers
 
+/// Tracks appIds that already have an in-flight preview capture so that
+/// duplicate `requestAppPreview` notifications (e.g. from both `onAppear`
+/// and `StreamingHelpers`) for the same app are coalesced into one capture.
+@MainActor
+private var inFlightPreviewAppIds = Set<String>()
+
 extension MainWindowView {
 
     func applyLifecycleModifiers<Content: View>(to content: Content) -> some View {
@@ -358,6 +364,13 @@ extension MainWindowView {
         let notificationHtml = notification.userInfo?["html"] as? String
         let forceRecapture = notification.userInfo?["forceRecapture"] as? Bool ?? false
         Task { @MainActor in
+            // De-duplicate: skip if a capture for the same appId is already
+            // in flight. This avoids redundant work when both onAppear and
+            // StreamingHelpers fire for the same card simultaneously.
+            guard !inFlightPreviewAppIds.contains(appId) else { return }
+            inFlightPreviewAppIds.insert(appId)
+            defer { inFlightPreviewAppIds.remove(appId) }
+
             // 1. Prefer the daemon's stored preview (fast, no rendering)
             //    unless the caller explicitly asked for a fresh capture (e.g.
             //    post-build request where the stored preview is stale).
