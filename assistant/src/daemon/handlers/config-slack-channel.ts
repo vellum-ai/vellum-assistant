@@ -224,9 +224,19 @@ export async function setSlackChannelConfig(
 
     // Cross-check existing user_token against the newly-stored bot_token's
     // workspace. A user_token persisted under a previous workspace (or whose
-    // auth.test now fails) must be cleared so reads and writes never fan out
-    // across workspaces. Best-effort: any failure fetching auth.test is treated
-    // as a reason to drop the token defensively.
+    // auth.test returns ok:false) must be cleared so reads and writes never
+    // fan out across workspaces.
+    //
+    // IMPORTANT: we only clear on a definitive negative signal —
+    // (a) auth.test returned ok:false, or
+    // (b) auth.test returned ok:true with a team_id that differs from the new
+    //     bot_token's team_id.
+    //
+    // Transient failures (network error, non-JSON response, JSON parse error)
+    // must NOT wipe a still-valid user_token: for user-scope installs,
+    // re-issuing can require admin approval. The adapter already tolerates a
+    // stale token — it will surface on next real use, at which point the user
+    // can re-run setup.
     const existingUserToken = await getSecureKeyAsync(
       credentialKey("slack_channel", "user_token"),
     );
@@ -255,13 +265,25 @@ export async function setSlackChannelConfig(
           clearReason =
             "User token from a different workspace was removed.";
         }
-      } catch {
-        shouldClear = true;
-        clearReason = "User token validation failed; it has been removed.";
+      } catch (err) {
+        // Transient failure (DNS error, network blip, connection reset,
+        // non-JSON response, JSON parse failure). Leave the user_token in
+        // place — we have no definitive signal that it's invalid. Future
+        // reads that actually hit Slack will fail naturally if the token is
+        // actually bad, and the user can re-run setup then.
+        const message = err instanceof Error ? err.message : String(err);
+        _log.warn(
+          { err: message },
+          "Skipping user_token re-validation due to transient error; leaving existing user_token in place.",
+        );
       }
       if (shouldClear) {
-        await clearSlackUserToken();
-        if (clearReason) {
+        const cleared = await clearSlackUserToken();
+        if (!cleared.success) {
+          const failMsg =
+            "User token workspace mismatch detected but removal failed; please clear it manually.";
+          warning = warning ? `${warning} ${failMsg}` : failMsg;
+        } else if (clearReason) {
           warning = warning ? `${warning} ${clearReason}` : clearReason;
         }
       }

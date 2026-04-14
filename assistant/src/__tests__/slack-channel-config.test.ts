@@ -1,6 +1,14 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const secureStorePath = join(testDir, "keys.enc");
@@ -145,6 +153,7 @@ import {
 } from "../daemon/handlers/config-slack-channel.js";
 import { credentialKey } from "../security/credential-key.js";
 import { _setStorePath } from "../security/encrypted-store.js";
+import * as secureKeys from "../security/secure-keys.js";
 import {
   _resetBackend,
   getSecureKeyAsync,
@@ -604,6 +613,134 @@ describe("Slack channel config handler", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBeUndefined();
+  });
+
+  test("POST preserves user_token when its auth.test throws a transient network error", async () => {
+    // Regression guard: a network blip during user_token re-validation must
+    // not wipe a still-valid user_token. The adapter tolerates stale tokens —
+    // they surface on next real use, not on every bot_token update.
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-still-valid",
+    );
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+
+    globalThis.fetch = (async (
+      _url: string,
+      init?: { headers?: Record<string, string> },
+    ) => {
+      const auth = init?.headers?.["Authorization"] ?? "";
+      if (auth === "Bearer xoxb-workspace-a") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_A",
+            team: "TeamA",
+            user_id: "U_BOT_A",
+            user: "bota",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (auth === "Bearer xoxp-still-valid") {
+        throw new Error("network down");
+      }
+      throw new Error(`Unexpected auth header: ${auth}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-workspace-a");
+
+    // Bot token stored successfully.
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.teamId).toBe("T_A");
+
+    // User token is UNTOUCHED — transient errors are not a reason to delete.
+    expect(result.hasUserToken).toBe(true);
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBe("xoxp-still-valid");
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeDefined();
+
+    // No warning about user_token removal — nothing was removed.
+    expect(result.warning ?? "").not.toContain("User token");
+  });
+
+  test("POST surfaces delete failure when cross-workspace clear cannot remove user_token", async () => {
+    // Regression guard: if deleteSecureKeyAsync returns "error" during the
+    // cross-workspace cleanup, the handler must report the failure (not
+    // silently claim success) and must not claim the token was removed.
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-workspace-a",
+    );
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+
+    globalThis.fetch = (async (
+      _url: string,
+      init?: { headers?: Record<string, string> },
+    ) => {
+      const auth = init?.headers?.["Authorization"] ?? "";
+      if (auth === "Bearer xoxb-workspace-b") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_B",
+            team: "TeamB",
+            user_id: "U_BOT_B",
+            user: "botb",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (auth === "Bearer xoxp-workspace-a") {
+        // Workspace mismatch — handler will try to clear the user_token.
+        return new Response(
+          JSON.stringify({ ok: true, team_id: "T_A" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected auth header: ${auth}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    // Force the user_token delete to fail. Other callers (e.g. bot_token
+    // store during setSecureKeyAsync flow) are not delete calls so they are
+    // unaffected; clearSlackChannelConfig's later deletes would be, but this
+    // test only exercises setSlackChannelConfig.
+    const userTokenKey = credentialKey("slack_channel", "user_token");
+    const deleteSpy = spyOn(secureKeys, "deleteSecureKeyAsync");
+    deleteSpy.mockImplementation(async (account: string) => {
+      if (account === userTokenKey) return "error";
+      // Fall through to real implementation would require the original ref;
+      // this test only triggers deletion of the user_token, so returning
+      // "not-found" for any other key is safe (none are asserted on).
+      return "not-found";
+    });
+
+    try {
+      const result = await setSlackChannelConfig("xoxb-workspace-b");
+
+      // Bot token store still succeeds.
+      expect(result.success).toBe(true);
+      expect(result.hasBotToken).toBe(true);
+      expect(result.teamId).toBe("T_B");
+
+      // Delete failed -> user_token is still in the store.
+      expect(
+        await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+      ).toBe("xoxp-workspace-a");
+      expect(result.hasUserToken).toBe(true);
+
+      // Warning must mention the removal failure and NOT claim removal
+      // succeeded.
+      expect(result.warning).toBeDefined();
+      expect(result.warning).toContain("removal failed");
+      expect(result.warning).not.toContain("was removed");
+    } finally {
+      deleteSpy.mockRestore();
+    }
   });
 
   test("POST rejects user token from a different workspace than the bot token", async () => {
