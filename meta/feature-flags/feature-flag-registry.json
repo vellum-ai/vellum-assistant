@@ -344,6 +344,14 @@
       "label": "Home Tab",
       "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
       "defaultEnabled": false
+    },
+    {
+      "id": "home-feed",
+      "scope": "macos",
+      "key": "home-feed",
+      "label": "Home Feed",
+      "description": "Render the activity feed section on the macOS Home page (nudges, digests, actions, threads). Requires home-tab to also be enabled.",
+      "defaultEnabled": false
     }
   ]
 }
