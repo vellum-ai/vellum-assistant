@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# post-merge — fires after `git merge` (including the merge that `git pull`
+# runs). Re-runs `bun install` when a `package.json` or `bun.lock` changed
+# between `ORIG_HEAD` (pre-merge tip) and `HEAD` (post-merge tip).
+#
+# Argument from git: $1 = squash-flag (1 if `--squash`, 0 otherwise).
+# We don't care about it — we always diff ORIG_HEAD..HEAD.
+
+set -u
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+"$HOOK_DIR/bun-install-if-deps-changed.sh" "${ORIG_HEAD:-$(git rev-parse ORIG_HEAD 2>/dev/null || echo)}" "$(git rev-parse HEAD 2>/dev/null || echo)"

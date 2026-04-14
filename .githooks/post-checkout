@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# post-checkout — fires after `git checkout` and `git switch`. Re-runs
+# `bun install` when a `package.json` or `bun.lock` changed between the
+# previous HEAD and the new HEAD.
+#
+# Arguments from git:
+#   $1 = ref of the previous HEAD
+#   $2 = ref of the new HEAD
+#   $3 = flag: 1 for branch/worktree checkout, 0 for file-only checkout
+#
+# We only run on branch/worktree checkouts — file-only checkouts do not
+# change committed manifests.
+
+set -u
+
+PREV_HEAD="${1:-}"
+NEW_HEAD="${2:-}"
+FLAG="${3:-0}"
+
+if [ "$FLAG" != "1" ]; then
+    exit 0
+fi
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+"$HOOK_DIR/bun-install-if-deps-changed.sh" "$PREV_HEAD" "$NEW_HEAD"
