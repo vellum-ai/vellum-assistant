@@ -119,7 +119,13 @@ import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { GatewayIpcServer } from "./ipc/server.js";
-import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import {
+  featureFlagRoutes,
+  getMergedFeatureFlags,
+} from "./ipc/feature-flag-handlers.js";
+import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
+import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
+import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 
 const log = getLogger("main");
 
@@ -223,6 +229,10 @@ async function main() {
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
   const configFileCache = new ConfigFileCache();
+
+  // ── Avatar sync ──
+  const avatarChannelSyncer = new AvatarChannelSyncer();
+  const avatarSyncWatcher = new AvatarSyncWatcher(avatarChannelSyncer);
 
   // ── Integration readiness flags ──
   // Track whether each integration has valid credentials so route
@@ -1640,6 +1650,17 @@ async function main() {
           "Failed to restart Slack Socket Mode after credential change",
         );
       });
+
+      // Sync avatar to Slack bot profile on credential change (including
+      // initial startup). Gated behind channel-avatar-sync feature flag.
+      if (slackReady && getMergedFeatureFlags()["channel-avatar-sync"]) {
+        avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
+        avatarChannelSyncer.syncToChannel("slack").catch((err) => {
+          log.warn({ err }, "Initial Slack avatar sync failed");
+        });
+      } else {
+        avatarChannelSyncer.unregister("slack");
+      }
     }
 
     // Register email callback route with the platform so inbound email
@@ -1663,6 +1684,10 @@ async function main() {
   // webhook reconciliation, Slack Socket Mode) during the initial poll, so no
   // additional post-start triggers are needed here.
   await credentialWatcher.start();
+
+  // Start watching avatar directory for changes after credential watcher
+  // so channel syncers are already registered before the first file event.
+  avatarSyncWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
@@ -1745,6 +1770,7 @@ async function main() {
     sleepWakeDetector.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
+    avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
     ipcServer.stop();
