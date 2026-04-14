@@ -80,7 +80,9 @@ class AssistantManagementClient {
 
         let userId: String?
         do {
-            let session = try await AuthService.shared.getSession()
+            // Short timeout — platform deregistration is best-effort and must
+            // not block local retire on a hung/offline network call.
+            let session = try await AuthService.shared.getSession(timeout: 5)
             userId = session.data?.user?.id
         } catch {
             log.info("Could not resolve user ID — skipping platform deregistration: \(error.localizedDescription)")
