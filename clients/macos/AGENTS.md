@@ -281,8 +281,22 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   
   Never trade `HStack+Spacer` for `.frame(alignment:)` in lazy containers — fewer layout nodes is not worth O(n) recursive alignment queries per node.
 - **Use `.frame(width:)` (not `.frame(maxWidth:)`) on ScrollView containers with LazyVStack**: `.frame(width:)` creates [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) which returns `bounds.midX` for alignment without querying children — the alignment cascade stops here. `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) which queries `explicitAlignment` on children, cascading O(n) through the entire `LazyVStack` subtree on every layout pass. Use a computed width (e.g. `min(containerWidth, maxWidth)`) to get responsive behavior without `_FlexFrameLayout`. Do NOT use a custom `Layout` barrier — custom `Layout` containers between the outer modifier chain and the `ScrollView` disrupt SwiftUI's internal scroll infrastructure, causing intermittent cell materialization failures.
+- **`.transaction { $0.animation = nil }` must remain on the LazyVStack** in `MessageListContentView`: This modifier suppresses all insertion/removal animations on the entire LazyVStack. Without it, ANY animated insertion triggers `motionVectors()` — an O(n) `sizeThatFits` measurement over ALL children. Do NOT remove this modifier or add `withAnimation` wrapping state mutations that flow into the LazyVStack. Cell-internal animations (expand/collapse within a bubble) use `.animation(value:)` overrides that are scoped below the transaction boundary.
+- **`turnMinHeight` must guard against non-finite `viewportHeight`**: The active assistant turn's `.frame(minHeight:)` is computed from `scrollState.viewportHeight`. If `viewportHeight` is `.infinity` or `NaN` (e.g., during initial layout before the AppKit scroll observer reports), the `minHeight` will be infinite, causing blank chat. Always guard: `viewportHeight.isFinite ? max(0, viewportHeight - offset) : 0`.
+- **Scroll system changes require testing all 7 scenarios**: streaming auto-follow, user scroll-up during streaming, "Scroll to latest" CTA tap, conversation switch, deep-link anchor scroll, window resize during streaming, and pagination load. Each scenario exercises different scroll state machine paths.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
+
+### Performance Review Checklist (Required for PRs touching chat views)
+
+Before merging any PR that modifies files in `Features/Chat/`:
+- [ ] No `.frame(maxWidth:)` or `.frame(maxHeight:)` inside LazyVStack cells — use `.frame(width:)` or `HStack+Spacer` instead
+- [ ] No `.transition(.move(edge:))` inside LazyVStack cells — use `.transition(.opacity)` instead
+- [ ] No `withAnimation` wrapping content mutations in the message list — use `.transaction { $0.animation = nil }` instead
+- [ ] No `.fixedSize()` inside LazyVStack cells — use explicit `.frame(height:)` instead
+- [ ] No nested ScrollView inside LazyVStack cells without explicit `.frame(height:)`
+- [ ] Equatable conformance updated if new properties added to cell views
+- [ ] CI guard tests pass (`cd assistant && bun test src/__tests__/swiftui-perf-guards.test.ts`)
 
 ### Naming & File Placement
 
