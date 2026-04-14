@@ -15,14 +15,23 @@ import VellumAssistantShared
 /// blank the UI between refreshes.
 struct HomePageView: View {
     @Bindable var store: HomeStore
+    @Bindable var feedStore: HomeFeedStore
     let onStartConversation: () -> Void
     let onPrimaryCTA: (Capability) -> Void
     let onShortcutCTA: (Capability) -> Void
+    /// Fired when a feed action resolves to a daemon-created conversation
+    /// — the receiver (usually `PanelCoordinator`) navigates into it.
+    let onFeedConversationOpened: (String) -> Void
 
     /// Cap the two-column layout so the right column doesn't sprawl on a
     /// 32-inch display. Beyond ~960pt the line lengths stop being readable
     /// and the page starts to feel empty in the middle.
     private let maxContentWidth: CGFloat = 920
+
+    /// `home-feed` is a macos-scope flag — same registry as `home-tab`.
+    /// Resolved once at view creation; a runtime toggle requires a rebuild
+    /// of the panel, which is acceptable for a v1 feature flag.
+    private let isHomeFeedEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("home-feed")
 
     var body: some View {
         Group {
@@ -36,6 +45,9 @@ struct HomePageView: View {
         .background(VColor.surfaceBase)
         .task {
             await store.load()
+            if isHomeFeedEnabled {
+                await feedStore.load()
+            }
         }
     }
 
@@ -50,6 +62,12 @@ struct HomePageView: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.xxl) {
                     HomeFactsSection(facts: state.facts)
+                    if isHomeFeedEnabled {
+                        HomeFeedSection(
+                            store: feedStore,
+                            onConversationOpened: onFeedConversationOpened
+                        )
+                    }
                     HomeCapabilitiesSection(
                         capabilities: state.capabilities,
                         onPrimaryCTA: onPrimaryCTA,

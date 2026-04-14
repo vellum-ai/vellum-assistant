@@ -150,12 +150,19 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onFeedConversationOpened: { conversationId in
+                    // Daemon already created the conversation in response to
+                    // `store.triggerAction`; the client just needs to navigate.
+                    guard let uuid = UUID(uuidString: conversationId) else { return }
+                    windowState.selection = .conversation(uuid)
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
                 homeStore: homeStore,
+                feedStore: feedStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
@@ -635,12 +642,18 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
+                onFeedConversationOpened: { conversationId in
+                    windowState.dismissOverlay()
+                    guard let uuid = UUID(uuidString: conversationId) else { return }
+                    windowState.selection = .conversation(uuid)
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
                 homeStore: homeStore,
+                feedStore: feedStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,

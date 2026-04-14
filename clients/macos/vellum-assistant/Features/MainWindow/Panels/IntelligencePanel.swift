@@ -11,12 +11,14 @@ struct IntelligencePanel: View {
     var onStartConversation: () -> Void
     var onCapabilityCTA: ((Capability) -> Void)?
     var onCapabilityShortcutCTA: ((Capability) -> Void)?
+    var onFeedConversationOpened: ((String) -> Void)?
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
     var authManager: AuthManager?
     var homeStore: HomeStore?
+    var feedStore: HomeFeedStore?
     var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
@@ -27,7 +29,7 @@ struct IntelligencePanel: View {
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, onStartConversation: @escaping () -> Void = {}, onCapabilityCTA: ((Capability) -> Void)? = nil, onCapabilityShortcutCTA: ((Capability) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, homeStore: HomeStore? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, onStartConversation: @escaping () -> Void = {}, onCapabilityCTA: ((Capability) -> Void)? = nil, onCapabilityShortcutCTA: ((Capability) -> Void)? = nil, onFeedConversationOpened: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, homeStore: HomeStore? = nil, feedStore: HomeFeedStore? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -35,12 +37,14 @@ struct IntelligencePanel: View {
         self.onStartConversation = onStartConversation
         self.onCapabilityCTA = onCapabilityCTA
         self.onCapabilityShortcutCTA = onCapabilityShortcutCTA
+        self.onFeedConversationOpened = onFeedConversationOpened
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
         self.authManager = authManager
         self.homeStore = homeStore
+        self.feedStore = feedStore
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
@@ -125,12 +129,16 @@ struct IntelligencePanel: View {
     private var tabContent: some View {
         switch selectedTab {
         case .home:
-            if let homeStore {
+            if let homeStore, let feedStore {
                 HomePageView(
                     store: homeStore,
+                    feedStore: feedStore,
                     onStartConversation: onStartConversation,
                     onPrimaryCTA: { capability in onCapabilityCTA?(capability) },
-                    onShortcutCTA: { capability in onCapabilityShortcutCTA?(capability) }
+                    onShortcutCTA: { capability in onCapabilityShortcutCTA?(capability) },
+                    onFeedConversationOpened: { conversationId in
+                        onFeedConversationOpened?(conversationId)
+                    }
                 )
                 .onAppear {
                     homeStore.isHomeTabVisible = true
