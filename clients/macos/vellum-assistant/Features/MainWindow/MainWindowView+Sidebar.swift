@@ -70,9 +70,15 @@ extension MainWindowView {
     /// states stay in lockstep.
     @ViewBuilder
     var intelligenceUnseenChangesDot: some View {
+        // Hide the dot only when the user is actively looking at the Home
+        // sub-tab (`isHomeTabVisible == true`). Being on a different
+        // Intelligence sub-tab (Identity, Skills, Workspace, etc.) does NOT
+        // count as "seen" — the user can be in the panel without ever opening
+        // Home. `IntelligencePanel` flips `isHomeTabVisible` via .onAppear /
+        // .onDisappear on the Home tab content, so this stays in sync.
         if assistantFeatureFlagStore.isEnabled("home-tab")
             && (homeStore?.hasUnseenChanges ?? false)
-            && windowState.selection != .panel(.intelligence) {
+            && !(homeStore?.isHomeTabVisible ?? false) {
             Circle()
                 .fill(VColor.systemNegativeStrong)
                 .frame(width: 8, height: 8)
