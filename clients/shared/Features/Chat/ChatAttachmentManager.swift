@@ -221,6 +221,9 @@ public final class ChatAttachmentManager {
         let thumbnailData: Data?
         let dataLength: Int
         let filePath: String?
+        /// Original file size in bytes. Set for file-backed attachments where
+        /// base64 encoding is skipped.
+        let originalFileSize: Int?
     }
 
     /// Reads, compresses, and thumbnails an attachment from a file URL.
@@ -233,14 +236,40 @@ public final class ChatAttachmentManager {
         let acquired = await loadSemaphore.wait()
         guard acquired else { return .failure(.message("Attachment load cancelled.")) }
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileSize = attrs[.size] as? Int,
-               fileSize > Self.memorySafetyLimit {
+            let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+
+            // Check file size from attributes before reading data.
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let fileSize = attrs[.size] as? Int else {
+                log.error("[Attachment] failed id=\(attachmentId) reason=statError")
+                return .failure(.message("Could not read file."))
+            }
+            if fileSize > Self.memorySafetyLimit {
                 let sizeMB = fileSize / (1024 * 1024)
                 log.error("[Attachment] failed id=\(attachmentId) reason=fileTooLarge sizeMB=\(sizeMB)")
                 return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
+            // For non-image files, use file-backed upload: skip reading the file
+            // into memory entirely. The daemon reads the file directly from disk,
+            // avoiding the 33% base64 overhead and the large HTTP body that can
+            // hit cloud proxy limits.
+            if !isImage {
+                log.info("[Attachment] using file-backed upload id=\(attachmentId) sizeBytes=\(fileSize)")
+                return .success(ProcessedAttachmentData(
+                    id: attachmentId,
+                    filename: filename,
+                    mimeType: mimeType,
+                    base64: "",
+                    thumbnailData: nil,
+                    dataLength: 0,
+                    filePath: url.path,
+                    originalFileSize: fileSize
+                ))
+            }
+
+            // Image path: read data, compress, generate thumbnail, base64-encode.
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -249,39 +278,23 @@ public final class ChatAttachmentManager {
                 return .failure(.message("Could not read file."))
             }
 
-            if data.count > Self.memorySafetyLimit {
-                let sizeMB = data.count / (1024 * 1024)
-                log.error("[Attachment] failed id=\(attachmentId) reason=dataTooLarge sizeMB=\(sizeMB)")
-                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
-            }
+            var finalMimeType = mimeType
+            let (compressedData, wasCompressed) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
+            let finalData = compressedData
 
-            var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-
-            var finalData = data
-            var wasCompressed = false
-            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-                let (compressedData, didCompress) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
-                finalData = compressedData
-                wasCompressed = didCompress
-
-                if wasCompressed && finalData.count < data.count {
-                    let header = [UInt8](finalData.prefix(4))
-                    if header[0] == 0xFF && header[1] == 0xD8 {
-                        mimeType = "image/jpeg"
-                    } else if header == [0x89, 0x50, 0x4E, 0x47] {
-                        mimeType = "image/png"
-                    }
+            if wasCompressed && finalData.count < data.count {
+                let header = [UInt8](finalData.prefix(4))
+                if header[0] == 0xFF && header[1] == 0xD8 {
+                    finalMimeType = "image/jpeg"
+                } else if header == [0x89, 0x50, 0x4E, 0x47] {
+                    finalMimeType = "image/png"
                 }
             }
 
-            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(mimeType) originalBytes=\(data.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
+            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(finalMimeType) originalBytes=\(data.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
 
             let base64 = finalData.base64EncodedString()
-
-            var thumbnail: Data?
-            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
-            }
+            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
 
             if wasCompressed {
                 let originalMB = Double(data.count) / (1024 * 1024)
@@ -292,11 +305,12 @@ public final class ChatAttachmentManager {
             return .success(ProcessedAttachmentData(
                 id: attachmentId,
                 filename: filename,
-                mimeType: mimeType,
+                mimeType: finalMimeType,
                 base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                filePath: url.path
+                filePath: url.path,
+                originalFileSize: nil
             ))
         }.value
         Task { await loadSemaphore.signal() }
@@ -319,6 +333,7 @@ public final class ChatAttachmentManager {
                 data: processed.base64,
                 thumbnailData: processed.thumbnailData,
                 dataLength: processed.dataLength,
+                sizeBytes: processed.originalFileSize,
                 thumbnailImage: thumbnailImage,
                 filePath: processed.filePath
             ))
@@ -389,7 +404,8 @@ public final class ChatAttachmentManager {
                 base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                filePath: nil
+                filePath: nil,
+                originalFileSize: nil
             ))
         }.value
         Task { await loadSemaphore.signal() }
