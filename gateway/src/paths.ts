@@ -42,20 +42,26 @@ export function getLegacyRootDir(): string {
   );
 }
 
+let warnedWorkspaceDir = false;
+let warnedSecurityDir = false;
+
 /**
  * Returns the workspace root for user-facing state.
  *
  * When VELLUM_WORKSPACE_DIR is set, returns that value (used in containerized
  * deployments where the workspace is a separate volume). Otherwise falls back
- * to ~/.vellum/workspace via getLegacyRootDir() and logs a warning.
+ * to ~/.vellum/workspace via getLegacyRootDir() and logs a warning (once).
  */
 export function getWorkspaceDir(): string {
   const override = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (override) return override;
-  console.warn(
-    "[gateway/paths] VELLUM_WORKSPACE_DIR is not set — falling back to getLegacyRootDir(). " +
-      "Set VELLUM_WORKSPACE_DIR explicitly in the entrypoint.",
-  );
+  if (!warnedWorkspaceDir) {
+    warnedWorkspaceDir = true;
+    console.warn(
+      "[gateway/paths] VELLUM_WORKSPACE_DIR is not set — falling back to getLegacyRootDir(). " +
+        "Set VELLUM_WORKSPACE_DIR explicitly in the entrypoint.",
+    );
+  }
   return join(getLegacyRootDir(), "workspace");
 }
 
@@ -64,14 +70,17 @@ export function getWorkspaceDir(): string {
  *
  * In Docker, this is a dedicated volume mounted at /gateway-security via the
  * GATEWAY_SECURITY_DIR env var. In local (non-Docker) mode, falls back to
- * ~/.vellum/protected/ via getLegacyRootDir() and logs a warning.
+ * ~/.vellum/protected/ via getLegacyRootDir() and logs a warning (once).
  */
 export function getGatewaySecurityDir(): string {
   const override = process.env.GATEWAY_SECURITY_DIR?.trim();
   if (override) return override;
-  console.warn(
-    "[gateway/paths] GATEWAY_SECURITY_DIR is not set — falling back to getLegacyRootDir(). " +
-      "Set GATEWAY_SECURITY_DIR explicitly in the entrypoint.",
-  );
+  if (!warnedSecurityDir) {
+    warnedSecurityDir = true;
+    console.warn(
+      "[gateway/paths] GATEWAY_SECURITY_DIR is not set — falling back to getLegacyRootDir(). " +
+        "Set GATEWAY_SECURITY_DIR explicitly in the entrypoint.",
+    );
+  }
   return join(getLegacyRootDir(), "protected");
 }
