@@ -109,7 +109,11 @@ let mockTtsSynthesizeStream: Mock<any> | null = null;
 mock.module("../tts/tts-config-resolver.js", () => ({
   resolveTtsConfig: () => ({
     provider: mockTtsProviderId,
-    providerConfig: { voiceId: "test-voice", format: "mp3" },
+    providerConfig: {
+      voiceId: "test-voice",
+      format: "mp3",
+      referenceId: "test-ref-id",
+    },
   }),
 }));
 
