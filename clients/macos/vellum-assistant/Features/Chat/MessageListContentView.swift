@@ -326,8 +326,8 @@ struct MessageListContentView: View, Equatable {
                     let fileHeight = CGFloat(fileCount) * 40
                     return imageHeight + videoHeight + audioHeight + fileHeight
                 }()
-                let isHeuristicCollapse = lastUser.message.text.count > 3_000
-                    || ChatBubble.exceedsLineLimit(lastUser.message.text, limit: 40)
+                let isHeuristicCollapse = lastUser.message.text.count > ChatBubble.heuristicUserCollapseCharacterThreshold
+                    || ChatBubble.exceedsLineLimit(lastUser.message.text, limit: ChatBubble.heuristicUserCollapseLineThreshold)
                 if isHeuristicCollapse {
                     // Heuristic-collapsed messages show truncated preview text
                     // (24 lines / 1,200 chars) + "Show more" button (30pt).

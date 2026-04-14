@@ -71,8 +71,8 @@ struct ChatBubble: View, Equatable {
     var typographyGeneration: Int = 0
     @State private var isUserMessageExpanded: Bool = false
 
-    private static let heuristicUserCollapseCharacterThreshold = 3_000
-    private static let heuristicUserCollapseLineThreshold = 40
+    static let heuristicUserCollapseCharacterThreshold = 3_000
+    static let heuristicUserCollapseLineThreshold = 40
     private static let heuristicUserPreviewCharacterLimit = 1_200
     private static let heuristicUserPreviewLineLimit = 24
 
