@@ -24,7 +24,7 @@ const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 /** Max sub-requests per batch HTTP call (Gmail API limit) */
 const BATCH_SUB_LIMIT = 100;
 /** Max concurrent batch calls */
-const BATCH_CONCURRENCY = 8;
+const BATCH_CONCURRENCY = 5;
 
 export class GmailApiError extends Error {
   constructor(
@@ -135,7 +135,18 @@ async function request<T>(
         body: extractBody(options),
       });
     } catch (err) {
-      // Network-level errors from connection.request() are not retryable
+      // Retry thrown errors that indicate a retryable status (e.g. platform
+      // proxy throws BackendError on 429 after exhausting its own retries)
+      if (
+        canRetry &&
+        attempt < MAX_RETRIES &&
+        err instanceof Error &&
+        /\b(429|5\d{2})\b/.test(err.message)
+      ) {
+        const delayMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
       throw err;
     }
 

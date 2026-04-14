@@ -11,7 +11,12 @@ import type {
 import { storeScanResult } from "./scan-result-store.js";
 import { err, ok } from "./shared.js";
 
-const MAX_MESSAGES_CAP = 10000;
+function isRateLimitError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  return /\b429\b/.test(e.message);
+}
+
+const MAX_MESSAGES_CAP = 5000;
 const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
@@ -73,6 +78,8 @@ export async function run(
     const startTime = Date.now();
     const TIME_BUDGET_MS = 90_000;
 
+    let rateLimited = false;
+
     while (allMessageIds.length < maxMessages) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
         timeBudgetExceeded = true;
@@ -80,12 +87,22 @@ export async function run(
         break;
       }
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
-      const listResp = await listMessages(
-        connection,
-        query,
-        pageSize,
-        pageToken,
-      );
+      let listResp;
+      try {
+        listResp = await listMessages(
+          connection,
+          query,
+          pageSize,
+          pageToken,
+        );
+      } catch (e) {
+        if (isRateLimitError(e)) {
+          rateLimited = true;
+          truncated = true;
+          break;
+        }
+        throw e;
+      }
       const ids = (listResp.messages ?? []).map((m) => m.id);
       if (ids.length === 0) break;
       allMessageIds.push(...ids);
@@ -118,7 +135,19 @@ export async function run(
       );
     }
 
-    const messages = (await Promise.all(fetchPromises)).flat();
+    // Settle all fetch promises — collect successes and tolerate 429 failures
+    const settled = await Promise.allSettled(fetchPromises);
+    const messages: GmailMessage[] = [];
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        messages.push(...result.value);
+      } else if (isRateLimitError(result.reason)) {
+        rateLimited = true;
+        truncated = true;
+      } else {
+        throw result.reason;
+      }
+    }
 
     // Group by sender email
     const senderMap = new Map<string, SenderAggregation>();
@@ -242,6 +271,7 @@ export async function run(
         query_used: query,
         ...(truncated ? { truncated: true } : {}),
         ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
+        ...(rateLimited ? { rate_limited: true } : {}),
         note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
       }),
     );
