@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { getCurrentEnvironment, getSeed } from "../resolve.js";
 
@@ -74,18 +74,54 @@ describe("getCurrentEnvironment", () => {
     expect(env.name).toBe("dev");
   });
 
-  test("throws actionable error for unknown env name via override", () => {
-    expect(() => getCurrentEnvironment("no-such-env")).toThrow(
-      /unknown environment "no-such-env"/,
+  test("falls back to production seed for unknown env name via override, warns on stderr", () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+      () => true,
     );
-    expect(() => getCurrentEnvironment("no-such-env")).toThrow(
-      /cli\/src\/lib\/environments\/seeds\.ts/,
-    );
+    try {
+      const env = getCurrentEnvironment("no-such-env");
+      expect(env.name).toBe("production");
+      expect(env.platformUrl).toBe("https://platform.vellum.ai");
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('unknown environment "no-such-env"'),
+      );
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('falling back to "production"'),
+      );
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
-  test("throws for unknown env name via env var", () => {
+  test("falls back to production seed for unknown env name via env var, warns on stderr", () => {
     process.env.VELLUM_ENVIRONMENT = "nope";
-    expect(() => getCurrentEnvironment()).toThrow(/unknown environment "nope"/);
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+      () => true,
+    );
+    try {
+      const env = getCurrentEnvironment();
+      expect(env.name).toBe("production");
+      expect(env.platformUrl).toBe("https://platform.vellum.ai");
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('unknown environment "nope"'),
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  test("VELLUM_ENVIRONMENT=production does not emit a warning", () => {
+    process.env.VELLUM_ENVIRONMENT = "production";
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+      () => true,
+    );
+    try {
+      const env = getCurrentEnvironment();
+      expect(env.name).toBe("production");
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   test("VELLUM_PLATFORM_URL overrides platformUrl on the resolved definition", () => {
@@ -118,11 +154,25 @@ describe("getCurrentEnvironment", () => {
   });
 
   test("does not auto-materialize a new environment from VELLUM_PLATFORM_URL alone", () => {
+    // Unknown env names fall back to production (parity with daemon + Swift).
+    // The per-field VELLUM_PLATFORM_URL override is intentionally dropped on
+    // the fallback path — fallback returns a pristine production seed so a
+    // typo'd env var can't accidentally stitch together a new environment.
     process.env.VELLUM_ENVIRONMENT = "my-custom";
     process.env.VELLUM_PLATFORM_URL = "https://my-custom.example.com";
-    expect(() => getCurrentEnvironment()).toThrow(
-      /unknown environment "my-custom"/,
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+      () => true,
     );
+    try {
+      const env = getCurrentEnvironment();
+      expect(env.name).toBe("production");
+      expect(env.platformUrl).toBe("https://platform.vellum.ai");
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('unknown environment "my-custom"'),
+      );
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   test("VELLUM_LOCKFILE_DIR populates lockfileDirOverride on the resolved definition", () => {
