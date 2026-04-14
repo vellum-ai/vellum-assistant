@@ -3,4 +3,4 @@ exact = true
 
 [test]
 root = "./src"
-preload = ["./src/__tests__/test-preload.ts"]
+preload = ["./src/__tests__/preload.ts"]
