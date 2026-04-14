@@ -1,7 +1,7 @@
 import Foundation
 
 /// Env-aware filesystem path helpers for client-owned state. Mirrors
-/// `cli/src/lib/environments/paths.ts` from the Phase 0 module so the Swift
+/// `packages/environments/src/paths.ts` so the Swift
 /// client and the TypeScript daemon/CLI produce byte-identical paths for
 /// production users while sharing the same convention for non-production
 /// environments.

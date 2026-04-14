@@ -80,7 +80,7 @@ describe("getCurrentEnvironment", () => {
       /unknown environment "no-such-env"/,
     );
     expect(() => getCurrentEnvironment("no-such-env")).toThrow(
-      /cli\/src\/lib\/environments\/seeds\.ts/,
+      /packages\/environments\/src\/seeds\.ts/,
     );
   });
 

@@ -33,7 +33,10 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  *     test hook used by `cli/src/lib/assistant-config.ts:getLockfileDir`)
  *   - `BASE_DATA_DIR` overrides `baseDataDirOverride` (legacy multi-instance
  *     hook — the CLI sets this when spawning per-instance daemons so the
- *     daemon writes state under `<instanceDir>/.vellum/` instead of `~/.vellum/`)
+ *     CLI and gateway resolve paths under `<instanceDir>/.vellum/`. The
+ *     daemon itself does NOT honor this override; see
+ *     `assistant/src/util/platform.ts:vellumRoot` which uses the seed-only
+ *     resolver to preserve the post-#22085 invariant.)
  *
  * This function should be the single entrypoint for environment resolution.
  * No other code should drive off `VELLUM_ENVIRONMENT` directly.
@@ -45,7 +48,7 @@ export function getCurrentEnvironment(
   const seed = SEEDS[name];
   if (!seed) {
     throw new Error(
-      `unknown environment "${name}"; add it to cli/src/lib/environments/seeds.ts and rebuild, or wait for the future file-based context layer`,
+      `unknown environment "${name}"; add it to packages/environments/src/seeds.ts and rebuild, or wait for the future file-based context layer`,
     );
   }
 

@@ -24,6 +24,7 @@
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
+    "@vellumai/environments": "file:../packages/environments",
     "chalk": "^5.6.0",
     "ink": "^6.7.0",
     "jsqr": "^1.4.0",
