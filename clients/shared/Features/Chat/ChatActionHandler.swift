@@ -115,12 +115,16 @@ final class ChatActionHandler {
 
             // Race-condition fallback: the echo may arrive before the HTTP 202
             // response tags the optimistic row with daemonMessageId. Match by
-            // text against recent untagged optimistic user rows instead.
+            // text against the oldest untagged optimistic user row (firstIndex
+            // matches userMessagePersisted's oldest-first order since both SSE
+            // echoes and 202 responses arrive in send order). Scoped to .sent
+            // status to avoid matching stale .sendFailed rows.
             if let echoId = echo.messageId,
-               let idx = vm.messages.lastIndex(where: {
+               let idx = vm.messages.firstIndex(where: {
                    $0.role == .user
                        && $0.text == echo.text
                        && $0.daemonMessageId == nil
+                       && $0.status == .sent
                }) {
                 // Tag the optimistic row so the 202 handler (userMessagePersisted)
                 // and future echoes can match by ID.
