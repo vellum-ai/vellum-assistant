@@ -108,7 +108,7 @@ All commands target the default assistant. If you have multiple assistants, pass
 
 ## Contributing
 
-We're not accepting external contributions yet. See the [Contributing](https://github.com/vellum-ai/vellum-assistant?tab=contributing-ov-file) tab for updates.
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get set up, run the project locally, and submit a pull request. Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 
 ---
 
