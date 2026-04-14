@@ -346,6 +346,66 @@ export async function setSlackChannelConfig(
   };
 }
 
+/**
+ * Surgically remove the Slack user_token credential.
+ *
+ * Deletes only the user_token secure key and its credential metadata. Leaves
+ * the bot_token, app_token, oauth_connection row, and Slack config metadata
+ * untouched so the Socket Mode connection stays up. Returns a
+ * `SlackChannelConfigResult` reflecting the remaining state.
+ */
+export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
+  const result = await deleteSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  );
+
+  if (result === "error") {
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+    ));
+    const hasUserToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    ));
+    const conn = getConnectionByProvider("slack_channel");
+    return {
+      success: false,
+      hasBotToken,
+      hasAppToken,
+      hasUserToken,
+      connected:
+        !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+      error: "Failed to delete Slack user token from secure storage",
+    };
+  }
+
+  deleteCredentialMetadata("slack_channel", "user_token");
+
+  const hasBotToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "bot_token"),
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "app_token"),
+  ));
+  const conn = getConnectionByProvider("slack_channel");
+  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+
+  return {
+    success: true,
+    hasBotToken,
+    hasAppToken,
+    hasUserToken: false,
+    connected:
+      !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+    ...(teamId ? { teamId } : {}),
+    ...(teamName ? { teamName } : {}),
+    ...(botUserId ? { botUserId } : {}),
+    ...(botUsername ? { botUsername } : {}),
+  };
+}
+
 export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResult> {
   const r1 = await deleteSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),

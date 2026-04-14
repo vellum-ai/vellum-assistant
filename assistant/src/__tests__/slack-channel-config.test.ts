@@ -139,6 +139,7 @@ const originalFetch = globalThis.fetch;
 
 import {
   clearSlackChannelConfig,
+  clearSlackUserToken,
   getSlackChannelConfig,
   setSlackChannelConfig,
 } from "../daemon/handlers/config-slack-channel.js";
@@ -507,6 +508,68 @@ describe("Slack channel config handler", () => {
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBeUndefined();
     expect(getCredentialMetadata("slack_channel", "user_token")).toBeUndefined();
+  });
+
+  test("clearSlackUserToken leaves bot+app tokens and oauth_connection intact", async () => {
+    // Seed all three tokens + metadata + an active oauth_connection row.
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        "xapp-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "user_token"),
+        "xoxp-test",
+      ),
+    ]);
+    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+
+    const result = await clearSlackUserToken();
+
+    expect(result.success).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.connected).toBe(true);
+
+    // user_token key + metadata gone.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeUndefined();
+
+    // bot + app tokens + their metadata still present.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBe("xoxb-test");
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
+    ).toBe("xapp-test");
+    expect(getCredentialMetadata("slack_channel", "bot_token")).toBeDefined();
+    expect(getCredentialMetadata("slack_channel", "app_token")).toBeDefined();
+
+    // oauth_connection row was not touched.
+    expect(oauthConnectionStore["slack_channel"]).toBeDefined();
+    expect(oauthConnectionStore["slack_channel"].status).toBe("active");
+
+    // GET reports the right state after the surgical delete.
+    const after = await getSlackChannelConfig();
+    expect(after.connected).toBe(true);
+    expect(after.hasBotToken).toBe(true);
+    expect(after.hasAppToken).toBe(true);
+    expect(after.hasUserToken).toBe(false);
   });
 
   test("GET reports hasUserToken: false when only bot+app tokens present", async () => {
