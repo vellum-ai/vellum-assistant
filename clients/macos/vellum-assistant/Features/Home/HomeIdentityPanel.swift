@@ -91,7 +91,7 @@ struct HomeIdentityPanel: View {
             .frame(width: 140, height: 140)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Relationship progress"))
-            .accessibilityValue(Text("\(state.progressPercent) percent"))
+            .accessibilityValue(Text("\(min(max(state.progressPercent, 0), 100)) percent"))
             Spacer(minLength: 0)
         }
     }

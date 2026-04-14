@@ -615,6 +615,9 @@ extension MainWindowView {
                 onStartConversation: {
                     startNewConversation()
                     windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
                 },
                 onCapabilityCTA: { capability in
                     let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)

@@ -12,11 +12,16 @@ extension HomeStore {
     ///
     /// Invoked from `HomeStore.init` — safe to call exactly once per store.
     func startListening() {
+        // Capture `messageStream` by value so the Task does NOT need to hold
+        // a reference to `self` for the lifetime of the loop. Each iteration
+        // re-acquires `self` weakly — if the store has been deallocated, the
+        // loop exits. This is what lets `deinit` actually fire and run its
+        // `sseTask?.cancel()` cleanup.
+        let stream = self.messageStream
         sseTask = Task { [weak self] in
-            guard let self else { return }
-            let stream = self.messageStream
             for await message in stream {
                 if Task.isCancelled { break }
+                guard let self else { break }
                 if case .relationshipStateUpdated = message {
                     // Refresh the cached state, then raise the unseen-changes
                     // dot if the user is currently somewhere other than the
