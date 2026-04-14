@@ -3433,6 +3433,76 @@ paths:
                   description: Upper bound epoch ms
                   type: number
               additionalProperties: false
+  /v1/filing/config:
+    get:
+      operationId: filing_config_get
+      summary: Get filing config
+      description: Return the current filing schedule configuration.
+      tags:
+        - filing
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  activeHoursStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  activeHoursEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - enabled
+                  - intervalMs
+                  - activeHoursStart
+                  - activeHoursEnd
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/filing/run-now:
+    post:
+      operationId: filing_runnow_post
+      summary: Run filing now
+      description: Trigger an immediate filing run.
+      tags:
+        - filing
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ran:
+                    type: boolean
+                    description: Whether the filing actually ran
+                required:
+                  - success
+                  - ran
+                additionalProperties: false
   /v1/groups:
     get:
       operationId: groups_get
