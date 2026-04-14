@@ -3,8 +3,9 @@
  *
  * Produces a mechanical "N new emails" digest FeedItem for the home
  * activity feed. This is the first platform-authored feed source —
- * it runs on a schedule (see `feed-scheduler.ts` for the Phase-5
- * stopgap) and writes a digest item via the feed writer.
+ * it writes a digest item via the feed writer. Scheduling/invocation
+ * wiring lands in a follow-up PR when the end-to-end feed flow is
+ * turned on.
  *
  * Design notes:
  *
