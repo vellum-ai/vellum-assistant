@@ -105,12 +105,12 @@ Delete a provisioned assistant instance. The cloud provider and connection detai
 vellum retire <name>
 ```
 
-The CLI looks up the instance by name in `~/.vellum.lock.json` and determines how to retire it based on the saved `cloud` field:
+The CLI looks up the instance by name in the production lockfile (`~/.vellum.lock.json`) or the env-scoped lockfile under `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json` for non-production environments, then determines how to retire it based on the saved `cloud` field:
 
 - **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
 - **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
-- **`local`** -- Stops the local assistant (`vellum sleep`) and removes the `~/.vellum` directory.
-- **`custom`** -- SSHs to the remote host to stop the assistant/gateway and remove the `~/.vellum` directory.
+- **`local`** -- Stops the local assistant (`vellum sleep`) and removes the assistant's instance directory (`resources.instanceDir` in the lockfile; typically `~/.local/share/vellum/assistants/<name>/` for new hatches, or `~/.vellum/` for legacy entries).
+- **`custom`** -- SSHs to the remote host to stop the assistant/gateway and remove the remote `~/.vellum` directory.
 
 #### Examples
 
