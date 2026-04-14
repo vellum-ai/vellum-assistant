@@ -167,18 +167,34 @@ export function getPlatformBaseUrl(): string {
 /**
  * Derive the assistant service domain from the platform base URL.
  *
- * - `dev-platform.vellum.ai`  → `dev.vellum.me`
- * - `platform.vellum.ai`      → `vellum.me`
- * - anything else              → `vellum.me` (safe default)
+ * Known platform URLs map directly:
+ * - `dev-platform.vellum.ai`     → `dev.vellum.me`
+ * - `staging-platform.vellum.ai` → `staging.vellum.me`
+ * - `platform.vellum.ai`         → `vellum.me`
+ *
+ * Non-vellum.ai hosts (localhost, host.docker.internal, etc.) use
+ * VELLUM_ENVIRONMENT to derive the subdomain, defaulting to `local`:
+ * - local                         → `local.vellum.me`
  */
 export function getAssistantDomain(): string {
   try {
     const url = getPlatformBaseUrl();
     const host = new URL(url).hostname;
-    const prefix = host.replace(/[-.]?platform\.vellum\.ai$/, "");
-    if (prefix) {
-      return `${prefix}.vellum.me`;
+
+    if (host.endsWith("platform.vellum.ai")) {
+      const prefix = host.replace(/[-.]?platform\.vellum\.ai$/, "");
+      if (prefix) {
+        return `${prefix}.vellum.me`;
+      }
+      return "vellum.me";
     }
+
+    // Non-vellum.ai host (local dev, Docker, etc.) — derive from environment
+    const env = str("VELLUM_ENVIRONMENT")?.trim();
+    if (env && env !== "production") {
+      return `${env}.vellum.me`;
+    }
+    return "local.vellum.me";
   } catch {
     // Fall through to default
   }
