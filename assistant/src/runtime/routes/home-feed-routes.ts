@@ -211,14 +211,45 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
  * (which has its own separate 2h safety-net cadence). The
  * producer's internal in-flight guard handles the rare race where
  * both the scheduler and the route fire at the same instant.
+ *
+ * Debounce semantics: we eager-advance `lastOnVisitRefreshAt` before
+ * awaiting the producer so concurrent GETs during the LLM call are
+ * blocked at the guard check above. When the producer returns with
+ * a skip reason that short-circuited BEFORE the LLM call
+ * (`no_provider`, `no_actions`, `in_flight`) we roll the gate back
+ * to its previous value — burning the full 10-minute window on a
+ * daemon that hasn't finished booting would leave Home stale the
+ * whole time the user is actively trying to refresh. Real LLM
+ * attempts (success / `empty_items` / `malformed_output` /
+ * `provider_error`) keep the advanced gate so a broken producer
+ * can't be hammered by an aggressive client.
  */
 function maybeTriggerOnVisitRollupRefresh(now: Date): void {
   const nowMs = now.getTime();
   if (nowMs - lastOnVisitRefreshAt < ON_VISIT_REFRESH_DEBOUNCE_MS) return;
+  const previousRefreshAt = lastOnVisitRefreshAt;
   lastOnVisitRefreshAt = nowMs;
   void runRollupProducer(now)
     .then((result) => {
-      if (result.skippedReason !== null) {
+      const skippedBeforeLLM =
+        result.skippedReason === "no_provider" ||
+        result.skippedReason === "no_actions" ||
+        result.skippedReason === "in_flight";
+      if (skippedBeforeLLM) {
+        // Only roll back if no subsequent GET has since advanced the
+        // gate past our eager value. Defensive: given the guard at
+        // the top of this function a concurrent GET shouldn't be
+        // able to advance past our `nowMs`, but if some future
+        // refactor changes that we don't want to silently clobber a
+        // newer timestamp.
+        if (lastOnVisitRefreshAt === nowMs) {
+          lastOnVisitRefreshAt = previousRefreshAt;
+        }
+        log.debug(
+          { skippedReason: result.skippedReason },
+          "On-visit rollup refresh skipped; debounce gate rolled back",
+        );
+      } else if (result.skippedReason !== null) {
         log.debug(
           { skippedReason: result.skippedReason },
           "On-visit rollup refresh skipped",

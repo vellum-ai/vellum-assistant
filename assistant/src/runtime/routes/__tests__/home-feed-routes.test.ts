@@ -58,9 +58,15 @@ mock.module("../../../memory/conversation-crud.js", () => ({
 // relationship state. The route calls the producer fire-and-forget,
 // so tests observe the trigger via call-count on this spy rather
 // than awaiting a return value.
+//
+// Default skip reason is `empty_items` — a real LLM attempt that
+// returned nothing to consolidate. Using a real-run skip means the
+// debounce gate holds firm in the default case (matching production
+// semantics); individual tests override with `no_provider` etc. to
+// exercise the rollback path.
 const rollupProducerSpy = mock<() => Promise<unknown>>(async () => ({
   wroteCount: 0,
-  skippedReason: "no_actions",
+  skippedReason: "empty_items",
 }));
 mock.module("../../../home/rollup-producer.js", () => ({
   runRollupProducer: rollupProducerSpy,
@@ -367,6 +373,37 @@ describe("handleGetHomeFeed", () => {
     );
     await Promise.resolve();
     expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("debounce is rolled back when the producer skips before the LLM call", async () => {
+    // Simulate the daemon-boot race: the first GET fires the
+    // producer but the provider registry isn't ready yet, so the
+    // producer short-circuits with `no_provider`. A second GET a
+    // moment later must still be allowed to fire — otherwise Home
+    // stays stale for the full 10-minute debounce window while the
+    // user is actively trying to refresh.
+    rollupProducerSpy.mockImplementationOnce(async () => ({
+      wroteCount: 0,
+      skippedReason: "no_provider",
+    }));
+
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    // Let the fire-and-forget `.then()` that performs the rollback
+    // run before we issue the second GET. Two microtask ticks
+    // because the chain is runRollupProducer -> .then handler.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+
+    // Second GET — producer is now ready. Gate must have been
+    // rolled back so this GET re-fires the producer.
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(2);
   });
 
   test("rollup producer failure does not turn the GET into an error", async () => {

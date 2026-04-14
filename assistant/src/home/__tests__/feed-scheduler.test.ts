@@ -99,7 +99,7 @@ describe("startFeedScheduler", () => {
     // Mimic the daemon startup ordering: the scheduler boots before
     // the provider registry is ready. The first tick gets no_provider;
     // the next tick (even one second later) must still run the rollup
-    // instead of waiting 30 minutes.
+    // instead of waiting 2 hours.
     rollupRunner.mockImplementationOnce(async () => ({
       wroteCount: 0,
       skippedReason: "no_provider",
@@ -141,7 +141,7 @@ describe("startFeedScheduler", () => {
   test("rollup cooldown is NOT advanced on no_actions so the next tick retries", async () => {
     // no_actions means the activity log was empty — no LLM call was
     // made. A subsequent tick should retry as soon as new actions
-    // land, not wait the full 30-minute window.
+    // land, not wait the full 2-hour window.
     rollupRunner.mockImplementationOnce(async () => ({
       wroteCount: 0,
       skippedReason: "no_actions",
