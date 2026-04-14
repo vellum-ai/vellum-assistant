@@ -39,18 +39,29 @@ final class SoundManager {
     /// that hammers the workspace/tree API with 429s.
     @ObservationIgnored private var isRefreshingAvailableSounds = false
 
-    /// Timestamp of the most recent `saveConfig(_:)` call. The daemon watches
-    /// `data/sounds/` and broadcasts `soundsConfigUpdated` after any write,
-    /// including our own — refetching while writes are still in flight can
-    /// read a truncated payload and clobber local state with `.defaultConfig`.
-    /// `handleSoundsConfigBroadcast()` uses this to drop self-echo broadcasts.
-    @ObservationIgnored private var lastLocalSaveAt: Date?
+    /// Number of `saveConfig(_:)` writes currently in flight. The daemon
+    /// watches `data/sounds/` and broadcasts `soundsConfigUpdated` after any
+    /// write, including our own — refetching while writes are still in flight
+    /// can read a truncated payload and clobber local state with
+    /// `.defaultConfig`. `handleSoundsConfigBroadcast()` drops broadcasts
+    /// while this is non-zero. A counter (not a bool) correctly handles
+    /// overlapping saves from e.g. rapid slider drags.
+    @ObservationIgnored private var inFlightSaveCount: Int = 0
 
-    /// Window during which an inbound `soundsConfigUpdated` broadcast is
-    /// treated as an echo of a recent local save and skipped. Covers the
-    /// daemon's 200 ms watcher debounce plus broadcast delivery, with
-    /// headroom.
-    private static let echoSuppressionWindow: TimeInterval = 2.0
+    /// Timestamp of the most recent `saveConfig(_:)` completion (success or
+    /// failure). `handleSoundsConfigBroadcast()` also suppresses broadcasts
+    /// within a short grace window after this stamp to cover the daemon's
+    /// 200 ms watcher debounce plus broadcast delivery latency after the
+    /// final save settles. Outside this window, legitimate non-echo
+    /// broadcasts (e.g. sound file additions or edits from another client)
+    /// are processed normally.
+    @ObservationIgnored private var lastSaveCompletedAt: Date?
+
+    /// Grace window after the last save completes during which broadcasts
+    /// are still treated as potential self-echoes. Sized to cover the
+    /// daemon's 200 ms watcher debounce plus broadcast delivery slack,
+    /// without significantly delaying legitimate cross-client updates.
+    private static let postSaveGraceWindow: TimeInterval = 0.5
 
     /// Whether a valid config has ever been decoded from disk. While `false`,
     /// fetch failures fall back to `.defaultConfig` so first-run (no file
@@ -154,13 +165,19 @@ final class SoundManager {
     }
 
     /// Handles a `soundsConfigUpdated` broadcast from the daemon. Drops
-    /// broadcasts that fall within the echo-suppression window of a recent
-    /// local save — those are the daemon echoing our own write, and
-    /// refetching would race against in-flight writes and briefly overwrite
-    /// the UI with `.defaultConfig` (globalEnabled=false, empty pools).
+    /// broadcasts while a local save is in flight, or within a short grace
+    /// window after the last save completes — those are the daemon echoing
+    /// our own write, and refetching would race against in-flight writes and
+    /// briefly overwrite the UI with `.defaultConfig` (globalEnabled=false,
+    /// empty pools). Outside those conditions the broadcast is treated as a
+    /// legitimate non-echo update (e.g. sound file additions or edits from
+    /// another client) and triggers a reload.
     func handleSoundsConfigBroadcast() {
-        if let last = lastLocalSaveAt,
-           Date().timeIntervalSince(last) < Self.echoSuppressionWindow {
+        if inFlightSaveCount > 0 {
+            return
+        }
+        if let completed = lastSaveCompletedAt,
+           Date().timeIntervalSince(completed) < Self.postSaveGraceWindow {
             return
         }
         reloadConfig()
@@ -170,10 +187,14 @@ final class SoundManager {
     /// Called by the Settings UI when the user changes settings.
     func saveConfig(_ newConfig: SoundsConfig) {
         config = newConfig
-        lastLocalSaveAt = Date()
         hasLoadedConfig = true
+        inFlightSaveCount += 1
 
-        Task {
+        Task { @MainActor in
+            defer {
+                inFlightSaveCount -= 1
+                lastSaveCompletedAt = Date()
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             guard let data = try? encoder.encode(newConfig) else {
