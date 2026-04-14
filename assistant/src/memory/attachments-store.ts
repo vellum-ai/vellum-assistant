@@ -264,7 +264,27 @@ function materializeAttachmentIntoConversation(
     copyFileSync(readablePath, targetPath);
   }
 
+  // Remember the old file path before updating the DB row, so we can
+  // clean up the staging copy (e.g. in data/attachments/) after the
+  // canonical path moves to the conversation directory.
+  const previousFilePath = row.filePath;
+
   persistAttachmentFilePath(row.id, targetPath, sourcePath);
+
+  // Remove the old staging file now that the canonical copy lives in
+  // the conversation directory. Skip if the previous path is the same
+  // as the new target (shouldn't happen, but guard against it).
+  if (
+    previousFilePath &&
+    previousFilePath !== targetPath &&
+    existsSync(previousFilePath)
+  ) {
+    try {
+      unlinkSync(previousFilePath);
+    } catch {
+      /* file may already be gone */
+    }
+  }
 }
 
 function scopeAttachmentToConversation(
