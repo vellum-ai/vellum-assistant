@@ -352,14 +352,23 @@ public final class AuthService {
 
     /// List managed assistants visible to the caller in the given organization.
     ///
-    /// Used by the multi-assistant bootstrap flow to discover existing assistants
-    /// when a previously-connected assistant ID is no longer found (404). The
-    /// platform caps each org at 5 managed assistants, which always fits in a
-    /// single page, so pagination is not needed. Callers assume the platform
-    /// returns newest-first and take `results.first`.
-    public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+    /// Used by the managed bootstrap flow to discover existing platform
+    /// assistants before falling through to hatch. The platform caps each org
+    /// at 5 managed assistants, which always fits in a single page, so
+    /// pagination is not needed. Callers assume the platform returns
+    /// newest-first and take `results.first`.
+    ///
+    /// - Parameters:
+    ///   - organizationId: The organization to list assistants for.
+    ///   - hosting: Optional filter to restrict results by hosting type
+    ///     (e.g. `"platform"` for platform-managed assistants).
+    public func listAssistants(organizationId: String, hosting: String? = nil) async throws -> [PlatformAssistant] {
+        var path = "v1/assistants/"
+        if let hosting {
+            path += "?hosting=\(hosting)"
+        }
         let response = try await performPlatformRequest(
-            path: "v1/assistants/",
+            path: path,
             method: "GET",
             organizationId: organizationId
         )
