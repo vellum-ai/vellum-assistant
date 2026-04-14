@@ -11,7 +11,10 @@ import { loadConfig } from "../config/loader.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider } from "../tts/types.js";
+import { getLogger } from "../util/logger.js";
 import { resolveCallStrategy } from "./tts-call-strategy.js";
+
+const log = getLogger("resolve-call-tts-provider");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -79,6 +82,29 @@ export function resolveCallTtsProvider(
     // decision path used by voice-quality.ts via resolveCallStrategy().
     const strategy = resolveCallStrategy(config);
     const useSynthesizedPath = strategy.callMode === "synthesized-play";
+
+    // For synthesized providers, preflight provider-specific config
+    // invariants that would otherwise fail only at first synthesis call.
+    // If required config is missing, degrade to the native token path
+    // (Twilio TTS) rather than letting the call stay silent.
+    //
+    // Fish Audio requires a reference ID when no per-request voiceId is
+    // supplied (which is the telephony default).
+    if (useSynthesizedPath && resolved.provider === "fish-audio") {
+      const referenceId = (resolved.providerConfig as { referenceId?: string })
+        .referenceId;
+      if (!referenceId?.trim()) {
+        log.warn(
+          { provider: resolved.provider },
+          "Synthesized call TTS disabled: fish-audio.referenceId is not configured; falling back to native token path",
+        );
+        return {
+          provider: null,
+          useSynthesizedPath: false,
+          audioFormat: "mp3",
+        };
+      }
+    }
 
     // Read the user-configured audio format from the resolved provider
     // config so the streaming store entry's content-type matches the

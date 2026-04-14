@@ -79,6 +79,7 @@ async function synthesizeAndPlay(
   format: "mp3" | "wav" | "opus",
 ): Promise<void> {
   let handle: ReturnType<typeof createStreamingEntry> | null = null;
+  let playUrlSent = false;
   try {
     // When format is WAV (media-stream transport), request raw PCM from
     // the provider so the audio bytes match the store's content-type.
@@ -96,23 +97,38 @@ async function synthesizeAndPlay(
     const config = loadConfig();
     const baseUrl = getPublicBaseUrl(config);
     const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-
-    // Send the play URL FIRST so Twilio can start playing audio as soon as
-    // chunks arrive in the streaming store. This avoids the caller hearing
-    // silence during the full synthesis latency window.
-    relay.sendPlayUrl(url);
+    const sendPlayUrlOnce = (): void => {
+      if (playUrlSent) return;
+      relay.sendPlayUrl(url);
+      playUrlSent = true;
+    };
 
     if (provider.synthesizeStream) {
+      let streamedChunk = false;
       await provider.synthesizeStream(
         { text, useCase: "phone-call", outputFormat },
-        (chunk) => handle!.push(chunk),
+        (chunk) => {
+          if (chunk.byteLength === 0) return;
+          if (!streamedChunk) {
+            sendPlayUrlOnce();
+            streamedChunk = true;
+          }
+          handle!.push(chunk);
+        },
       );
+      if (!streamedChunk) {
+        throw new Error("Streaming TTS returned no audio chunks");
+      }
     } else {
       const result = await provider.synthesize({
         text,
         useCase: "phone-call",
         outputFormat,
       });
+      if (result.audio.byteLength === 0) {
+        throw new Error("Buffer TTS returned an empty audio payload");
+      }
+      sendPlayUrlOnce();
       handle.push(result.audio);
     }
 
