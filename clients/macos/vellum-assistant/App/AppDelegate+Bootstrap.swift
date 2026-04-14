@@ -246,12 +246,6 @@ extension AppDelegate {
         // random UUID as the bootstrap secret, racing with the launcher and
         // potentially consuming the one-time secret or triggering a 403.
         // Instead, poll for the token file the launcher will create.
-        // For apple-container assistants the launcher (AppleContainersLauncher)
-        // handles the one-time bootstrap secret and writes the token file.
-        // We must NOT call /v1/guardian/init ourselves — doing so would send a
-        // random UUID as the bootstrap secret, racing with the launcher and
-        // potentially consuming the one-time secret or triggering a 403.
-        // Instead, poll for the token file the launcher will create.
         if let assistant = LockfileAssistant.loadByName(
             LockfileAssistant.loadActiveAssistantId() ?? ""
         ), assistant.isAppleContainer {
