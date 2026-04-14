@@ -60,6 +60,20 @@ final class SoundManager {
     /// raced a concurrent write).
     @ObservationIgnored private var hasLoadedConfig = false
 
+    /// True once `fetchConfig()` has settled with any deterministic result — a
+    /// decoded config or an empty-data first-run fallback. Distinct from
+    /// `hasLoadedConfig`, which requires a successful decode. This flag exists
+    /// solely to gate the deferred `app_open` play so it fires as soon as the
+    /// first fetch settles, not only after a config file has been written.
+    /// Stays false while every attempt has failed with a network error.
+    @ObservationIgnored private var initialConfigLoaded = false
+
+    /// Set by `playAppOpen()` when called before the initial config fetch has
+    /// landed. Flushed on the next settling of `fetchConfig()` so `app_open`
+    /// fires against the user's real config instead of racing the
+    /// default-silent one.
+    @ObservationIgnored private var pendingAppOpenPlay = false
+
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
@@ -107,11 +121,15 @@ final class SoundManager {
                 if !hasLoadedConfig {
                     config = .defaultConfig
                 }
+                initialConfigLoaded = true
+                flushPendingAppOpen()
                 return
             }
             let decoded = try JSONDecoder().decode(SoundsConfig.self, from: data)
             config = decoded
             hasLoadedConfig = true
+            initialConfigLoaded = true
+            flushPendingAppOpen()
         } catch {
             if hasLoadedConfig {
                 log.warning("Failed to fetch sounds config via gateway, keeping existing: \(error.localizedDescription)")
@@ -119,6 +137,8 @@ final class SoundManager {
                 log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
                 config = .defaultConfig
             }
+            // Leave `initialConfigLoaded` false — the `.daemonDidReconnect`
+            // reload will retry, and any pending `app_open` play waits for it.
         }
     }
 
@@ -216,6 +236,25 @@ final class SoundManager {
     }
 
     // MARK: - Playback
+
+    /// Plays `app_open` as soon as the initial config fetch completes. Callers
+    /// fire this during `applicationDidFinishLaunching`, before `start()`'s async
+    /// fetch has landed — calling `play(.appOpen)` directly in that window races
+    /// against the fetch and silently returns because `config` is still the
+    /// default-silent fallback.
+    func playAppOpen() {
+        if initialConfigLoaded {
+            play(.appOpen)
+        } else {
+            pendingAppOpenPlay = true
+        }
+    }
+
+    private func flushPendingAppOpen() {
+        guard pendingAppOpenPlay else { return }
+        pendingAppOpenPlay = false
+        play(.appOpen)
+    }
 
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
     func play(_ event: SoundEvent) {
