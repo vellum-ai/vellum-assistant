@@ -3,8 +3,6 @@ import { existsSync } from "node:fs";
 import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
-import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -43,12 +41,6 @@ import { log } from "./logger.js";
  * the gateway so flag-gated commands are registered correctly.
  */
 export async function buildCliProgram(): Promise<Command> {
-  // Snapshot workspace existence BEFORE getConfig() runs, because getConfig()
-  // calls ensureDataDir() which creates the workspace directory as a side
-  // effect. We need to know whether the workspace existed before that.
-  const workspaceDir = getWorkspaceDir();
-  const workspaceExistedBeforeBoot = existsSync(workspaceDir);
-
   await initFeatureFlagOverrides();
   const program = new Command();
 
@@ -84,9 +76,7 @@ Examples:
   registerDoctorCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
-  if (isEmailEnabled(getConfig())) {
-    registerEmailCommand(program);
-  }
+  registerEmailCommand(program);
   registerContactsCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerAutonomyCommand(program);
@@ -101,10 +91,8 @@ Examples:
   registerShotgunCommand(program);
   registerSequenceCommand(program);
 
-  // Fail fast when no assistant workspace existed on disk before
-  // buildCliProgram() ran. We check the snapshot captured at the top of this
-  // function because getConfig() (called during email-command registration)
-  // creates the workspace directory as a side effect via ensureDataDir().
+  // Fail fast when no assistant workspace exists on disk. The workspace is
+  // created by `vellum hatch` and must be present for any command to work.
   // Commander handles --help and --version before preAction fires, so those
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
@@ -114,7 +102,8 @@ Examples:
     if (workspaceExemptCommands.has(actionCommand.name())) {
       return;
     }
-    if (!workspaceExistedBeforeBoot) {
+    const workspaceDir = getWorkspaceDir();
+    if (!existsSync(workspaceDir)) {
       log.error(
         `No assistant workspace found at ${workspaceDir}.\nRun 'vellum hatch' to create an assistant first.`,
       );
