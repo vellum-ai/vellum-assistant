@@ -35,15 +35,15 @@ export class AvatarChannelSyncer {
     const pngBuffer = this.readAvatar();
     if (!pngBuffer) return;
 
+    const snapshot = [...this.syncers.values()];
     const results = await Promise.allSettled(
-      [...this.syncers.values()].map((s) => s.sync(pngBuffer)),
+      snapshot.map((s) => s.sync(pngBuffer)),
     );
 
     for (const [i, result] of results.entries()) {
       if (result.status === "rejected") {
-        const syncer = [...this.syncers.values()][i];
         log.warn(
-          { channel: syncer?.channelName, err: result.reason },
+          { channel: snapshot[i]?.channelName, err: result.reason },
           "Avatar sync threw unexpectedly",
         );
       }
