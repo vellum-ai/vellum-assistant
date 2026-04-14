@@ -48,8 +48,13 @@ mock.module("../tools/registry.js", () => ({
 // Mock oauth-store to avoid SQLite dependency in unit tests
 // ---------------------------------------------------------------------------
 
+let disconnectOAuthProviderCalls: string[] = [];
+
 mock.module("../oauth/oauth-store.js", () => ({
-  disconnectOAuthProvider: mock(async () => "not-found" as const),
+  disconnectOAuthProvider: mock(async (provider: string) => {
+    disconnectOAuthProviderCalls.push(provider);
+    return "not-found" as const;
+  }),
   getActiveConnection: mock(() => undefined),
 }));
 
@@ -59,6 +64,7 @@ let slackChannelConfigCalls: Array<{
   appToken?: string;
   userToken?: string;
 }> = [];
+let clearSlackUserTokenCalls = 0;
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async (provider: string) => {
@@ -194,6 +200,38 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
       warning,
     };
   },
+  clearSlackUserToken: async () => {
+    clearSlackUserTokenCalls++;
+
+    const { credentialKey } = await import("../security/credential-key.js");
+    const { deleteSecureKeyAsync, getSecureKeyAsync } = await import(
+      "../security/secure-keys.js"
+    );
+    const { deleteCredentialMetadata } = await import(
+      "../tools/credentials/metadata-store.js"
+    );
+
+    await deleteSecureKeyAsync(credentialKey("slack_channel", "user_token"));
+    deleteCredentialMetadata("slack_channel", "user_token");
+
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+    ));
+
+    return {
+      success: true,
+      hasBotToken,
+      hasAppToken,
+      hasUserToken: false,
+      connected:
+        manualConnectionStore["slack_channel"] === "active" &&
+        hasBotToken &&
+        hasAppToken,
+    };
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -222,6 +260,8 @@ const _ctx: ToolContext = {
 beforeEach(() => {
   manualConnectionStore = {};
   slackChannelConfigCalls = [];
+  clearSlackUserTokenCalls = 0;
+  disconnectOAuthProviderCalls = [];
 });
 
 afterAll(() => {
@@ -1058,6 +1098,150 @@ describe("credential_store tool — store validation edge cases", () => {
       await getSecureKeyAsync(credentialKey("del-test", "key")),
     ).toBeUndefined();
     expect(getCredentialMetadata("del-test", "key")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. Vault — slack_channel delete routing
+// ---------------------------------------------------------------------------
+
+describe("credential_store tool — slack_channel delete routing", () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test("delete with user_token leaves bot+app tokens and oauth_connection intact", async () => {
+    // Seed all three Slack tokens + metadata, with the manual connection active.
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-bot",
+    );
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+      "xapp-app",
+    );
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-user",
+    );
+    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+    manualConnectionStore["slack_channel"] = "active";
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "delete",
+        service: "slack_channel",
+        field: "user_token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    // Routed through the surgical helper.
+    expect(clearSlackUserTokenCalls).toBe(1);
+    // oauth_connection row was never disconnected.
+    expect(disconnectOAuthProviderCalls).toEqual([]);
+    // user_token key + metadata removed.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+    const { getCredentialMetadata } = await import(
+      "../tools/credentials/metadata-store.js"
+    );
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeUndefined();
+    // bot + app tokens + their metadata + manual connection still present.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBe("xoxb-bot");
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
+    ).toBe("xapp-app");
+    expect(getCredentialMetadata("slack_channel", "bot_token")).toBeDefined();
+    expect(getCredentialMetadata("slack_channel", "app_token")).toBeDefined();
+    expect(manualConnectionStore["slack_channel"]).toBe("active");
+  });
+
+  test("delete with bot_token still tears down the oauth connection (regression guard)", async () => {
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-bot",
+    );
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+      "xapp-app",
+    );
+    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
+    manualConnectionStore["slack_channel"] = "active";
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "delete",
+        service: "slack_channel",
+        field: "bot_token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    // Surgical helper was not used.
+    expect(clearSlackUserTokenCalls).toBe(0);
+    // Full teardown path called disconnectOAuthProvider for the slack_channel.
+    expect(disconnectOAuthProviderCalls).toContain("slack_channel");
+    // bot_token key + metadata removed.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
+    ).toBeUndefined();
+    const { getCredentialMetadata } = await import(
+      "../tools/credentials/metadata-store.js"
+    );
+    expect(
+      getCredentialMetadata("slack_channel", "bot_token"),
+    ).toBeUndefined();
+  });
+
+  test("delete with app_token still tears down the oauth connection (regression guard)", async () => {
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-bot",
+    );
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+      "xapp-app",
+    );
+    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
+    manualConnectionStore["slack_channel"] = "active";
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "delete",
+        service: "slack_channel",
+        field: "app_token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(clearSlackUserTokenCalls).toBe(0);
+    expect(disconnectOAuthProviderCalls).toContain("slack_channel");
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "app_token")),
+    ).toBeUndefined();
   });
 });
 
