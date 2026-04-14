@@ -37,7 +37,7 @@ const log = getLogger("google-gemini-stream");
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 /**
  * Minimum interval between incremental batch requests (ms).
@@ -59,7 +59,7 @@ const TRANSCRIPTION_PROMPT =
 // ---------------------------------------------------------------------------
 
 export interface GoogleGeminiStreamOptions {
-  /** Gemini model to use (default: "gemini-2.0-flash"). */
+  /** Gemini model to use (default: "gemini-2.5-flash"). */
   model?: string;
   /** Override the Google AI API base URL (useful for proxies or on-prem). */
   baseUrl?: string;
