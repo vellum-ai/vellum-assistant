@@ -91,6 +91,10 @@ final class ToolPermissionTesterModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var observeConnectionTask: Task<Void, Never>?
 
+    deinit {
+        observeConnectionTask?.cancel()
+    }
+
     // Snapshot of form values captured at simulate() time so
     // handleSimulateResponse uses the values that produced the request,
     // not whatever the user may have edited while the request was in flight.

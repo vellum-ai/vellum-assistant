@@ -10,9 +10,11 @@ import Observation
 /// ```
 ///
 /// The stream yields the current value immediately, then yields again each time
-/// the tracked property changes to a different `Equatable` value. The observation
-/// loop runs on the caller's actor (typically `@MainActor`) and respects task
-/// cancellation.
+/// the tracked property changes to a different `Equatable` value. The internal
+/// observation loop runs in an unstructured `Task` (non-isolated). In Swift 5
+/// language mode this is safe because the Observation framework's registrar uses
+/// internal locking. If the project migrates to Swift 6, the `getValue` closure
+/// may need explicit `@MainActor` isolation.
 ///
 /// - Parameter getValue: A closure that reads one or more `@Observable` properties.
 ///   Must be safe to call repeatedly on the caller's actor.

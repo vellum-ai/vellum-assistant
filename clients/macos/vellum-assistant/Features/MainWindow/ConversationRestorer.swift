@@ -67,6 +67,8 @@ final class ConversationRestorer {
     }
 
     deinit {
+        connectionObservationTask?.cancel()
+        disconnectObservationTask?.cancel()
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
     }

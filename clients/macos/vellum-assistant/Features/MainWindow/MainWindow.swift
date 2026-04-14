@@ -546,6 +546,8 @@ public final class MainWindow {
     }
 
     func close() {
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
         if let observer = layoutObserver {
             NotificationCenter.default.removeObserver(observer)
             layoutObserver = nil
@@ -562,6 +564,8 @@ public final class MainWindow {
     /// Tears down internal observers and detaches the underlying NSWindow
     /// without closing it. The caller takes ownership of the returned window.
     func detachWindow() -> NSWindow? {
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
         if let observer = layoutObserver {
             NotificationCenter.default.removeObserver(observer)
             layoutObserver = nil

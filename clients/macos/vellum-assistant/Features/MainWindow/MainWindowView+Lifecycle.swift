@@ -123,6 +123,11 @@ extension MainWindowView {
         }
         eventStreamClient.startSSE()
 
+        // Deliver the current connection state on appear. The old .onReceive
+        // (Combine $isConnected) fired immediately with the current value;
+        // .onChange only fires on subsequent changes.
+        handleDaemonConnectionChange(connectionManager.isConnected)
+
         // Show toast for update outcomes emitted while the main window was not visible.
         // The onReceive handler for lastUpdateOutcome covers outcomes arriving while
         // the view is live; this catches any that were missed in between.
