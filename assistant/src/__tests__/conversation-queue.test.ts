@@ -484,11 +484,22 @@ function resolveRun(index: number) {
   run.resolve([...run.messages, assistantMsg]);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   turnCommitCalls.length = 0;
   turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
   addMessageShouldThrowForContent.clear();
+  const { _setOverridesForTesting } = await import(
+    "../config/assistant-feature-flags.js"
+  );
+  _setOverridesForTesting({ "chat-message-queue": true });
+});
+
+afterEach(async () => {
+  const { _setOverridesForTesting } = await import(
+    "../config/assistant-feature-flags.js"
+  );
+  _setOverridesForTesting({});
 });
 
 afterAll(() => {
