@@ -106,14 +106,15 @@ public struct VellumPaths {
 
     // MARK: - Internals
 
-    private static func resolveXdgConfigHome() -> URL {
+    // Accept the raw XDG_CONFIG_HOME value even if relative, matching
+    // cli/src/lib/environments/paths.ts:xdgConfigHome() and
+    // assistant/src/util/platform.ts:getXdgPlatformTokenPath which both
+    // honor whatever the env var says. In practice real-world XDG paths
+    // are always absolute; this exists only for edge-case parity.
+    internal static func resolveXdgConfigHome() -> URL {
         if let raw = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty,
-            // XDG Base Directory spec requires absolute paths; relative values
-            // are ignored for parity with the TypeScript env package which
-            // also doesn't resolve them.
-            raw.hasPrefix("/")
+            !raw.isEmpty
         {
             return URL(fileURLWithPath: raw)
         }
