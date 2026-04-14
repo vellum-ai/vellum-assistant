@@ -5163,8 +5163,16 @@ public struct UserMessageAttachment: Codable, Sendable {
     public let filePath: String?
     /// True when the attachment is file-backed and clients should hydrate via the /content endpoint.
     public let fileBacked: Bool?
+    /// Raw binary data for multipart upload in managed mode. Excluded from
+    /// Codable encoding/decoding — only used for in-process transport.
+    public let rawData: Data?
 
-    public init(id: String? = nil, filename: String, mimeType: String, data: String, sourceType: String? = nil, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil) {
+    // Exclude rawData from Codable so it doesn't interfere with JSON serialization.
+    private enum CodingKeys: String, CodingKey {
+        case id, filename, mimeType, data, sourceType, extractedText, sizeBytes, thumbnailData, filePath, fileBacked
+    }
+
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, sourceType: String? = nil, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil, filePath: String? = nil, fileBacked: Bool? = nil, rawData: Data? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -5175,6 +5183,22 @@ public struct UserMessageAttachment: Codable, Sendable {
         self.thumbnailData = thumbnailData
         self.filePath = filePath
         self.fileBacked = fileBacked
+        self.rawData = rawData
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        filename = try container.decode(String.self, forKey: .filename)
+        mimeType = try container.decode(String.self, forKey: .mimeType)
+        data = try container.decode(String.self, forKey: .data)
+        sourceType = try container.decodeIfPresent(String.self, forKey: .sourceType)
+        extractedText = try container.decodeIfPresent(String.self, forKey: .extractedText)
+        sizeBytes = try container.decodeIfPresent(Int.self, forKey: .sizeBytes)
+        thumbnailData = try container.decodeIfPresent(String.self, forKey: .thumbnailData)
+        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+        fileBacked = try container.decodeIfPresent(Bool.self, forKey: .fileBacked)
+        rawData = nil
     }
 }
 
