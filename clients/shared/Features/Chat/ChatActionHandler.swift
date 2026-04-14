@@ -425,18 +425,42 @@ final class ChatActionHandler {
         // (e.g. during workspace refinement) or if the surface ended up in a
         // different message than the tool call. By message_complete, all tool
         // calls have definitely finished so it's safe to enable Open App.
-        // Scope to the current assistant turn's message to avoid retroactively
-        // enabling stale surfaces from prior turns (e.g. after cancellation).
+        //
+        // Three cases to handle:
+        // 1. Normal turn with a single message: scope to currentAssistantMessageId.
+        // 2. Multi-message turn (tool-call overflow rotated to new messages):
+        //    scan backward from current message through recent assistant messages.
+        // 3. Workspace refinement (currentAssistantMessageId is nil because text
+        //    goes to refinementTextBuffer and handleToolUseStart is blocked):
+        //    iterate all messages as a safety net.
+        let wasRefinement = vm.isWorkspaceRefinementInFlight || vm.cancelledDuringRefinement
         if let currentMsgId = vm.currentAssistantMessageId,
            let msgIdx = vm.messages.firstIndex(where: { $0.id == currentMsgId }) {
-            for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
-                if !vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete,
-                   case .dynamicPage = vm.messages[msgIdx].inlineSurfaces[surfIdx].data {
-                    vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+            // Scan backward from the current message through recent assistant
+            // messages in this turn to catch rotated overflow messages.
+            for i in stride(from: msgIdx, through: max(0, msgIdx - 10), by: -1) {
+                guard vm.messages[i].role == .assistant else { continue }
+                for surfIdx in vm.messages[i].inlineSurfaces.indices {
+                    if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
+                       case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
+                        vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete = true
+                    }
+                }
+            }
+        } else if wasRefinement {
+            // During workspace refinement, currentAssistantMessageId is typically
+            // nil. Fall back to iterating all messages so dynamic page surfaces
+            // attached via positional fallback paths are still marked complete.
+            for msgIdx in vm.messages.indices {
+                guard vm.messages[msgIdx].role == .assistant else { continue }
+                for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
+                    if !vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete,
+                       case .dynamicPage = vm.messages[msgIdx].inlineSurfaces[surfIdx].data {
+                        vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+                    }
                 }
             }
         }
-        let wasRefinement = vm.isWorkspaceRefinementInFlight || vm.cancelledDuringRefinement
         vm.isWorkspaceRefinementInFlight = false
         vm.cancelledDuringRefinement = false
         vm.cancelTimeoutTask?.cancel()
