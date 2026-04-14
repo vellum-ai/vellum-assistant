@@ -118,10 +118,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.restoreRecentConversations
     }
 
-    var lastActiveConversationIdString: String? {
-        selectionStore.lastActiveConversationIdString
-    }
-
     var activeConversationId: UUID? {
         selectionStore.activeConversationId
     }
