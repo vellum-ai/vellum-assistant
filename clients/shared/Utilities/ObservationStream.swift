@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// Creates an `AsyncStream` that yields deduplicated values from an `@Observable` property.
@@ -32,12 +33,18 @@ public func observationStream<Value: Equatable & Sendable>(
     let task = Task {
         var lastValue = initialValue
         while !Task.isCancelled {
-            await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                withObservationTracking {
-                    _ = getValue()
-                } onChange: {
-                    resume.resume()
+            let box = CancellableContinuationBox()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = getValue()
+                    } onChange: {
+                        box.resume()
+                    }
+                    box.set(resume)
                 }
+            } onCancel: {
+                box.resume()
             }
             guard !Task.isCancelled else { break }
             let newValue = getValue()
@@ -52,4 +59,53 @@ public func observationStream<Value: Equatable & Sendable>(
         task.cancel()
     }
     return stream
+}
+
+/// Thread-safe one-shot box that pairs a `CheckedContinuation` with a resume
+/// signal that may arrive before the continuation is stored (from `onChange` on
+/// another thread) or after task cancellation (from `onCancel`).
+private final class CancellableContinuationBox: @unchecked Sendable {
+    private enum State {
+        case empty
+        case continuation(CheckedContinuation<Void, Never>)
+        case resumed
+    }
+
+    private var state: State = .empty
+    private let lock = NSLock()
+
+    /// Store the continuation. If `resume()` was already called (by `onChange`
+    /// or `onCancel` racing ahead), resumes immediately.
+    func set(_ c: CheckedContinuation<Void, Never>) {
+        let shouldResume: Bool = lock.withLock {
+            switch state {
+            case .empty:
+                state = .continuation(c)
+                return false
+            case .resumed:
+                return true
+            case .continuation:
+                preconditionFailure("CancellableContinuationBox.set called twice")
+            }
+        }
+        if shouldResume { c.resume() }
+    }
+
+    /// Signal that the continuation should resume. Safe to call from any thread,
+    /// and idempotent — only the first call has an effect.
+    func resume() {
+        let c: CheckedContinuation<Void, Never>? = lock.withLock {
+            switch state {
+            case .empty:
+                state = .resumed
+                return nil
+            case .continuation(let c):
+                state = .resumed
+                return c
+            case .resumed:
+                return nil
+            }
+        }
+        c?.resume()
+    }
 }
