@@ -229,7 +229,8 @@ struct ComposerTextEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
         // --- Text sync (only when SwiftUI pushed a new value) ---
-        if textView.string != text {
+        let textWasExternallyReplaced = textView.string != text
+        if textWasExternallyReplaced {
             textView.string = text
             textView.scrollRangeToVisible(textView.selectedRange())
         }
@@ -278,16 +279,21 @@ struct ComposerTextEditor: NSViewRepresentable {
             }
         }
 
-        // Re-strip drag types only when TextKit may have re-registered
-        // them (after font or attribute changes), not on every keystroke.
-        if fontChanged || colorChanged {
+        // Re-strip drag types after any attribute change that may cause
+        // TextKit to re-register them. Also strip after external text
+        // replacement since NSTextStorage manipulation can trigger
+        // re-registration.
+        if fontChanged || colorChanged || textWasExternallyReplaced {
             textView.unregisterDraggedTypes()
         }
 
         // --- Focus (guarded — only schedules work when intent changed) ---
+        // Update lastFocused only after confirming the window is available.
+        // If the window is nil (during view hierarchy transitions), we leave
+        // lastFocused stale so the next updateNSView retries the request.
         if coordinator.lastFocused != isFocused {
-            coordinator.lastFocused = isFocused
             if let window = textView.window {
+                coordinator.lastFocused = isFocused
                 coordinator.scheduleFirstResponderUpdate(
                     in: window,
                     textView: textView,
@@ -299,12 +305,10 @@ struct ComposerTextEditor: NSViewRepresentable {
         // Height measurement is handled by frame/bounds notification
         // observers registered in makeNSView. Calling measureHeight here
         // would force a redundant TextKit ensureLayout on every keystroke.
-        // We only re-measure when text was externally replaced (the
-        // textView.string != text path above) since that bypasses the
-        // NSTextView delegate which normally triggers frame notifications.
-        if textView.string == text, !fontChanged {
-            // No external text change and no font change — skip.
-        } else {
+        // We only re-measure when text was externally replaced (bypasses
+        // the NSTextView delegate which normally triggers frame
+        // notifications) or the font changed (affects line height).
+        if textWasExternallyReplaced || fontChanged {
             coordinator.measureHeight(textView)
         }
     }
