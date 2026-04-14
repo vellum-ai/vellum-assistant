@@ -110,15 +110,30 @@ jobs:
 
       - name: Detect chrome extension changes
         id: detect-extension-changes
+        env:
+          BASE_VERSION: ${{ steps.extract.outputs.base_version }}
         run: |
           # Compare clients/chrome-extension/ against the previous release tag.
+          # Exclude the current version's tag so retries after tagging still
+          # detect minor/major bumps correctly.
           # If no prior tag exists (first release), always build.
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
+
+          # Force a build on minor/major version bumps so the CWS listing
+          # stays in sync even when the extension code itself hasn't changed.
           if [ -n "$PREV_TAG" ]; then
+            PREV_MAJOR_MINOR=$(echo "${PREV_TAG#v}" | cut -d. -f1-2)
+            CURR_MAJOR_MINOR=$(echo "$BASE_VERSION" | cut -d. -f1-2)
+            if [ "$PREV_MAJOR_MINOR" != "$CURR_MAJOR_MINOR" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Major/minor version changed ($PREV_MAJOR_MINOR -> $CURR_MAJOR_MINOR) — forcing extension build"
+              exit 0
+            fi
             CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ | wc -l | tr -d ' ')
           else
             CHANGED=1
           fi
+
           if [ "$CHANGED" -gt 0 ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Chrome extension has $CHANGED changed file(s) since $PREV_TAG"
