@@ -14,6 +14,7 @@ import {
   readPlatformToken,
   getPlatformUrl,
   hatchAssistant,
+  checkExistingPlatformAssistant,
   platformInitiateExport,
   platformPollExportStatus,
   platformDownloadExport,
@@ -897,25 +898,7 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    const { assistant: result, reusedExisting } = await hatchAssistant(token);
-    if (reusedExisting) {
-      // Ensure the existing assistant is in the lockfile so `vellum retire`
-      // can find it — the user may be on a different machine or a fresh clone.
-      saveAssistantEntry({
-        assistantId: result.id,
-        runtimeUrl: getPlatformUrl(),
-        cloud: "vellum",
-        species: "vellum",
-        hatchedAt: new Date().toISOString(),
-      });
-      console.error(
-        `Error: You already have a platform assistant '${result.id}'.`,
-      );
-      console.error(
-        `Retire it first with 'vellum retire ${result.id}', then retry the teleport.`,
-      );
-      process.exit(1);
-    }
+    const { assistant: result } = await hatchAssistant(token);
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),
@@ -1244,6 +1227,31 @@ export async function teleport(): Promise<void> {
     // Use the existing target's runtimeUrl for all platform calls so upload
     // and import hit the same instance.
     const targetPlatformUrl = existingTarget?.runtimeUrl;
+
+    // Step B2 — Pre-check: block if the user already has a platform assistant.
+    // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+    if (!existingTarget) {
+      const existing = await checkExistingPlatformAssistant(
+        token,
+        targetPlatformUrl,
+      );
+      if (existing) {
+        saveAssistantEntry({
+          assistantId: existing.id,
+          runtimeUrl: getPlatformUrl(),
+          cloud: "vellum",
+          species: "vellum",
+          hatchedAt: new Date().toISOString(),
+        });
+        console.error(
+          `Error: You already have a platform assistant '${existing.id}'.`,
+        );
+        console.error(
+          `Retire it first with 'vellum retire ${existing.id}', then retry the teleport.`,
+        );
+        process.exit(1);
+      }
+    }
 
     // Step C — Upload to GCS
     // bundleKey: string = uploaded successfully, null = tried but unavailable,

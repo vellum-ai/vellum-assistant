@@ -141,11 +141,16 @@ const platformImportBundleFromGcsMock = mock(async () => ({
     },
   } as Record<string, unknown>,
 }));
+const checkExistingPlatformAssistantMock = mock(
+  async (): Promise<{ id: string; name: string; status: string } | null> =>
+    null,
+);
 
 mock.module("../lib/platform-client.js", () => ({
   readPlatformToken: readPlatformTokenMock,
   getPlatformUrl: getPlatformUrlMock,
   hatchAssistant: hatchAssistantMock,
+  checkExistingPlatformAssistant: checkExistingPlatformAssistantMock,
   platformInitiateExport: platformInitiateExportMock,
   platformPollExportStatus: platformPollExportStatusMock,
   platformDownloadExport: platformDownloadExportMock,
@@ -336,6 +341,8 @@ beforeEach(() => {
       },
     },
   });
+  checkExistingPlatformAssistantMock.mockReset();
+  checkExistingPlatformAssistantMock.mockResolvedValue(null);
 
   hatchLocalMock.mockReset();
   hatchLocalMock.mockResolvedValue(undefined);
@@ -778,7 +785,7 @@ describe("resolveOrHatchTarget", () => {
     expect(result.assistantId).toBe("platform-new-id");
   });
 
-  test("platform with no name -> blocks when hatch returns reusedExisting", async () => {
+  test("platform with no name -> hatch reusedExisting passes through (pre-check is in teleport)", async () => {
     findAssistantByNameMock.mockReturnValue(null);
     hatchAssistantMock.mockResolvedValue({
       assistant: {
@@ -789,22 +796,10 @@ describe("resolveOrHatchTarget", () => {
       reusedExisting: true,
     });
 
-    await expect(resolveOrHatchTarget("platform", undefined)).rejects.toThrow(
-      "process.exit:1",
-    );
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("already have a platform assistant"),
-    );
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Retire it first"),
-    );
-    // The existing assistant is saved to the lockfile so `vellum retire` can find it
-    expect(saveAssistantEntryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assistantId: "existing-platform-id",
-        cloud: "vellum",
-      }),
-    );
+    // resolveOrHatchTarget no longer blocks on reusedExisting — the pre-check
+    // in teleport() handles that before the GCS upload.
+    const result = await resolveOrHatchTarget("platform", undefined);
+    expect(result.assistantId).toBe("existing-platform-id");
   });
 
   test("existing assistant with wrong cloud -> rejects", async () => {
@@ -1470,6 +1465,135 @@ describe("platform teleport org ID and reordered flow", () => {
       );
       // Inline import should NOT be used since signed upload succeeded
       expect(platformImportBundleMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-check: block teleport to platform when existing assistant detected
+// ---------------------------------------------------------------------------
+
+describe("pre-check: block teleport to platform when existing assistant detected", () => {
+  test("blocks BEFORE GCS upload when pre-check finds existing assistant", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Pre-check returns an existing assistant
+    checkExistingPlatformAssistantMock.mockResolvedValue({
+      id: "existing-platform-id",
+      name: "existing-platform",
+      status: "active",
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Pre-check should have been called
+      expect(checkExistingPlatformAssistantMock).toHaveBeenCalledWith(
+        "platform-token",
+        undefined,
+      );
+
+      // GCS upload should NOT have been attempted
+      expect(platformRequestUploadUrlMock).not.toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
+
+      // Hatch should NOT have been called
+      expect(hatchAssistantMock).not.toHaveBeenCalled();
+
+      // Error message should be actionable
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already have a platform assistant"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Retire it first"),
+      );
+
+      // The existing assistant is saved to the lockfile
+      expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assistantId: "existing-platform-id",
+          cloud: "vellum",
+        }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("skips pre-check when targeting an existing named assistant", async () => {
+    setArgv("--from", "my-local", "--platform", "existing-platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const platformEntry = makeEntry("existing-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "existing-platform") return platformEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Pre-check should NOT be called when targeting a known named assistant
+      expect(checkExistingPlatformAssistantMock).not.toHaveBeenCalled();
+
+      // Upload should proceed normally
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("pre-check failure is non-fatal — teleport proceeds", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Pre-check returns null (no existing assistant or API failed gracefully)
+    checkExistingPlatformAssistantMock.mockResolvedValue(null);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Pre-check was called
+      expect(checkExistingPlatformAssistantMock).toHaveBeenCalled();
+
+      // Upload and hatch should proceed normally
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(hatchAssistantMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

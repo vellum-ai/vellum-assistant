@@ -355,6 +355,19 @@ struct TeleportSection: View {
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
+        // Step 2b — Pre-check: block if the user already has a platform assistant.
+        // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+        phase = .transferring(step: "Checking for existing assistant...")
+        let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: organizationId)
+        if case .found(let existingAssistant) = activeResult {
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: existingAssistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: existingAssistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
+        }
+
         // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
@@ -377,7 +390,8 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            // Save to lockfile so the user can retire via the app’s UI
+            // Defensive safety net — should not happen because of the pre-check above,
+            // but if it does (race condition), block here as well.
             _ = LockfileAssistant.ensureManagedEntry(
                 assistantId: assistant.id,
                 runtimeUrl: VellumEnvironment.resolvedPlatformURL,
@@ -500,6 +514,19 @@ struct TeleportSection: View {
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
+        // Step 2b — Pre-check: block if the user already has a platform assistant.
+        // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+        phase = .transferring(step: "Checking for existing assistant...")
+        let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: organizationId)
+        if case .found(let existingAssistant) = activeResult {
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: existingAssistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: existingAssistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
+        }
+
         // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
@@ -522,7 +549,8 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            // Save to lockfile so the user can retire via the app's UI
+            // Defensive safety net — should not happen because of the pre-check above,
+            // but if it does (race condition), block here as well.
             _ = LockfileAssistant.ensureManagedEntry(
                 assistantId: assistant.id,
                 runtimeUrl: VellumEnvironment.resolvedPlatformURL,
