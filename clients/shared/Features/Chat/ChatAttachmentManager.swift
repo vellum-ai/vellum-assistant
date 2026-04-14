@@ -239,6 +239,11 @@ public final class ChatAttachmentManager {
         // file-backed upload optimisation is only used when the assistant is
         // running locally and can read the file from disk.
         let useFileBackedUpload = (try? GatewayHTTPClient.isConnectionManaged()) != true
+        // Resolve the workspace staging directory so the detached task can copy
+        // the source file into it. The assistant's file-backed upload allowlist
+        // only permits paths inside the workspace; files from arbitrary locations
+        // (e.g. ~/Downloads) must be staged there first.
+        let stagingDir: String? = useFileBackedUpload ? Self.resolveWorkspaceStagingDir() : nil
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
@@ -265,6 +270,31 @@ public final class ChatAttachmentManager {
             // reading the file and base64-encoding it inline.
             if !isImage && useFileBackedUpload {
                 log.info("[Attachment] using file-backed upload id=\(attachmentId) sizeBytes=\(fileSize)")
+
+                // Copy the file into the workspace staging directory so the
+                // path falls inside the assistant's upload allowlist. Without
+                // this, files picked from arbitrary locations (~/Downloads,
+                // ~/Desktop, etc.) are rejected by the server.
+                var uploadPath = url.path
+                if let stagingDir {
+                    let fm = FileManager.default
+                    try? fm.createDirectory(atPath: stagingDir, withIntermediateDirectories: true)
+                    let safeName = filename.replacingOccurrences(
+                        of: "[^a-zA-Z0-9._-]",
+                        with: "_",
+                        options: .regularExpression
+                    )
+                    let destFilename = "\(Int(Date().timeIntervalSince1970 * 1000))-\(safeName)"
+                    let destPath = (stagingDir as NSString).appendingPathComponent(destFilename)
+                    do {
+                        try fm.copyItem(atPath: url.path, toPath: destPath)
+                        uploadPath = destPath
+                        log.info("[Attachment] staged id=\(attachmentId) dest=\(destPath, privacy: .public)")
+                    } catch {
+                        log.warning("[Attachment] staging copy failed id=\(attachmentId) error=\(error.localizedDescription, privacy: .public), falling back to original path")
+                    }
+                }
+
                 return .success(ProcessedAttachmentData(
                     id: attachmentId,
                     filename: filename,
@@ -272,7 +302,7 @@ public final class ChatAttachmentManager {
                     base64: "",
                     thumbnailData: nil,
                     dataLength: 0,
-                    filePath: url.path,
+                    filePath: uploadPath,
                     originalFileSize: fileSize
                 ))
             }
@@ -445,6 +475,25 @@ public final class ChatAttachmentManager {
                 thumbnailImage: thumbnailImage
             ))
         }
+    }
+
+    // MARK: - Workspace staging
+
+    /// Returns the workspace staging directory for file-backed uploads, or nil
+    /// if the workspace directory cannot be resolved (e.g. no lockfile entry).
+    /// The returned path is `<workspaceDir>/data/attachments` which falls inside
+    /// the assistant's upload allowlist.
+    nonisolated private static func resolveWorkspaceStagingDir() -> String? {
+        #if os(macOS)
+        guard let activeId = LockfileAssistant.loadActiveAssistantId(),
+              let assistant = LockfileAssistant.loadByName(activeId),
+              let workspaceDir = assistant.workspaceDir else {
+            return nil
+        }
+        return (workspaceDir as NSString).appendingPathComponent("data/attachments")
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Thread-safe ImageIO helpers
