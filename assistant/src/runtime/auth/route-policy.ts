@@ -373,9 +373,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Conversation search
   { endpoint: "conversations/search", scopes: ["chat.read"] },
 
-  // Conversation history
-  { endpoint: "conversations/history", scopes: ["chat.read"] },
-
   // Conversation starters
   { endpoint: "conversation-starters", scopes: ["chat.read"] },
 
