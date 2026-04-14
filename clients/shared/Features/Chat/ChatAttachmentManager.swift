@@ -277,7 +277,7 @@ public final class ChatAttachmentManager {
                 ))
             }
 
-            // Image path: read data, compress, generate thumbnail, base64-encode.
+            // Read the file data for inline base64 encoding.
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -286,29 +286,35 @@ public final class ChatAttachmentManager {
                 return .failure(.message("Could not read file."))
             }
 
+            let finalData: Data
             var finalMimeType = mimeType
-            let (compressedData, wasCompressed) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
-            let finalData = compressedData
+            let thumbnail: Data?
 
-            if wasCompressed && finalData.count < data.count {
-                let header = [UInt8](finalData.prefix(4))
-                if header[0] == 0xFF && header[1] == 0xD8 {
-                    finalMimeType = "image/jpeg"
-                } else if header == [0x89, 0x50, 0x4E, 0x47] {
-                    finalMimeType = "image/png"
+            if isImage {
+                let (compressedData, wasCompressed) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
+                finalData = compressedData
+
+                if wasCompressed && finalData.count < data.count {
+                    let header = [UInt8](finalData.prefix(4))
+                    if header[0] == 0xFF && header[1] == 0xD8 {
+                        finalMimeType = "image/jpeg"
+                    } else if header == [0x89, 0x50, 0x4E, 0x47] {
+                        finalMimeType = "image/png"
+                    }
+                    let originalMB = Double(data.count) / (1024 * 1024)
+                    let compressedMB = Double(finalData.count) / (1024 * 1024)
+                    log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
                 }
+
+                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
+            } else {
+                finalData = data
+                thumbnail = nil
             }
 
-            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(finalMimeType) originalBytes=\(data.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
+            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(finalMimeType) originalBytes=\(data.count) finalBytes=\(finalData.count)")
 
             let base64 = finalData.base64EncodedString()
-            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
-
-            if wasCompressed {
-                let originalMB = Double(data.count) / (1024 * 1024)
-                let compressedMB = Double(finalData.count) / (1024 * 1024)
-                log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
-            }
 
             return .success(ProcessedAttachmentData(
                 id: attachmentId,
