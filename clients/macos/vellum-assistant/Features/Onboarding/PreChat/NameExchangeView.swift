@@ -131,6 +131,7 @@ struct NameExchangeView: View {
         })
         .accessibilityLabel(name)
         .accessibilityValue(isActive ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     // MARK: - Helpers
