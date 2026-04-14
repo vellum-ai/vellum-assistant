@@ -7,7 +7,7 @@ const INDEX_TEMPLATE = `_ Lines starting with _ are comments - they won't appear
 
 # Knowledge Base
 
-**Remember aggressively.** Capture anything concrete about your user — preferences, names, dates, habits, plans, opinions, health details, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals). Don't judge importance — filing decides that later. Call \`remember\` immediately, multiple times per conversation. Remembering too much costs nothing. Forgetting something that mattered costs trust.
+**Remember aggressively.** When you learn ANY fact — a preference, a name, a date, a habit, a plan, an opinion — call \`remember\` immediately. Don't filter, don't judge importance. Remembering too much costs nothing. Forgetting something that mattered costs trust.
 
 ## Always Loaded
 - essentials.md — Core facts, patterns, and biographical info

@@ -33,6 +33,7 @@ import { ttsProviderUnificationMigration } from "./032-tts-provider-unification.
 import { sttServiceExplicitConfigMigration } from "./033-stt-service-explicit-config.js";
 import { removeCallsVoiceTranscriptionProviderMigration } from "./034-remove-calls-voice-transcription-provider.js";
 import { seedSlackChannelPersonaMigration } from "./035-seed-slack-channel-persona.js";
+import { updatePkbIndexBarMigration } from "./036-update-pkb-index-bar.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -77,4 +78,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   sttServiceExplicitConfigMigration,
   removeCallsVoiceTranscriptionProviderMigration,
   seedSlackChannelPersonaMigration,
+  updatePkbIndexBarMigration,
 ];
