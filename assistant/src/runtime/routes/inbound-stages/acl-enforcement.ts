@@ -477,16 +477,22 @@ export async function enforceIngressAcl(
           }
         }
 
+        // Email uses 403 so the platform knows not to persist the message
+        // (prevents prompt injection from unknown senders). Other channels
+        // use 200 to prevent provider webhook suspension.
+        const denyStatus = sourceChannel === "email" ? 403 : 200;
+
         return {
           resolvedMember: null,
-          earlyResponse: Response.json({
-            accepted: true,
-            denied: true,
-            reason: "not_a_member",
-            // Include reply text so the gateway can deliver directly when
-            // callback delivery failed (e.g. signing-key mismatch → 401).
-            ...(!replyDelivered && { replyText }),
-          }),
+          earlyResponse: Response.json(
+            {
+              accepted: sourceChannel !== "email",
+              denied: true,
+              reason: "not_a_member",
+              ...(!replyDelivered && { replyText }),
+            },
+            { status: denyStatus },
+          ),
           guardianVerifyCode,
         };
       }
