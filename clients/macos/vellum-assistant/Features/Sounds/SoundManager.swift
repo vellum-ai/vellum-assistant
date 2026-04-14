@@ -63,6 +63,12 @@ final class SoundManager {
     /// without significantly delaying legitimate cross-client updates.
     private static let postSaveGraceWindow: TimeInterval = 0.5
 
+    /// Set when a broadcast is dropped because a save was in flight or the
+    /// post-save grace window had not elapsed. The save task flushes this
+    /// after the grace window so a cross-client update that arrived during
+    /// the suppression window isn't permanently missed.
+    @ObservationIgnored private var pendingReloadAfterSuppression = false
+
     /// Whether a valid config has ever been decoded from disk. While `false`,
     /// fetch failures fall back to `.defaultConfig` so first-run (no file
     /// yet) still renders sensible state. Once `true`, fetch failures
@@ -186,10 +192,12 @@ final class SoundManager {
     /// another client) and triggers a reload.
     func handleSoundsConfigBroadcast() {
         if inFlightSaveCount > 0 {
+            pendingReloadAfterSuppression = true
             return
         }
         if let completed = lastSaveCompletedAt,
            Date().timeIntervalSince(completed) < Self.postSaveGraceWindow {
+            pendingReloadAfterSuppression = true
             return
         }
         reloadConfig()
@@ -206,6 +214,7 @@ final class SoundManager {
             defer {
                 inFlightSaveCount -= 1
                 lastSaveCompletedAt = Date()
+                scheduleSuppressionFlush()
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -219,6 +228,28 @@ final class SoundManager {
             if !success {
                 log.error("Failed to save sounds config via gateway")
             }
+        }
+    }
+
+    /// After a save settles, wait out the post-save grace window and then
+    /// flush a suppressed broadcast (if any) by reloading. Without this,
+    /// a cross-client update that arrived while `inFlightSaveCount > 0` or
+    /// inside the grace window would be permanently dropped — the client
+    /// would stay stale until some unrelated later reload (reconnect, etc).
+    /// Bails out if another save is in flight or a newer save has reset the
+    /// grace window; that save's own flush will handle the pending flag.
+    private func scheduleSuppressionFlush() {
+        Task { @MainActor in
+            let nanos = UInt64(Self.postSaveGraceWindow * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            guard pendingReloadAfterSuppression else { return }
+            guard inFlightSaveCount == 0 else { return }
+            if let completed = lastSaveCompletedAt,
+               Date().timeIntervalSince(completed) < Self.postSaveGraceWindow {
+                return
+            }
+            pendingReloadAfterSuppression = false
+            reloadConfig()
         }
     }
 
