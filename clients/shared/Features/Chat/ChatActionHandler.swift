@@ -457,7 +457,9 @@ final class ChatActionHandler {
             // Scan backward from the current message through recent assistant
             // messages in this turn to catch rotated overflow messages.
             for i in stride(from: msgIdx, through: max(0, msgIdx - 10), by: -1) {
-                guard vm.messages[i].role == .assistant else { continue }
+                // Stop at the turn boundary — a user message means we've
+                // left the current assistant turn and shouldn't touch older surfaces.
+                guard vm.messages[i].role == .assistant else { break }
                 for surfIdx in vm.messages[i].inlineSurfaces.indices {
                     if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
                        case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
@@ -467,9 +469,11 @@ final class ChatActionHandler {
             }
         } else if wasRefinement {
             // During workspace refinement, currentAssistantMessageId is typically
-            // nil. Fall back to iterating all messages so dynamic page surfaces
-            // attached via positional fallback paths are still marked complete.
-            for msgIdx in vm.messages.indices {
+            // nil. Constrain the fallback to assistant messages in the current
+            // turn (after the last user message) so we don't flip unrelated
+            // historical or cancelled surfaces to complete.
+            let turnStart = (vm.messages.lastIndex(where: { $0.role == .user }) ?? -1) + 1
+            for msgIdx in turnStart..<vm.messages.count {
                 guard vm.messages[msgIdx].role == .assistant else { continue }
                 for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
                     if !vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete,
