@@ -81,6 +81,10 @@ struct SettingsGeneralTab: View {
             selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+            // Seed update state from connectionManager — .onChange only fires on
+            // subsequent changes, not the initial value.
+            isServiceGroupUpdateInProgress = connectionManager?.isUpdateInProgress ?? false
+            updateStatusMessage = connectionManager?.updateStatusMessage
             Task {
                 // Load lockfile on a background thread — the underlying
                 // Data(contentsOf:) file I/O can block the main thread.

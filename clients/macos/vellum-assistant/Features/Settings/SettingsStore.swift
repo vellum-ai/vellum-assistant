@@ -406,6 +406,11 @@ public final class SettingsStore: ObservableObject {
         allKnownTimeZoneIdentifiersByLowercase[raw.lowercased()]
     }
 
+    deinit {
+        trustRulesObservationTask?.cancel()
+        modelInfoObservationTask?.cancel()
+    }
+
     init(
         connectionManager: GatewayConnectionManager? = nil,
         eventStreamClient: EventStreamClient? = nil,
