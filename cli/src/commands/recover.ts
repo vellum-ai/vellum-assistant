@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -10,7 +11,6 @@ import {
   startGateway,
 } from "../lib/local";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
-import { exec } from "../lib/step-runner";
 
 export async function recover(): Promise<void> {
   const args = process.argv.slice(3);
@@ -123,5 +123,18 @@ export async function extractArchive(
     ? entry.resources.instanceDir
     : join(entry.resources.instanceDir, ".vellum");
   mkdirSync(extractTarget, { recursive: true });
-  await exec("tar", ["xzf", archivePath, "-C", extractTarget]);
+  // Run tar synchronously via child_process. We intentionally do NOT route
+  // this through `../lib/step-runner.exec` because recover should keep its
+  // extraction path dependency-free (it's a destructive restore and the
+  // fewer moving parts the better) — and so the round-trip unit test can
+  // exercise this helper without also having to re-import the real
+  // step-runner module.
+  const res = spawnSync("tar", ["xzf", archivePath, "-C", extractTarget], {
+    stdio: "inherit",
+  });
+  if (res.status !== 0) {
+    throw new Error(
+      `tar exited with code ${res.status} while extracting ${archivePath}`,
+    );
+  }
 }
