@@ -467,6 +467,13 @@ extension AppDelegate {
             restartItem.image = VIcon.refreshCw.nsImage(size: 16)
             menu.addItem(restartItem)
 
+            let soundsEnabled = SoundManager.shared.config.globalEnabled
+            let muteTitle = soundsEnabled ? "Mute Sound Effects" : "Unmute Sound Effects"
+            let muteItem = NSMenuItem(title: muteTitle, action: #selector(toggleSoundEffectsMute), keyEquivalent: "")
+            muteItem.target = self
+            muteItem.image = VIcon.volume2.nsImage(size: 16)
+            menu.addItem(muteItem)
+
             menu.addItem(NSMenuItem.separator())
 
             let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
@@ -606,6 +613,12 @@ extension AppDelegate {
         }
         // Local topology: use Sparkle
         updateManager.checkForUpdates()
+    }
+
+    @objc func toggleSoundEffectsMute() {
+        var updated = SoundManager.shared.config
+        updated.globalEnabled.toggle()
+        SoundManager.shared.saveConfig(updated)
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
