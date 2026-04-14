@@ -62,7 +62,7 @@ fi
 # the repo root, which we skip since there is no root manifest).
 pkgs="$(printf '%s\n' "$changed" \
     | grep -E '(^|/)(package\.json|bun\.lock)$' \
-    | sed -E 's|/?(package\.json|bun\.lock)$||' \
+    | sed -E 's#/?(package\.json|bun\.lock)$##' \
     | awk 'NF' \
     | sort -u)"
 
