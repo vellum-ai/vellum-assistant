@@ -149,11 +149,15 @@ ${greetingAttr}
  * (e.g. OpenAI Whisper). Twilio opens a WebSocket to `streamUrl` and sends
  * raw audio frames; the daemon transcribes server-side.
  *
- * `callSessionId` and `token` are encoded as query parameters on the
+ * `callSessionId` and `token` are encoded as **path segments** on the
  * WebSocket URL so the gateway can validate and route the upgrade request
- * before any Twilio `start` frame arrives. They are also propagated as
- * `<Parameter>` children so Twilio includes them in the `start` event's
- * `customParameters` object for downstream observability.
+ * before any Twilio `start` frame arrives. Twilio Media Streams does not
+ * reliably preserve URL query parameters across the WebSocket upgrade, so
+ * path-based encoding is the primary transport for handshake metadata.
+ *
+ * Both values are also propagated as `<Parameter>` children so Twilio
+ * includes them in the `start` event's `customParameters` object for
+ * downstream observability.
  */
 export function generateStreamTwiML(
   callSessionId: string,
@@ -161,15 +165,16 @@ export function generateStreamTwiML(
   relayToken?: string,
   customParameters?: Record<string, string>,
 ): string {
-  // Build the WebSocket URL with callSessionId and token as query params.
-  // The gateway validates these during the upgrade handshake before any
-  // Twilio frames are available.
-  const urlObj = new URL(streamUrl);
-  urlObj.searchParams.set("callSessionId", callSessionId);
+  // Build the WebSocket URL with callSessionId and token as path segments.
+  // Twilio Media Streams does not reliably preserve query parameters
+  // across the WebSocket upgrade, so path-based encoding is the primary
+  // transport. The gateway extracts metadata from path segments first,
+  // falling back to query parameters for legacy compatibility.
+  let fullStreamUrl = streamUrl.replace(/\/+$/, "");
+  fullStreamUrl += `/${encodeURIComponent(callSessionId)}`;
   if (relayToken) {
-    urlObj.searchParams.set("token", relayToken);
+    fullStreamUrl += `/${encodeURIComponent(relayToken)}`;
   }
-  const fullStreamUrl = urlObj.toString();
 
   // Build <Parameter> elements for the Twilio start event payload.
   // Spread customParameters first so callSessionId and token cannot be

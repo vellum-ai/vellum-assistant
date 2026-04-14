@@ -1126,7 +1126,7 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain('transcriptionProvider="Google"');
     });
 
-    test("outbound: openai-whisper -> Stream TwiML (no ConversationRelay)", async () => {
+    test("outbound: openai-whisper -> Stream TwiML with path-based metadata (no ConversationRelay)", async () => {
       mockConfigObj.services.stt.provider = "openai-whisper" as any;
       const session = createTestSession("conv-stt-ow-1", "CA_stt_ow_1");
       const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_ow_1" });
@@ -1138,10 +1138,11 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain("<Stream");
       expect(twiml).not.toContain("<ConversationRelay");
       expect(twiml).not.toContain("transcriptionProvider=");
-      expect(twiml).toContain("callSessionId");
+      // callSessionId is in the URL path, not as a query param
       expect(twiml).toContain(
-        "wss://ingress.example.com/webhooks/twilio/media-stream",
+        `wss://ingress.example.com/webhooks/twilio/media-stream/${session.id}`,
       );
+      expect(twiml).not.toContain("?callSessionId=");
     });
 
     test("inbound: openai-whisper -> Stream TwiML (no ConversationRelay)", async () => {

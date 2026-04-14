@@ -1011,15 +1011,17 @@ All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside exi
 
 Internet-facing Twilio callbacks terminate at the gateway, which validates signatures before forwarding to the runtime. This keeps the runtime behind the gateway's bearer-auth boundary.
 
-| Gateway Route                          | Validates                         | Forwards To (Runtime)                                                                    |
-| -------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
-| `POST /webhooks/twilio/voice`          | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
-| `POST /webhooks/twilio/status`         | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                   |
-| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                           |
-| `WS /webhooks/twilio/relay`            | WebSocket upgrade                 | `WS /v1/calls/relay` (bidirectional proxy) — ConversationRelay path                      |
-| `WS /webhooks/twilio/media-stream`     | WebSocket upgrade                 | `WS /v1/calls/media-stream` (bidirectional proxy) — Media Streams path                   |
+| Gateway Route                                              | Validates                         | Forwards To (Runtime)                                                                    |
+| ---------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST /webhooks/twilio/voice`                              | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
+| `POST /webhooks/twilio/status`                             | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                   |
+| `POST /webhooks/twilio/connect-action`                     | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                           |
+| `WS /webhooks/twilio/relay`                                | WebSocket upgrade                 | `WS /v1/calls/relay` (bidirectional proxy) — ConversationRelay path                      |
+| `WS /webhooks/twilio/media-stream/<callSessionId>/<token>` | WebSocket upgrade                 | `WS /v1/calls/media-stream` (bidirectional proxy) — Media Streams path                   |
 
-In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` (ConversationRelay) or `/webhooks/twilio/media-stream` (Media Streams) endpoint rather than directly to the runtime. The gateway proxies frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
+In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` (ConversationRelay) or `/webhooks/twilio/media-stream/<callSessionId>/<token>` (Media Streams) endpoint rather than directly to the runtime. The gateway proxies frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
+
+**Media Streams handshake metadata:** Twilio Media Streams does not reliably preserve URL query parameters across the WebSocket upgrade, so handshake metadata (`callSessionId` and auth `token`) is encoded as **URL path segments** (primary transport). The gateway also supports legacy query-parameter-based handshake as a fallback for backward compatibility. The metadata extractor in `twilio-media-websocket.ts` resolves values from path segments first, falling back to query parameters.
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 

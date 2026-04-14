@@ -604,7 +604,7 @@ Telephony STT uses a provider-conditional hybrid model driven by `services.stt.p
 
 - **`conversation-relay-native`** (Deepgram, Google) — TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription natively; the daemon receives transcribed text via the relay WebSocket. The Twilio-native provider name and default speech model are read from the provider catalog entry's `telephonyRouting.twilioNativeMapping` (e.g. Deepgram maps to `provider: "Deepgram"` with `defaultSpeechModel: "nova-3"`; Google maps to `provider: "Google"` with `defaultSpeechModel: undefined`).
 
-- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy (`twilio-media-websocket.ts`) to the daemon, which transcribes server-side via the provider's batch API.
+- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy. The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon, which transcribes server-side via the provider's batch API.
 
 Key modules:
 

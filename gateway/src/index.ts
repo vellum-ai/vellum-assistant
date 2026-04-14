@@ -1238,7 +1238,10 @@ async function main() {
         return undefined as unknown as Response;
       }
 
-      if (url.pathname === "/webhooks/twilio/media-stream") {
+      if (
+        url.pathname === "/webhooks/twilio/media-stream" ||
+        url.pathname.startsWith("/webhooks/twilio/media-stream/")
+      ) {
         const upgradeResult = handleTwilioMediaWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;

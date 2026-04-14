@@ -4,6 +4,7 @@ import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createTwilioMediaWebsocketHandler,
+  extractMediaStreamMetadata,
   getMediaStreamWebsocketHandlers,
 } from "../http/routes/twilio-media-websocket.js";
 
@@ -120,15 +121,75 @@ function createFakeUpstreamWs() {
 }
 
 // ---------------------------------------------------------------------------
+// Metadata extraction tests
+// ---------------------------------------------------------------------------
+
+describe("extractMediaStreamMetadata", () => {
+  test("extracts callSessionId and token from path segments", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-42/my-token",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("sess-42");
+    expect(result.token).toBe("my-token");
+  });
+
+  test("extracts callSessionId from path when token is absent", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-42",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("sess-42");
+    expect(result.token).toBeNull();
+  });
+
+  test("decodes percent-encoded path segments", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream/s%26id%3D1/tok%2Fen",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("s&id=1");
+    expect(result.token).toBe("tok/en");
+  });
+
+  test("falls back to query parameters when path has no segments", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream?callSessionId=qs-1&token=qs-tok",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("qs-1");
+    expect(result.token).toBe("qs-tok");
+  });
+
+  test("returns nulls when neither path nor query provides metadata", () => {
+    const url = new URL("http://localhost:7830/webhooks/twilio/media-stream");
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBeNull();
+    expect(result.token).toBeNull();
+  });
+
+  test("path segments take priority over query parameters", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream/path-sess/path-tok?callSessionId=query-sess&token=query-tok",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("path-sess");
+    expect(result.token).toBe("path-tok");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Upgrade handler tests
 // ---------------------------------------------------------------------------
 
 describe("createTwilioMediaWebsocketHandler", () => {
   const TEST_TOKEN = mintEdgeToken();
 
-  test("returns 400 when callSessionId is missing", () => {
+  test("returns 400 when callSessionId is missing from both path and query", () => {
     const handler = createTwilioMediaWebsocketHandler(makeConfig());
-    const req = new Request("http://localhost:7830/ws/twilio/media-stream");
+    const req = new Request(
+      "http://localhost:7830/webhooks/twilio/media-stream",
+    );
     const fakeServer = {
       upgrade: mock(() => true),
     } as unknown as import("bun").Server<any>;
@@ -139,11 +200,11 @@ describe("createTwilioMediaWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-  test("calls server.upgrade with callSessionId and config on valid request with query token", () => {
+  test("succeeds with path-based callSessionId and token", () => {
     const config = makeConfig({});
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
-      `http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-42&token=${TEST_TOKEN}`,
+      `http://localhost:7830/webhooks/twilio/media-stream/sess-42/${TEST_TOKEN}`,
     );
     const fakeServer = {
       upgrade: mock(() => true),
@@ -155,7 +216,6 @@ describe("createTwilioMediaWebsocketHandler", () => {
 
     const call = (fakeServer.upgrade as ReturnType<typeof mock>).mock
       .calls[0] as unknown[];
-    // First arg is the request, second is { data: ... }
     expect(call[0]).toBe(req);
     const upgradeData = (
       call[1] as {
@@ -173,11 +233,35 @@ describe("createTwilioMediaWebsocketHandler", () => {
     );
   });
 
+  test("legacy: succeeds with query-based callSessionId and token", () => {
+    const config = makeConfig({});
+    const handler = createTwilioMediaWebsocketHandler(config);
+    const req = new Request(
+      `http://localhost:7830/webhooks/twilio/media-stream?callSessionId=sess-42&token=${TEST_TOKEN}`,
+    );
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+
+    const call = (fakeServer.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    const upgradeData = (
+      call[1] as {
+        data: { callSessionId: string };
+      }
+    ).data;
+    expect(upgradeData.callSessionId).toBe("sess-42");
+  });
+
   test("calls server.upgrade when Authorization header provides valid token", () => {
     const config = makeConfig({});
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
-      "http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-42",
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-42",
       { headers: { authorization: `Bearer ${TEST_TOKEN}` } },
     );
     const fakeServer = {
@@ -193,7 +277,7 @@ describe("createTwilioMediaWebsocketHandler", () => {
     const config = makeConfig({});
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
-      `http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-1&token=${TEST_TOKEN}`,
+      `http://localhost:7830/webhooks/twilio/media-stream/sess-1/${TEST_TOKEN}`,
     );
     const fakeServer = {
       upgrade: mock(() => false),
@@ -206,10 +290,10 @@ describe("createTwilioMediaWebsocketHandler", () => {
 
   // --- Auth tests ---
 
-  test("returns 401 when no token provided and bypass is off", () => {
+  test("returns 401 when no token provided via path, query, or header", () => {
     const handler = createTwilioMediaWebsocketHandler(makeConfig());
     const req = new Request(
-      "http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-1",
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-1",
     );
     const fakeServer = {
       upgrade: mock(() => true),
@@ -221,11 +305,11 @@ describe("createTwilioMediaWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 401 when token is missing from request", () => {
+  test("returns 401 when token is missing from legacy query request", () => {
     const config = makeConfig({});
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
-      "http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-1",
+      "http://localhost:7830/webhooks/twilio/media-stream?callSessionId=sess-1",
     );
     const fakeServer = {
       upgrade: mock(() => true),
@@ -237,11 +321,11 @@ describe("createTwilioMediaWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-  test("returns 401 when token is wrong", () => {
+  test("returns 401 when path-based token is invalid", () => {
     const config = makeConfig({});
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
-      "http://localhost:7830/ws/twilio/media-stream?callSessionId=sess-1&token=wrong-token",
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-1/wrong-token",
     );
     const fakeServer = {
       upgrade: mock(() => true),

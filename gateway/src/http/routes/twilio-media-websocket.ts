@@ -11,6 +11,9 @@ const log = getLogger("twilio-media-ws");
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
+/** Path prefix for media-stream WS upgrades. */
+const MEDIA_STREAM_PATH_PREFIX = "/webhooks/twilio/media-stream";
+
 type MediaStreamSocketData = {
   wsType: "twilio-media-stream";
   callSessionId: string;
@@ -20,6 +23,42 @@ type MediaStreamSocketData = {
 };
 
 export type { MediaStreamSocketData };
+
+/**
+ * Extract `callSessionId` and auth `token` from the request.
+ *
+ * **Primary path (new):** path segments after `/webhooks/twilio/media-stream/`.
+ *   Format: `.../media-stream/<callSessionId>/<token>`
+ *   Twilio Media Streams does not reliably preserve URL query parameters
+ *   across the WebSocket upgrade, so path-segment encoding is the primary
+ *   transport for handshake metadata.
+ *
+ * **Legacy fallback:** query parameters `callSessionId` and `token`.
+ *   Supported for backward compatibility during rollout.
+ */
+export function extractMediaStreamMetadata(url: URL): {
+  callSessionId: string | null;
+  token: string | null;
+} {
+  // Try path-based extraction first.
+  // Expected pathname: /webhooks/twilio/media-stream/<callSessionId>[/<token>]
+  if (url.pathname.startsWith(MEDIA_STREAM_PATH_PREFIX + "/")) {
+    const suffix = url.pathname.slice(MEDIA_STREAM_PATH_PREFIX.length + 1);
+    const segments = suffix.split("/").filter(Boolean);
+    if (segments.length >= 1) {
+      const callSessionId = decodeURIComponent(segments[0]);
+      const token =
+        segments.length >= 2 ? decodeURIComponent(segments[1]) : null;
+      return { callSessionId, token };
+    }
+  }
+
+  // Fallback: query parameters (legacy)
+  return {
+    callSessionId: url.searchParams.get("callSessionId"),
+    token: url.searchParams.get("token"),
+  };
+}
 
 /**
  * Create a WebSocket upgrade handler that proxies Twilio Media Stream
@@ -36,20 +75,21 @@ export function createTwilioMediaWebsocketHandler(
     server: import("bun").Server<unknown>,
   ): Response | undefined {
     const url = new URL(req.url);
-    const callSessionId = url.searchParams.get("callSessionId");
+    const { callSessionId, token: pathToken } = extractMediaStreamMetadata(url);
 
     if (!callSessionId) {
       log.warn("Media stream WS upgrade without callSessionId");
       return new Response("Missing callSessionId", { status: 400 });
     }
 
-    // Authenticate before upgrading. Twilio passes the token as a query
-    // parameter since WebSocket upgrades don't support arbitrary headers.
+    // Authenticate before upgrading. Twilio passes the token via path
+    // segments (primary) or query parameters (legacy fallback) since
+    // WebSocket upgrades don't support arbitrary headers.
     const isBypassed =
       process.env.APP_VERSION === "0.0.0-dev" &&
       (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
         false);
-    const authResponse = checkMediaStreamAuth(req, url, isBypassed);
+    const authResponse = checkMediaStreamAuth(req, url, pathToken, isBypassed);
     if (authResponse) return authResponse;
 
     const upgraded = server.upgrade(req, {
@@ -72,9 +112,10 @@ export function createTwilioMediaWebsocketHandler(
 /**
  * Validate the media-stream WebSocket upgrade request using JWT edge tokens.
  *
- * Accepts a JWT via:
+ * Accepts a JWT via (in priority order):
  *   1. `Authorization: Bearer <token>` header (standard clients)
- *   2. `token` query parameter (Twilio media streams -- no custom headers)
+ *   2. Path-segment token extracted by {@link extractMediaStreamMetadata}
+ *   3. `token` query parameter (legacy Twilio media streams fallback)
  *
  * Fail-closed: rejects all unauthenticated requests unless the deliver auth
  * bypass flag is set (local-dev only escape hatch).
@@ -82,6 +123,7 @@ export function createTwilioMediaWebsocketHandler(
 function checkMediaStreamAuth(
   req: Request,
   url: URL,
+  pathToken: string | null,
   isBypassed: boolean,
 ): Response | null {
   // Local-dev bypass: allow unauthenticated access when deliverAuthBypass is set
@@ -89,14 +131,14 @@ function checkMediaStreamAuth(
     return null;
   }
 
-  // Try Authorization header first, then fall back to query param
+  // Priority: Authorization header > path segment > query param
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
   const rawToken = authHeader
     ? authHeader.toLowerCase().startsWith("bearer ")
       ? authHeader.slice(7)
       : null
-    : queryToken;
+    : (pathToken ?? queryToken);
 
   if (!rawToken) {
     log.warn("Media stream WS: no token provided");
