@@ -16,6 +16,19 @@ public enum TTSProviderSetupMode: String, Decodable {
     case cli
 }
 
+/// Guide for obtaining API credentials from a TTS provider.
+///
+/// Contains a short description of the steps, a URL to the provider's
+/// key-management page, and a human-readable link label for display.
+public struct TTSCredentialsGuide: Decodable {
+    /// Brief instructions for obtaining an API key (1-2 sentences).
+    public let description: String
+    /// URL to the provider's API key or console page.
+    public let url: String
+    /// Human-readable label for the link (e.g. "Open ElevenLabs Dashboard").
+    public let linkLabel: String
+}
+
 /// A single entry in the client-facing TTS provider catalog.
 ///
 /// This struct captures the subset of provider metadata that client apps
@@ -32,6 +45,8 @@ public struct TTSProviderCatalogEntry: Decodable {
     public let setupMode: TTSProviderSetupMode
     /// Brief help text guiding the user through setup.
     public let setupHint: String
+    /// Guide for obtaining API credentials from this provider.
+    public let credentialsGuide: TTSCredentialsGuide?
 }
 
 /// Top-level schema for `tts-provider-catalog.json`.
@@ -62,14 +77,24 @@ private let fallbackRegistry = TTSProviderRegistry(
             displayName: "ElevenLabs",
             subtitle: "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
             setupMode: .apiKey,
-            setupHint: "Enter your ElevenLabs API key to get started."
+            setupHint: "Enter your ElevenLabs API key to get started.",
+            credentialsGuide: TTSCredentialsGuide(
+                description: "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
+                url: "https://elevenlabs.io/app/settings/api-keys",
+                linkLabel: "Open ElevenLabs API Keys"
+            )
         ),
         TTSProviderCatalogEntry(
             id: "fish-audio",
             displayName: "Fish Audio",
             subtitle: "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
             setupMode: .cli,
-            setupHint: "Run the setup commands in your terminal to configure Fish Audio."
+            setupHint: "Run the setup commands in your terminal to configure Fish Audio.",
+            credentialsGuide: TTSCredentialsGuide(
+                description: "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+                url: "https://fish.audio/api-keys/",
+                linkLabel: "Open Fish Audio API Keys"
+            )
         ),
     ]
 )

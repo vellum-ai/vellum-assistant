@@ -1,19 +1,29 @@
 {
-  "version": 1,
+  "version": 2,
   "providers": [
     {
       "id": "elevenlabs",
       "displayName": "ElevenLabs",
       "subtitle": "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
       "setupMode": "cli",
-      "setupHint": "Run the setup commands in your terminal to configure ElevenLabs credentials."
+      "setupHint": "Run the setup commands in your terminal to configure ElevenLabs credentials.",
+      "credentialsGuide": {
+        "description": "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
+        "url": "https://elevenlabs.io/app/settings/api-keys",
+        "linkLabel": "Open ElevenLabs API Keys"
+      }
     },
     {
       "id": "fish-audio",
       "displayName": "Fish Audio",
       "subtitle": "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
       "setupMode": "cli",
-      "setupHint": "Run the setup commands in your terminal to configure Fish Audio."
+      "setupHint": "Run the setup commands in your terminal to configure Fish Audio.",
+      "credentialsGuide": {
+        "description": "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+        "url": "https://fish.audio/api-keys/",
+        "linkLabel": "Open Fish Audio API Keys"
+      }
     }
   ]
 }

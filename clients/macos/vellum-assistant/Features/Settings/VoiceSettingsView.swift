@@ -385,6 +385,9 @@ struct VoiceSettingsView: View {
                 // Unified API key field
                 ttsApiKeyField
 
+                // Credentials guide — contextual help for obtaining an API key
+                ttsCredentialsGuideView
+
                 // Voice ID / Reference ID field (provider-specific)
                 ttsVoiceIdField
 
@@ -434,6 +437,26 @@ struct VoiceSettingsView: View {
                 placeholder: "\(selectedTTSProvider?.displayName ?? "Provider") Voice ID (optional)",
                 text: $ttsVoiceIdText
             )
+        }
+    }
+
+    // MARK: - TTS Credentials Guide
+
+    @ViewBuilder
+    private var ttsCredentialsGuideView: some View {
+        if let guide = selectedTTSProvider?.credentialsGuide,
+           let attributed = try? AttributedString(
+               markdown: "\(guide.description) [\(guide.linkLabel)](\(guide.url))"
+           ) {
+            Text(attributed)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .tint(VColor.primaryBase)
+                .lineSpacing(1)
+                .environment(\.openURL, OpenURLAction { url in
+                    NSWorkspace.shared.open(url)
+                    return .handled
+                })
         }
     }
 
