@@ -107,7 +107,7 @@ struct TaskToneSelectionView: View {
                     onContinue()
                 }
 
-                VButton(label: "I'll set this up later", style: .ghost) {
+                VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
                 }
             }
@@ -116,10 +116,10 @@ struct TaskToneSelectionView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showTitle = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showContent = true
             }
         }
@@ -140,7 +140,7 @@ struct TaskToneSelectionView: View {
                 ))
                 .opacity(showCharacters ? 1 : 0)
                 .offset(y: showCharacters ? 0 : 30)
-                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .animation(VAnimation.slow.delay(0.5), value: showCharacters)
                 .onAppear { showCharacters = true }
                 .accessibilityHidden(true)
         }

@@ -83,24 +83,19 @@ struct NameExchangeView: View {
                     onComplete()
                 }
 
-                Button {
+                VButton(label: "Skip", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
-                } label: {
-                    Text("Skip")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, VSpacing.xxl)
             .padding(.bottom, VSpacing.xxl)
             .opacity(showContent ? 1 : 0)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showHeader = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showContent = true
             }
         }
