@@ -201,6 +201,13 @@ export interface MessageComplete {
   attachmentWarnings?: string[];
   /** Database ID of the persisted assistant message, if any. */
   messageId?: string;
+  /**
+   * Distinguishes a real main-turn completion from auxiliary events such as
+   * call transcripts, call summaries, and watch notifier outputs. Clients
+   * gate turn-completion side effects (e.g. the task_complete sound) on
+   * `source !== "aux"`. Absent is treated as main for backwards compatibility.
+   */
+  source?: "main" | "aux";
 }
 
 export interface ErrorMessage {

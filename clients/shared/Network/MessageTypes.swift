@@ -708,8 +708,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, source: source)
     }
 }
 

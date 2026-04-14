@@ -2530,13 +2530,15 @@ public struct MessageComplete: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let source: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.source = source
     }
 }
 
