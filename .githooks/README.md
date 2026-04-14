@@ -69,17 +69,21 @@ git push --no-verify
 
 ### post-merge & post-checkout
 
-Re-runs `bun install` at the repo root when any `package.json` or `bun.lock`
+Re-runs `bun install` in each sub-package whose `package.json` or `bun.lock`
 changed in the commits pulled in by `git pull` / `git checkout` / `git switch`.
 Prevents stale `node_modules` after a branch switch or pull that adds a new
 dependency — the failure mode looks like a silent `Cannot find package 'X'`
 at runtime.
 
+This repo has no root manifest: packages live in sub-dirs (`assistant/`,
+`cli/`, `gateway/`, `credential-executor/`, `packages/*`, etc.) each with
+their own `package.json` and `bun.lock`.
+
 **Behavior:**
 
 - Diffs the pre- and post-HEAD using git (no filesystem scan); silent no-op when no manifest file changed.
-- Runs `bun install` from the repo root when any match is found.
-- Warns and exits 0 if `bun` is not on PATH — never fails `git pull` / `git checkout`.
+- Runs `bun install` in each sub-package whose manifest changed (serialized to avoid `~/.bun` cache contention).
+- Warns and exits 0 if `bun` is not available (checks `$PATH` and `~/.bun/bin/bun`) — never fails `git pull` / `git checkout`.
 - Shared helper: `.githooks/bun-install-if-deps-changed.sh`.
 
 **Bypass:** these hooks are best-effort and cannot fail the pull/checkout. If you need to suppress the install, unset `core.hooksPath` or delete the hook file locally.
