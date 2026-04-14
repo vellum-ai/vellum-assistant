@@ -9,7 +9,11 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
+import {
+  getDataDir,
+  getProtectedDir,
+  getWorkspaceDir,
+} from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -46,9 +50,16 @@ function buildCredentialRefTrace(
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  const securityDir =
-    process.env.GATEWAY_SECURITY_DIR || join(homedir(), ".vellum", "protected");
-  const paths = [securityDir, join(getWorkspaceDir(), "data", "db")];
+  // Block both the legacy global protected dir and the current per-instance
+  // protected dir so the sandbox read-block works in both single-instance
+  // and multi-instance setups. In the default case (no BASE_DATA_DIR) the
+  // two entries collapse via the Set dedupe.
+  const protectedDirs = process.env.GATEWAY_SECURITY_DIR
+    ? [process.env.GATEWAY_SECURITY_DIR]
+    : Array.from(
+        new Set([join(homedir(), ".vellum", "protected"), getProtectedDir()]),
+      );
+  const paths = [...protectedDirs, join(getWorkspaceDir(), "data", "db")];
 
   // CES bootstrap socket directory - block access to the Unix socket that
   // accepts RPC commands from the assistant process.
