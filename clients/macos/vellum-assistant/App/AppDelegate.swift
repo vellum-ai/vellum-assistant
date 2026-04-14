@@ -660,7 +660,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         RandomSoundTimer.shared.start()
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true
-            SoundManager.shared.play(.appOpen)
+            SoundManager.shared.playAppOpen()
         }
 
         // On cold-start reauth (non-first-launch), check for a pending managed
