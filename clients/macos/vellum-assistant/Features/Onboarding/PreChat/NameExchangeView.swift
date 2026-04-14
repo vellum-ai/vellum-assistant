@@ -83,7 +83,7 @@ struct NameExchangeView: View {
                     onComplete()
                 }
 
-                VButton(label: "Skip", style: .ghost) {
+                VButton(label: "Skip", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
                 }
             }

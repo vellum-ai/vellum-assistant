@@ -62,7 +62,7 @@ struct ToolSelectionView: View {
                     onContinue()
                 }
 
-                VButton(label: "I'll set this up later", style: .ghost) {
+                VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
                 }
             }
