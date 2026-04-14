@@ -1088,6 +1088,7 @@ export async function runDaemon(): Promise<void> {
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),
       getHeartbeatService: () => server.getHeartbeatService(),
+      getFilingService: () => server.getFilingService(),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
@@ -1405,6 +1406,7 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     filing.start();
+    server.setFilingService(filing);
     log.info(
       {
         enabled: filingConfig.enabled,

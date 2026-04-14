@@ -54,6 +54,15 @@ export interface HeartbeatChecklistWrite {
   content: string;
 }
 
+export interface FilingConfig {
+  type: "filing_config";
+  action: "get";
+}
+
+export interface FilingRunNow {
+  type: "filing_run_now";
+}
+
 // === Server → Client ===
 
 export interface SchedulesListResponse {
@@ -133,6 +142,25 @@ export interface HeartbeatChecklistWriteResponse {
   error?: string;
 }
 
+export interface FilingConfigResponse {
+  type: "filing_config_response";
+  enabled: boolean;
+  intervalMs: number;
+  activeHoursStart: number | null;
+  activeHoursEnd: number | null;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  success: boolean;
+  error?: string;
+}
+
+export interface FilingRunNowResponse {
+  type: "filing_run_now_response";
+  success: boolean;
+  ran: boolean;
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _SchedulesClientMessages =
@@ -145,7 +173,9 @@ export type _SchedulesClientMessages =
   | HeartbeatRunsList
   | HeartbeatRunNow
   | HeartbeatChecklistRead
-  | HeartbeatChecklistWrite;
+  | HeartbeatChecklistWrite
+  | FilingConfig
+  | FilingRunNow;
 
 export type _SchedulesServerMessages =
   | SchedulesListResponse
@@ -155,4 +185,6 @@ export type _SchedulesServerMessages =
   | HeartbeatRunsListResponse
   | HeartbeatRunNowResponse
   | HeartbeatChecklistResponse
-  | HeartbeatChecklistWriteResponse;
+  | HeartbeatChecklistWriteResponse
+  | FilingConfigResponse
+  | FilingRunNowResponse;
