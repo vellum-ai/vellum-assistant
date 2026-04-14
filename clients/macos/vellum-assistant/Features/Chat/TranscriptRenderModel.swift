@@ -108,4 +108,9 @@ struct TranscriptRowModel: Equatable, Identifiable {
     /// inside the ForEach so it shares the same minHeight wrapper that
     /// will later hold the real assistant message.
     var isThinkingPlaceholder: Bool = false
+
+    /// Estimated total height of all rows above this one in the current
+    /// assistant turn. Used to shrink the minHeight wrapper so the total
+    /// turn content fits the viewport without pushing the user message off-screen.
+    var priorTurnContentHeight: CGFloat = 0
 }

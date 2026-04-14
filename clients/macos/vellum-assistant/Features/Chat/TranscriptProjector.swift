@@ -150,6 +150,19 @@ enum TranscriptProjector {
             && !hasActiveToolCall
             && !canInlineProcessing
 
+        // --- Compute prior-turn content heights for dynamic minHeight ---
+
+        let lastUserIdx = visibleMessages.lastIndex(where: { $0.role == .user })
+        var priorTurnHeightByIndex: [Int: CGFloat] = [:]
+        var accumulatedHeight: CGFloat = 0
+        for i in visibleMessages.indices {
+            let isInCurrentTurn = lastUserIdx.map { i > $0 } ?? true
+            if isInCurrentTurn && visibleMessages[i].role == .assistant {
+                priorTurnHeightByIndex[i] = accumulatedHeight
+                accumulatedHeight += Self.estimateAssistantRowHeight(visibleMessages[i])
+            }
+        }
+
         // --- Build row models ---
 
         var rows: [TranscriptRowModel] = visibleMessages.enumerated().map { index, message in
@@ -162,7 +175,8 @@ enum TranscriptProjector {
                 index: index,
                 decidedConfirmation: nextDecidedConfirmationByIndex[index],
                 isConfirmationRenderedInline: isConfirmationRenderedInlineByIndex.contains(index),
-                isAnchoredThinkingRow: index == anchoredThinkingIndex
+                isAnchoredThinkingRow: index == anchoredThinkingIndex,
+                priorTurnContentHeight: priorTurnHeightByIndex[index] ?? 0
             )
         }
 
@@ -186,7 +200,8 @@ enum TranscriptProjector {
                 decidedConfirmation: nil,
                 isConfirmationRenderedInline: false,
                 isAnchoredThinkingRow: false,
-                isThinkingPlaceholder: true
+                isThinkingPlaceholder: true,
+                priorTurnContentHeight: accumulatedHeight
             )
             rows.append(placeholder)
         }
@@ -227,6 +242,19 @@ enum TranscriptProjector {
             }
         }
         return result
+    }
+
+    // MARK: - Height estimation
+
+    /// Estimate the rendered height of an assistant message row.
+    private static func estimateAssistantRowHeight(_ message: ChatMessage) -> CGFloat {
+        if message.confirmation != nil {
+            return 150
+        }
+        let toolCallHeight = CGFloat(message.toolCalls.count) * 60
+        let textLines = max(1, CGFloat(message.text.count) / 60)
+        let textHeight = min(textLines * 20, 200)
+        return toolCallHeight + textHeight + 40
     }
 
     // MARK: - Thinking anchor
