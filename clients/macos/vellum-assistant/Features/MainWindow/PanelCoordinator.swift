@@ -1,6 +1,12 @@
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+import os
+
+private let panelCoordinatorLog = Logger(
+    subsystem: Bundle.appBundleIdentifier,
+    category: "PanelCoordinator"
+)
 
 // MARK: - Panel Coordination Extension
 
@@ -150,12 +156,28 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onFeedConversationOpened: { conversationId in
+                    // Daemon already created the conversation in response to
+                    // `store.triggerAction`; the client just needs to navigate.
+                    // A non-UUID id here means the daemon returned something
+                    // the client contract does not allow — log loudly so the
+                    // regression is visible instead of silently dropping.
+                    guard let uuid = UUID(uuidString: conversationId) else {
+                        panelCoordinatorLog.error(
+                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                        )
+                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                        return
+                    }
+                    windowState.selection = .conversation(uuid)
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
                 homeStore: homeStore,
+                feedStore: feedStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
@@ -635,12 +657,24 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
+                onFeedConversationOpened: { conversationId in
+                    windowState.dismissOverlay()
+                    guard let uuid = UUID(uuidString: conversationId) else {
+                        panelCoordinatorLog.error(
+                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                        )
+                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                        return
+                    }
+                    windowState.selection = .conversation(uuid)
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
                 authManager: authManager,
                 homeStore: homeStore,
+                feedStore: feedStore,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,

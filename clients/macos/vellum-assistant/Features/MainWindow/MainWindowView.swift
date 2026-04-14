@@ -89,6 +89,7 @@ struct MainWindowView: View {
     /// gating construction on the flag isn't worth the runtime-toggle
     /// surface bug it created.
     @State var homeStore: HomeStore
+    @State var feedStore: HomeFeedStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
@@ -117,6 +118,12 @@ struct MainWindowView: View {
         // without an app relaunch.
         self._homeStore = State(initialValue: HomeStore(
             client: DefaultHomeStateClient(),
+            messageStream: eventStreamClient.subscribe()
+        ))
+        // Same eager-construction rationale for the activity feed store
+        // — ready the instant the `home-feed` flag flips on.
+        self._feedStore = State(initialValue: HomeFeedStore(
+            client: DefaultHomeFeedClient(),
             messageStream: eventStreamClient.subscribe()
         ))
     }
