@@ -245,10 +245,14 @@ public final class ManagedAssistantBootstrapService {
         log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
-    /// Adapts `AuthService.resolveOrganizationId()` errors into the
-    /// bootstrap's `ManagedBootstrapError` shape so existing UI messages
-    /// keep working.
-    private func resolveOrganizationId() async throws -> String {
+    /// Resolves the organization ID for the current user, translating
+    /// `AuthService` errors into the bootstrap's `ManagedBootstrapError`
+    /// shape so existing UI messages keep working.
+    ///
+    /// Public so callers that only need org resolution (e.g. the managed
+    /// assistant switch path in `AppDelegate+AuthLifecycle`) can call this
+    /// directly without the overhead of `ensureManagedAssistant()`.
+    public func resolveOrganizationId() async throws -> String {
         do {
             return try await authService.resolveOrganizationId()
         } catch AuthService.OrganizationResolutionError.noOrganizations {
