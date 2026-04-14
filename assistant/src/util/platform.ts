@@ -45,13 +45,24 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Compute the root ~/.vellum directory path.
+ * The daemon's per-instance root data directory. Resolution order:
  *
- * This is a simple inline computation — not a shared function — so each
- * helper is self-contained and the module has no hidden coupling to
- * env-var indirection.
+ *   1. `BASE_DATA_DIR` env var — set by the CLI when spawning the daemon
+ *      for a specific assistant (see `cli/src/lib/local.ts`). Points at the
+ *      per-assistant instanceDir; we append `.vellum` to get the daemon's
+ *      root so root-level state (PID, credentials, runtime-port, workspace)
+ *      is isolated per instance.
+ *   2. Fallback: `join(homedir(), ".vellum")`. Used when the daemon runs
+ *      outside the CLI-spawn lifecycle (containerized deployments, manual
+ *      test invocations).
+ *
+ * Docker mode relocates the workspace via `VELLUM_WORKSPACE_DIR` rather
+ * than `BASE_DATA_DIR`, so honoring `BASE_DATA_DIR` here does not affect
+ * containerized deployments.
  */
 function vellumRoot(): string {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+  if (baseDataDir) return join(baseDataDir, ".vellum");
   return join(homedir(), ".vellum");
 }
 
