@@ -126,6 +126,7 @@ import {
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
+import { getGatewayDb } from "./db/connection.js";
 
 const log = getLogger("main");
 
@@ -222,6 +223,14 @@ async function main() {
   const signingKey = loadOrCreateSigningKey();
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
+
+  // ── Gateway SQLite ──
+  // Initialize the gateway database early so that schema + data migrations
+  // (e.g. guardian-init lock file migration) run before any HTTP handler
+  // can serve requests. Previously the DB was only created on-demand when
+  // Slack was configured; now it is always available.
+  getGatewayDb();
+  log.info("Gateway database initialized");
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
