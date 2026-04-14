@@ -2,7 +2,9 @@ import XCTest
 @testable import VellumAssistantShared
 
 /// In-memory credential storage for testing.
-private final class MockCredentialStorage: CredentialStorage {
+/// Marked `@unchecked Sendable` because tests drive it single-threaded; the
+/// `CredentialStorage` protocol requires `Sendable` for production impls.
+private final class MockCredentialStorage: CredentialStorage, @unchecked Sendable {
     private var store: [String: String] = [:]
 
     func get(account: String) -> String? {
@@ -309,11 +311,12 @@ final class PlatformAssistantIdResolverTests: XCTestCase {
 
     /// Verifies that clearBootstrapCredential removes the locally cached
     /// bootstrap credential for a runtime assistant.
+    @MainActor
     func testClearBootstrapCredentialRemovesCachedKey() {
         // GIVEN a bootstrap credential is stored
         let assistantId = "vellum-cool-heron"
         let account = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
-        storage.set(account: account, value: "some-api-key")
+        _ = storage.set(account: account, value: "some-api-key")
         XCTAssertNotNil(storage.get(account: account))
 
         // WHEN clearing the bootstrap credential
@@ -331,6 +334,7 @@ final class PlatformAssistantIdResolverTests: XCTestCase {
     /// Verifies that clearBootstrapCredential is a no-op when no credential
     /// exists, matching the expected behavior during deregistration of an
     /// assistant that was never bootstrapped.
+    @MainActor
     func testClearBootstrapCredentialNoOpWhenNothingStored() {
         // GIVEN no credential is stored for this assistant
 
@@ -346,14 +350,15 @@ final class PlatformAssistantIdResolverTests: XCTestCase {
 
     /// Verifies that clearBootstrapCredential only removes the targeted
     /// assistant's credential, leaving other assistants' credentials intact.
+    @MainActor
     func testClearBootstrapCredentialDoesNotAffectOtherAssistants() {
         // GIVEN credentials are stored for two assistants
         let assistantA = "vellum-cool-heron"
         let assistantB = "vellum-swift-eagle"
         let accountA = LocalAssistantBootstrapService.credentialAccount(for: assistantA)
         let accountB = LocalAssistantBootstrapService.credentialAccount(for: assistantB)
-        storage.set(account: accountA, value: "key-a")
-        storage.set(account: accountB, value: "key-b")
+        _ = storage.set(account: accountA, value: "key-a")
+        _ = storage.set(account: accountB, value: "key-b")
 
         // WHEN clearing only assistant A's credential
         LocalAssistantBootstrapService.clearBootstrapCredential(
