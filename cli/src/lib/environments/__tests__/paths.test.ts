@@ -109,6 +109,40 @@ describe("path helpers", () => {
       };
       expect(getDataDir(env)).toBe("/tmp/test");
     });
+
+    test("baseDataDirOverride appends `.vellum` (legacy BASE_DATA_DIR behavior)", () => {
+      const env: EnvironmentDefinition = {
+        ...prod,
+        baseDataDirOverride: "/tmp/instance",
+      };
+      expect(getDataDir(env)).toBe("/tmp/instance/.vellum");
+    });
+
+    test("baseDataDirOverride applies to non-prod envs too", () => {
+      const env: EnvironmentDefinition = {
+        ...dev,
+        baseDataDirOverride: "/tmp/instance",
+      };
+      expect(getDataDir(env)).toBe("/tmp/instance/.vellum");
+    });
+
+    test("dataDirOverride wins over baseDataDirOverride when both are set", () => {
+      const env: EnvironmentDefinition = {
+        ...prod,
+        dataDirOverride: "/full/path",
+        baseDataDirOverride: "/base",
+      };
+      expect(getDataDir(env)).toBe("/full/path");
+    });
+
+    test("baseDataDirOverride wins over production legacy path", () => {
+      const env: EnvironmentDefinition = {
+        ...prod,
+        baseDataDirOverride: "/tmp/instance",
+      };
+      // Production's default `~/.vellum` is skipped in favor of the override.
+      expect(getDataDir(env)).toBe("/tmp/instance/.vellum");
+    });
   });
 
   describe("getConfigDir", () => {

@@ -31,6 +31,9 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  *   - `VELLUM_ASSISTANT_PLATFORM_URL` overrides `assistantPlatformUrl`
  *   - `VELLUM_LOCKFILE_DIR` overrides `lockfileDirOverride` (legacy e2e
  *     test hook used by `cli/src/lib/assistant-config.ts:getLockfileDir`)
+ *   - `BASE_DATA_DIR` overrides `baseDataDirOverride` (legacy multi-instance
+ *     hook — the CLI sets this when spawning per-instance daemons so the
+ *     daemon writes state under `<instanceDir>/.vellum/` instead of `~/.vellum/`)
  *
  * This function should be the single entrypoint for environment resolution.
  * No other code should drive off `VELLUM_ENVIRONMENT` directly.
@@ -62,6 +65,11 @@ export function getCurrentEnvironment(
   const lockfileDirOverride = process.env.VELLUM_LOCKFILE_DIR?.trim();
   if (lockfileDirOverride) {
     resolved.lockfileDirOverride = lockfileDirOverride;
+  }
+
+  const baseDataDirOverride = process.env.BASE_DATA_DIR?.trim();
+  if (baseDataDirOverride) {
+    resolved.baseDataDirOverride = baseDataDirOverride;
   }
 
   return resolved;
