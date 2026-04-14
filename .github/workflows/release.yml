@@ -25,6 +25,7 @@ jobs:
       base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
       docker_environments: ${{ steps.finalize.outputs.docker_environments }}
+      chrome_extension_changed: ${{ steps.detect-extension-changes.outputs.changed }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -106,6 +107,25 @@ jobs:
             echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Detect chrome extension changes
+        id: detect-extension-changes
+        run: |
+          # Compare clients/chrome-extension/ against the previous release tag.
+          # If no prior tag exists (first release), always build.
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ | wc -l | tr -d ' ')
+          else
+            CHANGED=1
+          fi
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Chrome extension has $CHANGED changed file(s) since $PREV_TAG"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No chrome extension changes since $PREV_TAG — build & publish will be skipped"
+          fi
 
   notify-release-start:
     name: Slack Notification (Release Build Started)
@@ -189,6 +209,7 @@ jobs:
 
   build-chrome-extension:
     needs: [extract-version]
+    if: needs.extract-version.outputs.chrome_extension_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -254,7 +275,8 @@ jobs:
   publish-chrome-extension:
     needs: [extract-version, build-chrome-extension]
     if: >-
-      needs.extract-version.outputs.is_staging == 'false'
+      needs.extract-version.outputs.chrome_extension_changed == 'true'
+      && needs.extract-version.outputs.is_staging == 'false'
       && vars.CWS_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
