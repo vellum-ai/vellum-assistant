@@ -148,9 +148,9 @@ public struct AppsClient: AppsClientProtocol {
                     contentId: app.contentId
                 )
             }
-            // Partial decode failure: return the successfully decoded apps
-            // but mark as non-authoritative so syncFromDaemon doesn't prune
-            // the missing (malformed) apps from the local cache.
+            // Partial decode: return the successfully decoded apps with
+            // success=false so callers know the list is incomplete and can
+            // sync without pruning (add/update but not remove).
             return AppsListResponse(
                 type: "apps_list_response", apps: apps,
                 success: decoded.droppedCount == 0
