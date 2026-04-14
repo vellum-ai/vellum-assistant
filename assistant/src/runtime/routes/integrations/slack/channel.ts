@@ -28,13 +28,21 @@ export async function handleGetSlackChannelConfig(): Promise<Response> {
 /**
  * POST /v1/integrations/slack/channel/config
  *
- * Body: { botToken?: string, appToken?: string }
+ * Body: { botToken?: string, appToken?: string, userToken?: string }
  */
 export async function handleSetSlackChannelConfig(
   req: Request,
 ): Promise<Response> {
-  const body = (await req.json()) as { botToken?: string; appToken?: string };
-  const result = await setSlackChannelConfig(body.botToken, body.appToken);
+  const body = (await req.json()) as {
+    botToken?: string;
+    appToken?: string;
+    userToken?: string;
+  };
+  const result = await setSlackChannelConfig(
+    body.botToken,
+    body.appToken,
+    body.userToken,
+  );
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
 }
