@@ -69,6 +69,15 @@ extension ChatBubble {
                 Spacer(minLength: 0)
             }
             .padding(.top, VSpacing.xxs)
+        } else if isStreamingContinuation {
+            // Assistant is still generating after producing initial text.
+            // Show a subtle typing indicator so the user knows more content is coming.
+            HStack(spacing: 0) {
+                TypingIndicatorView()
+                Spacer(minLength: 0)
+            }
+            .padding(.top, VSpacing.xxs)
+            .transition(.opacity)
         }
     }
 

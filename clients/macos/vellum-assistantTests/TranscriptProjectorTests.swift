@@ -479,6 +479,39 @@ final class TranscriptProjectorTests: XCTestCase {
             XCTAssertEqual(row.index, i, "Row index should match position in rows array")
         }
     }
+
+    // MARK: - Streaming With Text (continuation indicator)
+
+    func testStreamingWithText_SetWhenStreamingAndTextExists() {
+        let msg = makeMessage(role: .assistant, text: "got 3,300 messages scanned", isStreaming: true)
+        let model = project(messages: [msg], isSending: true)
+        XCTAssertTrue(model.isStreamingWithText)
+    }
+
+    func testStreamingWithText_FalseWhenTextEmpty() {
+        let msg = makeMessage(role: .assistant, text: "", isStreaming: true)
+        let model = project(messages: [msg], isSending: true)
+        XCTAssertFalse(model.isStreamingWithText)
+    }
+
+    func testStreamingWithText_FalseWhenNotSending() {
+        let msg = makeMessage(role: .assistant, text: "some text", isStreaming: true)
+        let model = project(messages: [msg], isSending: false)
+        XCTAssertFalse(model.isStreamingWithText)
+    }
+
+    func testStreamingWithText_FalseWhenNotStreaming() {
+        let msg = makeMessage(role: .assistant, text: "some text", isStreaming: false)
+        let model = project(messages: [msg], isSending: true)
+        XCTAssertFalse(model.isStreamingWithText)
+    }
+
+    func testStreamingWithText_FalseWhenToolCallActive() {
+        let tool = ToolCallData(toolName: "gmail_search", inputSummary: "scanning", isComplete: false)
+        let msg = makeMessage(role: .assistant, text: "scanning inbox...", isStreaming: true, toolCalls: [tool])
+        let model = project(messages: [msg], isSending: true)
+        XCTAssertFalse(model.isStreamingWithText)
+    }
 }
 
 // MARK: - ToolCallData convenience init for tests

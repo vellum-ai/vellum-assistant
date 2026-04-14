@@ -38,6 +38,7 @@ struct ChatBubble: View, Equatable {
             && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.isStreamingContinuation == rhs.isStreamingContinuation
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
@@ -84,6 +85,9 @@ struct ChatBubble: View, Equatable {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
+    /// When true, the assistant is streaming and has already produced text.
+    /// Shows a subtle inline indicator so the user knows more content is coming.
+    var isStreamingContinuation: Bool = false
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
     /// When true, suppress the inline avatar on this bubble because
@@ -142,6 +146,7 @@ struct ChatBubble: View, Equatable {
         typographyGeneration: Int = 0,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
+        isStreamingContinuation: Bool = false,
         activeSurfaceId: String? = nil,
         hideInlineAvatar: Bool = false
     ) {
@@ -168,6 +173,7 @@ struct ChatBubble: View, Equatable {
         self.typographyGeneration = typographyGeneration
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
+        self.isStreamingContinuation = isStreamingContinuation
         self.activeSurfaceId = activeSurfaceId
         self.hideInlineAvatar = hideInlineAvatar
 

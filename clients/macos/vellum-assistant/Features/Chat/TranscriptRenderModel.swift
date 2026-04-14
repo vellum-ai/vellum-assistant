@@ -38,6 +38,11 @@ struct TranscriptRenderModel: Equatable {
     /// Whether the assistant is streaming but has not yet produced any text.
     let isStreamingWithoutText: Bool
 
+    /// Whether the assistant is streaming and has already produced text.
+    /// Used to show a subtle inline continuation indicator so the user
+    /// knows more content is still being generated.
+    let isStreamingWithText: Bool
+
     /// Whether the transcript has any messages at all.
     let hasMessages: Bool
 
