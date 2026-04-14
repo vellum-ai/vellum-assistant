@@ -29,9 +29,13 @@ struct HomePageView: View {
     private let maxContentWidth: CGFloat = 920
 
     /// `home-feed` is a macos-scope flag — same registry as `home-tab`.
-    /// Resolved once at view creation; a runtime toggle requires a rebuild
-    /// of the panel, which is acceptable for a v1 feature flag.
-    private let isHomeFeedEnabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("home-feed")
+    /// Computed on every render so a live debug toggle takes effect on
+    /// the next redraw instead of requiring a full panel rebuild. The
+    /// flag read itself is an in-memory lookup; re-evaluating it per
+    /// render is free.
+    private var isHomeFeedEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("home-feed")
+    }
 
     var body: some View {
         Group {

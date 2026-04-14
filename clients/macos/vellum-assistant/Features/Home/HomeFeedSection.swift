@@ -78,7 +78,10 @@ struct HomeFeedSection: View {
 
     /// `priority` desc → `createdAt` desc. Newer items float up within
     /// the same priority bucket so the feed never buries a just-arrived
-    /// platform digest under yesterday's leftover.
+    /// platform digest under yesterday's leftover. Items with identical
+    /// priority AND createdAt keep their original insertion order
+    /// (Swift's `sorted(by:)` is stable), so two platform digests
+    /// written in the same tick stay in writer order.
     private var sortedItems: [FeedItem] {
         store.items.sorted { a, b in
             if a.priority != b.priority {

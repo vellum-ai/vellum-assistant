@@ -1,6 +1,12 @@
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+import os
+
+private let panelCoordinatorLog = Logger(
+    subsystem: Bundle.appBundleIdentifier,
+    category: "PanelCoordinator"
+)
 
 // MARK: - Panel Coordination Extension
 
@@ -153,7 +159,16 @@ extension MainWindowView {
                 onFeedConversationOpened: { conversationId in
                     // Daemon already created the conversation in response to
                     // `store.triggerAction`; the client just needs to navigate.
-                    guard let uuid = UUID(uuidString: conversationId) else { return }
+                    // A non-UUID id here means the daemon returned something
+                    // the client contract does not allow — log loudly so the
+                    // regression is visible instead of silently dropping.
+                    guard let uuid = UUID(uuidString: conversationId) else {
+                        panelCoordinatorLog.error(
+                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                        )
+                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                        return
+                    }
                     windowState.selection = .conversation(uuid)
                 },
                 connectionManager: connectionManager,
@@ -644,7 +659,13 @@ extension MainWindowView {
                 },
                 onFeedConversationOpened: { conversationId in
                     windowState.dismissOverlay()
-                    guard let uuid = UUID(uuidString: conversationId) else { return }
+                    guard let uuid = UUID(uuidString: conversationId) else {
+                        panelCoordinatorLog.error(
+                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                        )
+                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                        return
+                    }
                     windowState.selection = .conversation(uuid)
                 },
                 connectionManager: connectionManager,
