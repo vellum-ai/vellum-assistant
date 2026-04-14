@@ -146,6 +146,12 @@ export interface HatchedAssistant {
   status: string;
 }
 
+export interface HatchAssistantResult {
+  assistant: HatchedAssistant;
+  /** true when the platform returned an existing assistant (HTTP 200) */
+  reusedExisting: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Self-hosted local assistant registration
 // ---------------------------------------------------------------------------
@@ -306,7 +312,7 @@ export async function injectCredentialsIntoAssistant(
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,
-): Promise<HatchedAssistant> {
+): Promise<HatchAssistantResult> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/hatch/`;
 
@@ -317,7 +323,8 @@ export async function hatchAssistant(
   });
 
   if (response.ok) {
-    return (await response.json()) as HatchedAssistant;
+    const assistant = (await response.json()) as HatchedAssistant;
+    return { assistant, reusedExisting: response.status === 200 };
   }
 
   if (response.status === 401 || response.status === 403) {
@@ -341,6 +348,37 @@ export async function hatchAssistant(
     errorBody.detail ??
       `Platform API error: ${response.status} ${response.statusText}`,
   );
+}
+
+/**
+ * Lightweight pre-check: returns the first active managed assistant for the
+ * authenticated user, or `null` if none exists. Calls `GET /v1/assistants/`
+ * and looks for any assistant with status "active".
+ *
+ * Used by the teleport flow to block BEFORE the expensive GCS upload when
+ * the user already has a platform assistant.
+ */
+export async function checkExistingPlatformAssistant(
+  token: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/`;
+
+  const response = await fetch(url, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (!response.ok) {
+    // Non-fatal: if the list call fails, fall through and let hatch handle it.
+    return null;
+  }
+
+  const body = (await response.json()) as {
+    results?: HatchedAssistant[];
+  };
+  const active = body.results?.find((a) => a.status === "active");
+  return active ?? null;
 }
 
 export interface PlatformUser {
