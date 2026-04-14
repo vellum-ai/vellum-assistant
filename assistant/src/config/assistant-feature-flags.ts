@@ -395,3 +395,23 @@ export function isAssistantFeatureFlagEnabled(
 export function getAssistantFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   return loadDefaultsRegistry();
 }
+
+// ---------------------------------------------------------------------------
+// Named flag helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical key for the `home-feed` flag — gates the activity feed section on
+ * the macOS Home page (nudges, digests, actions, threads). Requires the
+ * `home-tab` flag to also be enabled. Declared in
+ * `meta/feature-flags/feature-flag-registry.json` with scope `macos`.
+ */
+export const HOME_FEED_FLAG = "home-feed";
+
+/**
+ * Resolve whether the `home-feed` flag is enabled for the current assistant
+ * config. Wraps `isAssistantFeatureFlagEnabled` with the canonical key.
+ */
+export function isHomeFeedEnabled(config: AssistantConfig): boolean {
+  return isAssistantFeatureFlagEnabled(HOME_FEED_FLAG, config);
+}
