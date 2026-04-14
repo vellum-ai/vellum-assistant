@@ -19,6 +19,7 @@ struct NameExchangeView: View {
 
     @State private var showHeader = false
     @State private var showContent = false
+    @State private var hoveredSuggestion: String?
 
     /// Quick-tap suggestion pills for the assistant name.
     private static let assistantNameSuggestions = ["Pax", "Atlas", "Sage", "Nova", "Kit"]
@@ -104,24 +105,32 @@ struct NameExchangeView: View {
     // MARK: - Subviews
 
     private func suggestionPill(_ name: String) -> some View {
-        Button {
+        let isActive = assistantName == name
+        return Button {
             assistantName = name
         } label: {
             Text(name)
                 .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(isActive ? VColor.contentInset : VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.pill)
-                        .fill(VColor.surfaceLift)
+                        .fill(isActive ? VColor.primaryBase : (hoveredSuggestion == name ? VColor.surfaceHover : VColor.surfaceLift))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.pill)
-                                .stroke(VColor.borderElement, lineWidth: 1)
+                                .stroke(isActive ? VColor.primaryBase : (hoveredSuggestion == name ? VColor.borderHover : VColor.borderElement), lineWidth: 1)
                         )
                 )
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredSuggestion = hovering ? name : nil
+            }
+        })
+        .accessibilityLabel(name)
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
     }
 
     // MARK: - Helpers
