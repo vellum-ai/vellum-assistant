@@ -13,7 +13,7 @@
 1. **No auto-follow.** The viewport does NOT track streaming content. The user message stays pinned at the top while the assistant response grows below it.
 2. **Scroll to bottom on send.** When the user sends a message, we smoothly scroll to the bottom. The assistant's minHeight container fills the viewport, naturally pinning the user message to the top.
 3. **Simple distance-based CTA.** "Scroll to latest" appears when >400pt from bottom. No modes, no hysteresis, no state machine.
-4. **Threads open at top.** `.defaultScrollAnchor(.top, for: .initialOffset)` — conversations start at the first message, not the last.
+4. **Threads open at bottom.** `.defaultScrollAnchor(.bottom, for: .initialOffset)` — conversations start at the latest messages.
 5. **One container for thinking + assistant.** A synthetic placeholder row in the ForEach holds the thinking indicator. When the real assistant message arrives, it replaces the placeholder in the same container — no layout jump.
 
 ---
@@ -228,7 +228,6 @@ These were removed for a reason. Do not re-introduce:
 | Recovery windows / deadlines | Complex timer-based scroll correction; the flat model doesn't need it |
 | Stabilization / circuit breaker | Protected against layout storms from mode transitions; no modes = no storms |
 | `isAtBottom` hysteresis | Asymmetric thresholds to prevent oscillation; distance CTA is simpler |
-| `.defaultScrollAnchor(.bottom)` | Conversations should open at top, not bottom |
 
 ---
 

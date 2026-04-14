@@ -195,7 +195,7 @@ extension MessageListView {
         scrollState.lastAutoFocusedRequestId = nil
         // Seed lastMessageId so scroll-to-bottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Don't write to scrollPosition — `.defaultScrollAnchor(.top)` handles
+        // Don't write to scrollPosition — `.defaultScrollAnchor(.bottom)` handles
         // positioning via the `.id(conversationId)` recreation.
     }
 
