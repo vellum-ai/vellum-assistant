@@ -123,6 +123,9 @@ final class ChatActionHandler {
 
         case .userMessagePersisted(let conversationId, let content, let messageId):
             guard belongsToConversation(conversationId) else { return }
+            // If the echo fallback already tagged a row with this messageId,
+            // skip — avoids cross-tagging a different row with duplicate text.
+            guard !vm.messages.contains(where: { $0.daemonMessageId == messageId }) else { break }
             // Tag the oldest untagged optimistic user row matching `content`
             // with the daemon-assigned `messageId`. Oldest-first order is
             // correct because HTTP 202 responses arrive in send order (the
