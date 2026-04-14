@@ -2802,3 +2802,118 @@ describe("MessageQueue byte budget", () => {
     ).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// chat-message-queue feature flag gating
+// ---------------------------------------------------------------------------
+
+describe("chat-message-queue feature flag gating", () => {
+  beforeEach(async () => {
+    pendingRuns = [];
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({ "chat-message-queue": true });
+  });
+
+  afterEach(async () => {
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({});
+  });
+
+  test("enqueueMessage rejects with queue_disabled error when flag is false", async () => {
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({ "chat-message-queue": false });
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+
+    // Start first message to set processing = true
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
+    await waitForPendingRun(1);
+    expect(conversation.isProcessing()).toBe(true);
+
+    // Attempt to enqueue a second message — flag is disabled
+    const result = conversation.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => events2.push(e),
+      "req-2",
+    );
+
+    // Should be rejected, not queued
+    expect(result.queued).toBe(false);
+    expect(result.rejected).toBe(true);
+    expect(result.requestId).toBe("req-2");
+
+    // Should have emitted an error event with queue_disabled category
+    const errorEvent = events2.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.type).toBe("error");
+    expect((errorEvent as any).category).toBe("queue_disabled");
+    expect((errorEvent as any).message).toContain("busy processing");
+
+    // Queue should remain empty
+    expect(conversation.getQueueDepth()).toBe(0);
+
+    // Clean up
+    resolveRun(0);
+    await p1;
+  });
+
+  test("enqueueMessage queues message normally when flag is true", async () => {
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({ "chat-message-queue": true });
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+
+    // Start first message to set processing = true
+    const p1 = conversation.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
+    await waitForPendingRun(1);
+    expect(conversation.isProcessing()).toBe(true);
+
+    // Enqueue a second message — flag is enabled
+    const result = conversation.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => events2.push(e),
+      "req-2",
+    );
+
+    // Should be accepted into the queue
+    expect(result.queued).toBe(true);
+    expect(result.rejected).toBeUndefined();
+    expect(result.requestId).toBe("req-2");
+    expect(conversation.getQueueDepth()).toBe(1);
+
+    // Clean up: complete the first run and let the queue drain
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});
