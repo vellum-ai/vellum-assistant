@@ -3,8 +3,8 @@
  * string into Slack-section-sized chunks while preferring natural
  * boundaries (paragraph → newline → sentence → hard slice).
  *
- * `textToSlackBlocks` integration coverage lives in PR 4, once the helper
- * is wired into the caller.
+ * Also covers `textToSlackBlocks` integration for the long-text splitting
+ * path.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import {
   SLACK_SECTION_MAX_CHARS,
   splitLongTextSegment,
+  textToSlackBlocks,
 } from "../slack-block-formatting.js";
 
 describe("splitLongTextSegment", () => {
@@ -118,5 +119,84 @@ describe("splitLongTextSegment", () => {
     expect(chunks.length).toBe(2);
     expect(chunks[0]).toBe(lineA);
     expect(chunks[1]).toBe(lineB);
+  });
+});
+
+describe("textToSlackBlocks long-text splitting", () => {
+  test("5000-char prose input produces multiple section blocks, each ≤ 3000 chars", () => {
+    // Build ≥ 5000 chars of prose with paragraph boundaries so the splitter
+    // has natural cut points.
+    const paragraphs: string[] = [];
+    for (let i = 0; i < 120; i++) {
+      paragraphs.push(`Paragraph number ${i} with filler content here.`);
+    }
+    const text = paragraphs.join("\n\n");
+    expect(text.length).toBeGreaterThanOrEqual(5000);
+
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+
+    const sectionBlocks = blocks!.filter((b) => b.type === "section");
+    expect(sectionBlocks.length).toBeGreaterThanOrEqual(2);
+
+    for (const block of sectionBlocks) {
+      // Cast: filter() narrows to section blocks but TS may not
+      // follow the discriminant narrowing through filter.
+      const section = block as { type: "section"; text: { text: string } };
+      expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    }
+  });
+
+  test("2000-char prose input (under the limit) produces a single section block", () => {
+    const text = "a".repeat(2000);
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBe(1);
+    expect(blocks![0].type).toBe("section");
+  });
+
+  test("4000-char paragraph followed by header and second paragraph preserves ordering", () => {
+    const firstParagraph = "a".repeat(4000);
+    const secondParagraph = "short second paragraph.";
+    const text = `${firstParagraph}\n\n# My Header\n\n${secondParagraph}`;
+
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+
+    // Locate the header block — it must exist and not be absorbed into
+    // the long-text split.
+    const headerIndices = blocks!
+      .map((b, i) => (b.type === "header" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(headerIndices.length).toBe(1);
+    const headerIndex = headerIndices[0];
+
+    const headerBlock = blocks![headerIndex] as {
+      type: "header";
+      text: { text: string };
+    };
+    expect(headerBlock.text.text).toBe("My Header");
+
+    // Before the header: at least one section block (from the 4000-char
+    // paragraph, which should split into ≥ 2 sections).
+    const beforeHeader = blocks!.slice(0, headerIndex);
+    const sectionsBeforeHeader = beforeHeader.filter(
+      (b) => b.type === "section",
+    );
+    expect(sectionsBeforeHeader.length).toBeGreaterThanOrEqual(2);
+
+    // After the header: at least one section block (the second paragraph).
+    const afterHeader = blocks!.slice(headerIndex + 1);
+    const sectionsAfterHeader = afterHeader.filter(
+      (b) => b.type === "section",
+    );
+    expect(sectionsAfterHeader.length).toBeGreaterThanOrEqual(1);
+
+    // Every section block stays under Slack's 3000-char ceiling.
+    for (const block of blocks!) {
+      if (block.type === "section") {
+        expect(block.text.text.length).toBeLessThanOrEqual(3000);
+      }
+    }
   });
 });

@@ -72,15 +72,28 @@ export function textToSlackBlocks(text: string): Block[] | undefined {
         segment.headers,
         segment.rows,
       );
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: markdownToMrkdwn(structured) },
-      });
+      const mrkdwn = markdownToMrkdwn(structured);
+      const chunks = splitLongTextSegment(mrkdwn);
+      for (let c = 0; c < chunks.length; c++) {
+        if (c > 0) {
+          blocks.push({ type: "divider" });
+        }
+        blocks.push({
+          type: "section",
+          text: { type: "mrkdwn", text: chunks[c] },
+        });
+      }
     } else {
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: markdownToMrkdwn(segment.content) },
-      });
+      const chunks = splitLongTextSegment(segment.content);
+      for (let c = 0; c < chunks.length; c++) {
+        if (c > 0) {
+          blocks.push({ type: "divider" });
+        }
+        blocks.push({
+          type: "section",
+          text: { type: "mrkdwn", text: markdownToMrkdwn(chunks[c]) },
+        });
+      }
     }
   }
 
