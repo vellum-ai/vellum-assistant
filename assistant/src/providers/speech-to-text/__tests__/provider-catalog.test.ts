@@ -97,10 +97,7 @@ describe("STT provider catalog", () => {
   test("supportsBoundary returns true for daemon-streaming on streaming-capable providers", () => {
     expect(supportsBoundary("deepgram", "daemon-streaming")).toBe(true);
     expect(supportsBoundary("google-gemini", "daemon-streaming")).toBe(true);
-  });
-
-  test("supportsBoundary returns false for daemon-streaming on non-streaming providers", () => {
-    expect(supportsBoundary("openai-whisper", "daemon-streaming")).toBe(false);
+    expect(supportsBoundary("openai-whisper", "daemon-streaming")).toBe(true);
   });
 
   test("supportsBoundary returns false for unknown provider IDs", () => {
@@ -133,9 +130,9 @@ describe("STT provider catalog", () => {
     expect(entry?.conversationStreamingMode).toBe("incremental-batch");
   });
 
-  test("openai-whisper has no conversation streaming support", () => {
+  test("openai-whisper has incremental-batch conversation streaming mode", () => {
     const entry = getProviderEntry("openai-whisper");
-    expect(entry?.conversationStreamingMode).toBe("none");
+    expect(entry?.conversationStreamingMode).toBe("incremental-batch");
   });
 
   // -----------------------------------------------------------------------
