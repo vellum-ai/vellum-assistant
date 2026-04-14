@@ -110,12 +110,15 @@ interface RegisterCallbackRouteResponse {
  *   by the platform.
  * @param type - The route type identifier (e.g. "twilio_voice",
  *   "twilio_status", "oauth", "telegram").
+ * @param sourceIdentifier - Optional human-readable source identifier
+ *   (e.g. bot handle, phone number) for display in admin UI.
  * @returns The platform-provided callback URL that external services should use.
  * @throws If the platform request fails.
  */
 export async function registerCallbackRoute(
   callbackPath: string,
   type: string,
+  sourceIdentifier?: string,
 ): Promise<string> {
   const context = await resolvePlatformCallbackRegistrationContext();
   if (!context.enabled || !context.authHeader) {
@@ -134,11 +137,15 @@ export async function registerCallbackRoute(
     Authorization: context.authHeader,
   };
 
-  const body = JSON.stringify({
+  const payload: Record<string, string> = {
     assistant_id: assistantId,
     callback_path: callbackPath,
     type,
-  });
+  };
+  if (sourceIdentifier) {
+    payload.source_identifier = sourceIdentifier;
+  }
+  const body = JSON.stringify(payload);
 
   log.debug({ callbackPath, type }, "Registering platform callback route");
 
@@ -184,6 +191,7 @@ export async function registerCallbackRoute(
  * @param callbackPath - The path to register (e.g. "webhooks/twilio/voice").
  * @param type - The route type identifier.
  * @param queryParams - Optional query parameters to append to the resolved URL.
+ * @param sourceIdentifier - Optional human-readable source identifier for admin display.
  * @returns The resolved callback URL.
  */
 export async function resolveCallbackUrl(
@@ -191,13 +199,14 @@ export async function resolveCallbackUrl(
   callbackPath: string,
   type: string,
   queryParams?: Record<string, string>,
+  sourceIdentifier?: string,
 ): Promise<string> {
   if (!shouldUsePlatformCallbacks()) {
     return directUrl();
   }
 
   try {
-    let url = await registerCallbackRoute(callbackPath, type);
+    let url = await registerCallbackRoute(callbackPath, type, sourceIdentifier);
     if (queryParams && Object.keys(queryParams).length > 0) {
       const params = new URLSearchParams(queryParams);
       const separator = url.includes("?") ? "&" : "?";
