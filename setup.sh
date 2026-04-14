@@ -17,10 +17,18 @@ info()  { echo "==> $*"; }
 error() { echo "error: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Pre-flight: ensure bun is available
+# Pre-flight: ensure bun is available (install automatically if missing)
 # ---------------------------------------------------------------------------
 if ! command -v bun &>/dev/null; then
-  error "bun is not installed. Install it from https://bun.sh and try again."
+  info "Bun not found — installing from https://bun.sh"
+  curl -fsSL https://bun.sh/install | bash
+  # Add bun to PATH for the rest of this script
+  export BUN_INSTALL="${HOME}/.bun"
+  export PATH="${BUN_INSTALL}/bin:${PATH}"
+  if ! command -v bun &>/dev/null; then
+    error "Bun installation failed. Install it manually from https://bun.sh and try again."
+  fi
+  info "Bun $(bun --version) installed successfully"
 fi
 
 # ---------------------------------------------------------------------------
