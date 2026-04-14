@@ -11,6 +11,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: register-dev-images
+  cancel-in-progress: true
+
 jobs:
   register-dev-images:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
