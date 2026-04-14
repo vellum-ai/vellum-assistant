@@ -3,6 +3,13 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkspaceClient")
 
+/// Typed errors emitted by workspace file operations so callers can
+/// distinguish "file absent" (legitimate first-run state) from generic
+/// transport failures.
+public enum WorkspaceFileError: Error {
+    case notFound
+}
+
 /// Focused client for workspace file-system operations routed through the gateway.
 public protocol WorkspaceClientProtocol {
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse?
@@ -131,6 +138,9 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         let response = try await GatewayHTTPClient.get(
             path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
         )
+        if response.statusCode == 404 {
+            throw WorkspaceFileError.notFound
+        }
         guard response.isSuccess else {
             log.error("Workspace file content fetch failed (HTTP \(response.statusCode)) for \(path)")
             throw URLError(.badServerResponse)

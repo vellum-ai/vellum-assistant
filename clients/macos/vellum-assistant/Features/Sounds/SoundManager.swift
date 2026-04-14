@@ -141,6 +141,16 @@ final class SoundManager {
             hasLoadedConfig = true
             initialConfigLoaded = true
             flushPendingAppOpen()
+        } catch WorkspaceFileError.notFound {
+            // First-run state: config.json doesn't exist yet. Treat as a
+            // successful empty-data load so the initial fetch settles and any
+            // pending `app_open` fires now instead of queuing indefinitely
+            // until an unrelated later reload.
+            if !hasLoadedConfig {
+                config = .defaultConfig
+            }
+            initialConfigLoaded = true
+            flushPendingAppOpen()
         } catch {
             if hasLoadedConfig {
                 log.warning("Failed to fetch sounds config via gateway, keeping existing: \(error.localizedDescription)")
