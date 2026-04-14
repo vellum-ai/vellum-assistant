@@ -125,6 +125,18 @@ export async function run(
     }
 
     if (allMessageIds.length === 0) {
+      if (rateLimited) {
+        return ok(
+          JSON.stringify({
+            senders: [],
+            total_scanned: 0,
+            rate_limited: true,
+            truncated: true,
+            message:
+              "Rate limited before any messages could be fetched. Try again later or reduce max_messages.",
+          }),
+        );
+      }
       return ok(
         JSON.stringify({
           senders: [],
