@@ -25,6 +25,25 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Check all CI workflows passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          REPO="${{ github.repository }}"
+          WORKFLOWS=("CI Main Assistant Checks" "CI Main Gateway Checks" "CI Main Credential Executor Checks")
+          for WF_NAME in "${WORKFLOWS[@]}"; do
+            STATUS=$(gh api "repos/${REPO}/actions/workflows" --jq ".workflows[] | select(.name == \"${WF_NAME}\") | .id" | while read WF_ID; do
+              gh api "repos/${REPO}/actions/workflows/${WF_ID}/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" --jq '.total_count'
+            done)
+            if [ "${STATUS:-0}" -lt 1 ]; then
+              echo "Workflow '${WF_NAME}' has not completed successfully for commit ${HEAD_SHA}. Skipping registration."
+              exit 1
+            fi
+            echo "✓ ${WF_NAME} passed for ${HEAD_SHA}"
+          done
+          echo "All CI workflows passed — proceeding with registration."
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v2
