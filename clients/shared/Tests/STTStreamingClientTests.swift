@@ -312,7 +312,8 @@ final class STTStreamingClientTests: XCTestCase {
                     setupMode: .apiKey,
                     setupHint: "test",
                     apiKeyProviderName: "openai",
-                    conversationStreamingMode: .incrementalBatch
+                    conversationStreamingMode: .incrementalBatch,
+                    credentialsGuide: nil
                 ),
                 STTProviderCatalogEntry(
                     id: "deepgram",
@@ -321,7 +322,8 @@ final class STTStreamingClientTests: XCTestCase {
                     setupMode: .apiKey,
                     setupHint: "test",
                     apiKeyProviderName: "deepgram",
-                    conversationStreamingMode: .realtimeWs
+                    conversationStreamingMode: .realtimeWs,
+                    credentialsGuide: nil
                 ),
                 STTProviderCatalogEntry(
                     id: "google-gemini",
@@ -330,7 +332,8 @@ final class STTStreamingClientTests: XCTestCase {
                     setupMode: .apiKey,
                     setupHint: "test",
                     apiKeyProviderName: "gemini",
-                    conversationStreamingMode: .incrementalBatch
+                    conversationStreamingMode: .incrementalBatch,
+                    credentialsGuide: nil
                 ),
             ]
         )
