@@ -151,6 +151,7 @@ import {
 } from "../security/secure-keys.js";
 import {
   _setMetadataPath,
+  getCredentialMetadata,
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
@@ -389,5 +390,174 @@ describe("Slack channel config handler", () => {
     expect(slack.teamName).toBe("");
     expect(slack.botUserId).toBe("");
     expect(slack.botUsername).toBe("");
+  });
+
+  test("POST accepts valid user token and stores injection templates", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          team_id: "T_TEAM",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig(
+      undefined,
+      undefined,
+      "xoxp-valid-user-token",
+    );
+    expect(result.success).toBe(true);
+    expect(result.hasUserToken).toBe(true);
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBe("xoxp-valid-user-token");
+
+    // Metadata has injection templates for the user token.
+    const meta = getCredentialMetadata("slack_channel", "user_token");
+    expect(meta).toBeDefined();
+    expect(meta?.allowedDomains).toEqual(["slack.com"]);
+    expect(meta?.injectionTemplates).toBeDefined();
+    expect(meta?.injectionTemplates?.length ?? 0).toBeGreaterThan(0);
+    expect(meta?.injectionTemplates?.[0].hostPattern).toBe("slack.com");
+    expect(meta?.injectionTemplates?.[0].headerName).toBe("Authorization");
+  });
+
+  test("POST rejects user token with invalid prefix", async () => {
+    const result = await setSlackChannelConfig(
+      undefined,
+      undefined,
+      "abc-123",
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("xoxp-");
+    // Nothing was stored.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+  });
+
+  test("POST rejects user token from a different workspace than the bot token", async () => {
+    // Pre-seed config with bot-token-derived team id (T_TEAM) to simulate that
+    // a bot token has already been configured.
+    configStore = {
+      slack: {
+        teamId: "T_TEAM",
+        teamName: "TestTeam",
+        botUserId: "U_BOT",
+        botUsername: "testbot",
+      },
+    };
+
+    globalThis.fetch = (async () => {
+      // User token's auth.test returns a different team_id.
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          team_id: "T_OTHER",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig(
+      undefined,
+      undefined,
+      "xoxp-other-workspace",
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("different workspace");
+    // Token was not stored.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+  });
+
+  test("DELETE clears user token key and metadata", async () => {
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        "xapp-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "user_token"),
+        "xoxp-test",
+      ),
+    ]);
+    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    upsertCredentialMetadata("slack_channel", "app_token", {});
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+
+    const result = await clearSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+    expect(getCredentialMetadata("slack_channel", "user_token")).toBeUndefined();
+  });
+
+  test("GET reports hasUserToken: false when only bot+app tokens present", async () => {
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        "xapp-test",
+      ),
+    ]);
+
+    const result = await getSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+    expect(result.connected).toBe(true);
+  });
+
+  test("GET reports hasUserToken: true when all three tokens are present", async () => {
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        "xapp-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "user_token"),
+        "xoxp-test",
+      ),
+    ]);
+
+    const result = await getSlackChannelConfig();
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.hasUserToken).toBe(true);
+    expect(result.connected).toBe(true);
   });
 });
