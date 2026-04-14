@@ -133,19 +133,6 @@ public struct LockfileAssistant {
         cloud.lowercased() == "apple-container"
     }
 
-    /// The resolved workspace directory for this assistant, accounting for both
-    /// the canonical `instanceDir` (post-migration) and legacy `baseDataDir`.
-    public var workspaceDir: String? {
-        if let instanceDir {
-            return instanceDir + "/.vellum/workspace"
-        }
-        if let baseDataDir {
-            // Legacy: baseDataDir already includes the .vellum segment
-            return baseDataDir + "/workspace"
-        }
-        return nil
-    }
-
     public static func loadLatest() -> LockfileAssistant? {
         loadAll().first
     }
