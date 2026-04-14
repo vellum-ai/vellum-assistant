@@ -1105,17 +1105,18 @@ describe("media-stream setup outcome scenarios", () => {
       session.handleMessage(makeStartMessage());
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
-      // Immediate inbound audio — before the assistant has spoken.
-      // handleBargeIn should return false (not speaking), so
-      // handleInterrupt should NOT be called.
-      const payload = Buffer.from("initial-audio").toString("base64");
-      session.handleMessage(makeMediaMessage(payload, "1"));
-      session.handleMessage(makeMediaMessage(payload, "2"));
-      session.handleMessage(makeMediaMessage(payload, "3"));
+      // Immediate inbound audio (speech-like payloads) — before the
+      // assistant has spoken. The speech detector classifies these as
+      // speech, so onSpeechStart fires and calls handleBargeIn. Since
+      // the controller mock returns false (not speaking), handleInterrupt
+      // should NOT be called.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      session.handleMessage(makeMediaMessage(speechPayload, "1"));
+      session.handleMessage(makeMediaMessage(speechPayload, "2"));
+      session.handleMessage(makeMediaMessage(speechPayload, "3"));
 
-      // The STT session's onSpeechStart fires on the first chunk,
-      // which calls handleBargeIn. Since the controller mock returns
-      // false, handleInterrupt should never be called.
+      // handleBargeIn was called but returned false
+      expect(mockHandleBargeIn).toHaveBeenCalled();
       expect(mockHandleInterrupt).not.toHaveBeenCalled();
 
       // voice_session_aborted should NOT appear in recorded events
@@ -1146,9 +1147,10 @@ describe("media-stream setup outcome scenarios", () => {
       const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-2");
       session.handleMessage(makeStartMessage());
 
-      // Simulate inbound audio while assistant is speaking
-      const payload = Buffer.from("caller-audio").toString("base64");
-      session.handleMessage(makeMediaMessage(payload, "1"));
+      // Simulate inbound speech audio while assistant is speaking.
+      // Use a high-amplitude mu-law payload so speech detection triggers.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      session.handleMessage(makeMediaMessage(speechPayload, "1"));
 
       // handleBargeIn should have been called (returning true)
       expect(mockHandleBargeIn).toHaveBeenCalled();

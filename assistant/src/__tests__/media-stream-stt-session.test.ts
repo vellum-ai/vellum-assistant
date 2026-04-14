@@ -61,7 +61,11 @@ function makeStartMessage(): string {
   });
 }
 
-function makeMediaMessage(payload = "dGVzdA=="): string {
+// Default payload: 20 bytes of 0x00 — decodes to high-amplitude mu-law
+// samples that the speech activity detector classifies as speech.
+const SPEECH_PAYLOAD = Buffer.alloc(20, 0x00).toString("base64");
+
+function makeMediaMessage(payload = SPEECH_PAYLOAD): string {
   return JSON.stringify({
     event: "media",
     sequenceNumber: "2",
