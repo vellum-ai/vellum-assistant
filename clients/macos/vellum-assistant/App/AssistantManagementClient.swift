@@ -71,7 +71,7 @@ class AssistantManagementClient {
     /// block the local retire flow.
     func deregisterFromPlatformIfNeeded(runtimeAssistantId: String) async {
         let credStorage = FileCredentialStorage()
-        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let orgId = UserDefaults.standard.string(forKey: AuthService.connectedOrganizationIdKey)
 
         guard let orgId, !orgId.isEmpty else {
             log.info("No organization ID — skipping platform deregistration for '\(runtimeAssistantId, privacy: .public)'")
@@ -116,15 +116,16 @@ class AssistantManagementClient {
             log.warning("Platform deregistration failed for '\(runtimeAssistantId, privacy: .public)': \(error.localizedDescription) — continuing with local retire")
         }
 
-        // Clean up stored credentials regardless of whether the API call succeeded.
         PlatformAssistantIdResolver.clear(
             runtimeAssistantId: runtimeAssistantId,
             organizationId: orgId,
             userId: userId,
             credentialStorage: credStorage
         )
-        let credAccount = LocalAssistantBootstrapService.credentialAccount(for: runtimeAssistantId)
-        _ = credStorage.delete(account: credAccount)
+        LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: runtimeAssistantId,
+            credentialStorage: credStorage
+        )
     }
 
     /// Shared post-retire orchestration: clears the active assistant ID

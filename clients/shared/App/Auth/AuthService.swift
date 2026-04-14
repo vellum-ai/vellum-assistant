@@ -7,6 +7,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthS
 public final class AuthService {
     public static let shared = AuthService()
 
+    /// UserDefaults key for the connected organization ID.
+    public static let connectedOrganizationIdKey = "connectedOrganizationId"
+
     private init() {}
 
     private struct AuthRequestConfig {
@@ -193,7 +196,7 @@ public final class AuthService {
     @discardableResult
     public func resolveOrganizationId() async throws -> String {
         let orgs = try await getOrganizations()
-        let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+        let persistedOrgId = UserDefaults.standard.string(forKey: Self.connectedOrganizationIdKey)
         if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
             log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
             return persistedOrgId
@@ -206,7 +209,7 @@ public final class AuthService {
             throw OrganizationResolutionError.noOrganizations
         case 1:
             let orgId = orgs[0].id
-            UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
+            UserDefaults.standard.set(orgId, forKey: Self.connectedOrganizationIdKey)
             log.info("Resolved organization: \(orgId, privacy: .public)")
             return orgId
         default:

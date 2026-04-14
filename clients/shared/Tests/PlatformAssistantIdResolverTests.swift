@@ -304,4 +304,145 @@ final class PlatformAssistantIdResolverTests: XCTestCase {
         )
         XCTAssertEqual(result, "new-platform-id")
     }
+
+    // MARK: - Deregistration skip paths
+    //
+    // deregisterFromPlatformIfNeeded guards on orgId, userId, and a
+    // persisted platform assistant ID mapping before calling the retire
+    // API.  The following tests verify that the resolver returns nil for
+    // each skip condition, which is the mechanism that makes the helper
+    // short-circuit without issuing any network request.
+
+    /// Verifies that a missing org ID causes the resolver to return nil,
+    /// which triggers the "No organization ID" skip path in
+    /// deregisterFromPlatformIfNeeded.
+    func testDeregistrationSkipPath_missingOrgId() {
+        // GIVEN a persisted mapping exists
+        PlatformAssistantIdResolver.persist(
+            platformAssistantId: "platform-abc",
+            runtimeAssistantId: "vellum-cool-heron",
+            organizationId: "org-1",
+            userId: "user-1",
+            credentialStorage: storage
+        )
+
+        // WHEN resolving with a nil org ID
+        let result = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: "vellum-cool-heron",
+            isManaged: false,
+            organizationId: nil,
+            userId: "user-1",
+            credentialStorage: storage
+        )
+
+        // THEN the resolver returns nil — deregistration would be skipped
+        XCTAssertNil(result)
+    }
+
+    /// Verifies that a missing user ID causes the resolver to return nil,
+    /// which triggers the "No user ID" skip path in
+    /// deregisterFromPlatformIfNeeded.
+    func testDeregistrationSkipPath_missingUserId() {
+        // GIVEN a persisted mapping exists
+        PlatformAssistantIdResolver.persist(
+            platformAssistantId: "platform-abc",
+            runtimeAssistantId: "vellum-cool-heron",
+            organizationId: "org-1",
+            userId: "user-1",
+            credentialStorage: storage
+        )
+
+        // WHEN resolving with a nil user ID
+        let result = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: "vellum-cool-heron",
+            isManaged: false,
+            organizationId: "org-1",
+            userId: nil,
+            credentialStorage: storage
+        )
+
+        // THEN the resolver returns nil — deregistration would be skipped
+        XCTAssertNil(result)
+    }
+
+    /// Verifies that a missing mapping causes the resolver to return nil,
+    /// which triggers the "No platform assistant ID found" skip path in
+    /// deregisterFromPlatformIfNeeded.
+    func testDeregistrationSkipPath_missingMapping() {
+        // GIVEN no mapping has been persisted
+
+        // WHEN resolving for an unknown assistant
+        let result = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: "vellum-unknown-bird",
+            isManaged: false,
+            organizationId: "org-1",
+            userId: "user-1",
+            credentialStorage: storage
+        )
+
+        // THEN the resolver returns nil — deregistration would be skipped
+        XCTAssertNil(result)
+    }
+
+    // MARK: - Bootstrap credential cleanup
+
+    /// Verifies that clearBootstrapCredential removes the locally cached
+    /// bootstrap credential for a runtime assistant.
+    func testClearBootstrapCredentialRemovesCachedKey() {
+        // GIVEN a bootstrap credential is stored
+        let assistantId = "vellum-cool-heron"
+        let account = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
+        storage.set(account: account, value: "some-api-key")
+        XCTAssertNotNil(storage.get(account: account))
+
+        // WHEN clearing the bootstrap credential
+        let deleted = LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: assistantId,
+            credentialStorage: storage
+        )
+
+        // THEN the credential is removed
+        XCTAssertTrue(deleted)
+        // AND the storage no longer contains the key
+        XCTAssertNil(storage.get(account: account))
+    }
+
+    /// Verifies that clearBootstrapCredential is a no-op when no credential
+    /// exists, matching the expected behavior during deregistration of an
+    /// assistant that was never bootstrapped.
+    func testClearBootstrapCredentialNoOpWhenNothingStored() {
+        // GIVEN no credential is stored for this assistant
+
+        // WHEN clearing the bootstrap credential
+        let deleted = LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: "vellum-nonexistent",
+            credentialStorage: storage
+        )
+
+        // THEN the delete returns false (nothing to remove)
+        XCTAssertFalse(deleted)
+    }
+
+    /// Verifies that clearBootstrapCredential only removes the targeted
+    /// assistant's credential, leaving other assistants' credentials intact.
+    func testClearBootstrapCredentialDoesNotAffectOtherAssistants() {
+        // GIVEN credentials are stored for two assistants
+        let assistantA = "vellum-cool-heron"
+        let assistantB = "vellum-swift-eagle"
+        let accountA = LocalAssistantBootstrapService.credentialAccount(for: assistantA)
+        let accountB = LocalAssistantBootstrapService.credentialAccount(for: assistantB)
+        storage.set(account: accountA, value: "key-a")
+        storage.set(account: accountB, value: "key-b")
+
+        // WHEN clearing only assistant A's credential
+        LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: assistantA,
+            credentialStorage: storage
+        )
+
+        // THEN assistant A's credential is removed
+        XCTAssertNil(storage.get(account: accountA))
+        // AND assistant B's credential is still present
+        XCTAssertEqual(storage.get(account: accountB), "key-b")
+    }
 }

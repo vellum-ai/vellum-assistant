@@ -58,6 +58,19 @@ public final class LocalAssistantBootstrapService {
         "vellum_assistant_credential_\(runtimeAssistantId)"
     }
 
+    /// Deletes the locally cached bootstrap credential for a runtime assistant.
+    ///
+    /// Centralises the "what counts as this assistant's credentials" knowledge
+    /// so callers don't need to know the account naming scheme.
+    @discardableResult
+    public static func clearBootstrapCredential(
+        runtimeAssistantId: String,
+        credentialStorage: CredentialStorage
+    ) -> Bool {
+        let account = credentialAccount(for: runtimeAssistantId)
+        return credentialStorage.delete(account: account)
+    }
+
     public init(authService: AuthService? = nil, credentialStorage: CredentialStorage? = nil) {
         self.authService = authService ?? AuthService.shared
         self.credentialStorage = credentialStorage
@@ -80,7 +93,7 @@ public final class LocalAssistantBootstrapService {
         let organizationId: String
         do {
             let orgs = try await authService.getOrganizations()
-            let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            let persistedOrgId = UserDefaults.standard.string(forKey: AuthService.connectedOrganizationIdKey)
             if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
                 organizationId = persistedOrgId
                 log.info("Validated persisted organization: \(organizationId, privacy: .public)")
@@ -96,7 +109,7 @@ public final class LocalAssistantBootstrapService {
                 default:
                     throw LocalBootstrapError.multipleOrganizations
                 }
-                UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
+                UserDefaults.standard.set(organizationId, forKey: AuthService.connectedOrganizationIdKey)
                 log.info("Resolved organization: \(organizationId, privacy: .public)")
             }
         } catch let error as LocalBootstrapError {
