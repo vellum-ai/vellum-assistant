@@ -515,7 +515,7 @@ export function uploadAttachmentFromBytes(
   mkdirSync(dir, { recursive: true });
 
   const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const stagingFilename = `${Date.now()}-${sanitized}`;
+  const stagingFilename = `${Date.now()}-${uuid().slice(0, 8)}-${sanitized}`;
   const stagedPath = join(dir, stagingFilename);
 
   writeFileSync(stagedPath, bytes);
