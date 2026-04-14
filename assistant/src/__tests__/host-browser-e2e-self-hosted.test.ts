@@ -321,7 +321,7 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
   }
 
   // -------------------------------------------------------------------------
-  // Dev-only `~/.vellum/daemon-token` fallback
+  // Dev-only daemon-token fallback (per-instance protected dir)
   // -------------------------------------------------------------------------
 
   describe("dev daemon-token fallback path", () => {
@@ -338,9 +338,9 @@ describe("host-browser E2E — self-hosted native messaging path", () => {
     test("a token written to a local file round-trips through verifyHostBrowserCapability", () => {
       // Emulate the `writeDaemonTokenFallback` lifecycle: mint a fresh
       // capability token, persist it to a 0600 file (the production
-      // helper writes to `~/.vellum/daemon-token`, but we use a tempdir
-      // so the test doesn't clobber real dev state), then read it back
-      // and verify.
+      // helper writes to `<protectedDir>/daemon-token`, but we use a
+      // tempdir so the test doesn't clobber real dev state), then read
+      // it back and verify.
       //
       // This path is what the Mac app's manual "paste daemon token"
       // pairing UI ends up exercising — the file on disk is the only

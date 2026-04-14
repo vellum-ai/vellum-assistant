@@ -17,9 +17,9 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getProtectedDir } from "../util/platform.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -132,14 +132,15 @@ interface FeatureFlagFileData {
  * Resolve the path to the feature flag overrides file.
  *
  * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
- * Local:  `~/.vellum/` + gateway security subdir + `feature-flags.json`
+ * Local:  `<protectedDir>/feature-flags.json` — resolved via `getProtectedDir()`
+ *         so it honors `BASE_DATA_DIR` for per-instance setups.
  */
 function getFeatureFlagOverridesPath(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
   if (securityDir) {
     return join(securityDir, "feature-flags.json");
   }
-  return join(homedir(), ".vellum", "protected", "feature-flags.json");
+  return join(getProtectedDir(), "feature-flags.json");
 }
 
 /**
