@@ -51,6 +51,8 @@ public struct AppsClient: AppsClientProtocol {
 
     private struct HTTPAppsListResponse: Decodable {
         let apps: [HTTPAppsListItem]
+        /// Number of items the daemon returned that failed to decode.
+        let droppedCount: Int
 
         private enum CodingKeys: String, CodingKey { case apps }
         init(from decoder: Decoder) throws {
@@ -69,6 +71,7 @@ public struct AppsClient: AppsClientProtocol {
                 )
             }
             self.apps = decoded
+            self.droppedCount = lossy.count - decoded.count
         }
     }
 
@@ -130,6 +133,9 @@ public struct AppsClient: AppsClientProtocol {
                 )
             }
             let decoded = try JSONDecoder().decode(HTTPAppsListResponse.self, from: response.data)
+            if decoded.droppedCount > 0 {
+                log.warning("fetchAppsList: \(decoded.droppedCount) malformed items dropped from daemon response")
+            }
             let apps = decoded.apps.map { app in
                 AppsListResponseApp(
                     id: app.id,
@@ -142,8 +148,12 @@ public struct AppsClient: AppsClientProtocol {
                     contentId: app.contentId
                 )
             }
+            // Partial decode failure: return the successfully decoded apps
+            // but mark as non-authoritative so syncFromDaemon doesn't prune
+            // the missing (malformed) apps from the local cache.
             return AppsListResponse(
-                type: "apps_list_response", apps: apps
+                type: "apps_list_response", apps: apps,
+                success: decoded.droppedCount == 0
             )
         } catch {
             log.error("fetchAppsList decode error: \(error)")
