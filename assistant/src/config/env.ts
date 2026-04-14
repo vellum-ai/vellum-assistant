@@ -152,18 +152,13 @@ export function getPlatformBaseUrl(): string {
   } catch {
     // Config not yet available (early bootstrap) — fall through
   }
-  // Resolve the default platform URL from VELLUM_ENVIRONMENT, with
-  // VELLUM_DEV=1 as a backwards-compatible fallback for the dev URL.
+  // Resolve the default platform URL from VELLUM_ENVIRONMENT.
   const env = str("VELLUM_ENVIRONMENT")?.trim();
   let defaultUrl: string;
-  if (env === "local" || env === "dev") {
+  if (env === "local" || env === "dev" || env === "test") {
     defaultUrl = "https://dev-platform.vellum.ai";
   } else if (env === "staging") {
     defaultUrl = "https://staging-platform.vellum.ai";
-  } else if (env === "test") {
-    defaultUrl = "https://test-platform.vellum.ai";
-  } else if (str("VELLUM_DEV") === "1") {
-    defaultUrl = "https://dev-platform.vellum.ai";
   } else {
     // production (or unset)
     defaultUrl = "https://platform.vellum.ai";
