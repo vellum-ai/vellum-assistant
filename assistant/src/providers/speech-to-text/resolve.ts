@@ -317,9 +317,13 @@ async function createStreamingTranscriber(
         await import("./google-gemini-stream.js");
       return new GoogleGeminiStreamingTranscriber(apiKey);
     }
-    case "openai-whisper":
-      // Whisper does not support streaming.
-      return null;
+    case "openai-whisper": {
+      const { OpenAIWhisperStreamingTranscriber } =
+        await import("./openai-whisper-stream.js");
+      return new OpenAIWhisperStreamingTranscriber(apiKey, {
+        pcmSampleRate: options.sampleRate,
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;

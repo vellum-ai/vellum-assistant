@@ -8,7 +8,7 @@
       "setupMode": "api-key",
       "setupHint": "Enter your OpenAI API key to enable Whisper transcription.",
       "apiKeyProviderName": "openai",
-      "conversationStreamingMode": "none"
+      "conversationStreamingMode": "incremental-batch"
     },
     {
       "id": "deepgram",
