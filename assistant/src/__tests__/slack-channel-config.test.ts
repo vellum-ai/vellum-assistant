@@ -873,6 +873,35 @@ describe("Slack channel config handler", () => {
     expect(after.hasUserToken).toBe(false);
   });
 
+  test("clearSlackUserToken reports failure when user_token is already absent", async () => {
+    // Seed bot+app tokens but no user_token.
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-test",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "app_token"),
+        "xapp-test",
+      ),
+    ]);
+    oauthConnectionStore["slack_channel"] = {
+      id: "conn-slack",
+      status: "active",
+    };
+
+    const result = await clearSlackUserToken();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not found/i);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasAppToken).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+    // bot+app tokens and oauth_connection remain intact.
+    expect(oauthConnectionStore["slack_channel"]).toBeDefined();
+    expect(oauthConnectionStore["slack_channel"].status).toBe("active");
+  });
+
   test("GET reports hasUserToken: false when only bot+app tokens present", async () => {
     oauthConnectionStore["slack_channel"] = {
       id: "conn-slack",

@@ -421,14 +421,17 @@ export async function setSlackChannelConfig(
  * Deletes only the user_token secure key and its credential metadata. Leaves
  * the bot_token, app_token, oauth_connection row, and Slack config metadata
  * untouched so the Socket Mode connection stays up. Returns a
- * `SlackChannelConfigResult` reflecting the remaining state.
+ * `SlackChannelConfigResult` reflecting the remaining state. A `not-found`
+ * delete outcome is reported as a failure to match the credential_store
+ * delete semantics (callers and automation rely on missing-credential
+ * detection).
  */
 export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
   const result = await deleteSecureKeyAsync(
     credentialKey("slack_channel", "user_token"),
   );
 
-  if (result === "error") {
+  if (result === "error" || result === "not-found") {
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     ));
@@ -446,7 +449,10 @@ export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
       hasUserToken,
       connected:
         !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
-      error: "Failed to delete Slack user token from secure storage",
+      error:
+        result === "not-found"
+          ? "Slack user token not found in secure storage"
+          : "Failed to delete Slack user token from secure storage",
     };
   }
 
