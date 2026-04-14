@@ -571,8 +571,10 @@ final class ChatActionHandler {
         }
         // Signal turn completion to observers (e.g. the `task_complete` sound).
         // Cancel-acknowledgements are user-initiated aborts, not real turn ends,
-        // so they stay silent.
-        if !wasCancelAck {
+        // so they stay silent. Auxiliary `message_complete` events (call
+        // transcript updates, summaries, watch notifiers) lack a `messageId`
+        // and must not be counted as turn ends.
+        if !wasCancelAck && complete.messageId != nil {
             vm.messageManager.turnCompletionTick &+= 1
         }
     }
