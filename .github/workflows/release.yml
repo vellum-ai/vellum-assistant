@@ -197,6 +197,22 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install Chrome for CRX signing
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Write CRX signing key
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          if [ -n "$CRX_PRIVATE_KEY" ]; then
+            echo "$CRX_PRIVATE_KEY" > clients/chrome-extension/privatekey.pem
+            chmod 600 clients/chrome-extension/privatekey.pem
+          else
+            echo "::warning::CRX_PRIVATE_KEY secret not set — CRX signing will be skipped"
+          fi
+
       - name: Build extension
         working-directory: clients/chrome-extension
         env:
@@ -216,15 +232,23 @@ jobs:
             exit 1
           fi
 
-      - name: Package extension zip
-        working-directory: clients/chrome-extension
-        run: cd dist && zip -r ../vellum-browser-relay-${{ needs.extract-version.outputs.version }}.zip .
+      - name: Clean up signing key
+        if: always()
+        run: rm -f clients/chrome-extension/privatekey.pem
+
+      - name: Upload extension CRX
+        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-crx
+          path: clients/chrome-extension/vellum-browser-relay.crx
+          retention-days: 90
 
       - name: Upload extension zip
         uses: actions/upload-artifact@v4
         with:
           name: chrome-extension-zip
-          path: clients/chrome-extension/vellum-browser-relay-${{ needs.extract-version.outputs.version }}.zip
+          path: clients/chrome-extension/vellum-browser-relay.zip
           retention-days: 90
 
   publish-chrome-extension:
@@ -236,7 +260,16 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
-      - name: Download extension zip
+      - name: Download extension CRX
+        id: download-crx
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: chrome-extension-crx
+          path: /tmp/chrome-extension
+
+      - name: Download extension zip (fallback)
+        if: steps.download-crx.outcome != 'success'
         uses: actions/download-artifact@v4
         with:
           name: chrome-extension-zip
@@ -252,9 +285,11 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
         run: |
-          ZIP_FILE=$(ls /tmp/chrome-extension/*.zip)
+          # Prefer signed CRX if available, fall back to zip
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx 2>/dev/null || ls /tmp/chrome-extension/*.zip)
+          echo "Uploading: $UPLOAD_FILE"
           chrome-webstore-upload upload \
-            --source "$ZIP_FILE" \
+            --source "$UPLOAD_FILE" \
             --extension-id "$EXTENSION_ID" \
             --client-id "$CLIENT_ID" \
             --client-secret "$CLIENT_SECRET" \

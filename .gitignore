@@ -36,6 +36,7 @@ worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
+*.crx
 .qdrant-initialized
 .claude/*
 !.claude/commands/
