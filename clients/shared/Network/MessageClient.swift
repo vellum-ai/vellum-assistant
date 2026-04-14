@@ -63,7 +63,8 @@ public struct MessageClient: MessageClientProtocol {
     }
 
     public func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String? = nil) async -> AttachmentUploadResult {
-        log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public)")
+        let isFileBacked = data.isEmpty && filePath != nil
+        log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public), fileBacked=\(isFileBacked, privacy: .public)")
 
         var body: [String: Any] = [
             "filename": filename,

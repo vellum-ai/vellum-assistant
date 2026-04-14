@@ -28,7 +28,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
         self.automated = automated
         self.enqueuedAt = Date()
         self.attachments = (attachments ?? []).map {
-            OfflineQueuedAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)
+            OfflineQueuedAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText, filePath: $0.filePath)
         }
     }
 
@@ -58,7 +58,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     var messageAttachments: [UserMessageAttachment]? {
         guard !attachments.isEmpty else { return nil }
         return attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText, filePath: $0.filePath)
         }
     }
 }
@@ -67,8 +67,12 @@ struct OfflineQueuedAttachment: Codable {
     let filename: String
     let mimeType: String
     /// Base64-encoded attachment data, matching the `UserMessageAttachment.data` string format.
+    /// Empty for file-backed attachments where `filePath` is set.
     let data: String
     let extractedText: String?
+    /// Absolute path to the local file on disk. Present for file-backed attachments
+    /// so the server can read the file directly instead of receiving base64 data.
+    let filePath: String?
 }
 
 // MARK: - Offline Message Queue
