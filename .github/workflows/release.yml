@@ -1192,13 +1192,8 @@ jobs:
       - name: Resolve platform credentials
         id: platform-creds
         run: |
-          if [ "${{ matrix.environment }}" = "dev" ]; then
-            echo "api_url=${{ secrets.NONPROD_PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.NONPROD_PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
 
       - name: Register release with platform
         run: |
