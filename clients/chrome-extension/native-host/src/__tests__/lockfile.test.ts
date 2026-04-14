@@ -3,6 +3,7 @@
  *
  * These tests exercise:
  *   - Fallback from `.vellum.lock.json` to `.vellum.lockfile.json`
+ *   - Env-aware path resolution (`VELLUM_ENVIRONMENT` production vs non-prod)
  *   - Parsing of assistant entries with and without `resources.daemonPort`
  *   - Active-assistant resolution
  *   - Graceful handling of missing, empty, and malformed lockfiles
@@ -13,7 +14,7 @@
  * This avoids touching the user's real `~/.vellum.lock.json`.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,14 +31,40 @@ import {
 // ---------------------------------------------------------------------------
 
 let tempDir: string;
+let savedVellumEnvironment: string | undefined;
+let savedXdgConfigHome: string | undefined;
+let savedVellumLockfileDir: string | undefined;
 
 beforeEach(() => {
+  // Save env vars we may mutate so each test starts from a clean slate.
+  savedVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
+  savedXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  savedVellumLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
+  delete process.env.VELLUM_ENVIRONMENT;
+  delete process.env.XDG_CONFIG_HOME;
+
   tempDir = mkdtempSync(join(tmpdir(), "lockfile-test-"));
   process.env.VELLUM_LOCKFILE_DIR = tempDir;
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_LOCKFILE_DIR;
+  // Restore each variable to its original value (including "was unset").
+  if (savedVellumEnvironment === undefined) {
+    delete process.env.VELLUM_ENVIRONMENT;
+  } else {
+    process.env.VELLUM_ENVIRONMENT = savedVellumEnvironment;
+  }
+  if (savedXdgConfigHome === undefined) {
+    delete process.env.XDG_CONFIG_HOME;
+  } else {
+    process.env.XDG_CONFIG_HOME = savedXdgConfigHome;
+  }
+  if (savedVellumLockfileDir === undefined) {
+    delete process.env.VELLUM_LOCKFILE_DIR;
+  } else {
+    process.env.VELLUM_LOCKFILE_DIR = savedVellumLockfileDir;
+  }
+
   try {
     rmSync(tempDir, { recursive: true, force: true });
   } catch {
@@ -341,6 +368,170 @@ describe("lockfile — readAssistantInventory", () => {
     expect(cloudOne.cloud).toBe("vellum");
     expect(cloudOne.daemonPort).toBeUndefined();
     expect(cloudOne.isActive).toBe(false);
+  });
+});
+
+describe("lockfile — env-aware path resolution", () => {
+  test("non-prod env reads lockfile.json from VELLUM_LOCKFILE_DIR", () => {
+    // With VELLUM_LOCKFILE_DIR set (by beforeEach) to `tempDir` and
+    // VELLUM_ENVIRONMENT=dev, the reader should look for
+    // `${tempDir}/lockfile.json` (NOT `.vellum.lock.json`).
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    writeLockfile("lockfile.json", {
+      assistants: [
+        {
+          assistantId: "dev-one",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 7821 },
+        },
+      ],
+      activeAssistant: "dev-one",
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("dev-one");
+    expect(result.assistants[0]!.daemonPort).toBe(7821);
+    expect(result.activeAssistantId).toBe("dev-one");
+  });
+
+  test("non-prod env ignores .vellum.lock.json (wrong filename for non-prod)", () => {
+    process.env.VELLUM_ENVIRONMENT = "staging";
+    // A prod-shaped file at the override dir should NOT be picked up when
+    // running in a non-prod env; only `lockfile.json` is the canonical
+    // non-prod name.
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "should-not-be-found",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toEqual([]);
+    expect(result.activeAssistantId).toBeNull();
+  });
+
+  test("non-prod env without VELLUM_LOCKFILE_DIR reads from $XDG_CONFIG_HOME/vellum-<env>", () => {
+    // Remove the override so the reader falls back to the XDG path.
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_CONFIG_HOME = tempDir;
+
+    const envDir = join(tempDir, "vellum-dev");
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(
+      join(envDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "xdg-dev",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+            resources: { daemonPort: 7821 },
+          },
+        ],
+        activeAssistant: "xdg-dev",
+      }),
+    );
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("xdg-dev");
+    expect(result.assistants[0]!.daemonPort).toBe(7821);
+  });
+
+  test("non-prod env iterates exactly one candidate (no legacy fallback)", () => {
+    // `.vellum.lockfile.json` is the prod-legacy name and should NOT be
+    // read in non-prod mode.
+    process.env.VELLUM_ENVIRONMENT = "local";
+    writeLockfile(".vellum.lockfile.json", {
+      assistants: [
+        {
+          assistantId: "legacy-should-not-load",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toEqual([]);
+  });
+
+  test("unknown env name falls back to production path (reads .vellum.lock.json)", () => {
+    // `foo` is not in NON_PRODUCTION_ENVIRONMENTS; should behave like prod.
+    process.env.VELLUM_ENVIRONMENT = "foo";
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "fallback-prod",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 7821 },
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("fallback-prod");
+    expect(result.assistants[0]!.daemonPort).toBe(7821);
+  });
+
+  test("empty VELLUM_ENVIRONMENT is treated as production", () => {
+    process.env.VELLUM_ENVIRONMENT = "";
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "empty-env",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("empty-env");
+  });
+
+  test("whitespace-only VELLUM_ENVIRONMENT is treated as production", () => {
+    process.env.VELLUM_ENVIRONMENT = "   ";
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "whitespace-env",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("whitespace-env");
+  });
+
+  test("explicit VELLUM_ENVIRONMENT=production uses production path", () => {
+    process.env.VELLUM_ENVIRONMENT = "production";
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "explicit-prod",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory();
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("explicit-prod");
   });
 });
 
