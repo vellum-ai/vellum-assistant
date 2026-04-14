@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   clearPlatformToken,
+  getPlatformUrl,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client.js";
@@ -106,5 +113,86 @@ describe("platform-client token path is env-scoped", () => {
 
     // Prod still there
     expect(existsSync(join(tempHome, "vellum", "platform-token"))).toBe(true);
+  });
+});
+
+describe("getPlatformUrl resolution order", () => {
+  let tempLockDir: string;
+  let savedLockDir: string | undefined;
+  let savedEnv: string | undefined;
+  let savedPlatformUrl: string | undefined;
+
+  beforeEach(() => {
+    savedLockDir = process.env.VELLUM_LOCKFILE_DIR;
+    savedEnv = process.env.VELLUM_ENVIRONMENT;
+    savedPlatformUrl = process.env.VELLUM_PLATFORM_URL;
+    tempLockDir = mkdtempSync(join(tmpdir(), "cli-platform-url-test-"));
+    process.env.VELLUM_LOCKFILE_DIR = tempLockDir;
+    delete process.env.VELLUM_ENVIRONMENT;
+    delete process.env.VELLUM_PLATFORM_URL;
+  });
+
+  afterEach(() => {
+    if (savedLockDir === undefined) {
+      delete process.env.VELLUM_LOCKFILE_DIR;
+    } else {
+      process.env.VELLUM_LOCKFILE_DIR = savedLockDir;
+    }
+    if (savedEnv === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = savedEnv;
+    }
+    if (savedPlatformUrl === undefined) {
+      delete process.env.VELLUM_PLATFORM_URL;
+    } else {
+      process.env.VELLUM_PLATFORM_URL = savedPlatformUrl;
+    }
+    rmSync(tempLockDir, { recursive: true, force: true });
+  });
+
+  function writeLockfile(data: Record<string, unknown>): void {
+    // VELLUM_ENVIRONMENT is unset → production env → `.vellum.lock.json`.
+    writeFileSync(
+      join(tempLockDir, ".vellum.lock.json"),
+      JSON.stringify(data, null, 2),
+    );
+  }
+
+  test("returns lockfile platformBaseUrl when set", () => {
+    writeLockfile({ platformBaseUrl: "https://staging.vellum.ai" });
+    expect(getPlatformUrl()).toBe("https://staging.vellum.ai");
+  });
+
+  test("lockfile platformBaseUrl takes priority over VELLUM_PLATFORM_URL", () => {
+    writeLockfile({ platformBaseUrl: "https://lockfile.vellum.ai" });
+    process.env.VELLUM_PLATFORM_URL = "https://env.vellum.ai";
+    expect(getPlatformUrl()).toBe("https://lockfile.vellum.ai");
+  });
+
+  test("falls back to VELLUM_PLATFORM_URL when lockfile is missing", () => {
+    process.env.VELLUM_PLATFORM_URL = "https://env-only.vellum.ai";
+    expect(getPlatformUrl()).toBe("https://env-only.vellum.ai");
+  });
+
+  test("falls back to VELLUM_PLATFORM_URL when lockfile has no platformBaseUrl", () => {
+    writeLockfile({ assistants: [] });
+    process.env.VELLUM_PLATFORM_URL = "https://env-fallback.vellum.ai";
+    expect(getPlatformUrl()).toBe("https://env-fallback.vellum.ai");
+  });
+
+  test("falls back to VELLUM_PLATFORM_URL when lockfile platformBaseUrl is blank", () => {
+    writeLockfile({ platformBaseUrl: "   " });
+    process.env.VELLUM_PLATFORM_URL = "https://env-after-blank.vellum.ai";
+    expect(getPlatformUrl()).toBe("https://env-after-blank.vellum.ai");
+  });
+
+  test("falls back to production default when lockfile and env are unset", () => {
+    expect(getPlatformUrl()).toBe("https://platform.vellum.ai");
+  });
+
+  test("trims whitespace from VELLUM_PLATFORM_URL", () => {
+    process.env.VELLUM_PLATFORM_URL = "  https://trimmed.vellum.ai  ";
+    expect(getPlatformUrl()).toBe("https://trimmed.vellum.ai");
   });
 });

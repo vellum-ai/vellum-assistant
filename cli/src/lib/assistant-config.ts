@@ -466,6 +466,18 @@ export async function allocateLocalResources(
 }
 
 /**
+ * Return `platformBaseUrl` from the lockfile, if set. This is the value
+ * persisted by {@link syncConfigToLockfile} the last time the active
+ * assistant was hatched/waked, and is the source of truth for "which
+ * platform does the currently-active assistant target".
+ */
+export function getLockfilePlatformBaseUrl(): string | undefined {
+  const url = readLockfile().platformBaseUrl;
+  if (typeof url === "string" && url.trim()) return url.trim();
+  return undefined;
+}
+
+/**
  * Read the assistant config file and sync client-relevant values to the
  * lockfile. This lets external tools (e.g. vel) discover the platform URL
  * without importing the assistant config schema.
