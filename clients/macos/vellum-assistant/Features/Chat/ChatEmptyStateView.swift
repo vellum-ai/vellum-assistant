@@ -35,6 +35,7 @@ struct ChatEmptyStateView: View {
 
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
+    @State private var avatarBounceScale: CGFloat = 1.0
 
     // Stable random pick from SOUL.md (loaded asynchronously, computed once per view lifecycle)
     @State private var soulGreeting: String?
@@ -101,15 +102,29 @@ struct ChatEmptyStateView: View {
             Group {
                 if appearance.customAvatarImage != nil {
                     VAvatarImage(image: appearance.chatAvatarImage, size: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture {
+                            SoundManager.shared.play(.characterPoke)
+                            triggerBounce()
+                        }
                 } else if let body = appearance.characterBodyShape,
                    let eyes = appearance.characterEyeStyle,
                    let color = appearance.characterColor {
+                    // Sound is played by AnimatedAvatarView.mouseDown; don't double up here.
                     AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 40)
                         .frame(width: 40, height: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture { triggerBounce() }
                 } else {
                     VAvatarImage(image: appearance.chatAvatarImage, size: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture {
+                            SoundManager.shared.play(.characterPoke)
+                            triggerBounce()
+                        }
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
 
             Group {
                 if let greeting = effectiveGreeting {
@@ -183,6 +198,17 @@ struct ChatEmptyStateView: View {
         onFetchConversationStarters?()
         withAnimation(.easeOut(duration: 0.5)) {
             visible = true
+        }
+    }
+
+    private func triggerBounce() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
+            avatarBounceScale = 1.15
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                avatarBounceScale = 1.0
+            }
         }
     }
 
