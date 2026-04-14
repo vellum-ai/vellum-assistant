@@ -21,9 +21,9 @@
  *     the on-disk snapshot via `appendFeedItem`
  *
  * Persistence is delegated to `appendFeedItem` — all of the merge
- * semantics (digest replacement, thread in-place update, author
- * precedence, action auto-fade) continue to live in the writer and
- * are not re-implemented here.
+ * semantics (digest replacement, thread in-place update, nudge author
+ * precedence, action append-without-replace, per-source action cap)
+ * continue to live in the writer and are not re-implemented here.
  *
  * NOTE: This helper is intentionally in-process only. There is no
  * HTTP route wrapping it. Callers (skills, tools, daemon code) import

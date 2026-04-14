@@ -45,6 +45,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 const {
   HOME_FEED_FILENAME,
   HOME_FEED_VERSION,
+  MAX_ACTIONS_PER_SOURCE,
   appendFeedItem,
   getHomeFeedPath,
   patchFeedItemStatus,
@@ -273,21 +274,20 @@ describe("feed-writer", () => {
       expect(nudges[0]!.title).toBe("Assistant original");
     });
 
-    test("action without expiresAt auto-fades 24h after createdAt", async () => {
-      const createdAt = "2026-04-14T12:00:00.000Z";
+    test("action without expiresAt is persisted with no auto-fade", async () => {
+      // Action items are the feed's activity log — they must persist
+      // until the user dismisses them. The writer used to fill in a
+      // 24h default expiresAt; that behavior is intentionally gone.
       await appendFeedItem(
         makeItem({
           id: "action-1",
           type: "action",
-          createdAt,
+          createdAt: "2026-04-14T12:00:00.000Z",
         }),
       );
       const decoded = readFileJson();
       expect(decoded.items).toHaveLength(1);
-      const item = decoded.items[0]!;
-      expect(item.expiresAt).toBeDefined();
-      const expectedMs = Date.parse(createdAt) + 24 * 60 * 60 * 1000;
-      expect(Date.parse(item.expiresAt!)).toBe(expectedMs);
+      expect(decoded.items[0]!.expiresAt).toBeUndefined();
     });
 
     test("action with an explicit expiresAt is left untouched", async () => {
@@ -302,6 +302,126 @@ describe("feed-writer", () => {
       );
       const decoded = readFileJson();
       expect(decoded.items[0]!.expiresAt).toBe(explicit);
+    });
+
+    test("multiple actions with the same (type, source) all persist", async () => {
+      // Actions must not collapse onto each other by (type, source) —
+      // each append is a distinct entry in the activity log.
+      await appendFeedItem(
+        makeItem({
+          id: "action-a",
+          type: "action",
+          source: "gmail",
+          title: "Acted A",
+          createdAt: "2026-04-14T10:00:00.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "action-b",
+          type: "action",
+          source: "gmail",
+          title: "Acted B",
+          createdAt: "2026-04-14T11:00:00.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "action-c",
+          type: "action",
+          source: "gmail",
+          title: "Acted C",
+          createdAt: "2026-04-14T12:00:00.000Z",
+        }),
+      );
+
+      const decoded = readFileJson();
+      const gmailActions = decoded.items.filter(
+        (i) => i.type === "action" && i.source === "gmail",
+      );
+      expect(gmailActions).toHaveLength(3);
+      const ids = new Set(gmailActions.map((i) => i.id));
+      expect(ids).toEqual(new Set(["action-a", "action-b", "action-c"]));
+    });
+
+    test("per-source action cap keeps only the N most recent per source", async () => {
+      // Append MAX+5 actions for gmail, interleaved with a handful of
+      // slack actions and a digest. Cap must apply only to the
+      // overflowing source.
+      const overflow = MAX_ACTIONS_PER_SOURCE + 5;
+      for (let i = 0; i < overflow; i++) {
+        await appendFeedItem(
+          makeItem({
+            id: `gmail-${i}`,
+            type: "action",
+            source: "gmail",
+            title: `Gmail action ${i}`,
+            createdAt: new Date(
+              Date.parse("2026-04-14T00:00:00.000Z") + i * 60_000,
+            ).toISOString(),
+          }),
+        );
+      }
+      await appendFeedItem(
+        makeItem({
+          id: "slack-1",
+          type: "action",
+          source: "slack",
+          title: "Slack action",
+          createdAt: "2026-04-14T12:00:00.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "digest-1",
+          type: "digest",
+          source: "gmail",
+          title: "Gmail digest",
+          createdAt: "2026-04-14T12:01:00.000Z",
+        }),
+      );
+
+      const decoded = readFileJson();
+      const gmailActions = decoded.items.filter(
+        (i) => i.type === "action" && i.source === "gmail",
+      );
+      expect(gmailActions).toHaveLength(MAX_ACTIONS_PER_SOURCE);
+
+      // The kept ids are the MAX most recent by createdAt — i.e. the
+      // final MAX entries of the 0..overflow-1 sequence.
+      const keptIds = new Set(gmailActions.map((i) => i.id));
+      for (let i = overflow - MAX_ACTIONS_PER_SOURCE; i < overflow; i++) {
+        expect(keptIds.has(`gmail-${i}`)).toBe(true);
+      }
+      for (let i = 0; i < overflow - MAX_ACTIONS_PER_SOURCE; i++) {
+        expect(keptIds.has(`gmail-${i}`)).toBe(false);
+      }
+
+      // Slack is under the cap and the digest is a different type —
+      // both untouched by the prune.
+      expect(decoded.items.filter((i) => i.id === "slack-1")).toHaveLength(1);
+      expect(decoded.items.filter((i) => i.type === "digest")).toHaveLength(1);
+    });
+
+    test("action items without a source are not subject to the cap", async () => {
+      const n = MAX_ACTIONS_PER_SOURCE + 3;
+      for (let i = 0; i < n; i++) {
+        await appendFeedItem(
+          makeItem({
+            id: `sourceless-${i}`,
+            type: "action",
+            title: `Sourceless ${i}`,
+            createdAt: new Date(
+              Date.parse("2026-04-14T00:00:00.000Z") + i * 60_000,
+            ).toISOString(),
+          }),
+        );
+      }
+      const decoded = readFileJson();
+      const sourceless = decoded.items.filter(
+        (i) => i.type === "action" && i.source === undefined,
+      );
+      expect(sourceless).toHaveLength(n);
     });
 
     test("thread updates replace the existing thread with the same id in place", async () => {
