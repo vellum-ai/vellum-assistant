@@ -152,10 +152,20 @@ export function getPlatformBaseUrl(): string {
   } catch {
     // Config not yet available (early bootstrap) — fall through
   }
-  const defaultUrl =
-    str("VELLUM_DEV") === "1"
-      ? "https://dev-platform.vellum.ai"
-      : "https://platform.vellum.ai";
+  // Resolve the default platform URL from VELLUM_ENVIRONMENT, with
+  // VELLUM_DEV=1 as a backwards-compatible fallback for the dev URL.
+  const env = str("VELLUM_ENVIRONMENT")?.trim();
+  let defaultUrl: string;
+  if (env === "local" || env === "dev") {
+    defaultUrl = "https://dev-platform.vellum.ai";
+  } else if (env === "staging") {
+    defaultUrl = "https://staging-platform.vellum.ai";
+  } else if (str("VELLUM_DEV") === "1") {
+    defaultUrl = "https://dev-platform.vellum.ai";
+  } else {
+    // production (or unset)
+    defaultUrl = "https://platform.vellum.ai";
+  }
   return (
     configUrl ||
     str("VELLUM_PLATFORM_URL") ||
@@ -167,9 +177,9 @@ export function getPlatformBaseUrl(): string {
 /**
  * Derive the assistant service domain from the platform base URL.
  *
- * Known platform URLs map directly:
+ * Known platform URLs map directly (via regex stripping of `platform.vellum.ai`):
  * - `dev-platform.vellum.ai`     → `dev.vellum.me`
- * - `staging-platform.vellum.ai` → `staging.vellum.me`
+ * - `staging-platform.vellum.ai` → `staging.vellum.me` (derived automatically from the staging URL)
  * - `platform.vellum.ai`         → `vellum.me`
  *
  * Non-vellum.ai hosts (localhost, host.docker.internal, etc.) use
