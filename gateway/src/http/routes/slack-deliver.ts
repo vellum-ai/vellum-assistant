@@ -139,6 +139,13 @@ async function callSlackApiWithRetries(
           { error: "Permission denied", ...(userMessage && { userMessage }) },
           { status: 403 },
         );
+      } else if (category === "client_error") {
+        // Client-side payload problems (e.g. invalid_blocks) — the daemon
+        // must NOT retry the exact same payload. 400 signals this clearly.
+        errorResponse = Response.json(
+          { error: "Invalid payload", ...(userMessage && { userMessage }) },
+          { status: 400 },
+        );
       } else {
         // Auth errors use 502 so downstream retry logic treats them as
         // transient (token rotation, brief credential desync). Permanent
@@ -868,17 +875,40 @@ export function createSlackDeliverHandler(
           );
 
           // Fall back to posting a new message if update fails (either a
-          // transport error or a Slack-level error). The caller of chat.update
-          // may still retry without blocks below if the fallback
-          // chat.postMessage also reports invalid_blocks.
+          // transport error or a Slack-level error).
           if (
             result instanceof Response ||
             ("kind" in result && result.kind === "slack_error")
           ) {
-            tlog.warn(
-              { chatId, messageTs },
-              "Slack chat.update failed, falling back to chat.postMessage",
-            );
+            // If chat.update rejected the payload because the blocks are
+            // invalid, strip blocks before the postMessage fallback — the
+            // blocks will fail identically there. This collapses what would
+            // otherwise be three round-trips (update+blocks, post+blocks,
+            // post without blocks via the outer retry) into two.
+            const updateRejectedBlocks =
+              !(result instanceof Response) &&
+              "kind" in result &&
+              result.kind === "slack_error" &&
+              result.slackError === "invalid_blocks" &&
+              !body.approval &&
+              !isEphemeral &&
+              Array.isArray(slackBody.blocks) &&
+              slackBody.blocks.length > 0;
+
+            if (updateRejectedBlocks) {
+              tlog.warn(
+                { chatId, messageTs },
+                "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
+              );
+              delete slackBody.blocks;
+              blockFallback = true;
+            } else {
+              tlog.warn(
+                { chatId, messageTs },
+                "Slack chat.update failed, falling back to chat.postMessage",
+              );
+            }
+
             result = await callSlackApiWithRetries(
               "https://slack.com/api/chat.postMessage",
               slackBody,
@@ -886,6 +916,18 @@ export function createSlackDeliverHandler(
               chatId,
               tlog,
             );
+
+            // If we pre-stripped blocks above but the postMessage call still
+            // failed, clear the fallback flag so the success log isn't
+            // misleading. The outer error handling below will return the
+            // appropriate response.
+            if (
+              updateRejectedBlocks &&
+              (result instanceof Response ||
+                ("kind" in result && result.kind === "slack_error"))
+            ) {
+              blockFallback = false;
+            }
           }
         } else {
           const slackMethod = isEphemeral

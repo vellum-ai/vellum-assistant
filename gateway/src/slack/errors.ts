@@ -11,6 +11,7 @@ export type SlackErrorCategory =
   | "not_found"
   | "permission"
   | "channel_not_found"
+  | "client_error"
   | "transient"
   | "unknown";
 
@@ -43,6 +44,11 @@ const ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
   user_not_found: "not_found",
   message_not_found: "not_found",
   thread_not_found: "not_found",
+
+  // Client-side errors — the payload itself is invalid, retrying the same
+  // request will fail identically. Callers that inspect the category should
+  // treat these as permanent failures and not re-send the same payload.
+  invalid_blocks: "client_error",
 };
 
 /**
@@ -57,6 +63,8 @@ export function classifySlackError(
 
 /**
  * Whether the error category indicates the request could succeed on retry.
+ * `client_error` is explicitly non-retryable: the payload itself is the
+ * problem, so re-sending it would fail identically.
  */
 export function isRetryable(category: SlackErrorCategory): boolean {
   return (
@@ -78,6 +86,8 @@ const CATEGORY_USER_MESSAGES: Record<SlackErrorCategory, string | undefined> = {
     "I don't have the required permissions for this channel. Please check my access.",
   not_found: "The requested resource could not be found in Slack.",
   rate_limit: "Slack rate limit reached. Please try again in a moment.",
+  client_error:
+    "I couldn't format that message for Slack. Please try again.",
   transient: undefined,
   unknown: undefined,
 };

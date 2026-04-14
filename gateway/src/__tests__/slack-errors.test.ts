@@ -40,6 +40,10 @@ describe("classifySlackError", () => {
     expect(classifySlackError("thread_not_found")).toBe("not_found");
   });
 
+  test("classifies invalid_blocks as client_error", () => {
+    expect(classifySlackError("invalid_blocks")).toBe("client_error");
+  });
+
   test("returns unknown for unrecognized error codes", () => {
     expect(classifySlackError("some_new_error")).toBe("unknown");
     expect(classifySlackError("internal_error")).toBe("unknown");
@@ -77,6 +81,10 @@ describe("isRetryable", () => {
 
   test("channel_not_found is not retryable", () => {
     expect(isRetryable("channel_not_found")).toBe(false);
+  });
+
+  test("client_error is not retryable", () => {
+    expect(isRetryable("client_error")).toBe(false);
   });
 });
 
@@ -156,6 +164,12 @@ describe("getUserMessage", () => {
   test("returns message for rate_limit errors", () => {
     expect(getUserMessage("rate_limited")).toBe(
       "Slack rate limit reached. Please try again in a moment.",
+    );
+  });
+
+  test("returns message for invalid_blocks client_error", () => {
+    expect(getUserMessage("invalid_blocks")).toBe(
+      "I couldn't format that message for Slack. Please try again.",
     );
   });
 });

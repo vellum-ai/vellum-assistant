@@ -1091,6 +1091,109 @@ describe("slack-deliver endpoint", () => {
     );
     expect(postCalls.length).toBe(1);
   });
+
+  test("chat.update invalid_blocks falls back to chat.postMessage without blocks on first attempt", async () => {
+    let postMessageCalls = 0;
+    let updateCalls = 0;
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        let body: unknown;
+        let rawBody: string | undefined;
+        try {
+          if (init?.body && typeof init.body === "string") {
+            rawBody = init.body;
+            body = JSON.parse(init.body);
+          }
+        } catch {
+          /* not JSON */
+        }
+        fetchCalls.push({ url, body, rawBody });
+
+        if (url.includes("chat.update")) {
+          updateCalls++;
+          return new Response(
+            JSON.stringify({ ok: false, error: "invalid_blocks" }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        if (url.includes("chat.postMessage")) {
+          postMessageCalls++;
+          return new Response(
+            JSON.stringify({ ok: true, ts: "123.456" }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
+    const customBlocks = [
+      { type: "section", text: { type: "mrkdwn", text: "Rich content" } },
+    ];
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Plain text fallback",
+      blocks: customBlocks,
+      messageTs: "1700000000.000050",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // chat.update must have been called exactly once (invalid_blocks).
+    expect(updateCalls).toBe(1);
+
+    // chat.postMessage must have been called exactly once — the fallback
+    // must strip blocks on the first attempt rather than re-trying with
+    // blocks and relying on the outer retry.
+    expect(postMessageCalls).toBe(1);
+    const postCalls = fetchCalls.filter((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(postCalls.length).toBe(1);
+
+    // The single postMessage call must NOT have blocks in its body.
+    expect((postCalls[0]!.body as any).blocks).toBeUndefined();
+    expect((postCalls[0]!.body as any).text).toBe("Plain text fallback");
+    expect((postCalls[0]!.body as any).channel).toBe("C123");
+    // ts is only valid for chat.update — must not leak into postMessage.
+    expect((postCalls[0]!.body as any).ts).toBeUndefined();
+
+    // A warn-level log must describe the pre-stripped fallback.
+    const fallbackLog = logCalls.find((c) => {
+      const [firstArg, secondArg] = c.args;
+      const message =
+        typeof firstArg === "string"
+          ? firstArg
+          : typeof secondArg === "string"
+            ? secondArg
+            : undefined;
+      return (
+        c.method === "warn" &&
+        typeof message === "string" &&
+        message.includes(
+          "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
+        )
+      );
+    });
+    expect(fallbackLog).toBeDefined();
+  });
 });
 
 describe("slack attachment delivery", () => {
