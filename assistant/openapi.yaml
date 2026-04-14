@@ -4081,6 +4081,278 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20)
+  /v1/home/feed:
+    get:
+      operationId: home_feed_get
+      summary: Get home activity feed
+      description:
+        Return the current Home activity feed with TTL + time-away filtering applied. Also returns a context banner
+        (greeting, relative time-away label, new-item count).
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - nudge
+                            - digest
+                            - action
+                            - thread
+                        priority:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                        title:
+                          type: string
+                        summary:
+                          type: string
+                        source:
+                          type: string
+                          enum:
+                            - gmail
+                            - slack
+                            - calendar
+                            - assistant
+                        timestamp:
+                          type: string
+                        status:
+                          default: new
+                          type: string
+                          enum:
+                            - new
+                            - seen
+                            - acted_on
+                        expiresAt:
+                          type: string
+                        minTimeAway:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        actions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              label:
+                                type: string
+                              prompt:
+                                type: string
+                            required:
+                              - id
+                              - label
+                              - prompt
+                            additionalProperties: false
+                        author:
+                          type: string
+                          enum:
+                            - assistant
+                            - platform
+                        createdAt:
+                          type: string
+                      required:
+                        - id
+                        - type
+                        - priority
+                        - title
+                        - summary
+                        - timestamp
+                        - status
+                        - author
+                        - createdAt
+                      additionalProperties: false
+                  updatedAt:
+                    type: string
+                  contextBanner:
+                    type: object
+                    properties:
+                      greeting:
+                        type: string
+                      timeAwayLabel:
+                        type: string
+                      newCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - greeting
+                      - timeAwayLabel
+                      - newCount
+                    additionalProperties: false
+                required:
+                  - items
+                  - updatedAt
+                  - contextBanner
+                additionalProperties: false
+      parameters:
+        - name: timeAwaySeconds
+          in: query
+          required: true
+          schema:
+            type: integer
+          description:
+            Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to
+            compute the context-banner relative-time label.
+  /v1/home/feed/{id}:
+    patch:
+      operationId: home_feed_by_id_patch
+      summary: Patch home feed item status
+      description:
+        Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item
+        on success, 404 if the item does not exist, 500 if the underlying write fails.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  type:
+                    type: string
+                    enum:
+                      - nudge
+                      - digest
+                      - action
+                      - thread
+                  priority:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  title:
+                    type: string
+                  summary:
+                    type: string
+                  source:
+                    type: string
+                    enum:
+                      - gmail
+                      - slack
+                      - calendar
+                      - assistant
+                  timestamp:
+                    type: string
+                  status:
+                    default: new
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                  expiresAt:
+                    type: string
+                  minTimeAway:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  actions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        prompt:
+                          type: string
+                      required:
+                        - id
+                        - label
+                        - prompt
+                      additionalProperties: false
+                  author:
+                    type: string
+                    enum:
+                      - assistant
+                      - platform
+                  createdAt:
+                    type: string
+                required:
+                  - id
+                  - type
+                  - priority
+                  - title
+                  - summary
+                  - timestamp
+                  - status
+                  - author
+                  - createdAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+              required:
+                - status
+              additionalProperties: false
+  /v1/home/feed/{id}/actions/{actionId}:
+    post:
+      operationId: home_feed_by_id_actions_by_actionId_post
+      summary: Trigger home feed action
+      description:
+        Create a new conversation pre-seeded with the action's prompt as the first user message. Returns the new
+        `conversationId`.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                required:
+                  - conversationId
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/home/state:
     get:
       operationId: home_state_get
