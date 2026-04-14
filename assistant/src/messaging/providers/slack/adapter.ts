@@ -37,11 +37,11 @@ const userNameCache = new Map<string, string>();
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
  *
- * Read and write auth are tracked separately so a future change can point
- * reads at a user OAuth token (xoxp-) while writes continue to use the bot
- * token (xoxb-). Today both caches hold the same value (behavior-preserving
- * refactor); PR 5 of the slack-user-token-triage plan wires a user_token
- * into the read cache.
+ * Read and write auth are tracked separately so reads can use a user OAuth
+ * token (xoxp-) — giving visibility into channels the user is in but the
+ * bot isn't — while writes continue to use the bot token (xoxb-) so posts
+ * come from the bot identity. When no user_token is stored, reads fall
+ * back to the bot token (unchanged legacy behavior).
  *
  * For Socket Mode these hold a raw bot token string; for OAuth they hold the
  * OAuthConnection. The Slack client functions accept both via their own
@@ -54,7 +54,8 @@ let _cachedSlackReadAuth: OAuthConnection | string | null = null;
 /**
  * Get the Slack auth value to pass to Slack client functions.
  * Prefers the explicit connection from the caller; falls back to the cached
- * write auth (which equals the read auth until PR 5 introduces a split).
+ * write auth. Callers that care about read vs write semantics should use
+ * getReadAuth() / getWriteAuth() directly.
  */
 function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
   if (connection) return connection;
@@ -75,6 +76,8 @@ function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
   return getSlackAuth(connection);
 }
 
+// SAFETY: writes MUST use the bot token. Using the user token for writes
+// would post as the user, not as the bot.
 /**
  * Resolve auth for write operations (postMessage, markRead, and any future
  * state-changing method like reactions, joins, leaves, updates, or deletes).
@@ -213,12 +216,20 @@ export const slackProvider: MessagingProvider = {
   ): Promise<OAuthConnection | undefined> {
     // Socket Mode: cache the raw bot token for use in adapter methods.
     // Token presence is sufficient — no connection row required.
+    //
+    // When a user_token is also stored, prefer it for reads so the adapter
+    // can see channels the user is in but the bot isn't (conversations.list,
+    // conversations.history, search.messages). Writes always stay on the
+    // bot token — see SAFETY note above getWriteAuth().
     const botToken = await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     );
+    const userToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    );
     if (botToken) {
       _cachedSlackWriteAuth = botToken;
-      _cachedSlackReadAuth = botToken; // PR 5 will point this at user_token when available
+      _cachedSlackReadAuth = userToken ?? botToken;
       return undefined;
     }
     // Preserve existing OAuth path for backwards compat.
