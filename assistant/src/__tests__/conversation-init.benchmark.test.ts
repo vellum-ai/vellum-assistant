@@ -255,6 +255,7 @@ mock.module("../calls/call-store.js", () => ({
   recordProcessedCallback: () => {},
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
+  finalizeCallbackClaim: () => true,
 }));
 
 mock.module("../daemon/watch-handler.js", () => ({
