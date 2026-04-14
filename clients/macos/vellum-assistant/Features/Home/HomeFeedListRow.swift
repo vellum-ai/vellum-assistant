@@ -84,12 +84,12 @@ struct HomeFeedListRow: View {
     // MARK: - Relative timestamp
 
     /// Produces a short relative timestamp (e.g. "5m ago", "2h ago") for the
-    /// right-hand column. Uses `RelativeDateTimeFormatter` in its `.short`
+    /// right-hand column. Uses `RelativeDateTimeFormatter` in its `.abbreviated`
     /// style to keep the label narrow so it never pushes the title into
     /// truncation on medium-width windows.
     static func relativeTimestamp(_ date: Date, now: Date = Date()) -> String {
         let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
+        formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: now)
     }
 }

@@ -90,7 +90,7 @@ struct HomeFeedNudgeCard: View {
 
     private var actionsRow: some View {
         HStack(spacing: VSpacing.sm) {
-            ForEach(Array(visibleActions.enumerated()), id: \.element.id) { index, action in
+            ForEach(Array(visibleActions.enumerated()), id: \.offset) { index, action in
                 VButton(
                     label: action.label,
                     style: index == 0 ? .primary : .outlined,
