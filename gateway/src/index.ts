@@ -1342,47 +1342,45 @@ async function main() {
    *  idle-sleep timer is reset for this assistant.
    *  Throttled to at most one outbound POST per 30 seconds. */
   let lastRecordActivityTs = 0;
-  function notifyRecordActivity(): void {
+  async function notifyRecordActivity(): Promise<void> {
     const now = Date.now();
     if (now - lastRecordActivityTs < 30_000) return;
     lastRecordActivityTs = now;
-    Promise.all([
-      credentialCache.get(credentialKey("vellum", "platform_base_url")),
-      credentialCache.get(credentialKey("vellum", "assistant_api_key")),
-      credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
-    ])
-      .then(([platformBaseUrl, assistantApiKey, assistantId]) => {
-        if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
-        const baseUrl = platformBaseUrl.trim().replace(/\/+$/, "");
-        const id = assistantId.trim();
-        fetchImpl(`${baseUrl}/v1/assistants/${id}/record-activity/`, {
+
+    try {
+      const [platformBaseUrl, assistantApiKey, assistantId] = await Promise.all(
+        [
+          credentialCache.get(credentialKey("vellum", "platform_base_url")),
+          credentialCache.get(credentialKey("vellum", "assistant_api_key")),
+          credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
+        ],
+      );
+
+      if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
+
+      const baseUrl = platformBaseUrl.trim().replace(/\/+$/, "");
+      const id = assistantId.trim();
+      const res = await fetchImpl(
+        `${baseUrl}/v1/assistants/${id}/record-activity/`,
+        {
           method: "POST",
-          headers: {
-            Authorization: `Api-Key ${assistantApiKey.trim()}`,
-          },
+          headers: { Authorization: `Api-Key ${assistantApiKey.trim()}` },
           signal: AbortSignal.timeout(10_000),
-        })
-          .then((res) => {
-            if (!res.ok) {
-              log.warn(
-                { status: res.status },
-                "Non-OK response from record-activity endpoint",
-              );
-            }
-          })
-          .catch((err) => {
-            log.debug(
-              { err },
-              "Failed to notify platform of Slack activity for idle sleep",
-            );
-          });
-      })
-      .catch((err) => {
-        log.debug(
-          { err },
-          "Failed to read credentials for idle sleep notification",
+        },
+      );
+
+      if (!res.ok) {
+        log.warn(
+          { status: res.status },
+          "Non-OK response from record-activity endpoint",
         );
-      });
+      }
+    } catch (err) {
+      log.debug(
+        { err },
+        "Failed to notify platform of Slack activity for idle sleep",
+      );
+    }
   }
 
   async function startSlackSocket(): Promise<void> {
