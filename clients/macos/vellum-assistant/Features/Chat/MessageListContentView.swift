@@ -288,10 +288,6 @@ struct MessageListContentView: View, Equatable {
                 }) else {
                     return 80 + markerHeight
                 }
-                // Messages with attachments are always collapsed — use max height
-                if !lastUser.message.attachments.isEmpty {
-                    return 260 + markerHeight
-                }
                 let text = lastUser.message.text as NSString
                 let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
                 let font = NSFont.systemFont(ofSize: 14, weight: .regular)
@@ -303,7 +299,11 @@ struct MessageListContentView: View, Equatable {
                 let textHeight = ceil(textRect.height)
                 // Bubble padding (24) + timestamp (24) + spacing (12)
                 let cellOverhead: CGFloat = 60
-                let isHeuristicCollapse = text.length > 3_000
+                // Estimate attachment height (images ~200pt, file chips ~40pt each)
+                let attachmentHeight: CGFloat = lastUser.message.attachments.isEmpty
+                    ? 0
+                    : lastUser.message.attachments.reduce(0) { total, _ in total + 200 }
+                let isHeuristicCollapse = lastUser.message.text.count > 3_000
                     || ChatBubble.exceedsLineLimit(lastUser.message.text, limit: 40)
                 if isHeuristicCollapse {
                     // Heuristic-collapsed messages show truncated preview text
@@ -315,10 +315,10 @@ struct MessageListContentView: View, Equatable {
                         attributes: [.font: font]
                     )
                     let showMoreButton: CGFloat = 30
-                    return ceil(previewRect.height) + cellOverhead + showMoreButton + markerHeight
+                    return ceil(previewRect.height) + cellOverhead + showMoreButton + attachmentHeight + markerHeight
                 }
                 // Non-collapsed messages render at full height
-                return textHeight + cellOverhead + markerHeight
+                return textHeight + cellOverhead + attachmentHeight + markerHeight
             }()
             // Precise minHeight: fill the space between user message and composer.
             // containerHeight = full chat pane (stable, from GeometryReader)
