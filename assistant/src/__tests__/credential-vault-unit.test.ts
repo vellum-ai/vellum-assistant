@@ -57,6 +57,7 @@ let manualConnectionStore: Record<string, string> = {};
 let slackChannelConfigCalls: Array<{
   botToken?: string;
   appToken?: string;
+  userToken?: string;
 }> = [];
 
 mock.module("../oauth/manual-token-connection.js", () => ({
@@ -81,8 +82,12 @@ mock.module("../oauth/manual-token-connection.js", () => ({
 }));
 
 mock.module("../daemon/handlers/config-slack-channel.js", () => ({
-  setSlackChannelConfig: async (botToken?: string, appToken?: string) => {
-    slackChannelConfigCalls.push({ botToken, appToken });
+  setSlackChannelConfig: async (
+    botToken?: string,
+    appToken?: string,
+    userToken?: string,
+  ) => {
+    slackChannelConfigCalls.push({ botToken, appToken, userToken });
 
     const { credentialKey } = await import("../security/credential-key.js");
     const { getSecureKeyAsync, setSecureKeyAsync } =
@@ -96,14 +101,29 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
     const hasExistingAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
     ));
+    const hasExistingUserToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    ));
 
     if (appToken && !appToken.startsWith("xapp-")) {
       return {
         success: false,
         hasBotToken: hasExistingBotToken,
         hasAppToken: hasExistingAppToken,
+        hasUserToken: hasExistingUserToken,
         connected: hasExistingBotToken && hasExistingAppToken,
         error: 'Invalid app token: must start with "xapp-"',
+      };
+    }
+
+    if (userToken && !userToken.startsWith("xoxp-")) {
+      return {
+        success: false,
+        hasBotToken: hasExistingBotToken,
+        hasAppToken: hasExistingAppToken,
+        hasUserToken: hasExistingUserToken,
+        connected: hasExistingBotToken && hasExistingAppToken,
+        error: 'Invalid user token: must start with "xoxp-"',
       };
     }
 
@@ -112,6 +132,7 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
         success: false,
         hasBotToken: hasExistingBotToken,
         hasAppToken: hasExistingAppToken,
+        hasUserToken: hasExistingUserToken,
         connected: hasExistingBotToken && hasExistingAppToken,
         error: "Slack API validation failed: invalid_auth",
       };
@@ -131,12 +152,22 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
       );
       upsertCredentialMetadata("slack_channel", "app_token", {});
     }
+    if (userToken) {
+      await setSecureKeyAsync(
+        credentialKey("slack_channel", "user_token"),
+        userToken,
+      );
+      upsertCredentialMetadata("slack_channel", "user_token", {});
+    }
 
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     ));
     const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
+    ));
+    const hasUserToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
     ));
 
     if (hasBotToken && hasAppToken) {
@@ -156,6 +187,7 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
       success: true,
       hasBotToken,
       hasAppToken,
+      hasUserToken,
       connected: hasBotToken && hasAppToken,
       teamName: hasBotToken ? "Test Team" : undefined,
       botUsername: hasBotToken ? "testbot" : undefined,
@@ -681,6 +713,67 @@ describe("credential_store tool — prompt action", () => {
     ).toBeUndefined();
   });
 
+  test("slack_channel user_token prompt routes through the settings handler", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "xoxp-valid-user-token",
+        delivery: "store" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "user_token",
+        label: "User OAuth Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(false);
+    // Routed to handler as third positional argument.
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: undefined, appToken: undefined, userToken: "xoxp-valid-user-token" },
+    ]);
+    // Stored via the handler's mock, NOT via the generic setSecureKeyAsync path.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBe("xoxp-valid-user-token");
+  });
+
+  test("slack_channel user_token prompt surfaces handler rejection for malformed token", async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({
+        value: "abc-123",
+        delivery: "store" as const,
+      }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      {
+        action: "prompt",
+        service: "slack_channel",
+        field: "user_token",
+        label: "User OAuth Token",
+      },
+      ctxWithPrompt,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('must start with "xoxp-"');
+    // Handler was called with malformed token.
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: undefined, appToken: undefined, userToken: "abc-123" },
+    ]);
+    // Value was NOT persisted.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+  });
+
   test("prompt rejects invalid policy input", async () => {
     const ctxWithPrompt: ToolContext = {
       ..._ctx,
@@ -698,6 +791,105 @@ describe("credential_store tool — prompt action", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("allowed_tools must be an array");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. Vault — slack_channel store routing
+// ---------------------------------------------------------------------------
+
+describe("credential_store tool — slack_channel store routing", () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test("store with user_token routes to setSlackChannelConfig as third positional arg", async () => {
+    const result = await credentialStoreTool.execute(
+      {
+        action: "store",
+        service: "slack_channel",
+        field: "user_token",
+        value: "xoxp-valid-user-token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    // Exactly one handler call with (undefined, undefined, token).
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: undefined, appToken: undefined, userToken: "xoxp-valid-user-token" },
+    ]);
+    // Stored through the handler's mock path, not the generic setSecureKeyAsync path.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBe("xoxp-valid-user-token");
+  });
+
+  test("store with user_token surfaces handler rejection for malformed token", async () => {
+    const result = await credentialStoreTool.execute(
+      {
+        action: "store",
+        service: "slack_channel",
+        field: "user_token",
+        value: "abc-123",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('must start with "xoxp-"');
+    // Handler was called with the malformed value.
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: undefined, appToken: undefined, userToken: "abc-123" },
+    ]);
+    // Nothing was persisted.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+  });
+
+  test("store with bot_token still routes via first positional arg", async () => {
+    const result = await credentialStoreTool.execute(
+      {
+        action: "store",
+        service: "slack_channel",
+        field: "bot_token",
+        value: "xoxb-valid-bot-token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: "xoxb-valid-bot-token", appToken: undefined, userToken: undefined },
+    ]);
+  });
+
+  test("store with app_token still routes via second positional arg", async () => {
+    const result = await credentialStoreTool.execute(
+      {
+        action: "store",
+        service: "slack_channel",
+        field: "app_token",
+        value: "xapp-valid-app-token",
+      },
+      _ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(slackChannelConfigCalls).toEqual([
+      { botToken: undefined, appToken: "xapp-valid-app-token", userToken: undefined },
+    ]);
   });
 });
 

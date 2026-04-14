@@ -37,20 +37,26 @@ const log = getLogger("credential-vault");
 function isSlackChannelCredential(
   service: string,
   field: string,
-): field is "bot_token" | "app_token" {
+): field is "bot_token" | "app_token" | "user_token" {
   return (
     service === "slack_channel" &&
-    (field === "bot_token" || field === "app_token")
+    (field === "bot_token" ||
+      field === "app_token" ||
+      field === "user_token")
   );
 }
 
 async function storeSlackChannelCredential(
-  field: "bot_token" | "app_token",
+  field: "bot_token" | "app_token" | "user_token",
   value: string,
 ): Promise<SlackChannelConfigResult> {
-  return field === "bot_token"
-    ? setSlackChannelConfig(value, undefined)
-    : setSlackChannelConfig(undefined, value);
+  if (field === "bot_token") {
+    return setSlackChannelConfig(value, undefined);
+  }
+  if (field === "app_token") {
+    return setSlackChannelConfig(undefined, value);
+  }
+  return setSlackChannelConfig(undefined, undefined, value);
 }
 
 function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
