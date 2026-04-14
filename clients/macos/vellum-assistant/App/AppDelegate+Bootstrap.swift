@@ -229,6 +229,11 @@ extension AppDelegate {
     /// Before hitting the network, checks whether the CLI already persisted a
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
+    /// Maximum number of times to poll for a guardian token file before
+    /// giving up. At 2s intervals this is ~60s of waiting.
+    private static let guardianTokenFilePollMaxAttempts = 30
+    private static let guardianTokenFilePollDelay: UInt64 = 2_000_000_000 // 2 seconds
+
     func performInitialBootstrap() async {
         // Try importing a CLI-persisted guardian token first. During non-local
         // hatches the CLI calls /v1/guardian/init and saves the result to
@@ -237,6 +242,30 @@ extension AppDelegate {
         if let assistantId = LockfileAssistant.loadActiveAssistantId(),
            GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
             log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
+            return
+        }
+
+        // For apple-container assistants the launcher (AppleContainersLauncher)
+        // handles the one-time bootstrap secret and writes the token file.
+        // We must NOT call /v1/guardian/init ourselves — doing so would send a
+        // random UUID as the bootstrap secret, racing with the launcher and
+        // potentially consuming the one-time secret or triggering a 403.
+        // Instead, poll for the token file the launcher will create.
+        if let assistant = LockfileAssistant.loadByName(
+            LockfileAssistant.loadActiveAssistantId() ?? ""
+        ), assistant.isAppleContainer {
+            log.info("Apple-container assistant detected — polling for guardian token file instead of HTTP bootstrap")
+            for attempt in 1...Self.guardianTokenFilePollMaxAttempts {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(nanoseconds: Self.guardianTokenFilePollDelay)
+                guard !Task.isCancelled else { return }
+
+                if GuardianTokenFileReader.importIfAvailable(assistantId: assistant.assistantId) {
+                    log.info("Imported guardian token from file after \(attempt) poll(s)")
+                    return
+                }
+            }
+            log.warning("Guardian token file did not appear after \(Self.guardianTokenFilePollMaxAttempts) polls — apple-container launcher may have failed")
             return
         }
 
