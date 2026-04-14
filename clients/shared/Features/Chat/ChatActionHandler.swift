@@ -113,6 +113,25 @@ final class ChatActionHandler {
                 break
             }
 
+            // Race-condition fallback: the echo may arrive before the HTTP 202
+            // response tags the optimistic row with daemonMessageId. Match by
+            // text against the oldest untagged optimistic user row (firstIndex
+            // matches userMessagePersisted's oldest-first order since both SSE
+            // echoes and 202 responses arrive in send order). Scoped to .sent
+            // status to avoid matching stale .sendFailed rows.
+            if let echoId = echo.messageId,
+               let idx = vm.messages.firstIndex(where: {
+                   $0.role == .user
+                       && $0.text == echo.text
+                       && $0.daemonMessageId == nil
+                       && $0.status == .sent
+               }) {
+                // Tag the optimistic row so the 202 handler (userMessagePersisted)
+                // and future echoes can match by ID.
+                vm.messages[idx].daemonMessageId = echoId
+                break
+            }
+
             // Passive client (or nil messageId for back-compat surface-action
             // echoes): append a new user row and enter "reply incoming" state.
             var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
@@ -123,6 +142,9 @@ final class ChatActionHandler {
 
         case .userMessagePersisted(let conversationId, let content, let messageId):
             guard belongsToConversation(conversationId) else { return }
+            // If the echo fallback already tagged a row with this messageId,
+            // skip — avoids cross-tagging a different row with duplicate text.
+            guard !vm.messages.contains(where: { $0.daemonMessageId == messageId }) else { break }
             // Tag the oldest untagged optimistic user row matching `content`
             // with the daemon-assigned `messageId`. Oldest-first order is
             // correct because HTTP 202 responses arrive in send order (the
