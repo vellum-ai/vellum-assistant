@@ -6,7 +6,7 @@
  *   streaming adapters.
  * - Normalized event flow: ready -> partial -> final -> closed.
  * - Per-session ordering guarantees (monotonic `seq` field).
- * - Graceful handling of unsupported providers (e.g. openai-whisper).
+ * - Graceful handling of unsupported providers.
  * - Session teardown on client disconnect.
  * - Idle timeout behavior.
  * - Binary audio frame handling.
