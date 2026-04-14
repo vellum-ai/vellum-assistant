@@ -205,11 +205,11 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
     ? truncate(rawIdentityContext, 2000, "\n…[truncated]")
     : null;
 
-  const systemPrompt = `You are generating 4 conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app. Clicking a chip sends its prompt as a message from the user.
+  const systemPrompt = `You are generating conversation starters for a personal assistant app. These appear as clickable chips on the empty conversation page — the first thing the user sees when they open the app. Clicking a chip sends its prompt as a message from the user.
 
 ${timeContext}
 
-Your goal: suggest the 4 most useful things this person could ask you to do right now.
+Your goal: suggest the most useful things this person could ask you to do right now. Produce 8 candidates, ranked best-first; only the top 4 will be shown.
 
 ${
   identityContext
@@ -223,7 +223,7 @@ ${skills}
 
 ## Selection
 
-Generate exactly 4 starters, ranked #1 (best) to #4.
+Generate exactly 8 starters, ranked #1 (best) to #8. The top 4 will be shown; the rest are fallbacks in case any fail downstream validation (e.g. label too long). Put real effort into every slot — any of them may end up displayed.
 
 Start from the user's situation, not from the skill list. Ask yourself:
 - What is this person likely dealing with right now (given the day/time and their context)?
@@ -258,9 +258,9 @@ Each starter has:
 
 **Voice**: The user clicks these chips to send a message. Every label must read as something the user is asking to do, never something the assistant is saying to the user.
 
-**Coherence**: The 4 starters should feel like one set — similar abstraction level, no jarring mix of mundane chores and life strategy.
+**Coherence**: The top 4 starters should feel like one set — similar abstraction level, no jarring mix of mundane chores and life strategy. The remaining 4 fallbacks may branch into adjacent topics.
 
-**Diversity**: Each chip covers a distinct topic. Never two chips about the same tool, project, or theme. Four topics, four chips.
+**Diversity**: Each chip covers a distinct topic. Never two chips about the same tool, project, or theme. Across all 8 starters, avoid repeating topics.
 
 **No setup chips**: Never include a chip whose primary meaning is configuration or "set up X for Y" unless it solves an urgent pain the user is actively feeling. Prefer the outcome over the mechanism.
 
@@ -331,7 +331,7 @@ Bad → Good (incomplete phrase → complete):
       {
         config: {
           modelIntent: "quality-optimized",
-          max_tokens: 1024,
+          max_tokens: 2048,
           tool_choice: {
             type: "tool" as const,
             name: "store_conversation_starters",
