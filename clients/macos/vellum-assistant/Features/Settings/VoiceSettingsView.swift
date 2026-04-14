@@ -396,11 +396,11 @@ struct VoiceSettingsView: View {
                 // Unified API key field
                 ttsApiKeyField
 
-                // Credentials guide — contextual help for obtaining an API key
-                ttsCredentialsGuideView
-
                 // Voice ID / Reference ID field (provider-specific)
                 ttsVoiceIdField
+
+                // Credentials guide — contextual help for obtaining an API key
+                ttsCredentialsGuideView
 
                 // Save + Reset actions
                 ServiceCardActions(

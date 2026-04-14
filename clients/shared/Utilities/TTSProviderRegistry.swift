@@ -92,7 +92,7 @@ private let fallbackRegistry = TTSProviderRegistry(
             setupHint: "Run the setup commands in your terminal to configure Fish Audio.",
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
-                url: "https://fish.audio/api-keys/",
+                url: "https://fish.audio/app/api-keys/",
                 linkLabel: "Open Fish Audio API Keys"
             )
         ),
