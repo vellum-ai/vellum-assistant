@@ -871,6 +871,7 @@ export async function startLocalDaemon(
         "APP_VERSION",
         "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",

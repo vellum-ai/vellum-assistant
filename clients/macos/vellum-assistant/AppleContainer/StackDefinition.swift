@@ -82,6 +82,7 @@ enum VellumContainerEnv {
             "IS_CONTAINERIZED": "true",
             "VELLUM_ASSISTANT_NAME": instanceName,
             "VELLUM_CLOUD": "apple-container",
+            "VELLUM_ENVIRONMENT": VellumEnvironment.current.rawValue,
             "RUNTIME_HTTP_HOST": "0.0.0.0",
             "VELLUM_WORKSPACE_DIR": VellumMountPaths.workspace,
             "CES_CREDENTIAL_URL": "http://localhost:\(VellumContainerPorts.cesHTTP)",
@@ -107,6 +108,7 @@ enum VellumContainerEnv {
     ) -> [String: String] {
         var env: [String: String] = [
             "IS_CONTAINERIZED": "true",
+            "VELLUM_ENVIRONMENT": VellumEnvironment.current.rawValue,
             "VELLUM_WORKSPACE_DIR": VellumMountPaths.workspace,
             "GATEWAY_SECURITY_DIR": VellumMountPaths.gatewaySecurityDir,
             "GATEWAY_PORT": String(VellumContainerPorts.gatewayHTTP),

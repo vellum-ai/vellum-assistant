@@ -110,6 +110,7 @@ final class VellumCli: AssistantManagementClient {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "VELLUM_WORKSPACE_DIR",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
