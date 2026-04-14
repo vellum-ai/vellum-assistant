@@ -166,7 +166,7 @@ export interface ScoringWeights {
 }
 
 /** Weights for context-load (conversation start): balanced across all signals. */
-const DEFAULT_WEIGHTS: ScoringWeights = {
+export const DEFAULT_WEIGHTS: ScoringWeights = {
   semanticSimilarity: 0.25,
   effectiveSignificance: 0.15,
   emotionalIntensity: 0.15,
@@ -174,6 +174,28 @@ const DEFAULT_WEIGHTS: ScoringWeights = {
   recencyBoost: 0.15,
   triggerBoost: 0.15,
   activationBoost: 0.1,
+};
+
+/**
+ * Weights for context-load of procedural memories (learned skills, how-to).
+ * Procedural memories have no emotional charge, no time-of-day pattern, and
+ * are often old-but-stable (a workaround learned months ago stays useful).
+ * Grading them on DEFAULT_WEIGHTS wastes ~45% of the budget on signals that
+ * are structurally ~0 for procedurals, causing them to lose out to episodic
+ * and emotional memories that simply have more signals lit up.
+ *
+ * This redistributes the dead weight onto semantic similarity and
+ * significance — the signals that actually differentiate useful procedurals
+ * from stale ones.
+ */
+export const PROCEDURAL_WEIGHTS: ScoringWeights = {
+  semanticSimilarity: 0.45,
+  effectiveSignificance: 0.25,
+  emotionalIntensity: 0.0,
+  temporalBoost: 0.0,
+  recencyBoost: 0.05,
+  triggerBoost: 0.1,
+  activationBoost: 0.15,
 };
 
 /**
@@ -190,6 +212,14 @@ export const PER_TURN_WEIGHTS: ScoringWeights = {
   triggerBoost: 0.20,
   activationBoost: 0.05,
 };
+
+/**
+ * Pick the appropriate context-load weights for a node based on its type.
+ * Procedural nodes use PROCEDURAL_WEIGHTS; everything else uses DEFAULT_WEIGHTS.
+ */
+export function weightsForContextLoad(node: MemoryNode): ScoringWeights {
+  return node.type === "procedural" ? PROCEDURAL_WEIGHTS : DEFAULT_WEIGHTS;
+}
 
 /**
  * Compute the final retrieval score for a candidate node.

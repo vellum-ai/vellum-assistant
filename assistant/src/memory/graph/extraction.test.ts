@@ -111,6 +111,29 @@ describe("parseExtractionResponse — node creation", () => {
     expect(diff.createNodes[0].stability).toBe(14);
   });
 
+  test("procedural nodes get stability=60", () => {
+    const { diff } = parse({
+      create_nodes: [
+        {
+          content: "ffmpeg needs -ac 2 to force stereo output.",
+          type: "procedural",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.9,
+          source_type: "direct",
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes[0].stability).toBe(60);
+  });
+
   test("clamps significance to [0, 1]", () => {
     const { diff } = parse({
       create_nodes: [
