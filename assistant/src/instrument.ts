@@ -52,7 +52,7 @@ export function initSentry(): void {
     dsn,
     release: `vellum-assistant@${APP_VERSION}`,
     dist: COMMIT_SHA,
-    environment: process.env.VELLUM_ENVIRONMENT ?? "development",
+    environment: process.env.VELLUM_ENVIRONMENT ?? "local",
     sendDefaultPii: false,
     serverName: hostname(),
     initialScope: {
