@@ -479,6 +479,7 @@ public final class EventStreamClient {
             // tear down the very session it's reading from.
             tokenRotationTask?.cancel()
             tokenRotationTask = Task { @MainActor [weak self] in
+                guard !Task.isCancelled else { return }
                 guard let self, self.shouldReconnect else { return }
                 self.stopSSE()
                 self.startSSE()
