@@ -170,8 +170,7 @@ private final class MockManagedAssistantBootstrapService: ManagedAssistantBootst
     func ensureManagedAssistant(
         name: String?,
         description: String?,
-        anthropicApiKey: String?,
-        multiAssistantEnabled: Bool
+        anthropicApiKey: String?
     ) async throws -> ManagedBootstrapOutcome {
         onEnsureManagedAssistant?()
         guard let outcome else {

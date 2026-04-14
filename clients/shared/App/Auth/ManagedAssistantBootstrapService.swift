@@ -120,8 +120,7 @@ public final class ManagedAssistantBootstrapService {
     public func ensureManagedAssistant(
         name: String? = nil,
         description: String? = nil,
-        anthropicApiKey: String? = nil,
-        multiAssistantEnabled: Bool = false
+        anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
         let organizationId = try await resolveOrganizationId()
 

@@ -365,7 +365,7 @@ public final class AuthService {
     public func listAssistants(organizationId: String, hosting: String? = nil) async throws -> [PlatformAssistant] {
         var path = "v1/assistants/"
         if let hosting {
-            path += "?hosting=\(hosting)"
+            path += "?hosting=\(hosting.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hosting)"
         }
         let response = try await performPlatformRequest(
             path: path,
