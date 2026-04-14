@@ -647,4 +647,64 @@ describe("executeBrowserNavigate", () => {
     expect(result.content).toContain("Navigation blocked");
     expect(result.content).toContain("allow_private_network=true");
   });
+
+  // ── Defense-in-depth: post-navigation final URL check ─────────
+
+  test("post-nav check blocks when final URL resolves to private target", async () => {
+    // The initial URL is public and passes pre-flight checks, but the
+    // final URL (after redirect) resolves to a private address. The
+    // route handler is NOT triggered (navigation succeeds), so only the
+    // post-navigation defense-in-depth check catches it.
+    parseUrlResult = new URL("https://public.example.com/redirect");
+    isPrivateResult = false;
+
+    // Configure parseUrlMock to return different results for the initial
+    // URL vs. the final URL returned by navigateAndWait.
+    parseUrlMock = (input: unknown) => {
+      if (typeof input === "string" && input.includes("192.168")) {
+        return new URL(input);
+      }
+      return parseUrlResult;
+    };
+    isPrivateHostMock = (hostname: string) => {
+      return hostname === "192.168.1.1";
+    };
+
+    // navigateAndWait returns a private final URL (simulating a
+    // server-side redirect that the route handler didn't catch).
+    cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Runtime.evaluate") {
+        const expression = String(params?.["expression"] ?? "");
+        if (expression === "document.location.href") {
+          return { result: { value: "about:blank" } };
+        }
+        if (
+          expression.includes("readyState") &&
+          expression.includes("document.location.href")
+        ) {
+          return {
+            result: {
+              value: {
+                readyState: "complete",
+                href: "http://192.168.1.1/admin",
+              },
+            },
+          };
+        }
+        return { result: { value: null } };
+      }
+      return {};
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://public.example.com/redirect" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Navigation blocked");
+    expect(result.content).toContain("Final URL resolved to a local/private");
+    expect(result.content).toContain("allow_private_network=true");
+    expect(cdpDisposed).toBe(true);
+  });
 });

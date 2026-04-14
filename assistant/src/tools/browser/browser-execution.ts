@@ -732,6 +732,15 @@ export async function executeBrowserNavigate(
             )
           ).blockedAddress)
       ) {
+        // Clean up the route handler before returning to avoid leaking
+        // a stale interception handler on the session page.
+        if (routeHandler) {
+          const page = await browserManager.getOrCreateSessionPage(
+            context.conversationId,
+          );
+          await page.unroute("**/*", routeHandler);
+          routeHandler = null;
+        }
         return {
           content: `Error: Navigation blocked. Final URL resolved to a local/private network target (${sanitizeUrlForOutput(finalParsed)}). Set allow_private_network=true if you explicitly need it.`,
           isError: true,
@@ -752,8 +761,7 @@ export async function executeBrowserNavigate(
       );
     }
 
-    // Remove the Playwright route handler now that navigation is
-    // complete (local path only).
+    // Remove the Playwright route handler now that navigation is complete.
     if (routeHandler) {
       const page = await browserManager.getOrCreateSessionPage(
         context.conversationId,
@@ -941,7 +949,7 @@ export async function executeBrowserNavigate(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
-    // Best-effort cleanup of route handler on error (local path only)
+    // Best-effort cleanup of route handler on error
     if (routeHandler) {
       try {
         const page = await browserManager.getOrCreateSessionPage(
