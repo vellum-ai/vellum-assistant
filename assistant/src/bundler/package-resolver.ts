@@ -33,6 +33,10 @@ const inflight = new Map<string, Promise<string | null>>();
 
 /** Where all cached packages live on disk. */
 export function getCacheDir(): string {
+  // Package cache is intentionally shared across all local assistants to
+  // avoid re-downloading the same bundler deps per instance. Resolved
+  // against the real home directory so the cache is a single host-wide
+  // location regardless of BASE_DATA_DIR / per-instance containers.
   return join(homedir(), ".vellum", "package-cache");
 }
 
