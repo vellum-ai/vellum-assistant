@@ -421,6 +421,7 @@ final class ChatActionHandler {
         vm.cancelTimeoutTask = nil
         vm.isCancelling = false
         vm.isThinking = false
+        vm.isCompacting = false
         // When a send-direct is pending, this messageComplete is the
         // cancel acknowledgment. Reset all queue state so the follow-up
         // sendMessage() starts a fresh send instead of re-queuing.
