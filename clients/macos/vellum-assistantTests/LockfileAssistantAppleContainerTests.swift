@@ -127,7 +127,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
             assistantId: "ac-mgmt",
             hatchedAt: "2025-08-01T00:00:00Z",
             signingKey: "key5",
-            mgmtSocket: "/tmp/test-mgmt.sock",
+            mgmtSocket: "/Users/test/Library/Application Support/vellum-assistant-dev/cli.sock",
             lockfilePath: lockfilePath
         )
         XCTAssertTrue(result)
@@ -136,7 +136,10 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         let assistants = json["assistants"] as! [[String: Any]]
         XCTAssertEqual(assistants.count, 1)
-        XCTAssertEqual(assistants[0]["mgmtSocket"] as? String, "/tmp/test-mgmt.sock")
+        XCTAssertEqual(
+            assistants[0]["mgmtSocket"] as? String,
+            "/Users/test/Library/Application Support/vellum-assistant-dev/cli.sock"
+        )
     }
 
     func testWritesInstanceDirWhenProvided() {
@@ -177,11 +180,12 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
 
     func testInstanceDirRoundTripsViaLockfileParser() {
         let expectedDir = "/Users/test/Library/Application Support/vellum-assistant-dev/apple-containers/ac-rt"
+        let socketPath = "/Users/test/Library/Application Support/vellum-assistant-dev/cli.sock"
         AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-rt",
             hatchedAt: "2025-08-01T00:00:00Z",
             signingKey: "key9",
-            mgmtSocket: "/tmp/vellum-ac/ac-rt/mgmt.sock",
+            mgmtSocket: socketPath,
             instanceDir: expectedDir,
             lockfilePath: lockfilePath
         )
@@ -189,7 +193,7 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         let loaded = LockfileAssistant.loadByName("ac-rt", lockfilePath: lockfilePath)
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.instanceDir, expectedDir)
-        XCTAssertEqual(loaded?.mgmtSocket, "/tmp/vellum-ac/ac-rt/mgmt.sock")
+        XCTAssertEqual(loaded?.mgmtSocket, socketPath)
         XCTAssertEqual(loaded?.cloud, "apple-container")
     }
 
