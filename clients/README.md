@@ -141,7 +141,7 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Push notifications (APNS + rich inline reply)
 - ✅ Export conversation (copy as markdown or share sheet)
 - ✅ Siri Shortcuts ("Ask Vellum..." via AppIntents)
-- ✅ Deep linking (`vellum://send?message=...`)
+- ✅ Deep linking (`vellum-assistant://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
 - ✅ Intelligence tab — installed skills management, community skill browser, contacts with channel policy editing

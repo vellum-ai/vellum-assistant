@@ -135,7 +135,7 @@ struct AgentPanelContent: View {
 
     // MARK: - Tip Banner
 
-    private static let createSkillURL = URL(string: "vellum://create-skill")!
+    private static let createSkillURL = URL(string: "vellum-assistant://create-skill")!
 
     private var tipBannerText: some View {
         HStack(spacing: 0) {
