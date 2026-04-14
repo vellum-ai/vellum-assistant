@@ -6,6 +6,7 @@
  * sends through the messaging layer.
  */
 
+import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getMessages } from "../memory/conversation-crud.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler.js";
@@ -199,6 +200,28 @@ async function processEnrollment(
   // rate-limit counters — only actual sends are counted.
   recordSend(sequence.id);
   recordEvent(sequence.id, enrollment.id, "send", step.index);
+
+  // Fire-and-forget home-feed activity log entry. Each (enrollment,
+  // step) pair is a distinct real signal (an email actually went
+  // out), so the dedupKey embeds both — repeat emits for the same
+  // step are impossible because the enrollment advances after this
+  // line, but if they did occur they'd land on the same entry.
+  void emitFeedEvent({
+    source: "assistant",
+    title: sequence.name,
+    summary: `Sent step ${step.index + 1} of ${sequence.steps.length} to ${enrollment.contactEmail}.`,
+    dedupKey: `sequence-step:${enrollment.id}:${step.index}`,
+  }).catch((err) => {
+    log.warn(
+      {
+        err,
+        sequenceId: sequence.id,
+        enrollmentId: enrollment.id,
+        step: step.index,
+      },
+      "Failed to emit sequence step feed event",
+    );
+  });
 
   // Advance to the next step
   const nextStepIndex = enrollment.currentStep + 1;
