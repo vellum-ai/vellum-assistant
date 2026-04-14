@@ -1,6 +1,6 @@
-import { spawn } from "child_process";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { spawn, spawnSync } from "child_process";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 
 import { getBaseDir, loadAllAssistants } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
@@ -13,7 +13,12 @@ import { getArchivePath, getMetadataPath } from "./retire-archive.js";
 export async function retireLocal(
   name: string,
   entry: AssistantEntry,
+  opts: { backgroundArchive?: boolean } = {},
 ): Promise<void> {
+  // Production path runs tar in a detached child so the CLI can exit
+  // immediately. Tests override this to get a synchronous archive so they
+  // can assert on archive contents right after the call returns.
+  const backgroundArchive = opts.backgroundArchive ?? true;
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
   if (!entry.resources) {
@@ -72,7 +77,10 @@ export async function retireLocal(
 
   // For named instances (instanceDir differs from the base directory),
   // archive and remove the entire instance directory. For the default
-  // instance, archive only the .vellum subdirectory.
+  // instance, archive only the .vellum subdirectory. The "default" branch
+  // is a backwards-compat path for pre env-data-layout first-local entries
+  // whose instanceDir is still homedir() (or BASE_DATA_DIR under test).
+  // All new hatches go through the named-instance path.
   const isNamedInstance = resources.instanceDir !== getBaseDir();
   const dirToArchive = isNamedInstance ? resources.instanceDir : vellumDir;
 
@@ -106,19 +114,55 @@ export async function retireLocal(
 
   writeFileSync(metadataPath, JSON.stringify(entry, null, 2) + "\n");
 
-  // Spawn tar + cleanup in the background and detach so the CLI can exit
-  // immediately. The staging directory is removed once the archive is written.
-  const tarCmd = [
-    `tar czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(dirname(stagingDir))} ${JSON.stringify(basename(stagingDir))}`,
-    `rm -rf ${JSON.stringify(stagingDir)}`,
-  ].join(" && ");
+  createArchive({ archivePath, stagingDir, background: backgroundArchive });
 
-  const child = spawn("sh", ["-c", tarCmd], {
-    stdio: "ignore",
-    detached: true,
-  });
-  child.unref();
-
-  console.log(`📦 Archiving to ${archivePath} in the background.`);
+  if (backgroundArchive) {
+    console.log(`📦 Archiving to ${archivePath} in the background.`);
+  } else {
+    console.log(`📦 Archived to ${archivePath}.`);
+  }
   console.log("\u2705 Local instance retired.");
+}
+
+/**
+ * Archive the CONTENTS of `stagingDir` (not the directory itself) into
+ * `archivePath`, then delete `stagingDir`. The `-C <stagingDir> .` form tells
+ * tar to change into the staging dir and archive the current directory's
+ * contents — the archive's root-level entries will be the files and subdirs
+ * that were originally inside the instance's data dir, with no wrapper
+ * directory. `recover.ts` relies on this shape so it can extract directly
+ * into the entry's target directory.
+ *
+ * When `background` is true (production path), the tar + cleanup runs in a
+ * detached child process so the CLI can exit immediately. When false (test
+ * path), the work runs synchronously so tests can assert on the archive
+ * existing right after `retireLocal` returns.
+ */
+export function createArchive(opts: {
+  archivePath: string;
+  stagingDir: string;
+  background: boolean;
+}): void {
+  const { archivePath, stagingDir, background } = opts;
+  if (background) {
+    const tarCmd = [
+      `tar czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(stagingDir)} .`,
+      `rm -rf ${JSON.stringify(stagingDir)}`,
+    ].join(" && ");
+    const child = spawn("sh", ["-c", tarCmd], {
+      stdio: "ignore",
+      detached: true,
+    });
+    child.unref();
+    return;
+  }
+  const result = spawnSync("tar", ["czf", archivePath, "-C", stagingDir, "."], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `tar exited with code ${result.status} while archiving ${stagingDir}`,
+    );
+  }
+  rmSync(stagingDir, { recursive: true, force: true });
 }

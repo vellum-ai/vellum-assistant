@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-import { saveAssistantEntry } from "../lib/assistant-config";
+import { getBaseDir, saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   generateLocalSigningKey,
@@ -67,11 +67,8 @@ export async function recover(): Promise<void> {
     process.exit(1);
   }
 
-  // 4. Extract archive
-  // TODO: extraction target is hardcoded to homedir(); multi-instance entries
-  //       whose instanceDir differs from homedir will extract to the wrong
-  //       location. Tracked separately from the collision-check regression.
-  await exec("tar", ["xzf", archivePath, "-C", homedir()]);
+  // 4. Extract archive into the entry's target directory.
+  await extractArchive(archivePath, entry);
 
   // 5. Restore lockfile entry
   saveAssistantEntry(entry);
@@ -90,4 +87,41 @@ export async function recover(): Promise<void> {
   await startGateway(false, entry.resources, { signingKey });
 
   console.log(`✅ Recovered assistant '${name}'.`);
+}
+
+/**
+ * Extract a retired archive into the entry's resolved target directory.
+ *
+ * `retire-local.ts` archives the CONTENTS of the instance's data dir (no
+ * wrapper directory). For named instances, that content is the full instance
+ * dir (workspace, .vellum/, etc.). For the legacy default case (pre
+ * env-data-layout first-local), it's the contents of `<instanceDir>/.vellum`.
+ * We mirror the same `isNamedInstance` check here so the round-trip restores
+ * the original layout.
+ *
+ * The compare-against-`getBaseDir()` is intentional: `retire-local.ts` uses
+ * the same helper, which honors `BASE_DATA_DIR` for e2e tests. The two sides
+ * must agree on what "named instance" means for round-trip to work.
+ */
+export async function extractArchive(
+  archivePath: string,
+  entry: AssistantEntry,
+): Promise<void> {
+  if (!entry.resources) {
+    throw new Error(
+      `Cannot extract archive for '${entry.assistantId}': missing resources.`,
+    );
+  }
+  // Mirror retire-local.ts:isNamedInstance. An entry is a named
+  // multi-instance install when its resources.instanceDir is not the
+  // base dir (`homedir()`, or `BASE_DATA_DIR` under test). Named instances
+  // archived the full instance dir; default instances archived only the
+  // .vellum subdir. The default branch is a backwards-compat path —
+  // all new hatches go through the named-instance path.
+  const isNamedInstance = entry.resources.instanceDir !== getBaseDir();
+  const extractTarget = isNamedInstance
+    ? entry.resources.instanceDir
+    : join(entry.resources.instanceDir, ".vellum");
+  mkdirSync(extractTarget, { recursive: true });
+  await exec("tar", ["xzf", archivePath, "-C", extractTarget]);
 }
