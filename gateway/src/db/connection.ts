@@ -1,46 +1,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { homedir, userInfo } from "node:os";
-import { getGatewaySecurityDir } from "../paths.js";
+import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import { runDataMigrations } from "./data-migrations/index.js";
 
 let db: Database | null = null;
-
-function safeUserInfoHomedir(): string {
-  try {
-    return userInfo().homedir;
-  } catch {
-    return "";
-  }
-}
-
-/**
- * @deprecated Only used for one-time migration from the legacy DB path.
- * Replicates the old getRootDir() logic inline so we don't depend on
- * credential-reader.ts (getRootDir is being removed). Respects
- * BASE_DATA_DIR for multi-instance local setups where the CLI sets it
- * to the instance directory.
- *
- * Home fallback chain: `$HOME` → `userInfo().homedir` → `homedir()`.
- * `homedir()` alone is insufficient because libuv's `uv_os_homedir` returns
- * `$HOME` as-is when set (even to `""`) and only consults `getpwuid_r` when
- * `HOME` is unset entirely. `userInfo()` calls `getpwuid_r` directly, so it
- * returns the passwd-table home regardless of `HOME`. The `userInfo()` call
- * is guarded via `safeUserInfoHomedir()` because it throws `SystemError`
- * when the current UID has no passwd entry (common in containers run with
- * `--user <uid>` without a matching `/etc/passwd` line); catching keeps the
- * `homedir()` fallback reachable.
- */
-export function getLegacyRootDir(): string {
-  return join(
-    process.env.BASE_DATA_DIR?.trim() ||
-      process.env.HOME ||
-      safeUserInfoHomedir() ||
-      homedir(),
-    ".vellum",
-  );
-}
 
 /**
  * One-time migration: move gateway.sqlite from the legacy path
