@@ -175,8 +175,8 @@ public final class EventStreamClient {
                             mimeType: attachment.mimeType,
                             data: rawData
                         )
-                        // If server doesn't support multipart yet, retry with JSON+base64
-                        if case .transientFailure = result {
+                        // If server doesn't support multipart yet (400/415), retry with JSON+base64
+                        if case .multipartNotSupported = result {
                             log.info("[send-pipeline] multipart failed, retrying with JSON+base64 — filename=\(attachment.filename, privacy: .public)")
                             result = await messageClient.uploadAttachment(
                                 filename: attachment.filename,
@@ -199,7 +199,7 @@ public final class EventStreamClient {
                         attachmentIds.append(id)
                     case .terminalAuthFailure:
                         return
-                    case .transientFailure:
+                    case .transientFailure, .multipartNotSupported:
                         log.error("Failed to upload attachment: \(attachment.filename, privacy: .public)")
                         let failedCount = attachments.count - attachmentIds.count
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(

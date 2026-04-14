@@ -8,6 +8,9 @@ public enum AttachmentUploadResult: Sendable {
     case success(id: String)
     case transientFailure
     case terminalAuthFailure
+    /// The server does not understand multipart uploads (400/415).
+    /// The caller should retry with JSON+base64.
+    case multipartNotSupported
 }
 
 /// Result of sending a message.
@@ -140,6 +143,9 @@ public struct MessageClient: MessageClientProtocol {
                 return .transientFailure
             } else if response.statusCode == 401 {
                 return .terminalAuthFailure
+            } else if response.statusCode == 400 || response.statusCode == 415 {
+                log.info("[send-pipeline] multipart upload not supported (HTTP \(response.statusCode)) — will retry with JSON+base64")
+                return .multipartNotSupported
             } else {
                 log.error("[send-pipeline] multipart upload failed (HTTP \(response.statusCode))")
                 return .transientFailure
