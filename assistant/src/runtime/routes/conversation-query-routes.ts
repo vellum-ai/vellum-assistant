@@ -39,6 +39,7 @@ import {
 } from "../../daemon/handlers/config-model.js";
 import {
   getMessageContent,
+  listConversationMessages,
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
@@ -418,6 +419,45 @@ export function conversationQueryRouteDefinitions(
           maxMessagesPerConversation: maxMessages,
         });
         return Response.json({ query: q, results });
+      },
+    },
+
+    // ── Conversation history (cold-open hydration) ─────────────────────
+    {
+      endpoint: "conversations/:id/history",
+      method: "GET",
+      policyKey: "conversations/history",
+      summary: "Fetch conversation history for cold-open hydration",
+      description:
+        "Paginated messages for a conversation, ordered oldest-first.",
+      tags: ["conversations"],
+      handler: ({ url, params }) => {
+        const conversationId = params.id;
+        if (!conversationId) {
+          return httpError("BAD_REQUEST", "id is required", 400);
+        }
+        const limitRaw = url.searchParams.get("limit");
+        if (limitRaw !== null && isNaN(Number(limitRaw))) {
+          return httpError("BAD_REQUEST", "limit must be a valid number", 400);
+        }
+        const beforeRaw = url.searchParams.get("beforeTimestamp");
+        if (beforeRaw !== null && isNaN(Number(beforeRaw))) {
+          return httpError(
+            "BAD_REQUEST",
+            "beforeTimestamp must be a valid number",
+            400,
+          );
+        }
+        const limit = limitRaw
+          ? Math.min(Math.max(Math.floor(Number(limitRaw)), 1), 500)
+          : 100;
+        const beforeTimestamp = beforeRaw ? Number(beforeRaw) : undefined;
+        const result = listConversationMessages(
+          conversationId,
+          limit,
+          beforeTimestamp,
+        );
+        return Response.json(result);
       },
     },
 

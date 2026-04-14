@@ -2762,6 +2762,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/history:
+    get:
+      operationId: conversations_by_id_history_get
+      summary: Fetch conversation history for cold-open hydration
+      description: Paginated messages for a conversation, ordered oldest-first.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/host-access:
     get:
       operationId: conversations_by_id_hostaccess_get
