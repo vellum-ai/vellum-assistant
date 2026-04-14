@@ -21,6 +21,7 @@ struct AppsGridView: View {
     @State private var showShareSheet = false
     @State private var isBundling = false
     @State private var menuOpenAppId: String?
+    @State private var appToDelete: AppListManager.AppItem?
 
     // Shared apps fetched from daemon
     @State private var sharedApps: [SharedAppItem] = []
@@ -63,6 +64,24 @@ struct AppsGridView: View {
             localAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
+        }
+        .alert("Delete App?", isPresented: Binding(
+            get: { appToDelete != nil },
+            set: { if !$0 { appToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { appToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let app = appToDelete {
+                    Task { await AppsClient().deleteApp(id: app.id) }
+                    appListManager.removeApp(id: app.id)
+                    AppPreviewImageStore.remove(appId: app.id)
+                    appToDelete = nil
+                }
+            }
+        } message: {
+            if let app = appToDelete {
+                Text("Are you sure you want to delete \"\(app.name)\"? This action cannot be undone.")
+            }
         }
         .sheet(item: $editingApp) { app in
             AppIconPickerSheet(
@@ -221,9 +240,7 @@ struct AppsGridView: View {
                                         VMenuDivider()
                                         VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
                                             hoveredAppId = nil
-                                            Task { await AppsClient().deleteApp(id: app.id) }
-                                            appListManager.removeApp(id: app.id)
-                                            AppPreviewImageStore.remove(appId: app.id)
+                                            appToDelete = app
                                         }
                                     }
                                 } onDismiss: {
@@ -295,9 +312,7 @@ struct AppsGridView: View {
             VMenuDivider()
             VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
                 hoveredAppId = nil
-                Task { await AppsClient().deleteApp(id: app.id) }
-                appListManager.removeApp(id: app.id)
-                AppPreviewImageStore.remove(appId: app.id)
+                appToDelete = app
             }
         }
         .accessibilityLabel(app.name)

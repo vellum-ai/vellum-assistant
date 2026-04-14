@@ -43,7 +43,7 @@ struct GeneratedPanel: View {
     @State private var shareAppName: String = ""
     @State private var shareAppIcon: NSImage?
     @State private var showShareSheet = false
-    @State private var pendingDeleteId: String?
+    @State private var itemToDelete: DisplayAppItem?
 
     @State private var fetchAppsTask: Task<Void, Never>?
     @State private var fetchAppsGeneration = 0
@@ -204,6 +204,22 @@ struct GeneratedPanel: View {
             }
         }
         .background(VColor.surfaceBase)
+        .alert("Delete App?", isPresented: Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { itemToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let item = itemToDelete {
+                    performDelete(item)
+                    itemToDelete = nil
+                }
+            }
+        } message: {
+            if let item = itemToDelete {
+                Text("Are you sure you want to delete \"\(item.name)\"? This action cannot be undone.")
+            }
+        }
         .onAppear {
             fetchApps()
         }
@@ -467,7 +483,7 @@ struct GeneratedPanel: View {
 
     private func deleteButton(for item: DisplayAppItem) -> some View {
         VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .ghost) {
-            deleteSharedApp(item)
+            confirmDelete(item)
         }
     }
 
@@ -652,7 +668,11 @@ struct GeneratedPanel: View {
 
     // MARK: - Delete Shared App
 
-    private func deleteSharedApp(_ item: DisplayAppItem) {
+    private func confirmDelete(_ item: DisplayAppItem) {
+        itemToDelete = item
+    }
+
+    private func performDelete(_ item: DisplayAppItem) {
         guard let uuid = item.sharedUUID else { return }
 
         Task { @MainActor in
