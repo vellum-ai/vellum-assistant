@@ -6,14 +6,12 @@ final class VellumPathsTests: XCTestCase {
     // Explicit test roots so we don't depend on process environment
     private let testHome = URL(fileURLWithPath: "/tmp/test-home")
     private let testXdgConfig = URL(fileURLWithPath: "/tmp/test-home/.config")
-    private let testXdgData = URL(fileURLWithPath: "/tmp/test-home/.local/share")
 
     private func makePaths(_ env: VellumEnvironment) -> VellumPaths {
         VellumPaths(
             environment: env,
             homeDirectory: testHome,
-            xdgConfigHome: testXdgConfig,
-            xdgDataHome: testXdgData
+            xdgConfigHome: testXdgConfig
         )
     }
 
@@ -123,19 +121,41 @@ final class VellumPathsTests: XCTestCase {
         )
     }
 
-    // MARK: - Parity: Swift matches TS production paths byte-for-byte
+    // MARK: - Parity: Swift matches pre-refactor inline paths byte-for-byte
 
+    /// Backwards-compat anchor for PR 5. Every getter below MUST produce a path
+    /// byte-identical to the inline construction each consumer used before PR 5
+    /// routed them through `VellumPaths.current`. If any of these assertions
+    /// change, production users will see a path shift — audit the consumer list
+    /// (`LockfilePaths`, `DeviceIdStore`, `SigningIdentityManager`,
+    /// `FileCredentialStorage`, `SessionTokenManager.xdgPlatformTokenPath`,
+    /// `GuardianTokenFileReader`) and ship a migration.
     func testProductionMatchesLegacyInlineConventions() {
-        // These paths MUST match what LockfilePaths.swift, DeviceIdStore.swift,
-        // SigningIdentityManager.swift, and FileCredentialStorage.swift
-        // currently construct inline. PR 5 routes those callers through
-        // VellumPaths.current and this parity must hold for production users
-        // to see zero path changes.
         let paths = makePaths(.production)
-        XCTAssertEqual(paths.lockfileCandidates[0].lastPathComponent, ".vellum.lock.json")
-        XCTAssertEqual(paths.lockfileCandidates[1].lastPathComponent, ".vellum.lockfile.json")
-        XCTAssertEqual(paths.deviceIdFile.path.hasSuffix("/.vellum/device.json"), true)
-        XCTAssertEqual(paths.signingKeyFile.path.hasSuffix("/.vellum/protected/app-signing-key"), true)
-        XCTAssertEqual(paths.credentialsDir.path.hasSuffix("/.vellum/protected/credentials"), true)
+
+        XCTAssertEqual(
+            paths.lockfileCandidates[0].path,
+            "/tmp/test-home/.vellum.lock.json"
+        )
+        XCTAssertEqual(
+            paths.lockfileCandidates[1].path,
+            "/tmp/test-home/.vellum.lockfile.json"
+        )
+        XCTAssertEqual(
+            paths.deviceIdFile.path,
+            "/tmp/test-home/.vellum/device.json"
+        )
+        XCTAssertEqual(
+            paths.signingKeyFile.path,
+            "/tmp/test-home/.vellum/protected/app-signing-key"
+        )
+        XCTAssertEqual(
+            paths.credentialsDir.path,
+            "/tmp/test-home/.vellum/protected/credentials"
+        )
+        XCTAssertEqual(
+            paths.platformTokenFile.path,
+            "/tmp/test-home/.config/vellum/platform-token"
+        )
     }
 }

@@ -73,18 +73,10 @@ public enum SessionTokenManager {
         return nil
     }
 
-    /// XDG-compliant shared path (~/.config/vellum/platform-token).
+    /// Env-scoped shared path (`~/.config/vellum{-env}/platform-token`).
     /// Used by the CLI and desktop app as the canonical token location.
     private static func xdgPlatformTokenPath() -> String {
-        let launchEnvironment = ProcessInfo.processInfo.environment
-        let configHome: String
-        if let xdg = launchEnvironment["XDG_CONFIG_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !xdg.isEmpty {
-            configHome = xdg
-        } else {
-            configHome = NSHomeDirectory() + "/.config"
-        }
-        return configHome + "/vellum/platform-token"
+        VellumPaths.current.platformTokenFile.path
     }
 
     private static func writePlatformTokenFile(_ token: String) {
