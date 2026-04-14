@@ -168,6 +168,15 @@ describe("extractMediaStreamMetadata", () => {
     expect(result.token).toBeNull();
   });
 
+  test("falls back to query params on malformed percent-encoding in path", () => {
+    const url = new URL(
+      "http://localhost:7830/webhooks/twilio/media-stream/%E0%A4%A/tok?callSessionId=qs-fallback&token=qs-tok",
+    );
+    const result = extractMediaStreamMetadata(url);
+    expect(result.callSessionId).toBe("qs-fallback");
+    expect(result.token).toBe("qs-tok");
+  });
+
   test("path segments take priority over query parameters", () => {
     const url = new URL(
       "http://localhost:7830/webhooks/twilio/media-stream/path-sess/path-tok?callSessionId=query-sess&token=query-tok",

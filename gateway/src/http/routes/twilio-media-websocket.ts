@@ -46,10 +46,14 @@ export function extractMediaStreamMetadata(url: URL): {
     const suffix = url.pathname.slice(MEDIA_STREAM_PATH_PREFIX.length + 1);
     const segments = suffix.split("/").filter(Boolean);
     if (segments.length >= 1) {
-      const callSessionId = decodeURIComponent(segments[0]);
-      const token =
-        segments.length >= 2 ? decodeURIComponent(segments[1]) : null;
-      return { callSessionId, token };
+      try {
+        const callSessionId = decodeURIComponent(segments[0]);
+        const token =
+          segments.length >= 2 ? decodeURIComponent(segments[1]) : null;
+        return { callSessionId, token };
+      } catch {
+        // Malformed percent-encoding — fall through to query param fallback
+      }
     }
   }
 
