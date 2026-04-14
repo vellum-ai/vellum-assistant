@@ -27,13 +27,21 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 ## Step 0: Check Existing Configuration
 
-Before starting setup, check whether Slack is already configured by calling `credential_store` with `action: "inspect"` for each token:
+Before starting setup, check whether Slack is already configured by listing stored credentials:
 
-- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "app_token"`
-- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "bot_token"`
-- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "user_token"`
+- Call `credential_store` with `action: "list"` (no other arguments).
 
-- If all three credentials have `"hasSecret": true` and the connection is active — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
+The result is a JSON array where each entry has at minimum `credential_id`, `service`, and `field`. The `list` action only returns credentials whose secret is still present in secure storage, so an entry's presence is a reliable signal that the token is stored.
+
+Scan the array for entries matching `service: "slack_channel"` and determine which of the following `field` values are present:
+
+- `app_token`
+- `bot_token`
+- `user_token`
+
+Then branch:
+
+- If all three are present — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
 - If `app_token` and `bot_token` are present but `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
 - If only one of `app_token` or `bot_token` is present — offer to resume setup from the missing step.
 - If none are present — continue to Step 1.
