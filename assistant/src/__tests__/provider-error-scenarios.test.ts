@@ -563,6 +563,37 @@ describe("RetryProvider — streaming corruption retries", () => {
 // ---------------------------------------------------------------------------
 
 describe("RetryProvider — streaming response handling", () => {
+  test("repairs unsupported Anthropic adaptive thinking by retrying once without it", async () => {
+    const seenThinking: unknown[] = [];
+    let callCount = 0;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(_m, _t, _s, options) {
+        callCount++;
+        seenThinking.push(options?.config?.thinking);
+        if (callCount === 1) {
+          throw new ProviderError(
+            "Anthropic API error (400): adaptive thinking is not supported on this model",
+            "anthropic",
+            400,
+          );
+        }
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES, undefined, undefined, {
+      config: {
+        model: "claude-sonnet-4-20250514",
+        thinking: { type: "adaptive" },
+      },
+    });
+
+    expect(callCount).toBe(2);
+    expect(seenThinking).toEqual([{ type: "adaptive" }, undefined]);
+  });
+
   test("passes onEvent callback through to inner provider", async () => {
     const events: ProviderEvent[] = [];
     const inner: Provider = {

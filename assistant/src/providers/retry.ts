@@ -41,6 +41,46 @@ const RETRYABLE_STREAM_PATTERNS = [
  */
 const RETRYABLE_PROVIDER_MESSAGE_PATTERNS = [/overloaded/i];
 
+const ANTHROPIC_ADAPTIVE_THINKING_UNSUPPORTED_PATTERN =
+  /adaptive thinking is not supported on this model/i;
+
+function isAdaptiveThinkingConfig(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "adaptive"
+  );
+}
+
+function stripThinkingFromOptions(
+  options?: SendMessageOptions,
+): SendMessageOptions | undefined {
+  const config = options?.config;
+  if (!config || config.thinking === undefined) return options;
+
+  const nextConfig: Record<string, unknown> = { ...config };
+  delete nextConfig.thinking;
+  return {
+    ...options,
+    config: nextConfig,
+  };
+}
+
+function shouldRepairAnthropicAdaptiveThinking(
+  providerName: string,
+  error: unknown,
+  options?: SendMessageOptions,
+): boolean {
+  return (
+    providerName === "anthropic" &&
+    error instanceof ProviderError &&
+    error.provider === "anthropic" &&
+    error.statusCode === 400 &&
+    ANTHROPIC_ADAPTIVE_THINKING_UNSUPPORTED_PATTERN.test(error.message) &&
+    isAdaptiveThinkingConfig(options?.config?.thinking)
+  );
+}
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
@@ -81,7 +121,8 @@ function normalizeSendMessageOptions(
   const needsThinkingStrip =
     providerName !== "anthropic" && config.thinking !== undefined;
   const needsEffortStrip =
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
+    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
+    config.effort !== undefined;
   const needsSpeedStrip =
     providerName !== "anthropic" && config.speed !== undefined;
 
@@ -145,19 +186,37 @@ export class RetryProvider implements Provider {
   ): Promise<ProviderResponse> {
     let lastError: unknown;
 
-    const normalizedOptions = normalizeSendMessageOptions(this.name, options);
+    let currentOptions = normalizeSendMessageOptions(this.name, options);
+    let repairedAdaptiveThinking = false;
 
-    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; ) {
       try {
         const result = await this.inner.sendMessage(
           messages,
           tools,
           systemPrompt,
-          normalizedOptions,
+          currentOptions,
         );
         return result;
       } catch (error) {
         lastError = error;
+
+        if (
+          !repairedAdaptiveThinking &&
+          shouldRepairAnthropicAdaptiveThinking(
+            this.name,
+            error,
+            currentOptions,
+          )
+        ) {
+          repairedAdaptiveThinking = true;
+          currentOptions = stripThinkingFromOptions(currentOptions);
+          log.warn(
+            { provider: this.name },
+            "Retrying once without adaptive thinking after unsupported-model error",
+          );
+          continue;
+        }
 
         if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
           // Prefer server-provided Retry-After; fall back to exponential backoff.
@@ -191,6 +250,7 @@ export class RetryProvider implements Provider {
             },
             "Retrying after transient error",
           );
+          attempt++;
           await sleep(delay);
           continue;
         }
