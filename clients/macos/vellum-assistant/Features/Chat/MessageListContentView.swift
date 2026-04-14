@@ -208,17 +208,18 @@ struct MessageListContentView: View, Equatable {
                 .equatable()
             }
         }
-        // Latest assistant message (or thinking placeholder): wrap in
-        // VStack with minHeight so user message sits at top. The same
-        // wrapper applies to both the placeholder and the real assistant
-        // message, eliminating layout jump on transition.
-        .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
+        // Latest assistant row (or thinking placeholder): wrap in VStack
+        // with minHeight so user message stays pinned at the top of the
+        // viewport. minHeight shrinks by priorTurnContentHeight so the
+        // total turn height stays consistent as new rows (e.g.
+        // confirmation bubbles) accumulate below the assistant message.
+        .if(row.isLatestAssistant || row.isThinkingPlaceholder) { view in
             VStack(spacing: 0) {
                 view
                 Color.clear.frame(height: 1)
                     .id("active-turn-content-bottom")
             }
-            .frame(minHeight: turnMinHeight, alignment: .top)
+            .frame(minHeight: max(0, turnMinHeight - row.priorTurnContentHeight), alignment: .top)
         }
     }
 
