@@ -39,6 +39,19 @@ final class SoundManager {
     /// that hammers the workspace/tree API with 429s.
     @ObservationIgnored private var isRefreshingAvailableSounds = false
 
+    /// Timestamp of the most recent `saveConfig(_:)` call. The daemon watches
+    /// `data/sounds/` and broadcasts `soundsConfigUpdated` after any write,
+    /// including our own — refetching while writes are still in flight can
+    /// read a truncated payload and clobber local state with `.defaultConfig`.
+    /// `handleSoundsConfigBroadcast()` uses this to drop self-echo broadcasts.
+    @ObservationIgnored private var lastLocalSaveAt: Date?
+
+    /// Window during which an inbound `soundsConfigUpdated` broadcast is
+    /// treated as an echo of a recent local save and skipped. Covers the
+    /// daemon's 200 ms watcher debounce plus broadcast delivery, with
+    /// headroom.
+    private static let echoSuppressionWindow: TimeInterval = 2.0
+
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
@@ -101,10 +114,24 @@ final class SoundManager {
         }
     }
 
+    /// Handles a `soundsConfigUpdated` broadcast from the daemon. Drops
+    /// broadcasts that fall within the echo-suppression window of a recent
+    /// local save — those are the daemon echoing our own write, and
+    /// refetching would race against in-flight writes and briefly overwrite
+    /// the UI with `.defaultConfig` (globalEnabled=false, empty pools).
+    func handleSoundsConfigBroadcast() {
+        if let last = lastLocalSaveAt,
+           Date().timeIntervalSince(last) < Self.echoSuppressionWindow {
+            return
+        }
+        reloadConfig()
+    }
+
     /// Encodes and writes the config to the assistant's workspace via the gateway.
     /// Called by the Settings UI when the user changes settings.
     func saveConfig(_ newConfig: SoundsConfig) {
         config = newConfig
+        lastLocalSaveAt = Date()
 
         Task {
             let encoder = JSONEncoder()
