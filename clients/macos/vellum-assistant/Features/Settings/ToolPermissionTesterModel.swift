@@ -89,6 +89,7 @@ final class ToolPermissionTesterModel: ObservableObject {
     private let toolClient: ToolClientProtocol
     private let trustRuleClient: TrustRuleClientProtocol
     private var cancellables = Set<AnyCancellable>()
+    private var observeConnectionTask: Task<Void, Never>?
 
     // Snapshot of form values captured at simulate() time so
     // handleSimulateResponse uses the values that produced the request,
@@ -110,13 +111,22 @@ final class ToolPermissionTesterModel: ObservableObject {
             .store(in: &cancellables)
 
         // Re-fetch tool names whenever the daemon (re)connects.
-        connectionManager.$isConnected
-            .removeDuplicates()
-            .filter { $0 }
-            .sink { [weak self] _ in
-                self?.fetchToolNames()
+        observeConnectionTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = self.connectionManager.isConnected
+                    } onChange: {
+                        resume.resume()
+                    }
+                }
+                guard !Task.isCancelled, let self else { break }
+                if self.connectionManager.isConnected {
+                    self.fetchToolNames()
+                }
             }
-            .store(in: &cancellables)
+        }
     }
 
     // MARK: - Tool Names Fetching

@@ -118,7 +118,7 @@ The following classes have been migrated from `ObservableObject` to `@Observable
 
 **macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore
 
-**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel, GatewayConnectionManager
 
 </details>
 
@@ -132,7 +132,6 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
 | `VoiceModeManager` | `@Published` state machine properties consumed by SwiftUI views; audio stream delegates |
-| `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |

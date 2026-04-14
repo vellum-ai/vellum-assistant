@@ -163,16 +163,25 @@ extension AppDelegate {
         }
     }
 
-    /// (Re-)subscribe to `connectionManager.$isConnected` so the menu bar icon
+    /// (Re-)subscribe to `connectionManager.isConnected` so the menu bar icon
     /// tracks the current daemon client. Called from `setupMenuBar()` and
     /// again from `setupGatewayConnectionManager()` after transport reconfiguration.
     func rebindConnectionStatusObserver() {
-        connectionStatusCancellable?.cancel()
-        connectionStatusCancellable = connectionManager.$isConnected
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.updateMenuBarIcon()
+        connectionStatusTask?.cancel()
+        connectionStatusTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = self.connectionManager.isConnected
+                    } onChange: {
+                        resume.resume()
+                    }
+                }
+                guard !Task.isCancelled, let self else { break }
+                self.updateMenuBarIcon()
             }
+        }
     }
 
     func setupFileMenu() {

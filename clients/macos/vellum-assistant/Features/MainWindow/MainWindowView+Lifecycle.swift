@@ -23,10 +23,10 @@ extension MainWindowView {
                     if info != nil { assistantNameResolved = true }
                 }
             }
-            .onReceive(connectionManager.$isConnected) { connected in
+            .onChange(of: connectionManager.isConnected) { _, connected in
                 handleDaemonConnectionChange(connected)
             }
-            .onReceive(connectionManager.$lastUpdateOutcome) { outcome in
+            .onChange(of: connectionManager.lastUpdateOutcome) { _, outcome in
                 guard let outcome else { return }
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()

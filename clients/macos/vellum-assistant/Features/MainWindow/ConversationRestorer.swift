@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import SwiftUI
 import VellumAssistantShared
@@ -53,8 +52,8 @@ final class ConversationRestorer {
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
-    private var connectionCancellable: AnyCancellable?
-    private var disconnectCancellable: AnyCancellable?
+    private var connectionObservationTask: Task<Void, Never>?
+    private var disconnectObservationTask: Task<Void, Never>?
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
     private var invalidationRefetchTask: Task<Void, Never>?
@@ -97,20 +96,47 @@ final class ConversationRestorer {
 
         // Reset loading state when the daemon disconnects so the Load More
         // button doesn't stay permanently disabled after a dropped connection.
-        disconnectCancellable = connectionManager.$isConnected
-            .removeDuplicates()
-            .filter { !$0 }
-            .sink { [weak self] _ in
-                self?.delegate?.isLoadingMoreConversations = false
+        disconnectObservationTask?.cancel()
+        disconnectObservationTask = Task { @MainActor [weak self] in
+            var lastConnected = self?.connectionManager.isConnected ?? false
+            while !Task.isCancelled {
+                guard let self else { break }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = self.connectionManager.isConnected
+                    } onChange: {
+                        resume.resume()
+                    }
+                }
+                guard !Task.isCancelled, let self else { break }
+                let connected = self.connectionManager.isConnected
+                guard connected != lastConnected else { continue }
+                lastConnected = connected
+                if !connected {
+                    self.delegate?.isLoadingMoreConversations = false
+                }
             }
+        }
 
-        connectionCancellable = connectionManager.$isConnected
-            .removeDuplicates()
-            .filter { $0 }
-            .first()
-            .sink { [weak self] _ in
-                self?.fetchConversationList()
+        // Fetch conversation list on first connect.
+        connectionObservationTask?.cancel()
+        connectionObservationTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = self.connectionManager.isConnected
+                    } onChange: {
+                        resume.resume()
+                    }
+                }
+                guard !Task.isCancelled, let self else { break }
+                if self.connectionManager.isConnected {
+                    self.fetchConversationList()
+                    break // Only need the first connect
+                }
             }
+        }
     }
 
     func loadHistoryIfNeeded(conversationId localId: UUID) {

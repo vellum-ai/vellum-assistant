@@ -314,8 +314,8 @@ extension AppDelegate {
                     NotificationCenter.default.removeObserver(observer)
                     windowObserver = nil
                 }
-                connectionStatusCancellable?.cancel()
-                connectionStatusCancellable = nil
+                connectionStatusTask?.cancel()
+                connectionStatusTask = nil
                 statusDotLayer?.removeAllAnimations()
                 statusDotLayer?.removeFromSuperlayer()
                 statusDotLayer = nil

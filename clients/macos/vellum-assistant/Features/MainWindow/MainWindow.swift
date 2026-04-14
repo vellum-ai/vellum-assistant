@@ -295,7 +295,7 @@ public final class MainWindow {
     private var zoomManager: ZoomManager { services.zoomManager }
 
     /// Tracks daemon reconnects so trace state can be reset on stream restart.
-    private var connectionCancellable: AnyCancellable?
+    private var connectionObservationTask: Task<Void, Never>?
     /// Tracks changes to `SettingsStore.userTimezone` so the usage dashboard
     /// re-fetches with the new timezone when the user changes it in settings.
     private var userTimezoneCancellable: AnyCancellable?
@@ -366,23 +366,34 @@ public final class MainWindow {
     /// The trace event stream is ephemeral; a reconnect means the daemon
     /// restarted and any in-flight trace context is stale.
     private func observeDaemonReconnects() {
-        connectionCancellable = connectionManager.$isConnected
-            .removeDuplicates()
-            .sink { [weak self] connected in
-                guard let self else { return }
+        connectionObservationTask?.cancel()
+        connectionObservationTask = Task { @MainActor [weak self] in
+            var lastConnected = self?.connectionManager.isConnected ?? false
+            while !Task.isCancelled {
+                guard let self else { break }
+                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        _ = self.connectionManager.isConnected
+                    } onChange: {
+                        resume.resume()
+                    }
+                }
+                guard !Task.isCancelled, let self else { break }
+                let connected = self.connectionManager.isConnected
+                guard connected != lastConnected else { continue }
+                lastConnected = connected
                 if connected {
                     if self.hasConnectedOnce {
                         self.traceStore.resetAll()
                     } else {
-                        // First connect: restore panel after conversation restoration
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
-                            self.windowState.restoreLastActivePanel()
-                        }
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
+                        guard !Task.isCancelled else { break }
+                        self.windowState.restoreLastActivePanel()
                     }
                     self.hasConnectedOnce = true
                 }
             }
+        }
     }
 
     func handleDocumentEditorShow(_ msg: DocumentEditorShowMessage) {
