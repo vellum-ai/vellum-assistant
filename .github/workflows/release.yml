@@ -101,7 +101,7 @@ jobs:
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
-            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environments=["staging"]' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
             echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
@@ -1192,13 +1192,8 @@ jobs:
       - name: Resolve platform credentials
         id: platform-creds
         run: |
-          if [ "${{ matrix.environment }}" = "dev" ]; then
-            echo "api_url=${{ secrets.NONPROD_PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.NONPROD_PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
 
       - name: Register release with platform
         run: |
@@ -1511,7 +1506,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
@@ -1935,7 +1929,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"

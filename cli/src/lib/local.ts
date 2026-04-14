@@ -283,6 +283,7 @@ async function startDaemonFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
+    VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
@@ -409,6 +410,7 @@ async function startDaemonWatchFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
+    VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
@@ -871,6 +873,7 @@ export async function startLocalDaemon(
         "APP_VERSION",
         "BASE_DATA_DIR",
         "GATEWAY_SECURITY_DIR",
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "QDRANT_HTTP_PORT",
         "QDRANT_URL",
@@ -1059,7 +1062,12 @@ export async function startGateway(
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
-    ...(watch ? { VELLUM_DEV: "1" } : {}),
+    ...(watch
+      ? {
+          VELLUM_DEV: "1",
+          VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
+        }
+      : {}),
     // Set BASE_DATA_DIR and GATEWAY_SECURITY_DIR so the gateway loads the
     // correct credentials and workspace config for this instance (mirrors
     // the daemon env setup).

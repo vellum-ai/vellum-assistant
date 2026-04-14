@@ -152,10 +152,18 @@ export function getPlatformBaseUrl(): string {
   } catch {
     // Config not yet available (early bootstrap) — fall through
   }
-  const defaultUrl =
-    str("VELLUM_DEV") === "1"
-      ? "https://dev-platform.vellum.ai"
-      : "https://platform.vellum.ai";
+  // Resolve the default platform URL from VELLUM_ENVIRONMENT.
+  // Default to dev-platform for safety; only production and staging
+  // opt into their respective platforms explicitly.
+  const env = str("VELLUM_ENVIRONMENT")?.trim();
+  let defaultUrl: string;
+  if (env === "production") {
+    defaultUrl = "https://platform.vellum.ai";
+  } else if (env === "staging") {
+    defaultUrl = "https://staging-platform.vellum.ai";
+  } else {
+    defaultUrl = "https://dev-platform.vellum.ai";
+  }
   return (
     configUrl ||
     str("VELLUM_PLATFORM_URL") ||
@@ -167,9 +175,9 @@ export function getPlatformBaseUrl(): string {
 /**
  * Derive the assistant service domain from the platform base URL.
  *
- * Known platform URLs map directly:
+ * Known platform URLs map directly (via regex stripping of `platform.vellum.ai`):
  * - `dev-platform.vellum.ai`     → `dev.vellum.me`
- * - `staging-platform.vellum.ai` → `staging.vellum.me`
+ * - `staging-platform.vellum.ai` → `staging.vellum.me` (derived automatically from the staging URL)
  * - `platform.vellum.ai`         → `vellum.me`
  *
  * Non-vellum.ai hosts (localhost, host.docker.internal, etc.) use
