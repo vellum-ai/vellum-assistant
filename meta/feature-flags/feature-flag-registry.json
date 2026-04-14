@@ -344,6 +344,14 @@
       "label": "Home Tab",
       "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
       "defaultEnabled": false
+    },
+    {
+      "id": "chat-message-queue",
+      "scope": "assistant",
+      "key": "chat-message-queue",
+      "label": "Chat Message Queue",
+      "description": "Queue incoming messages while the assistant is processing instead of rejecting them, and buffer messages offline for automatic replay on reconnect",
+      "defaultEnabled": false
     }
   ]
 }
