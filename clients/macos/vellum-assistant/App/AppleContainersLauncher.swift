@@ -90,12 +90,16 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // In local builds, build images from local source instead of
         // pulling from Docker Hub. The images are loaded into the shared
         // ImageStore so PodRuntime finds them in cache via store.get().
+        // When local builds succeed we set skipRegistryPull so PodRuntime
+        // never falls back to a Docker Hub pull.
+        var builtLocally = false
         if VellumEnvironment.current == .local {
-            await self.buildLocalImagesIfAvailable(
+            try await self.buildLocalImages(
                 kernelStore: kernelStore,
                 imageRefs: imageRefs,
                 onProgress: onProgress
             )
+            builtLocally = true
         }
 
         let platformURL = VellumEnvironment.current.containerPlatformURL
@@ -106,7 +110,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
             instanceDir: instanceDir,
             signingKey: signingKey,
             bootstrapSecret: bootstrapSecret,
-            platformURL: platformURL
+            platformURL: platformURL,
+            skipRegistryPull: builtLocally
         )
 
         let runtime = AppleContainersPodRuntime(
@@ -307,43 +312,37 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Local Image Building
 
-    /// Attempts to build service images from local source code using Docker.
-    /// Falls back silently to Docker Hub pull (via PodRuntime) if any step fails.
-    /// Only called when `VellumEnvironment.current == .local`.
-    private func buildLocalImagesIfAvailable(
+    /// Builds service images from local source code using Docker.
+    ///
+    /// This is called for local-environment hatches so engineers always run
+    /// against the code on disk. Throws on failure — local builds must
+    /// succeed; there is no silent fallback to Docker Hub.
+    private func buildLocalImages(
         kernelStore: KataKernelStore,
         imageRefs: [VellumServiceName: VellumImageReference],
         onProgress: (@MainActor (String) -> Void)?
-    ) async {
+    ) async throws {
         guard let repoRoot = LocalImageBuilder.findRepoRoot() else {
-            log.info("No repo root found — will pull images from registry")
-            return
+            throw LauncherError.hatchFailed("No repo root found — cannot build images locally. Run from within the vellum-assistant repository.")
         }
         guard LocalImageBuilder.hasFullSourceTree(at: repoRoot) else {
-            log.info("Repo root at \(repoRoot.path, privacy: .public) has no full source tree — will pull from registry")
-            return
+            throw LauncherError.hatchFailed("Repo root at \(repoRoot.path) has no full source tree — cannot build images locally.")
         }
         guard await LocalImageBuilder.isDockerAvailable() else {
-            log.info("Docker not available — will pull images from registry")
-            return
+            throw LauncherError.hatchFailed("Docker is not available — local builds require Docker to be installed and running.")
         }
 
         log.info("Building images locally from \(repoRoot.path, privacy: .public)")
-        do {
-            let imageStore = try await kernelStore.makeImageStore()
-            try await LocalImageBuilder.buildAndLoadImages(
-                repoRoot: repoRoot,
-                imageRefs: imageRefs,
-                store: imageStore,
-                progress: { message in
-                    log.info("\(message, privacy: .public)")
-                    await onProgress?(message)
-                }
-            )
-        } catch {
-            log.warning("Local image build failed, falling back to registry pull: \(error.localizedDescription, privacy: .public)")
-            onProgress?("Local build failed — will pull images from registry")
-        }
+        let imageStore = try await kernelStore.makeImageStore()
+        try await LocalImageBuilder.buildAndLoadImages(
+            repoRoot: repoRoot,
+            imageRefs: imageRefs,
+            store: imageStore,
+            progress: { message in
+                log.info("\(message, privacy: .public)")
+                await onProgress?(message)
+            }
+        )
     }
 
     // MARK: - Cryptographic Helpers
