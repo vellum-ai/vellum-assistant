@@ -47,7 +47,7 @@ final class ComposerController {
     // MARK: - Internal bookkeeping
 
     /// Current cursor position (UTF-16 offset).
-    @ObservationIgnored private var cursorPosition: Int = 0
+    @ObservationIgnored private(set) var cursorPosition: Int = 0
     /// Current input text (kept in sync via events).
     @ObservationIgnored private var inputText: String = ""
     /// Whether the composer interaction is enabled.
@@ -95,19 +95,19 @@ final class ComposerController {
 
     /// Called when the composer gains or loses focus.
     func focusChanged(_ focused: Bool) {
-        focusIntent = focused
+        if focusIntent != focused { focusIntent = focused }
     }
 
     /// Called when the interaction-enabled state changes (e.g. assistant busy/idle).
     func interactionEnabledChanged(_ enabled: Bool, hasPendingConfirmation: Bool = false) {
         isInteractionEnabled = enabled
         if enabled, !hasPendingConfirmation {
-            focusIntent = true
+            if !focusIntent { focusIntent = true }
         } else if !enabled {
             cancelPendingMenuRefresh()
-            focusIntent = false
-            showSlashMenu = false
-            showEmojiMenu = false
+            if focusIntent { focusIntent = false }
+            if showSlashMenu { showSlashMenu = false }
+            if showEmojiMenu { showEmojiMenu = false }
             suppressSlashReopen = false
             suppressEmojiReopen = false
         }
@@ -135,8 +135,8 @@ final class ComposerController {
     /// on the current input text and cursor position. Exposed for testing.
     func performMenuRefresh() {
         if inputText.isEmpty {
-            showSlashMenu = false
-            showEmojiMenu = false
+            if showSlashMenu { showSlashMenu = false }
+            if showEmojiMenu { showEmojiMenu = false }
         } else {
             updateSlashState()
             updateEmojiState()
@@ -157,16 +157,16 @@ final class ComposerController {
             let filter = String(text.dropFirst())
             let filtered = slashCommandProvider.filteredCommands(filter)
             if !filtered.isEmpty {
-                showSlashMenu = true
+                if !showSlashMenu { showSlashMenu = true }
                 if slashFilter != filter {
-                    slashSelectedIndex = 0
+                    if slashSelectedIndex != 0 { slashSelectedIndex = 0 }
+                    slashFilter = filter
                 }
-                slashFilter = filter
             } else {
-                showSlashMenu = false
+                if showSlashMenu { showSlashMenu = false }
             }
         } else {
-            showSlashMenu = false
+            if showSlashMenu { showSlashMenu = false }
         }
     }
 
@@ -181,16 +181,16 @@ final class ComposerController {
         if let trigger = emojiTriggerRange() {
             let results = emojiSearchProvider.search(query: trigger.filter)
             if !results.isEmpty {
-                showEmojiMenu = true
+                if !showEmojiMenu { showEmojiMenu = true }
                 if emojiFilter != trigger.filter {
-                    emojiSelectedIndex = 0
+                    if emojiSelectedIndex != 0 { emojiSelectedIndex = 0 }
+                    emojiFilter = trigger.filter
                 }
-                emojiFilter = trigger.filter
             } else {
-                showEmojiMenu = false
+                if showEmojiMenu { showEmojiMenu = false }
             }
         } else {
-            showEmojiMenu = false
+            if showEmojiMenu { showEmojiMenu = false }
         }
     }
 
@@ -262,15 +262,15 @@ final class ComposerController {
     /// Closes the slash menu without requiring a specific keyboard action.
     /// Used by click-based selection paths that bypass `handleSlashNavigation`.
     func closeSlashMenu() {
-        showSlashMenu = false
-        slashSelectedIndex = 0
+        if showSlashMenu { showSlashMenu = false }
+        if slashSelectedIndex != 0 { slashSelectedIndex = 0 }
     }
 
     /// Closes the emoji menu without requiring a specific keyboard action.
     /// Used by click-based selection paths that bypass `handleEmojiNavigation`.
     func closeEmojiMenu() {
-        showEmojiMenu = false
-        emojiSelectedIndex = 0
+        if showEmojiMenu { showEmojiMenu = false }
+        if emojiSelectedIndex != 0 { emojiSelectedIndex = 0 }
     }
 
     // MARK: - Emoji navigation

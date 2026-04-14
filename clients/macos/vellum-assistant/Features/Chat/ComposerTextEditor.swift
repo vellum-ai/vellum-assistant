@@ -61,7 +61,7 @@ struct ComposerTextEditor: NSViewRepresentable {
     var onEscape: (() -> Bool)? = nil
     var onPasteImage: (() -> Void)? = nil
     var shouldOverrideReturn: (() -> Bool)? = nil
-    @Binding var cursorPosition: Int
+    var onCursorPositionChanged: ((Int) -> Void)? = nil
     var textReplacer: TextReplacementProxy? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -282,9 +282,7 @@ struct ComposerTextEditor: NSViewRepresentable {
                 parent.text = newText
             }
             let pos = textView.selectedRange().location
-            if parent.cursorPosition != pos {
-                parent.cursorPosition = pos
-            }
+            parent.onCursorPositionChanged?(pos)
             measureHeight(textView)
         }
 
@@ -303,9 +301,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let pos = textView.selectedRange().location
-            if parent.cursorPosition != pos {
-                parent.cursorPosition = pos
-            }
+            parent.onCursorPositionChanged?(pos)
         }
 
         func measureHeight(_ textView: NSTextView) {

@@ -11,7 +11,7 @@ extension ComposerView {
         guard let trigger = composerController.emojiTriggerRange() else { return }
 
         let colonOffset = trigger.colonIndex.utf16Offset(in: inputText)
-        let cursorUtf16 = cursorPosition
+        let cursorUtf16 = composerController.cursorPosition
         let length = cursorUtf16 - colonOffset
         let nsRange = NSRange(location: colonOffset, length: length)
 

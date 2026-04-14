@@ -112,7 +112,6 @@ struct ComposerView: View, Equatable {
     @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
     @State private var textViewIsFocused: Bool = false
-    @State var cursorPosition: Int = 0
 
     @State var textReplacer = TextReplacementProxy()
     @State var composerController = ComposerController()
@@ -307,7 +306,7 @@ struct ComposerView: View, Equatable {
                 shouldOverrideReturn: {
                     composerController.isPopupVisible
                 },
-                cursorPosition: $cursorPosition,
+                onCursorPositionChanged: { composerController.cursorMoved(to: $0) },
                 textReplacer: textReplacer
             )
             .fixedSize(horizontal: false, vertical: true)
@@ -359,9 +358,6 @@ struct ComposerView: View, Equatable {
         }
         .onChange(of: inputText) {
             composerController.textChanged(inputText)
-        }
-        .onChange(of: cursorPosition) {
-            composerController.cursorMoved(to: cursorPosition)
         }
     }
 
