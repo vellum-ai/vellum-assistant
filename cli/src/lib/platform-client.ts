@@ -27,14 +27,16 @@ function getPlatformTokenPath(): string {
  *      know which instance to read from without first consulting the
  *      lockfile anyway.
  *   2. `VELLUM_PLATFORM_URL` env var (explicit override, e.g. in CI).
- *   3. Production default: `https://platform.vellum.ai`.
+ *   3. The current environment's seed URL (e.g. `https://dev-platform.vellum.ai`
+ *      for `VELLUM_ENVIRONMENT=dev`, `https://platform.vellum.ai` for prod).
+ *      This makes the CLI environment-aware when no lockfile entry exists yet.
  */
 export function getPlatformUrl(): string {
   const lockfileUrl = getLockfilePlatformBaseUrl();
   return (
     lockfileUrl ||
     process.env.VELLUM_PLATFORM_URL?.trim() ||
-    "https://platform.vellum.ai"
+    getCurrentEnvironment().platformUrl
   );
 }
 

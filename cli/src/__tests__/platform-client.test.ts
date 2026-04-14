@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -10,11 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  setActiveAssistant,
-  syncActiveAssistantConfigToLockfile,
-  syncConfigToLockfile,
-} from "../lib/assistant-config.js";
 import {
   clearPlatformToken,
   getPlatformUrl,
@@ -193,153 +187,18 @@ describe("getPlatformUrl resolution order", () => {
     expect(getPlatformUrl()).toBe("https://env-after-blank.vellum.ai");
   });
 
-  test("falls back to production default when lockfile and env are unset", () => {
+  test("falls back to prod env seed URL when lockfile and VELLUM_PLATFORM_URL are unset (prod env)", () => {
+    // VELLUM_ENVIRONMENT is unset → production → prod seed URL.
     expect(getPlatformUrl()).toBe("https://platform.vellum.ai");
+  });
+
+  test("falls back to dev env seed URL when VELLUM_ENVIRONMENT=dev", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    expect(getPlatformUrl()).toBe("https://dev-platform.vellum.ai");
   });
 
   test("trims whitespace from VELLUM_PLATFORM_URL", () => {
     process.env.VELLUM_PLATFORM_URL = "  https://trimmed.vellum.ai  ";
     expect(getPlatformUrl()).toBe("https://trimmed.vellum.ai");
-  });
-});
-
-describe("syncActiveAssistantConfigToLockfile on vellum use", () => {
-  let tempRoot: string;
-  let savedLockDir: string | undefined;
-  let savedEnv: string | undefined;
-  let savedPlatformUrl: string | undefined;
-  let savedBaseDataDir: string | undefined;
-
-  beforeEach(() => {
-    savedLockDir = process.env.VELLUM_LOCKFILE_DIR;
-    savedEnv = process.env.VELLUM_ENVIRONMENT;
-    savedPlatformUrl = process.env.VELLUM_PLATFORM_URL;
-    savedBaseDataDir = process.env.BASE_DATA_DIR;
-    tempRoot = mkdtempSync(join(tmpdir(), "cli-active-sync-test-"));
-    process.env.VELLUM_LOCKFILE_DIR = tempRoot;
-    delete process.env.VELLUM_ENVIRONMENT;
-    delete process.env.VELLUM_PLATFORM_URL;
-    delete process.env.BASE_DATA_DIR;
-  });
-
-  afterEach(() => {
-    const restore = (name: string, value: string | undefined): void => {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    };
-    restore("VELLUM_LOCKFILE_DIR", savedLockDir);
-    restore("VELLUM_ENVIRONMENT", savedEnv);
-    restore("VELLUM_PLATFORM_URL", savedPlatformUrl);
-    restore("BASE_DATA_DIR", savedBaseDataDir);
-    rmSync(tempRoot, { recursive: true, force: true });
-  });
-
-  function writeWorkspaceConfig(instanceDir: string, platformUrl: string) {
-    const workspaceDir = join(instanceDir, ".vellum", "workspace");
-    mkdirSync(workspaceDir, { recursive: true });
-    writeFileSync(
-      join(workspaceDir, "config.json"),
-      JSON.stringify({ platform: { baseUrl: platformUrl } }, null, 2),
-    );
-  }
-
-  test("vellum use <name> refreshes lockfile platformBaseUrl from the new active assistant's workspace config", () => {
-    // Set up two assistants with distinct platform URLs in their own
-    // per-instance workspace configs, mimicking the multi-tenant case
-    // where `alpha` targets prod and `beta` targets dev.
-    const alphaDir = join(tempRoot, "alpha-root");
-    const betaDir = join(tempRoot, "beta-root");
-    mkdirSync(alphaDir, { recursive: true });
-    mkdirSync(betaDir, { recursive: true });
-    writeWorkspaceConfig(alphaDir, "https://prod.vellum.ai");
-    writeWorkspaceConfig(betaDir, "https://dev.vellum.ai");
-
-    // Seed the lockfile with two local entries + alpha as active.
-    writeFileSync(
-      join(tempRoot, ".vellum.lock.json"),
-      JSON.stringify(
-        {
-          activeAssistant: "alpha",
-          assistants: [
-            {
-              assistantId: "alpha",
-              runtimeUrl: "http://127.0.0.1:7830",
-              cloud: "local",
-              resources: {
-                instanceDir: alphaDir,
-                daemonPort: 7821,
-                gatewayPort: 7830,
-                qdrantPort: 6333,
-                cesPort: 8090,
-                pidFile: join(alphaDir, ".vellum", "vellum.pid"),
-              },
-            },
-            {
-              assistantId: "beta",
-              runtimeUrl: "http://127.0.0.1:7831",
-              cloud: "local",
-              resources: {
-                instanceDir: betaDir,
-                daemonPort: 7822,
-                gatewayPort: 7831,
-                qdrantPort: 6334,
-                cesPort: 8091,
-                pidFile: join(betaDir, ".vellum", "vellum.pid"),
-              },
-            },
-          ],
-        },
-        null,
-        2,
-      ),
-    );
-
-    // Mimic the hatch-time sync for alpha so the lockfile has
-    // platformBaseUrl populated — this is what Fix G3 relies on.
-    process.env.BASE_DATA_DIR = alphaDir;
-    syncConfigToLockfile();
-    delete process.env.BASE_DATA_DIR;
-
-    expect(getPlatformUrl()).toBe("https://prod.vellum.ai");
-
-    // Simulate `vellum use beta`: switch active and run the new sync
-    // helper that use.ts now calls.
-    setActiveAssistant("beta");
-    syncActiveAssistantConfigToLockfile("beta");
-
-    // getPlatformUrl must now return beta's tenant — the bug before this
-    // fix was that it kept returning the last-hatched assistant's URL.
-    expect(getPlatformUrl()).toBe("https://dev.vellum.ai");
-
-    // Switching back recovers alpha's URL.
-    setActiveAssistant("alpha");
-    syncActiveAssistantConfigToLockfile("alpha");
-    expect(getPlatformUrl()).toBe("https://prod.vellum.ai");
-  });
-
-  test("syncActiveAssistantConfigToLockfile is a no-op for legacy entries without resources", () => {
-    // Legacy entry (no resources) — helper should skip silently without
-    // clobbering an existing platformBaseUrl in the lockfile.
-    writeFileSync(
-      join(tempRoot, ".vellum.lock.json"),
-      JSON.stringify(
-        {
-          activeAssistant: "legacy",
-          platformBaseUrl: "https://preexisting.vellum.ai",
-          assistants: [
-            {
-              assistantId: "legacy",
-              runtimeUrl: "http://127.0.0.1:7830",
-              cloud: "remote",
-            },
-          ],
-        },
-        null,
-        2,
-      ),
-    );
-
-    syncActiveAssistantConfigToLockfile("legacy");
-    expect(getPlatformUrl()).toBe("https://preexisting.vellum.ai");
   });
 });

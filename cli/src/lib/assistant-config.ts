@@ -499,31 +499,3 @@ export function syncConfigToLockfile(): void {
     // Config file unreadable — skip sync
   }
 }
-
-/**
- * Sync the named assistant's workspace `config.json` to the lockfile's
- * top-level `platformBaseUrl` field. Used by `vellum use` and `vellum wake`
- * so `getPlatformUrl()` returns the tenant URL of the newly-active
- * assistant rather than whichever assistant was most recently hatched.
- *
- * Temporarily scopes `BASE_DATA_DIR` to the target instance so
- * {@link syncConfigToLockfile} reads from that instance's workspace
- * config. No-op for legacy entries without `resources` (they share the
- * legacy `~/.vellum/` workspace and the lockfile value is already correct).
- */
-export function syncActiveAssistantConfigToLockfile(name: string): void {
-  const entry = findAssistantByName(name);
-  if (!entry?.resources) return;
-
-  const prevBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = entry.resources.instanceDir;
-  try {
-    syncConfigToLockfile();
-  } finally {
-    if (prevBaseDataDir !== undefined) {
-      process.env.BASE_DATA_DIR = prevBaseDataDir;
-    } else {
-      delete process.env.BASE_DATA_DIR;
-    }
-  }
-}
