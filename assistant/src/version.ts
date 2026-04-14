@@ -1,36 +1,37 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+function readPackageVersion(): string | undefined {
+  try {
+    const pkgPath = join(
+      import.meta.dirname ?? __dirname,
+      "..",
+      "package.json",
+    );
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    if (pkg.version && typeof pkg.version === "string") return pkg.version;
+  } catch {
+    // package.json missing or unreadable
+  }
+  return undefined;
+}
+
 function resolveVersion(): string {
   const envVersion = process.env.APP_VERSION;
 
-  // When APP_VERSION is not set, we're in local development — return the dev
-  // sentinel so Sentry (and similar) classify the session as "development".
-  if (!envVersion) return "0.0.0-dev";
+  // Explicit non-dev value — trust it as-is (e.g. CI --define or env var).
+  if (envVersion && envVersion !== "0.0.0-dev") return envVersion;
 
-  // CI sets APP_VERSION to the dev placeholder during builds; resolve it to
-  // the package.json release version so Sentry gets a meaningful release tag.
-  if (envVersion === "0.0.0-dev") {
-    try {
-      const pkgPath = join(
-        import.meta.dirname ?? __dirname,
-        "..",
-        "package.json",
-      );
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      if (pkg.version && typeof pkg.version === "string") return pkg.version;
-    } catch {
-      // package.json missing or unreadable
-    }
-    return "0.0.0-dev";
-  }
-
-  return envVersion;
+  // APP_VERSION is either unset (Docker, local dev) or the dev placeholder
+  // (CI builds).  Try reading the version from package.json so containerised
+  // assistants (minikube / Cloud Run) report a meaningful version instead of
+  // "0.0.0-dev".
+  return readPackageVersion() ?? "0.0.0-dev";
 }
 
 // Version is embedded at compile time via --define in CI.
-// Falls back to "0.0.0-dev" for local development, or resolves the dev
-// placeholder to package.json version when explicitly set in CI.
+// Falls back to package.json version when running in Docker / local dev,
+// or "0.0.0-dev" if package.json is unavailable.
 export const APP_VERSION: string = resolveVersion();
 
 // Commit SHA is embedded at compile time via --define in CI.
