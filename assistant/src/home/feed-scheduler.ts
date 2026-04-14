@@ -2,7 +2,7 @@
  * Home activity feed scheduler.
  *
  * Periodic tick loop that drives the feed producers — the assistant
- * reflection loop and the platform-baseline Gmail digest generator. This
+ * roll-up loop and the platform-baseline Gmail digest generator. This
  * is the layer that turns the Phase-5 scaffolding into a live feed: the
  * producers exist as standalone functions, the writer knows how to
  * persist their output, and the HTTP route + SSE pipeline surface it
@@ -17,7 +17,7 @@
  *   - Each producer tracks its own "last ran at" timestamp and decides
  *     whether to run on each tick. This keeps the tick cadence short
  *     (so cheap producers refresh often) while expensive producers
- *     (LLM reflection) self-throttle independently.
+ *     (LLM roll-up) self-throttle independently.
  *
  *   - Fire-and-forget: every producer failure is logged and swallowed.
  *     A broken producer must never break the tick loop or the daemon.
@@ -34,10 +34,7 @@ import {
   generateGmailDigest,
   type GmailCountSource,
 } from "./platform-gmail-digest.js";
-import {
-  type ReflectionResult,
-  runReflectionProducer,
-} from "./reflection-producer.js";
+import { type RollupResult, runRollupProducer } from "./rollup-producer.js";
 
 const log = getLogger("home-feed-scheduler");
 
@@ -46,7 +43,7 @@ const TICK_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Per-producer minimum gap between runs. */
 const GMAIL_DIGEST_INTERVAL_MS = 5 * 60 * 1000;
-const REFLECTION_INTERVAL_MS = 30 * 60 * 1000;
+const ROLLUP_INTERVAL_MS = 30 * 60 * 1000;
 
 export interface FeedSchedulerHandle {
   /** Stops the interval. Safe to call multiple times. */
@@ -60,7 +57,7 @@ export interface FeedSchedulerHandle {
 
 export interface FeedTickSummary {
   gmailDigestRan: boolean;
-  reflectionRan: boolean;
+  rollupRan: boolean;
 }
 
 export interface FeedSchedulerOptions {
@@ -88,7 +85,7 @@ export interface FeedSchedulerOptions {
     now: Date,
     countSource: GmailCountSource,
   ) => Promise<FeedItem | null>;
-  reflectionRunner?: (now: Date) => Promise<ReflectionResult>;
+  rollupRunner?: (now: Date) => Promise<RollupResult>;
 }
 
 /**
@@ -101,17 +98,17 @@ export function startFeedScheduler(
   let stopped = false;
   let tickRunning = false;
   let lastGmailDigestAt = 0;
-  let lastReflectionAt = 0;
+  let lastRollupAt = 0;
 
   const gmailCountSource = options.gmailCountSource ?? defaultGmailCountSource;
   const gmailDigestRunner = options.gmailDigestRunner ?? generateGmailDigest;
-  const reflectionRunner =
-    options.reflectionRunner ?? ((now: Date) => runReflectionProducer(now));
+  const rollupRunner =
+    options.rollupRunner ?? ((now: Date) => runRollupProducer(now));
 
   const tick = async (now: Date = new Date()): Promise<FeedTickSummary> => {
     const summary: FeedTickSummary = {
       gmailDigestRan: false,
-      reflectionRan: false,
+      rollupRan: false,
     };
     if (stopped || tickRunning) return summary;
     tickRunning = true;
@@ -135,37 +132,43 @@ export function startFeedScheduler(
         }
       }
 
-      if (nowMs - lastReflectionAt >= REFLECTION_INTERVAL_MS) {
-        summary.reflectionRan = true;
+      if (nowMs - lastRollupAt >= ROLLUP_INTERVAL_MS) {
+        summary.rollupRan = true;
         const startedAt = Date.now();
         try {
-          const result = await reflectionRunner(now);
+          const result = await rollupRunner(now);
           log.info(
             {
               wroteCount: result.wroteCount,
               skippedReason: result.skippedReason,
               durationMs: Date.now() - startedAt,
             },
-            "Reflection producer ran",
+            "Rollup producer ran",
           );
           // Only advance the cooldown gate when the producer actually
-          // had a chance to run. A `no_provider` skip means the provider
-          // registry wasn't ready yet (this happens on the startup tick
-          // because the feed scheduler boots before the provider init
-          // pass in `daemon/lifecycle.ts`); advancing the gate in that
-          // case would burn the 30-minute window and delay the first
-          // real reflection. Every other outcome — success, empty
-          // items, malformed output, provider error — is a real
-          // attempt and does advance the gate so a broken producer
-          // doesn't hammer us every tick.
-          if (result.skippedReason !== "no_provider") {
-            lastReflectionAt = nowMs;
+          // had a chance to run the LLM. Two skip reasons short-circuit
+          // before any provider call and should NOT burn the window:
+          //   - `no_provider`: the provider registry wasn't ready yet
+          //     (happens on the startup tick because the feed scheduler
+          //     boots before the provider init pass in
+          //     `daemon/lifecycle.ts`).
+          //   - `no_actions`: there was nothing to roll up. A subsequent
+          //     tick should retry as soon as new actions land, not wait
+          //     the full window.
+          // Every other outcome — success, empty items, malformed
+          // output, provider error — is a real LLM attempt and does
+          // advance the gate so a broken producer doesn't hammer us.
+          if (
+            result.skippedReason !== "no_provider" &&
+            result.skippedReason !== "no_actions"
+          ) {
+            lastRollupAt = nowMs;
           }
         } catch (err) {
-          lastReflectionAt = nowMs;
+          lastRollupAt = nowMs;
           log.warn(
             { err, durationMs: Date.now() - startedAt },
-            "Reflection producer threw",
+            "Rollup producer threw",
           );
         }
       }
@@ -190,7 +193,7 @@ export function startFeedScheduler(
     {
       tickIntervalMs: TICK_INTERVAL_MS,
       gmailDigestIntervalMs: GMAIL_DIGEST_INTERVAL_MS,
-      reflectionIntervalMs: REFLECTION_INTERVAL_MS,
+      rollupIntervalMs: ROLLUP_INTERVAL_MS,
     },
     "Home feed scheduler started",
   );
