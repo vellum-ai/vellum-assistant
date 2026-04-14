@@ -45,8 +45,11 @@ mock.module("../../memory/conversation-queries.js", () => ({
 const {
   backfillRelationshipStateIfMissing,
   computeRelationshipState,
+  getOnboardingSidecarPath,
   getRelationshipStatePath,
+  ONBOARDING_SIDECAR_FILENAME,
   RELATIONSHIP_STATE_FILENAME,
+  writeOnboardingSidecar,
   writeRelationshipState,
 } = await import("../relationship-state-writer.js");
 
@@ -575,6 +578,163 @@ describe("relationship-state-writer", () => {
         expect(r).toBeUndefined();
       }
       expect(existsSync(getRelationshipStatePath())).toBe(true);
+    });
+  });
+
+  describe("onboarding sidecar (JARVIS-471)", () => {
+    test("getOnboardingSidecarPath returns <workspace>/data/onboarding-context.json", () => {
+      expect(getOnboardingSidecarPath()).toBe(
+        join(workspaceDir, "data", ONBOARDING_SIDECAR_FILENAME),
+      );
+    });
+
+    test("writeOnboardingSidecar persists the payload to disk", () => {
+      writeOnboardingSidecar({
+        tools: ["Slack", "Gmail"],
+        tasks: ["Inbox triage"],
+        tone: "Dry and precise",
+        userName: "Alex",
+        assistantName: "Nova",
+      });
+
+      const path = getOnboardingSidecarPath();
+      expect(existsSync(path)).toBe(true);
+      const decoded = JSON.parse(readFileSync(path, "utf-8")) as {
+        tools: string[];
+        tasks: string[];
+        tone: string;
+        userName?: string;
+        assistantName?: string;
+      };
+      expect(decoded.tools).toEqual(["Slack", "Gmail"]);
+      expect(decoded.tasks).toEqual(["Inbox triage"]);
+      expect(decoded.tone).toBe("Dry and precise");
+      expect(decoded.userName).toBe("Alex");
+      expect(decoded.assistantName).toBe("Nova");
+    });
+
+    test("computeRelationshipState emits onboarding-sourced facts when the sidecar is present", async () => {
+      writeOnboardingSidecar({
+        tools: ["Slack", "Gmail", "Notion"],
+        tasks: ["Email triage", "Meeting prep"],
+        tone: "Friendly and warm",
+        userName: "Alex",
+        assistantName: "Nova",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+
+      const onboardingFacts = state.facts.filter(
+        (f) => f.source === "onboarding",
+      );
+      expect(onboardingFacts).toHaveLength(6); // 3 tools + 2 tasks + 1 tone
+
+      const worldTexts = onboardingFacts
+        .filter((f) => f.category === "world")
+        .map((f) => f.text);
+      expect(worldTexts).toEqual(["Slack", "Gmail", "Notion"]);
+
+      const prioritiesTexts = onboardingFacts
+        .filter((f) => f.category === "priorities")
+        .map((f) => f.text);
+      expect(prioritiesTexts).toEqual(["Email triage", "Meeting prep"]);
+
+      const voiceTexts = onboardingFacts
+        .filter((f) => f.category === "voice")
+        .map((f) => f.text);
+      expect(voiceTexts).toEqual(["Friendly and warm"]);
+
+      for (const f of onboardingFacts) {
+        expect(f.confidence).toBe("strong");
+        expect(f.id.startsWith("onboarding-")).toBe(true);
+      }
+    });
+
+    test("sidecar userName / assistantName fill in when IDENTITY.md and USER.md are absent", async () => {
+      writeOnboardingSidecar({
+        tools: [],
+        tasks: [],
+        tone: "",
+        userName: "Alex",
+        assistantName: "Nova",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      expect(state.userName).toBe("Alex");
+      expect(state.assistantName).toBe("Nova");
+    });
+
+    test("IDENTITY.md / USER.md take precedence over sidecar names", async () => {
+      writeFile("IDENTITY.md", "- Name: RealAssistant\n");
+      writeFile("USER.md", "- Preferred name: RealUser\n");
+      writeOnboardingSidecar({
+        tools: [],
+        tasks: [],
+        tone: "",
+        userName: "StaleOnboardingUser",
+        assistantName: "StaleOnboardingAssistant",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      expect(state.userName).toBe("RealUser");
+      expect(state.assistantName).toBe("RealAssistant");
+    });
+
+    test("onboarding and inferred facts coexist with correct sources", async () => {
+      writeFile(
+        "USER.md",
+        ["- Preferred name: Alex", "- Work role: Staff engineer"].join("\n"),
+      );
+      writeFile("SOUL.md", "- Tone: dry, precise\n");
+      writeOnboardingSidecar({
+        tools: ["Slack"],
+        tasks: ["Email triage"],
+        tone: "Friendly",
+        userName: "Alex",
+      });
+
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      const bySource = new Map<string, number>();
+      for (const f of state.facts) {
+        bySource.set(f.source, (bySource.get(f.source) ?? 0) + 1);
+      }
+      expect(bySource.get("onboarding")).toBe(3); // 1 tool + 1 task + 1 tone
+      expect(bySource.get("inferred") ?? 0).toBeGreaterThanOrEqual(2);
+      // Onboarding facts render first so they lead the Home chip list.
+      expect(state.facts[0]?.source).toBe("onboarding");
+    });
+
+    test("missing sidecar produces no onboarding-sourced facts", async () => {
+      writeFile("USER.md", "- Preferred name: Alex");
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      for (const f of state.facts) {
+        expect(f.source).toBe("inferred");
+      }
+    });
+
+    test("empty / whitespace-only onboarding entries are skipped", async () => {
+      writeOnboardingSidecar({
+        tools: ["Slack", "", "  "],
+        tasks: ["  ", "Email"],
+        tone: "   ",
+      });
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      const onboardingFacts = state.facts.filter(
+        (f) => f.source === "onboarding",
+      );
+      expect(onboardingFacts.map((f) => f.text).sort()).toEqual([
+        "Email",
+        "Slack",
+      ]);
+    });
+
+    test("corrupt sidecar JSON degrades to zero onboarding facts", async () => {
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      writeFileSync(getOnboardingSidecarPath(), "{not valid json", "utf-8");
+      const state = (await computeRelationshipState()) as RelationshipStateLike;
+      for (const f of state.facts) {
+        expect(f.source).not.toBe("onboarding");
+      }
     });
   });
 });

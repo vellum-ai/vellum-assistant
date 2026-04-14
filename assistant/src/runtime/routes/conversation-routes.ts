@@ -1,7 +1,7 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { z } from "zod";
@@ -48,6 +48,10 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import {
+  writeOnboardingSidecar,
+  writeRelationshipState,
+} from "../../home/relationship-state-writer.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -77,6 +81,7 @@ import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -1205,6 +1210,78 @@ function resolveHostBrowserSender(
   return { sender: registrySender, isRegistryRouted: true };
 }
 
+/**
+ * Persist the pre-chat onboarding payload to disk.
+ *
+ * Runs only on the very first message of a fresh conversation. Three
+ * artifacts are produced:
+ *
+ *   1. `data/onboarding-context.json` — sidecar read by the
+ *      relationship-state writer so onboarding-sourced facts survive
+ *      the pure-recomputation write cycle (every turn boundary rebuilds
+ *      facts from markdown; the sidecar is the durable source for the
+ *      tool/task/tone chips).
+ *   2. `IDENTITY.md` / `USER.md` — persona seed files, only written
+ *      when missing so we never clobber existing content. These feed
+ *      the system prompt and the relationship-state writer's
+ *      `parseIdentity` / `parseUserName` helpers after a daemon
+ *      restart when the in-memory onboarding context is gone.
+ *   3. `data/relationship-state.json` — kicked off fire-and-forget so
+ *      the Home page can populate immediately on first visit instead
+ *      of waiting for the first agent-turn boundary.
+ *
+ * Never throws: every write is guarded and logged as a warning on
+ * failure. The route handler path must never reject because of a
+ * best-effort persistence step.
+ */
+function persistOnboardingArtifacts(onboarding: {
+  tools: string[];
+  tasks: string[];
+  tone: string;
+  userName?: string;
+  assistantName?: string;
+}): void {
+  writeOnboardingSidecar(onboarding);
+
+  const assistantName = onboarding.assistantName?.trim();
+  if (assistantName) {
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    if (!existsSync(identityPath)) {
+      try {
+        writeFileSync(
+          identityPath,
+          `# Identity\n\n- Name: ${assistantName}\n`,
+          "utf-8",
+        );
+      } catch (err) {
+        log.warn(
+          { err, identityPath },
+          "Failed to seed IDENTITY.md from onboarding",
+        );
+      }
+    }
+  }
+
+  const userName = onboarding.userName?.trim();
+  if (userName) {
+    const userPath = getWorkspacePromptPath("USER.md");
+    if (!existsSync(userPath)) {
+      try {
+        writeFileSync(userPath, `# User\n\n- Name: ${userName}\n`, "utf-8");
+      } catch (err) {
+        log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
+      }
+    }
+  }
+
+  void writeRelationshipState().catch((err) => {
+    log.warn(
+      { err },
+      "Failed to kick off relationship-state write after onboarding",
+    );
+  });
+}
+
 export async function handleSendMessage(
   req: Request,
   deps: {
@@ -1360,10 +1437,14 @@ export async function handleSendMessage(
   );
 
   // Store pre-chat onboarding context on the conversation when this is the
-  // very first message (no prior messages loaded). The context is in-memory
-  // only and used to personalize the system prompt for the first turn.
+  // very first message (no prior messages loaded). Also persist the
+  // onboarding selections so the Home page shows onboarding-sourced
+  // chips immediately, and seed IDENTITY.md / USER.md so subsequent
+  // turn-boundary recomputes of relationship-state have a stable
+  // persona source beyond the in-memory conversation object.
   if (body.onboarding && conversation.messages.length === 0) {
     conversation.setOnboardingContext(body.onboarding);
+    persistOnboardingArtifacts(body.onboarding);
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
