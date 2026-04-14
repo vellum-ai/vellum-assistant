@@ -40,8 +40,24 @@ public struct AppsClient: AppsClientProtocol {
 
     // MARK: - REST Response Shapes
 
+    /// Wrapper that decodes each element individually, discarding items
+    /// that fail instead of failing the entire array.
+    private struct LossyDecodable<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws {
+            value = try? T(from: decoder)
+        }
+    }
+
     private struct HTTPAppsListResponse: Decodable {
         let apps: [HTTPAppsListItem]
+
+        private enum CodingKeys: String, CodingKey { case apps }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let lossy = try container.decode([LossyDecodable<HTTPAppsListItem>].self, forKey: .apps)
+            self.apps = lossy.compactMap(\.value)
+        }
     }
 
     private struct HTTPAppsListItem: Decodable {
@@ -118,7 +134,7 @@ public struct AppsClient: AppsClientProtocol {
                 type: "apps_list_response", apps: apps
             )
         } catch {
-            log.error("fetchAppsList error: \(error.localizedDescription)")
+            log.error("fetchAppsList decode error: \(error)")
             return AppsListResponse(
                 type: "apps_list_response", apps: [], success: false
             )
