@@ -101,7 +101,13 @@ struct ConversationModel: Identifiable, Hashable {
 
     var isChannelConversation: Bool {
         guard let originChannel else { return false }
-        return originChannel != "vellum"
+        if originChannel == "vellum" { return false }
+        // `notification:*` channels are outbound-only delivery (e.g. Slack push
+        // for a scheduled reminder). The conversation itself still lives in the
+        // app, so treat it like a native conversation for sidebar affordances
+        // (archive, mark-as-unread, drag-to-reorder, analyze).
+        if originChannel.hasPrefix("notification:") { return false }
+        return true
     }
 
     /// Derive the groupId for a conversation from server metadata when the server
