@@ -125,7 +125,7 @@ let turnMinHeight = containerHeight - composerHeight - estimatedUserHeight - lay
 - **Uses `containerHeight`** (full chat pane from GeometryReader), NOT `scrollState.viewportHeight`. The viewport height fluctuates when the composer resizes — the container height is stable.
 - **Composer is static 80pt.** We only care about the composer height when it's empty (after the user hits send). It grows when typing, but by then minHeight doesn't matter.
 - **User message estimated via `NSString.boundingRect`** for word-wrap accuracy. Cell overhead is 100pt (bubble padding 24 + timestamp 24 + spacing 12 + show more button 30 + gradient 10). Capped at 260pt (collapse threshold + overhead).
-- **MinHeight applies when `row.isLatestAssistant && row.message.id == state.rows.last?.message.id`.** No `isActiveTurn` gate — the minHeight persists after streaming ends so the viewport doesn't jump.
+- **MinHeight applies when `row.isLatestAssistant || row.isThinkingPlaceholder`.** Each row's effective minHeight is `max(0, turnMinHeight - row.priorTurnContentHeight)` so the total turn height stays consistent as new rows (e.g. confirmation bubbles) accumulate. No `isActiveTurn` gate — the minHeight persists after streaming ends so the viewport doesn't jump.
 
 ---
 
