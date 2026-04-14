@@ -2,10 +2,11 @@
  * Guard test that verifies the Slack adapter routes reads and writes through
  * the correct cached auth.
  *
- * PR 3 introduced the read/write auth split and locked in behavior for the
- * bot-token-only case. PR 5 extended this file to cover the dual-token case
- * (bot + user): reads MUST use the user token while writes MUST stay on the
- * bot token so posts come from the bot identity.
+ * Covers the bot-token-only case (reads and writes both use the bot token),
+ * the dual-token case (bot + user): reads MUST use the user token while
+ * content-creating writes (postMessage) MUST stay on the bot token so posts
+ * come from the bot identity, and the runtime fallback when a stored user
+ * token is rejected with an auth error.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -180,13 +181,86 @@ describe("Slack adapter token routing", () => {
     expect(sendCall).toBeDefined();
     expect(sendCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
 
-    // Writes: markRead → bot token.
+    // markRead → user token. conversations.mark sets the read cursor for
+    // the authenticated identity, so it must use the same token whose unread
+    // counts the adapter exposes.
     await slackProvider.markRead!(undefined, "C123", "1700000000.000100");
     const markCall = captured.find((c) =>
       c.url.includes("/conversations.mark"),
     );
     expect(markCall).toBeDefined();
-    expect(markCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
+    expect(markCall!.authorization).toBe(`Bearer ${USER_TOKEN}`);
+  });
+
+  test("user token rejected: read calls fall back to bot token and stay on it", async () => {
+    // If the cached user token is revoked/expired, the next read returns
+    // invalid_auth (HTTP 200 with ok:false). The adapter must retry the call
+    // with the bot token and reset the read cache so subsequent reads in the
+    // same session don't re-hit the failure path.
+    getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
+      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
+      if (key === credentialKey("slack_channel", "user_token"))
+        return USER_TOKEN;
+      return null;
+    });
+
+    // Replace the default fetch stub: first user-token call to history fails
+    // with invalid_auth; everything else succeeds.
+    let userTokenHistoryCalls = 0;
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const headers = new Headers(init?.headers ?? {});
+      const auth = headers.get("authorization");
+      captured.push({
+        url,
+        method: (init?.method ?? "GET").toUpperCase(),
+        authorization: auth,
+      });
+      if (
+        url.includes("/conversations.history") &&
+        auth === `Bearer ${USER_TOKEN}`
+      ) {
+        userTokenHistoryCalls += 1;
+        return new Response(
+          JSON.stringify({ ok: false, error: "invalid_auth" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify(fakeSlackResponse(url)), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const resolved = await slackProvider.resolveConnection!();
+    expect(resolved).toBeUndefined();
+
+    // First read: tries user token, fails, retries with bot token.
+    await slackProvider.getHistory(undefined, "C123");
+    expect(userTokenHistoryCalls).toBe(1);
+    const historyCalls = captured.filter((c) =>
+      c.url.includes("/conversations.history"),
+    );
+    expect(historyCalls).toHaveLength(2);
+    expect(historyCalls[0].authorization).toBe(`Bearer ${USER_TOKEN}`);
+    expect(historyCalls[1].authorization).toBe(`Bearer ${BOT_TOKEN}`);
+
+    // Subsequent read: cache reset, only bot token is used (no retry needed).
+    captured.length = 0;
+    await slackProvider.getHistory(undefined, "C456");
+    const next = captured.filter((c) =>
+      c.url.includes("/conversations.history"),
+    );
+    expect(next).toHaveLength(1);
+    expect(next[0].authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
   test("user-token only (no bot token): falls through to the OAuth path", async () => {
