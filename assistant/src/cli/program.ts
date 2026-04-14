@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
+import { getConfigReadOnly } from "../config/loader.js";
+import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -76,7 +78,9 @@ Examples:
   registerDoctorCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
-  registerEmailCommand(program);
+  if (isEmailEnabled(getConfigReadOnly())) {
+    registerEmailCommand(program);
+  }
   registerContactsCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerAutonomyCommand(program);
