@@ -477,7 +477,20 @@ final class ChatActionHandler {
             // nil. Constrain the fallback to assistant messages in the current
             // turn (after the last user message) so we don't flip unrelated
             // historical or cancelled surfaces to complete.
-            let turnStart = (vm.messages.lastIndex(where: { $0.role == .user }) ?? -1) + 1
+            //
+            // When a user queues a new prompt while refinement is in-flight,
+            // MessageSendCoordinator appends the queued user message immediately.
+            // Using the raw last user message would push turnStart past the
+            // in-flight refinement surfaces, leaving dynamic-page cards stuck
+            // incomplete. Instead, find the last user message that actually has
+            // an assistant response after it — queued-but-unanswered messages
+            // won't have one yet.
+            let answeredUserIndex = vm.messages.lastIndex(where: { msg in
+                guard msg.role == .user else { return false }
+                guard let idx = vm.messages.firstIndex(where: { $0.id == msg.id }) else { return false }
+                return vm.messages[(idx + 1)...].contains(where: { $0.role == .assistant })
+            })
+            let turnStart = (answeredUserIndex ?? -1) + 1
             for msgIdx in turnStart..<vm.messages.count {
                 guard vm.messages[msgIdx].role == .assistant else { continue }
                 for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
