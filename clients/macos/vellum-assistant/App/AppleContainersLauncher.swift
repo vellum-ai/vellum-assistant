@@ -189,6 +189,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
+                try? FileManager.default.removeItem(at: mgmtSocketDir)
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(
@@ -207,6 +208,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 LockfileAssistant.setActiveAssistantId(previousActiveId)
                 mgmtServer?.stop()
                 mgmtServer = nil
+                try? FileManager.default.removeItem(at: mgmtSocketDir)
                 try? await runtime.stop()
                 self.podRuntime = nil
                 throw LauncherError.hatchFailed(
