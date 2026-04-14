@@ -283,6 +283,7 @@ describe("reconcileTelegramWebhook", () => {
       assistant_id: "11111111-2222-4333-8444-555555555555",
       callback_path: "webhooks/telegram",
       type: "telegram",
+      source_identifier: "",
     });
     expect(calls[1].method).toBe("getWebhookInfo");
     expect(calls[2].method).toBe("setWebhook");
@@ -359,6 +360,7 @@ describe("reconcileTelegramWebhook", () => {
       assistant_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       callback_path: "webhooks/telegram",
       type: "telegram",
+      source_identifier: "",
     });
     // PLATFORM_INTERNAL_API_KEY should use Bearer auth scheme
     expect(calls[0].headers?.Authorization).toBe(
@@ -444,6 +446,7 @@ describe("reconcileTelegramWebhook", () => {
       assistant_id: "env-assistant-id",
       callback_path: "webhooks/telegram",
       type: "telegram",
+      source_identifier: "",
     });
     expect(calls[0].headers?.Authorization).toBe("Bearer env-internal-key");
     // Registration URL should use cache platform URL
