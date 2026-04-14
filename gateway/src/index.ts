@@ -1357,8 +1357,8 @@ async function main() {
         ]);
 
       const assistantId =
-        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
         assistantIdRaw?.trim() ||
+        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
         undefined;
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
