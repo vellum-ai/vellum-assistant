@@ -196,20 +196,11 @@ withAnimation(VAnimation.spring) {
 
 ---
 
-## User Message Collapse (Prevents First-Frame Flash)
+## User Message Collapse
 
-Long user messages collapse at 150pt. The collapse decision uses `NSString.boundingRect` on the first frame (before `onGeometryChange` fires) to avoid a full-height flash:
+Only extremely large user messages (>3,000 characters or >40 lines) are collapsed. These use a text-truncation heuristic: the preview is limited to 1,200 characters / 24 lines with a trailing "..." indicator. A "Show more" / "Show less" button toggles between the truncated preview and full text.
 
-```swift
-let isCollapsible = userMessageIntrinsicHeight > 0
-    ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
-    : estimatedTextExceedsCollapseThreshold  // NSString.boundingRect estimate
-```
-
-Collapsed messages have:
-- Gradient fade overlay (transparent → `VColor.surfaceLift`)
-- "Show more" button using `VButton(style: .ghost, size: .compact, tintColor: .contentTertiary)`, left-aligned
-- Button is inside the bubble container (rounded corners, surfaceLift background)
+Moderate-length user messages (under the heuristic threshold) render at full height with no collapse or height clipping. The previous height-based collapse (150pt cap with `onGeometryChange` measurement) was removed because it aggressively truncated typical user messages to ~7-8 lines, causing content to appear cut off (LUM-833).
 
 ---
 
