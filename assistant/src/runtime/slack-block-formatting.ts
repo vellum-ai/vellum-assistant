@@ -57,11 +57,19 @@ export function textToSlackBlocks(text: string): Block[] | undefined {
 
     if (segment.type === "code") {
       const lang = segment.lang ?? "";
-      const codeText = "```" + lang + "\n" + segment.content + "\n```";
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: codeText },
-      });
+      const codeChunks = splitCodeSegmentContent(segment.content, lang);
+      for (let c = 0; c < codeChunks.length; c++) {
+        if (c > 0) {
+          blocks.push({ type: "divider" });
+        }
+        blocks.push({
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "```" + lang + "\n" + codeChunks[c] + "\n```",
+          },
+        });
+      }
     } else if (segment.type === "header") {
       blocks.push({
         type: "header",
@@ -369,6 +377,68 @@ export function splitLongTextSegment(
   const tail = remaining.trim();
   if (tail.length > 0) chunks.push(tail);
 
+  return chunks;
+}
+
+/**
+ * Split a code segment's inner content into chunks that, once wrapped in
+ * ```lang … ``` fences, each fit inside Slack's section-text limit.
+ *
+ * Prefers line boundaries so code stays readable across chunks; falls back
+ * to a hard character slice for pathological single-line content.
+ */
+export function splitCodeSegmentContent(
+  content: string,
+  lang: string = "",
+  maxChars: number = SLACK_SECTION_MAX_CHARS,
+): string[] {
+  // Fence overhead: "```" + lang + "\n" + content + "\n```"
+  const overhead = 3 + lang.length + 1 + 1 + 3;
+  const budget = maxChars - overhead;
+  if (budget <= 0 || content.length <= budget) return [content];
+
+  const chunks: string[] = [];
+  const lines = content.split("\n");
+  let current: string[] = [];
+  let currentLen = 0;
+
+  const flush = (): void => {
+    if (current.length > 0) {
+      chunks.push(current.join("\n"));
+      current = [];
+      currentLen = 0;
+    }
+  };
+
+  for (const line of lines) {
+    // +1 for the joining "\n" (only if current is non-empty)
+    const added = current.length === 0 ? line.length : line.length + 1;
+    if (currentLen + added <= budget) {
+      current.push(line);
+      currentLen += added;
+      continue;
+    }
+
+    flush();
+
+    // A single line longer than the budget — hard-slice it across chunks.
+    if (line.length > budget) {
+      let remaining = line;
+      while (remaining.length > budget) {
+        chunks.push(remaining.slice(0, budget));
+        remaining = remaining.slice(budget);
+      }
+      if (remaining.length > 0) {
+        current.push(remaining);
+        currentLen = remaining.length;
+      }
+    } else {
+      current.push(line);
+      currentLen = line.length;
+    }
+  }
+
+  flush();
   return chunks;
 }
 

@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   SLACK_SECTION_MAX_CHARS,
+  splitCodeSegmentContent,
   splitLongTextSegment,
   textToSlackBlocks,
 } from "../slack-block-formatting.js";
@@ -125,6 +126,46 @@ describe("splitLongTextSegment", () => {
     const text = "a".repeat(100);
     expect(splitLongTextSegment(text, 0)).toEqual([text]);
     expect(splitLongTextSegment(text, -1)).toEqual([text]);
+  });
+});
+
+describe("splitCodeSegmentContent", () => {
+  test("returns single-element array when content fits in one fenced section", () => {
+    const content = "short\ncode\nblock";
+    expect(splitCodeSegmentContent(content, "js")).toEqual([content]);
+  });
+
+  test("splits on line boundaries so each chunk + fence fits the section limit", () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 300; i++) {
+      lines.push(`line ${i} with some filler`);
+    }
+    const content = lines.join("\n");
+    const lang = "javascript";
+    const chunks = splitCodeSegmentContent(content, lang);
+
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    const overhead = 3 + lang.length + 1 + 1 + 3;
+    for (const chunk of chunks) {
+      expect(chunk.length + overhead).toBeLessThanOrEqual(
+        SLACK_SECTION_MAX_CHARS,
+      );
+    }
+    // All lines preserved in order.
+    expect(chunks.join("\n")).toBe(content);
+  });
+
+  test("hard-slices a single line longer than the budget", () => {
+    const content = "x".repeat(10_000);
+    const chunks = splitCodeSegmentContent(content, "");
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    const overhead = 3 + 0 + 1 + 1 + 3;
+    for (const chunk of chunks) {
+      expect(chunk.length + overhead).toBeLessThanOrEqual(
+        SLACK_SECTION_MAX_CHARS,
+      );
+    }
+    expect(chunks.join("")).toBe(content);
   });
 });
 
@@ -246,6 +287,34 @@ describe("textToSlackBlocks long-text splitting", () => {
     // bold across all blocks.
     const combined = sectionBlocks.map((s) => s.text.text).join("\n");
     expect(combined).toContain("*First sentence. Second sentence*");
+  });
+
+  test("oversize code block is split into multiple fenced section blocks, each ≤ 3000 chars", () => {
+    // Build a code block whose content exceeds a single Slack section's limit.
+    // Include newlines so the splitter has line boundaries to use.
+    const codeLines: string[] = [];
+    for (let i = 0; i < 300; i++) {
+      codeLines.push(`const value${i} = "filler content on line ${i}";`);
+    }
+    const codeBody = codeLines.join("\n");
+    expect(codeBody.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
+    const text = "```javascript\n" + codeBody + "\n```";
+
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+
+    const sectionBlocks = blocks!.filter((b) => b.type === "section") as Array<{
+      type: "section";
+      text: { type: string; text: string };
+    }>;
+    expect(sectionBlocks.length).toBeGreaterThanOrEqual(2);
+
+    for (const section of sectionBlocks) {
+      // Each chunk must start and end with a fence and fit inside Slack's limit.
+      expect(section.text.text.startsWith("```javascript\n")).toBe(true);
+      expect(section.text.text.endsWith("\n```")).toBe(true);
+      expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    }
   });
 
   test("4000-char paragraph followed by header and second paragraph preserves ordering", () => {
