@@ -11,10 +11,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Offsc
 /// The entire lifecycle (create → load → render → capture → teardown) is automatic.
 ///
 /// Captures are serialized: only one offscreen WKWebView exists at a time.
-/// A shared `WKProcessPool` is reused across sequential captures so WebKit
-/// can keep a single WebContent process alive instead of spawning a new one
-/// per capture. Image encoding (resize + PNG + base64) runs off the main
-/// thread via `CGContext` to avoid blocking the UI.
+/// Image encoding (resize + PNG + base64) runs off the main thread via
+/// `CGContext` to avoid blocking the UI.
 enum OffscreenPreviewCapture {
 
     // MARK: - Serial Queue
@@ -45,12 +43,6 @@ enum OffscreenPreviewCapture {
             isSlotOccupied = false
         }
     }
-
-    // MARK: - Shared Process Pool
-
-    /// Reused across sequential captures so WebKit keeps a single WebContent
-    /// process alive instead of spawning one per WKWebViewConfiguration.
-    private static let sharedProcessPool = WKProcessPool()
 
     // MARK: - Public API
 
@@ -86,7 +78,6 @@ enum OffscreenPreviewCapture {
 
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = true
-        config.processPool = sharedProcessPool
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: config)
         window.contentView = webView
 
