@@ -293,9 +293,7 @@ async function buildPassthroughBatch(
   // real drain would invoke those again and the second call would fail with
   // "active pairing already in progress".
   if (classifySlash(head.content) !== "passthrough") return [];
-  if (
-    resolveVerificationSessionIntent(head.content).kind === "direct_setup"
-  ) {
+  if (resolveVerificationSessionIntent(head.content).kind === "direct_setup") {
     // Verification intents stay on the single-message path so their per-turn
     // skill preactivation isn't leaked into batched tail messages.
     return [];
@@ -792,6 +790,16 @@ async function drainSingleMessage(
     return;
   }
 
+  // Broadcast the user message to all hub subscribers so passive devices
+  // see the user turn before the assistant reply starts streaming.
+  next.onEvent({
+    type: "user_message_echo",
+    text: resolvedContent,
+    conversationId: conversation.conversationId,
+    messageId: userMessageId,
+    requestId: next.requestId,
+  });
+
   // Set the active surface for the dequeued message so runAgentLoop can inject context
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
   conversation.currentPage = next.currentPage;
@@ -1032,15 +1040,11 @@ async function drainBatch(
         },
         "drainBatch invariant violated — non-passthrough message found in batch",
       );
-      conversation.traceEmitter.emit(
-        "request_error",
-        invariantMessage,
-        {
-          requestId: qm.requestId,
-          status: "error",
-          attributes: { reason: "batch_invariant_violation" },
-        },
-      );
+      conversation.traceEmitter.emit("request_error", invariantMessage, {
+        requestId: qm.requestId,
+        status: "error",
+        attributes: { reason: "batch_invariant_violation" },
+      });
       qm.onEvent({ type: "error", message: invariantMessage });
       if (i === 0) {
         // Head invariant fired — no in-flight turn yet (the check runs
@@ -1135,6 +1139,16 @@ async function drainBatch(
       // the most recent successfully-persisted message's requestId.
       continue;
     }
+
+    // Broadcast the user message to all hub subscribers so passive devices
+    // see each batched user turn before the assistant reply starts streaming.
+    qm.onEvent({
+      type: "user_message_echo",
+      text: qmContent,
+      conversationId: conversation.conversationId,
+      messageId: lastUserMessageId,
+      requestId: qm.requestId,
+    });
 
     // Persist succeeded. Update last-successful markers so a later tail
     // failure won't overwrite them.
