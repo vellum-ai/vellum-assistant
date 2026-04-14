@@ -482,4 +482,28 @@ describe("context injection", () => {
     const body = await res.json();
     expect(body.legacy).toBe(true);
   });
+
+  test("context is frozen — mutations throw in strict mode", async () => {
+    writeHandler(
+      "ctx-mutate.ts",
+      `export function GET(request, context) {
+        let threw = false;
+        try {
+          context.assistantId = "hacked";
+        } catch {
+          threw = true;
+        }
+        return Response.json({ threw, assistantId: context.assistantId });
+      }`,
+    );
+
+    const ctx = makeContext({ assistantId: "original" });
+    const dispatcher = makeDispatcher({ context: ctx });
+    const res = await dispatcher.dispatch("ctx-mutate", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Object.freeze makes property assignment throw in strict mode (ESM)
+    // and silently fail in sloppy mode — either way the value is unchanged.
+    expect(body.assistantId).toBe("original");
+  });
 });
