@@ -648,7 +648,7 @@ extension AppDelegate {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
             let response = await AppsClient().fetchAppsList()
-            guard let response, !response.apps.isEmpty else { return }
+            guard let response, response.success || !response.apps.isEmpty else { return }
             // When success is false but apps is non-empty, the response is
             // a partial decode (some items dropped). Still sync to pick up
             // new/updated apps, but skip pruning to avoid removing apps
