@@ -288,10 +288,6 @@ struct MessageListContentView: View, Equatable {
                 }) else {
                     return 80 + markerHeight
                 }
-                // Messages with attachments are always collapsed — use max height
-                if !lastUser.message.attachments.isEmpty {
-                    return 260 + markerHeight
-                }
                 let text = lastUser.message.text as NSString
                 let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
                 let font = NSFont.systemFont(ofSize: 14, weight: .regular)
@@ -301,10 +297,51 @@ struct MessageListContentView: View, Equatable {
                     attributes: [.font: font]
                 )
                 let textHeight = ceil(textRect.height)
-                // Bubble padding (24) + timestamp (24) + spacing (12) + show more button (30) + gradient (10)
-                let cellOverhead: CGFloat = 100
-                // Cap at collapsed bubble height (150pt content + overhead)
-                return min(textHeight + cellOverhead, 260) + markerHeight
+                // Bubble padding (24) + timestamp (24) + spacing (12)
+                let cellOverhead: CGFloat = 60
+                // Estimate attachment height by type
+                let attachmentHeight: CGFloat = {
+                    guard !lastUser.message.attachments.isEmpty else { return 0 }
+                    var imageCount = 0
+                    var videoCount = 0
+                    var audioCount = 0
+                    var fileCount = 0
+                    for attachment in lastUser.message.attachments {
+                        if attachment.mimeType.hasPrefix("image/") {
+                            imageCount += 1
+                        } else if attachment.mimeType.hasPrefix("video/") {
+                            videoCount += 1
+                        } else if attachment.mimeType.hasPrefix("audio/") {
+                            audioCount += 1
+                        } else {
+                            fileCount += 1
+                        }
+                    }
+                    // Image grid: adaptive columns at min 160px width
+                    let columnsPerRow = max(1, Int(contentWidth / 160))
+                    let imageRows = imageCount > 0 ? CGFloat((imageCount + columnsPerRow - 1) / columnsPerRow) : 0
+                    let imageHeight = imageRows * 130 // 120pt cell + spacing
+                    let videoHeight = CGFloat(videoCount) * 200
+                    let audioHeight = CGFloat(audioCount) * 60
+                    let fileHeight = CGFloat(fileCount) * 40
+                    return imageHeight + videoHeight + audioHeight + fileHeight
+                }()
+                let isHeuristicCollapse = lastUser.message.text.count > ChatBubble.heuristicUserCollapseCharacterThreshold
+                    || ChatBubble.exceedsLineLimit(lastUser.message.text, limit: ChatBubble.heuristicUserCollapseLineThreshold)
+                if isHeuristicCollapse {
+                    // Heuristic-collapsed messages show truncated preview text
+                    // (24 lines / 1,200 chars) + "Show more" button (30pt).
+                    let previewText = ChatBubble.collapsedPreviewText(from: lastUser.message.text) as NSString
+                    let previewRect = previewText.boundingRect(
+                        with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+                        options: [.usesLineFragmentOrigin, .usesFontLeading],
+                        attributes: [.font: font]
+                    )
+                    let showMoreButton: CGFloat = 30
+                    return ceil(previewRect.height) + cellOverhead + showMoreButton + attachmentHeight + markerHeight
+                }
+                // Non-collapsed messages render at full height
+                return textHeight + cellOverhead + attachmentHeight + markerHeight
             }()
             // Precise minHeight: fill the space between user message and composer.
             // containerHeight = full chat pane (stable, from GeometryReader)

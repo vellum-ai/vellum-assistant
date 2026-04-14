@@ -114,8 +114,18 @@ This fills the viewport below the user message, so after scroll-to-bottom the us
 
 ## MinHeight Calculation (Critical)
 
+Three-path formula depending on the last user message:
+
 ```swift
-let estimatedUserHeight = min(NSString.boundingRect(text) + 100, 260)
+// Path 1: No user message
+estimatedUserHeight = 80
+
+// Path 2: Heuristic-collapsed (text.count > 3,000 or > 40 lines)
+estimatedUserHeight = NSString.boundingRect(previewText) + 60 + 30 + attachmentHeight
+
+// Path 3: Normal (renders at full height)
+estimatedUserHeight = NSString.boundingRect(fullText) + 60 + attachmentHeight
+
 let composerHeight: CGFloat = 80        // static — composer is empty after send
 let layoutPadding = VSpacing.md * 3 + 1 // top + bottom + inter-item + anchor
 let turnMinHeight = containerHeight - composerHeight - estimatedUserHeight - layoutPadding
@@ -124,7 +134,7 @@ let turnMinHeight = containerHeight - composerHeight - estimatedUserHeight - lay
 ### Key decisions:
 - **Uses `containerHeight`** (full chat pane from GeometryReader), NOT `scrollState.viewportHeight`. The viewport height fluctuates when the composer resizes — the container height is stable.
 - **Composer is static 80pt.** We only care about the composer height when it's empty (after the user hits send). It grows when typing, but by then minHeight doesn't matter.
-- **User message estimated via `NSString.boundingRect`** for word-wrap accuracy. Cell overhead is 100pt (bubble padding 24 + timestamp 24 + spacing 12 + show more button 30 + gradient 10). Capped at 260pt (collapse threshold + overhead).
+- **User message estimated via `NSString.boundingRect`** for word-wrap accuracy. Cell overhead is 60pt (bubble padding 24 + timestamp 24 + spacing 12). Attachment height is estimated per-type (images use grid layout at ~130pt/row, videos ~200pt, audio ~60pt, files ~40pt). No fixed cap — moderate messages render at full height; only heuristic-collapsed messages (> 3,000 chars / > 40 lines) use preview text height + 30pt "Show more" button.
 - **MinHeight applies when `row.isLatestAssistant && row.message.id == state.rows.last?.message.id`.** No `isActiveTurn` gate — the minHeight persists after streaming ends so the viewport doesn't jump.
 
 ---
@@ -196,20 +206,11 @@ withAnimation(VAnimation.spring) {
 
 ---
 
-## User Message Collapse (Prevents First-Frame Flash)
+## User Message Collapse
 
-Long user messages collapse at 150pt. The collapse decision uses `NSString.boundingRect` on the first frame (before `onGeometryChange` fires) to avoid a full-height flash:
+Only extremely large user messages (>3,000 characters or >40 lines) are collapsed. These use a text-truncation heuristic: the preview is limited to 1,200 characters / 24 lines with a trailing "..." indicator. A "Show more" / "Show less" button toggles between the truncated preview and full text.
 
-```swift
-let isCollapsible = userMessageIntrinsicHeight > 0
-    ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
-    : estimatedTextExceedsCollapseThreshold  // NSString.boundingRect estimate
-```
-
-Collapsed messages have:
-- Gradient fade overlay (transparent → `VColor.surfaceLift`)
-- "Show more" button using `VButton(style: .ghost, size: .compact, tintColor: .contentTertiary)`, left-aligned
-- Button is inside the bubble container (rounded corners, surfaceLift background)
+Moderate-length user messages (under the heuristic threshold) render at full height with no collapse or height clipping. The previous height-based collapse (150pt cap with `onGeometryChange` measurement) was removed because it aggressively truncated typical user messages to ~7-8 lines, causing content to appear cut off (LUM-833).
 
 ---
 
