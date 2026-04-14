@@ -13,12 +13,38 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-import { getWorkspaceRoutesDir } from "../../../util/platform.js";
+import { AssistantEventHub } from "../../assistant-event-hub.js";
+import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
+import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Build a minimal UserRouteContext for tests. */
+function makeContext(
+  overrides?: Partial<UserRouteContext>,
+): UserRouteContext {
+  return {
+    assistantEventHub: new AssistantEventHub(),
+    assistantId: "test-assistant",
+    ...overrides,
+  };
+}
+
+/** Create a dispatcher with a stub context and optional overrides. */
+function makeDispatcher(
+  options?: Partial<{
+    handlerTimeoutMs: number;
+    context: UserRouteContext;
+  }>,
+): UserRouteDispatcher {
+  return new UserRouteDispatcher({
+    context: options?.context ?? makeContext(),
+    ...options,
+  });
+}
 
 function makeRequest(
   method: string,
@@ -60,7 +86,7 @@ afterEach(() => {
 
 describe("path traversal", () => {
   test("rejects paths containing '..'", async () => {
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("../etc/passwd", makeRequest("GET"));
     expect(res.status).toBe(400);
     const body = await readErrorBody(res);
@@ -69,7 +95,7 @@ describe("path traversal", () => {
   });
 
   test("rejects embedded '..' segments", async () => {
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch(
       "foo/../../etc/passwd",
       makeRequest("GET"),
@@ -84,7 +110,7 @@ describe("path traversal", () => {
 
 describe("missing handler", () => {
   test("returns 404 when no handler file exists", async () => {
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("nonexistent", makeRequest("GET"));
     expect(res.status).toBe(404);
     const body = await readErrorBody(res);
@@ -106,7 +132,7 @@ describe("successful dispatch", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("hello", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -121,7 +147,7 @@ describe("successful dispatch", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("submit", makeRequest("POST"));
     expect(res.status).toBe(201);
     const body = await res.json();
@@ -136,7 +162,7 @@ describe("successful dispatch", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("legacy", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -157,7 +183,7 @@ describe("index file convention", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("my-app", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -172,7 +198,7 @@ describe("index file convention", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("fallback-app", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -193,7 +219,7 @@ describe("index file convention", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("dual", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -214,7 +240,7 @@ describe("method not allowed", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("get-only", makeRequest("POST"));
     expect(res.status).toBe(405);
     expect(res.headers.get("Allow")).toBe("GET");
@@ -228,7 +254,7 @@ describe("method not allowed", () => {
        export function DELETE(request) { return new Response("ok"); }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("multi", makeRequest("PUT"));
     expect(res.status).toBe(405);
     const allow = res.headers.get("Allow");
@@ -252,7 +278,7 @@ describe("handler timeout", () => {
     );
 
     // Use a very short timeout for testing
-    const dispatcher = new UserRouteDispatcher({ handlerTimeoutMs: 50 });
+    const dispatcher = makeDispatcher({ handlerTimeoutMs: 50 });
     const res = await dispatcher.dispatch("slow", makeRequest("GET"));
     expect(res.status).toBe(504);
     const body = await readErrorBody(res);
@@ -274,7 +300,7 @@ describe("handler errors", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("throws", makeRequest("GET"));
     expect(res.status).toBe(500);
     const body = await readErrorBody(res);
@@ -290,7 +316,7 @@ describe("handler errors", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("rejects", makeRequest("GET"));
     expect(res.status).toBe(500);
     const body = await readErrorBody(res);
@@ -311,7 +337,7 @@ describe("mtime cache", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
 
     // First request — version 1
     const res1 = await dispatcher.dispatch("mutable", makeRequest("GET"));
@@ -349,7 +375,7 @@ describe("subdirectory routing", () => {
       }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("api/v1/status", makeRequest("GET"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -371,8 +397,89 @@ describe("description metadata", () => {
        }`,
     );
 
-    const dispatcher = new UserRouteDispatcher();
+    const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("with-meta", makeRequest("GET"));
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context injection
+// ---------------------------------------------------------------------------
+
+describe("context injection", () => {
+  test("passes UserRouteContext as second argument to handler", async () => {
+    writeHandler(
+      "ctx-echo.ts",
+      `export function GET(request, context) {
+        return Response.json({
+          hasHub: typeof context.assistantEventHub?.publish === "function",
+          assistantId: context.assistantId,
+        });
+      }`,
+    );
+
+    const ctx = makeContext({ assistantId: "custom-id" });
+    const dispatcher = makeDispatcher({ context: ctx });
+    const res = await dispatcher.dispatch("ctx-echo", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.hasHub).toBe(true);
+    expect(body.assistantId).toBe("custom-id");
+  });
+
+  test("handler can publish events through injected hub", async () => {
+    writeHandler(
+      "ctx-publish.ts",
+      `export async function POST(request, context) {
+        const body = await request.json();
+        await context.assistantEventHub.publish({
+          id: "test-event-1",
+          assistantId: context.assistantId,
+          conversationId: body.conversationId,
+          emittedAt: new Date().toISOString(),
+          message: { type: "open_conversation", conversationId: body.conversationId },
+        });
+        return Response.json({ published: true });
+      }`,
+    );
+
+    const hub = new AssistantEventHub();
+    const received: unknown[] = [];
+    hub.subscribe(
+      { assistantId: "test-assistant" },
+      (event) => { received.push(event); },
+    );
+
+    const ctx = makeContext({ assistantEventHub: hub });
+    const dispatcher = makeDispatcher({ context: ctx });
+    const req = new Request("http://localhost/v1/x/ctx-publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: "conv-123" }),
+    });
+    const res = await dispatcher.dispatch("ctx-publish", req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.published).toBe(true);
+    expect(received).toHaveLength(1);
+    expect((received[0] as { conversationId: string }).conversationId).toBe(
+      "conv-123",
+    );
+  });
+
+  test("legacy handlers that ignore context still work", async () => {
+    writeHandler(
+      "no-ctx.ts",
+      `export function GET(request) {
+        return Response.json({ legacy: true });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("no-ctx", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.legacy).toBe(true);
   });
 });
