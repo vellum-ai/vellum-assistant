@@ -109,7 +109,12 @@ final class VellumCli: AssistantManagementClient {
 
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
+    /// `VELLUM_ENVIRONMENT` must be forwarded so the bundled CLI resolves
+    /// env-scoped paths (lockfile, device ID, platform/guardian tokens,
+    /// workspace config) to the same location the desktop app uses. The
+    /// app's Info.plist sets this at build time (see `build.sh:1054`).
     nonisolated private static let forwardedEnvKeys: [String] = [
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "VELLUM_WORKSPACE_DIR",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
