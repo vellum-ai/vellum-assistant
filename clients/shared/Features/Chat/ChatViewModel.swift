@@ -662,6 +662,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
     public var conversationType: String?
+    /// Whether this conversation belongs to a non-Vellum channel (e.g. Slack,
+    /// Telegram). Set by the platform layer alongside `conversationId` when the
+    /// underlying `ConversationModel.isChannelConversation` is true. Used by
+    /// `ChatActionHandler` to suppress echo duplication when a channel user
+    /// message is already visible from history reconstruction.
+    public var isChannelConversation: Bool = false
     /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?

@@ -236,6 +236,7 @@ final class ConversationSelectionStore {
         guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return nil }
         guard let viewModel = viewModelFactory?() else { return nil }
         viewModel.conversationId = conversation.conversationId
+        viewModel.isChannelConversation = conversation.isChannelConversation
         if conversation.conversationId == nil {
             viewModel.isHistoryLoaded = true
         }
