@@ -21,10 +21,14 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
+  getXdgPlatformTokenPath,
+  getXdgVellumConfigDirName,
 } from "../util/platform.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const originalBaseDataDir = process.env.BASE_DATA_DIR;
+const originalVellumEnvironment = process.env.VELLUM_ENVIRONMENT;
+const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
 
 afterEach(() => {
   if (originalWorkspaceDir == null) {
@@ -36,6 +40,16 @@ afterEach(() => {
     delete process.env.BASE_DATA_DIR;
   } else {
     process.env.BASE_DATA_DIR = originalBaseDataDir;
+  }
+  if (originalVellumEnvironment == null) {
+    delete process.env.VELLUM_ENVIRONMENT;
+  } else {
+    process.env.VELLUM_ENVIRONMENT = originalVellumEnvironment;
+  }
+  if (originalXdgConfigHome == null) {
+    delete process.env.XDG_CONFIG_HOME;
+  } else {
+    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
   }
 });
 
@@ -134,6 +148,56 @@ describe("path characterization", () => {
     expect(existsSync(join(data, "interfaces"))).toBe(true);
 
     rmSync(wsDir, { recursive: true, force: true });
+  });
+});
+
+describe("XDG platform-token path env-awareness", () => {
+  test("production returns ~/.config/vellum/platform-token", () => {
+    delete process.env.VELLUM_ENVIRONMENT;
+    delete process.env.XDG_CONFIG_HOME;
+    expect(getXdgVellumConfigDirName()).toBe("vellum");
+    expect(getXdgPlatformTokenPath()).toBe(
+      join(homedir(), ".config", "vellum", "platform-token"),
+    );
+  });
+
+  test("production (explicit) returns ~/.config/vellum/platform-token", () => {
+    process.env.VELLUM_ENVIRONMENT = "production";
+    delete process.env.XDG_CONFIG_HOME;
+    expect(getXdgVellumConfigDirName()).toBe("vellum");
+    expect(getXdgPlatformTokenPath()).toBe(
+      join(homedir(), ".config", "vellum", "platform-token"),
+    );
+  });
+
+  test("dev environment returns $XDG_CONFIG_HOME/vellum-dev/platform-token", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_CONFIG_HOME = "/tmp/fake-xdg";
+    expect(getXdgVellumConfigDirName()).toBe("vellum-dev");
+    expect(getXdgPlatformTokenPath()).toBe(
+      "/tmp/fake-xdg/vellum-dev/platform-token",
+    );
+  });
+
+  test.each(["staging", "test", "local"])(
+    "%s environment returns env-scoped path",
+    (env) => {
+      process.env.VELLUM_ENVIRONMENT = env;
+      process.env.XDG_CONFIG_HOME = "/tmp/fake-xdg";
+      expect(getXdgVellumConfigDirName()).toBe(`vellum-${env}`);
+      expect(getXdgPlatformTokenPath()).toBe(
+        `/tmp/fake-xdg/vellum-${env}/platform-token`,
+      );
+    },
+  );
+
+  test("unknown environment falls back to production path", () => {
+    process.env.VELLUM_ENVIRONMENT = "no-such-env";
+    process.env.XDG_CONFIG_HOME = "/tmp/fake-xdg";
+    expect(getXdgVellumConfigDirName()).toBe("vellum");
+    expect(getXdgPlatformTokenPath()).toBe(
+      "/tmp/fake-xdg/vellum/platform-token",
+    );
   });
 });
 

@@ -6,11 +6,14 @@
  * extensible for future per-device metadata.
  *
  * Path resolution:
- *   - Containerized (IS_CONTAINERIZED=true): uses /home/assistant (the assistant
- *     user's persistent home dir) so device.json lives on the assistant's own
- *     filesystem rather than the shared data volume.
- *   - Local (single or multi-instance): uses homedir() so all instances on the
- *     same machine share a single device ID.
+ *   - Containerized (IS_CONTAINERIZED=true): `/home/assistant/.vellum/device.json`
+ *     — the assistant user's persistent home dir, kept off the shared data
+ *     volume. Not affected by VELLUM_ENVIRONMENT because the container fs
+ *     has no cross-process contract with the Swift client.
+ *   - Non-containerized production: `~/.vellum/device.json` (legacy, shared
+ *     across all local instances on the same machine).
+ *   - Non-containerized non-production: `$XDG_CONFIG_HOME/vellum-<env>/device.json`,
+ *     matching Swift's `VellumPaths.deviceIdFile`.
  *
  * The value is cached in memory after the first successful read/write.
  * Falls back to a generated UUID if the file cannot be read or written.
@@ -23,6 +26,7 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
+import { getXdgVellumConfigDirName } from "./platform.js";
 
 const log = getLogger("device-id");
 
@@ -45,6 +49,35 @@ export function getDeviceIdBaseDir(): string {
 }
 
 /**
+ * Resolve the directory and file path for `device.json` based on the
+ * runtime environment. See the module docblock for the resolution table.
+ *
+ * Production and containerized modes preserve the legacy `~/.vellum` /
+ * `/home/assistant/.vellum` paths. Non-production, non-containerized
+ * deployments route through `$XDG_CONFIG_HOME/vellum-<env>` to match
+ * the Swift client's `VellumPaths.deviceIdFile`.
+ */
+function resolveDeviceIdPaths(): { dir: string; file: string } {
+  if (getIsContainerized()) {
+    const dir = join("/home/assistant", ".vellum");
+    return { dir, file: join(dir, "device.json") };
+  }
+
+  const configDirName = getXdgVellumConfigDirName();
+  if (configDirName === "vellum") {
+    // Production: device.json lives at ~/.vellum/device.json, shared
+    // across all local instances on the same machine.
+    const dir = join(homedir(), ".vellum");
+    return { dir, file: join(dir, "device.json") };
+  }
+
+  const configHome =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const dir = join(configHome, configDirName);
+  return { dir, file: join(dir, "device.json") };
+}
+
+/**
  * Get the stable device ID for this machine.
  *
  * Resolution order:
@@ -60,8 +93,7 @@ export function getDeviceId(): string {
     return cached;
   }
 
-  const vellumDir = join(getDeviceIdBaseDir(), ".vellum");
-  const filePath = join(vellumDir, "device.json");
+  const { dir: vellumDir, file: filePath } = resolveDeviceIdPaths();
   const generated = randomUUID();
 
   try {
