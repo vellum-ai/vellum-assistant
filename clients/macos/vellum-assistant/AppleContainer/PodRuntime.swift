@@ -208,15 +208,20 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
             ] + LinuxContainer.defaultMounts()
         }
 
-        // 6. Create and start.
+        // 6. Create and start all containers in parallel.
         log.info("Creating pod VM...")
         try await pod.create()
         log.info("Pod VM created. Starting containers...")
-        for service in VellumServiceName.startOrder {
-            let cid = containerID(service)
-            log.info("Starting container \(cid, privacy: .public)...")
-            try await pod.startContainer(cid)
-            log.info("Container \(cid, privacy: .public) started")
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for service in VellumServiceName.startOrder {
+                let cid = containerID(service)
+                group.addTask {
+                    log.info("Starting container \(cid, privacy: .public)...")
+                    try await pod.startContainer(cid)
+                    log.info("Container \(cid, privacy: .public) started")
+                }
+            }
+            try await group.waitForAll()
         }
 
         let gatewayURL = "http://\(podIP):\(VellumContainerPorts.gatewayHTTP)"
