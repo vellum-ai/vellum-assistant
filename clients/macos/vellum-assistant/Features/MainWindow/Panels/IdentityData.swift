@@ -356,11 +356,7 @@ extension LockfileAssistant {
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
         case "apple-container":
-            // instanceDir is not written under resources for apple-container
-            // entries, so derive it from the mgmtSocket parent directory.
-            let base = instanceDir
-                ?? mgmtSocket.flatMap { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
-                ?? NSHomeDirectory()
+            let base = instanceDir ?? NSHomeDirectory()
             return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()

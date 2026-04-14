@@ -138,7 +138,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
         onProgress?("Container started")
 
         // Start the management socket server so the CLI can exec into the container.
-        let mgmtSocketPath = instanceDir.appendingPathComponent("mgmt.sock").path
+        // Unix domain sockets on macOS have a 104-byte sun_path limit.
+        // The instanceDir path (~/Library/Application Support/…) easily exceeds
+        // that, so we place the socket under /tmp with a short path.
+        let mgmtSocketPath = Self.mgmtSocketPath(for: assistantName)
+        let mgmtSocketDir = URL(fileURLWithPath: mgmtSocketPath).deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: mgmtSocketDir, withIntermediateDirectories: true)
         let server = ExecManagementServer(socketPath: mgmtSocketPath, podRuntime: runtime)
         do {
             try server.start()
@@ -159,7 +164,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
             hatchedAt: hatchedAt,
             signingKey: signingKey,
             runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketPath
+            mgmtSocket: mgmtSocketPath,
+            instanceDir: instanceDir.path
         )
         LockfileAssistant.setActiveAssistantId(assistantName)
 
@@ -298,10 +304,15 @@ final class AppleContainersLauncher: AssistantManagementClient {
             try? FileManager.default.removeItem(at: dir)
         }
 
-        // 3. Remove the guardian token file.
+        // 3. Clean up the management socket directory under /tmp.
+        let mgmtDir = URL(fileURLWithPath: Self.mgmtSocketPath(for: resolvedName))
+            .deletingLastPathComponent()
+        try? FileManager.default.removeItem(at: mgmtDir)
+
+        // 4. Remove the guardian token file.
         Self.removeGuardianToken(assistantId: resolvedName)
 
-        // 4. Remove the lockfile entry.
+        // 5. Remove the lockfile entry.
         Self.removeLockfileEntry(assistantId: resolvedName)
 
         log.info("Apple container '\(resolvedName, privacy: .public)' retired")
@@ -555,6 +566,11 @@ final class AppleContainersLauncher: AssistantManagementClient {
 
     // MARK: - Paths
 
+    /// Socket path under /tmp to stay within the 104-byte sun_path limit.
+    static func mgmtSocketPath(for assistantName: String) -> String {
+        "/tmp/vellum-ac/\(assistantName)/mgmt.sock"
+    }
+
     private static func instanceDir(for assistantName: String) -> URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
@@ -635,6 +651,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
         signingKey: String,
         runtimeUrl: String? = nil,
         mgmtSocket: String? = nil,
+        instanceDir: String? = nil,
         lockfilePath: String? = nil
     ) -> Bool {
         let path = lockfilePath ?? LockfilePaths.primaryPath
@@ -664,6 +681,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
         if let mgmtSocket {
             newEntry["mgmtSocket"] = mgmtSocket
+        }
+        if let instanceDir {
+            newEntry["instanceDir"] = instanceDir
         }
 
         if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
