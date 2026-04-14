@@ -269,7 +269,7 @@ jobs:
           ./build.sh binaries
 
       - name: Build macOS app
-        timeout-minutes: 15
+        timeout-minutes: 20
         working-directory: clients/macos
         run: |
           set -o pipefail
