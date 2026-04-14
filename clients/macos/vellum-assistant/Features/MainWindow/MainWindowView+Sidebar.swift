@@ -13,7 +13,13 @@ extension MainWindowView {
             // should not dismiss the app panel.
             return
         }
-        windowState.selection = .conversation(conversation.id)
+        // When an app is open, keep it visible and switch the conversation
+        // context instead of navigating away to a full-screen conversation.
+        if let appId = windowState.activeAppId {
+            windowState.setAppEditing(appId: appId, conversationId: conversation.id)
+        } else {
+            windowState.selection = .conversation(conversation.id)
+        }
         conversationManager.selectConversation(id: conversation.id)
 
         // Auto-expand the section containing the selected conversation
@@ -28,7 +34,12 @@ extension MainWindowView {
         conversationManager.createConversation()
         SoundManager.shared.play(.newConversation)
         if let id = conversationManager.activeConversationId {
-            windowState.selection = .conversation(id)
+            // Keep the app visible when starting a new conversation from app mode
+            if let appId = windowState.activeAppId {
+                windowState.setAppEditing(appId: appId, conversationId: id)
+            } else {
+                windowState.selection = .conversation(id)
+            }
         } else {
             // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil
