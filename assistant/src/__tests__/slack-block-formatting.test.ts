@@ -121,6 +121,25 @@ describe("textToSlackBlocks", () => {
     expect(blocks![0].type).toBe("section");
   });
 
+  test("handles escaped pipes in table cells", () => {
+    const table = [
+      "| Command | Description |",
+      "| --- | --- |",
+      "| cmd \\| grep | filters output |",
+    ].join("\n");
+
+    const blocks = textToSlackBlocks(table);
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBe(1);
+    const section = blocks![0] as {
+      type: "section";
+      text: { type: string; text: string };
+    };
+    // The escaped pipe should appear as a literal pipe in the cell value
+    expect(section.text.text).toContain("cmd | grep");
+    expect(section.text.text).toContain("Description: filters output");
+  });
+
   test("requires header + separator + data row for table detection", () => {
     // Only header and separator, no data rows
     const input = "| A | B |\n| --- | --- |";

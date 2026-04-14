@@ -191,11 +191,15 @@ function splitIntoSegments(text: string): Segment[] {
  * Parse cells from a pipe-delimited table row, trimming whitespace.
  */
 function parseTableRow(line: string): string[] {
+  const ESCAPED_PIPE_PLACEHOLDER = "\x00PIPE\x00";
   return line
+    .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
     .replace(/^\|/, "")
     .replace(/\|$/, "")
     .split("|")
-    .map((cell) => cell.trim());
+    .map((cell) =>
+      cell.replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|").trim(),
+    );
 }
 
 /**
