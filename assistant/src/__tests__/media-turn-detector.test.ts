@@ -263,4 +263,178 @@ describe("MediaTurnDetector", () => {
 
     detector.dispose();
   });
+
+  // ── Speech-aware segmentation ─────────────────────────────────────
+
+  describe("speech-aware segmentation", () => {
+    test("continuous chunk flow with speech->silence transition ends the turn", () => {
+      const onTurnStart = jest.fn();
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onTurnStart, onTurnEnd },
+      );
+
+      // Speech chunks — resets silence timer on each
+      detector.onMediaChunk(true);
+      expect(onTurnStart).toHaveBeenCalledTimes(1);
+
+      advance(100);
+      detector.onMediaChunk(true);
+      advance(100);
+      detector.onMediaChunk(true);
+
+      // Transition to silence — continuous silent chunks should NOT
+      // reset the silence timer, so the turn ends after the threshold.
+      advance(100);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(false);
+
+      // Not yet past threshold from last speech chunk (300ms of silence
+      // plus whatever the timer started at when silence began)
+      expect(onTurnEnd).not.toHaveBeenCalled();
+
+      // Advance past the silence threshold from the last speech chunk
+      advance(500);
+
+      expect(onTurnEnd).toHaveBeenCalledTimes(1);
+      expect(onTurnEnd).toHaveBeenCalledWith("silence", expect.any(Number));
+      expect(detector.isActive).toBe(false);
+
+      detector.dispose();
+    });
+
+    test("no-speech continuous noise/silence does not start a turn", () => {
+      const onTurnStart = jest.fn();
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onTurnStart, onTurnEnd },
+      );
+
+      // Send many chunks with no speech — turn should never start
+      for (let i = 0; i < 20; i++) {
+        detector.onMediaChunk(false);
+        advance(50);
+      }
+
+      expect(onTurnStart).not.toHaveBeenCalled();
+      expect(onTurnEnd).not.toHaveBeenCalled();
+      expect(detector.isActive).toBe(false);
+
+      detector.dispose();
+    });
+
+    test("max-duration fallback still fires with continuous speech", () => {
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500, maxTurnDurationMs: 2000 },
+        { onTurnEnd },
+      );
+
+      // Continuous speech chunks — silence timer keeps resetting
+      detector.onMediaChunk(true);
+      for (let i = 0; i < 10; i++) {
+        advance(180);
+        detector.onMediaChunk(true);
+      }
+
+      // At ~1800ms. Advance to 2000ms to hit max-duration.
+      advance(200);
+
+      expect(onTurnEnd).toHaveBeenCalledTimes(1);
+      expect(onTurnEnd).toHaveBeenCalledWith(
+        "max-duration",
+        expect.any(Number),
+      );
+      expect(detector.isActive).toBe(false);
+
+      detector.dispose();
+    });
+
+    test("silent chunks during active turn do not reset the silence timer", () => {
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onTurnEnd },
+      );
+
+      // Start with speech
+      detector.onMediaChunk(true);
+
+      // Advance 200ms, then send silent chunks — they should NOT
+      // extend the turn by resetting the timer.
+      advance(200);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(false);
+      advance(100);
+      detector.onMediaChunk(false);
+
+      // Silence timer started from the last speech chunk. At 500ms
+      // from that point, the turn should end.
+      advance(200); // 200+100+100+200 = 600ms since last speech
+
+      expect(onTurnEnd).toHaveBeenCalledTimes(1);
+      expect(onTurnEnd).toHaveBeenCalledWith("silence", expect.any(Number));
+
+      detector.dispose();
+    });
+
+    test("speech resuming during silence countdown resets the timer", () => {
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onTurnEnd },
+      );
+
+      // Speech starts
+      detector.onMediaChunk(true);
+
+      // 300ms of silence
+      advance(300);
+      detector.onMediaChunk(false);
+
+      // Speech resumes — resets silence timer
+      advance(100);
+      detector.onMediaChunk(true);
+
+      // Timer reset: another 500ms must pass
+      advance(400);
+      expect(onTurnEnd).not.toHaveBeenCalled();
+
+      advance(200);
+      expect(onTurnEnd).toHaveBeenCalledTimes(1);
+
+      detector.dispose();
+    });
+
+    test("backwards compatibility: onMediaChunk without hasSpeech argument defaults to true", () => {
+      const onTurnStart = jest.fn();
+      const onTurnEnd = jest.fn();
+
+      const detector = new MediaTurnDetector(
+        { silenceThresholdMs: 500 },
+        { onTurnStart, onTurnEnd },
+      );
+
+      // Call without argument — defaults to hasSpeech=true
+      detector.onMediaChunk();
+      expect(onTurnStart).toHaveBeenCalledTimes(1);
+      expect(detector.isActive).toBe(true);
+
+      advance(600);
+      expect(onTurnEnd).toHaveBeenCalledTimes(1);
+
+      detector.dispose();
+    });
+  });
 });

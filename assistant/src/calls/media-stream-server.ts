@@ -90,6 +90,16 @@ export class MediaStreamCallSession {
   private callSid: string | null = null;
   private disposed = false;
 
+  // ── Operational diagnostics counters ──────────────────────────────
+  /** Number of barge-in attempts that were accepted (assistant was speaking). */
+  private bargeInAccepted = 0;
+  /** Number of barge-in attempts that were ignored (assistant not speaking). */
+  private bargeInIgnored = 0;
+  /** Number of turns segmented by the STT session. */
+  private turnsSegmented = 0;
+  /** Number of transcript finals produced (non-empty). */
+  private transcriptFinalsProduced = 0;
+
   constructor(
     ws: ServerWebSocket<unknown>,
     callSessionId: string,
@@ -162,6 +172,20 @@ export class MediaStreamCallSession {
     if (isTerminalState(session.status)) return;
 
     const isNormalClose = code === 1000;
+    const terminationReason = isNormalClose ? "normal_stop" : "premature_abort";
+    log.info(
+      {
+        callSessionId: this.callSessionId,
+        terminationReason,
+        closeCode: code,
+        closeReason: reason,
+        turnsSegmented: this.turnsSegmented,
+        transcriptFinalsProduced: this.transcriptFinalsProduced,
+        bargeInAccepted: this.bargeInAccepted,
+        bargeInIgnored: this.bargeInIgnored,
+      },
+      "Media stream transport closed — session diagnostics",
+    );
     if (isNormalClose) {
       updateCallSession(this.callSessionId, {
         status: "completed",
@@ -258,7 +282,13 @@ export class MediaStreamCallSession {
     this.output.markClosed();
 
     log.info(
-      { callSessionId: this.callSessionId },
+      {
+        callSessionId: this.callSessionId,
+        turnsSegmented: this.turnsSegmented,
+        transcriptFinalsProduced: this.transcriptFinalsProduced,
+        bargeInAccepted: this.bargeInAccepted,
+        bargeInIgnored: this.bargeInIgnored,
+      },
       "Media stream call session destroyed",
     );
   }
@@ -465,16 +495,35 @@ export class MediaStreamCallSession {
   // ── STT callbacks ─────────────────────────────────────────────────
 
   private handleSpeechStart(): void {
+    this.turnsSegmented++;
+
     // Barge-in: clear queued outbound audio and abort the in-flight LLM
-    // turn when the caller starts speaking over the assistant.
+    // turn only when the assistant is actively speaking. Uses the gated
+    // handleBargeIn path so initial inbound audio frames do not cancel a
+    // still-starting initial turn.
     if (this.output && this.controller) {
-      this.output.clearAudio();
-      this.controller.handleInterrupt();
+      const accepted = this.controller.handleBargeIn();
+      if (accepted) {
+        this.bargeInAccepted++;
+        this.output.clearAudio();
+        log.info(
+          { callSessionId: this.callSessionId },
+          "Media-stream barge-in accepted — cleared outbound audio",
+        );
+      } else {
+        this.bargeInIgnored++;
+        log.debug(
+          { callSessionId: this.callSessionId },
+          "Media-stream barge-in ignored — assistant not speaking",
+        );
+      }
     }
   }
 
   private handleTranscriptFinal(text: string, _durationMs: number): void {
     if (!text.trim()) return;
+    this.transcriptFinalsProduced++;
+
     if (!this.controller) {
       log.warn(
         { callSessionId: this.callSessionId },

@@ -28,6 +28,7 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
   - [Overview](#overview)
   - [Provider-Conditional Routing](#provider-conditional-routing)
   - [Troubleshooting Matrix](#troubleshooting-matrix)
+  - [Twilio Media-Stream Troubleshooting](#twilio-media-stream-troubleshooting)
 - [**Conversation STT Streaming Operator Runbook**](#conversation-stt-streaming-operator-runbook)
   - [Architecture Summary](#architecture-summary)
   - [Debugging Stream Sessions](#debugging-stream-sessions)
@@ -672,6 +673,47 @@ Workspace migration `034-remove-calls-voice-transcription-provider` preserves ex
 | Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
 | Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
 | Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
+
+### Twilio Media-Stream Troubleshooting
+
+This section covers debugging media-stream calls that use the `media-stream-custom` STT strategy (OpenAI Whisper). The media-stream path handles raw audio ingestion, speech-aware turn segmentation, and server-side transcription.
+
+#### Key Log Markers
+
+Search daemon logs for the `media-stream-server` and `media-stt-session` logger categories. Each log entry includes `callSessionId` for correlation.
+
+| Log message | Logger | Meaning |
+| --- | --- | --- |
+| `Media stream session started` | `media-stream-server` | Stream `start` event received; controller created |
+| `Media-stream barge-in accepted — cleared outbound audio` | `media-stream-server` | Caller spoke while assistant was speaking; turn interrupted |
+| `Media-stream barge-in ignored — assistant not speaking` | `media-stream-server` | Inbound audio arrived but assistant was idle/processing; no interrupt |
+| `Media stream stop event received` | `media-stream-server` | Twilio sent `stop`; call is ending |
+| `Media stream transport closed — session diagnostics` | `media-stream-server` | WebSocket closed; includes `turnsSegmented`, `transcriptFinalsProduced`, `bargeInAccepted`, `bargeInIgnored`, `terminationReason` |
+| `Media stream call session destroyed` | `media-stream-server` | Full teardown; includes session-lifetime diagnostic counters |
+| `Media stream STT session started` | `media-stt-session` | STT session initialized with stream metadata |
+| `Barge-in ignored — assistant not speaking` | `call-controller` | Controller received barge-in but was idle or processing |
+| `Barge-in accepted — interrupting assistant speech` | `call-controller` | Controller was speaking and accepted the interrupt |
+
+#### Failure Class Mapping
+
+| Symptom | Likely failure class | Diagnostic steps |
+| --- | --- | --- |
+| **Connected but no reply** | False barge-in abort: initial inbound audio interrupted the first turn before the assistant could respond | Check logs for `barge-in accepted` immediately after `session started`. If present, the gating fix is not active. Verify `handleBargeIn` (not `handleInterrupt`) is called from `handleSpeechStart`. |
+| **Connected but no reply (no barge-in)** | Handshake/setup failure: `start` event never arrived or setup policy denied the call | Check for `Media stream session started` log. If absent, verify gateway WebSocket proxy is forwarding to the daemon. Check for `setup denied` events. |
+| **Call active but no transcript** | Turn segmentation blocked by continuous chunk cadence (pre-fix behavior) | Check `turnsSegmented` and `transcriptFinalsProduced` in the session diagnostics log. If `turnsSegmented=0`, the speech-aware detector is not receiving speech-bearing chunks. Verify audio encoding and energy levels. |
+| **Transcript only at hangup** | Turn boundaries not detected mid-call; only `forceEnd` at stream stop produced a transcript | Check `transcriptFinalsProduced` — if it equals 1 and the call was long, speech-to-silence transitions are not being detected. Verify `detectSpeechActivity` thresholds match the audio characteristics. |
+| **Immediate abort after connect** | Controller destroyed before first turn completes | Check for `Media stream call session destroyed` appearing within 1-2 seconds of `session started`. Cross-reference with `terminationReason` in transport-close diagnostics. |
+| **Repeated bogus transcriptions** | Silent/noise frames classified as speech | Check `turnsSegmented` — if much higher than expected, the speech energy threshold is too low. Tune `SPEECH_ENERGY_THRESHOLD` in `media-stream-stt-session.ts`. |
+
+#### Session Diagnostic Fields
+
+The `Media stream transport closed — session diagnostics` and `Media stream call session destroyed` log entries include:
+
+- **`turnsSegmented`** — Number of speech turns detected by the turn detector.
+- **`transcriptFinalsProduced`** — Number of non-empty transcripts delivered to the controller.
+- **`bargeInAccepted`** — Interrupts that fired (assistant was speaking).
+- **`bargeInIgnored`** — Interrupts that were suppressed (assistant idle/processing).
+- **`terminationReason`** — `normal_stop` (clean close code 1000) or `premature_abort` (abnormal close).
 
 ---
 

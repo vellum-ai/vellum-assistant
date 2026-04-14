@@ -477,4 +477,108 @@ describe("MediaStreamSttSession", () => {
     // the dispose works and move on.
     expect(true).toBe(true);
   });
+
+  // ── Speech-aware turn segmentation ─────────────────────────────
+
+  describe("speech-aware turn segmentation", () => {
+    test("long-running media stream can emit onTranscriptFinal before call end when speech is present", async () => {
+      const mockTranscriber = makeMockTranscriber("hello from mid-call");
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue(mockTranscriber);
+
+      const onTranscriptFinal = jest.fn();
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 400 } },
+        { onTranscriptFinal, onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+
+      // Simulate a long-running stream: speech chunks followed by silence.
+      // The turn detector should segment based on speech->silence transition
+      // without waiting for a stream `stop` event.
+
+      // Phase 1: speech frames (high energy payloads)
+      // Create a payload that the speech detector will classify as speech.
+      // mu-law silence is ~0xFF, speech has lower byte values.
+      // A buffer of 0x00 bytes will decode to high amplitude.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+        jest.advanceTimersByTime(20); // 20ms per chunk (8kHz, 160 samples)
+      }
+
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      // Phase 2: silence frames — the turn should end after silenceThresholdMs
+      // mu-law silence bytes (~0xFF)
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+      for (let i = 0; i < 10; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+        jest.advanceTimersByTime(20);
+      }
+
+      // Advance past the silence threshold to trigger turn end
+      jest.advanceTimersByTime(500);
+
+      // Flush async promise chain
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      // The transcript should have been emitted mid-call (before stop)
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello from mid-call",
+        expect.any(Number),
+      );
+
+      // The session is still alive — not disposed
+      // Phase 3: more speech after the first turn
+      onTranscriptFinal.mockClear();
+      onSpeechStart.mockClear();
+
+      for (let i = 0; i < 3; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload));
+        jest.advanceTimersByTime(20);
+      }
+
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      // Now stop event arrives — finalizes the second in-flight turn
+      session.handleMessage(makeStopMessage());
+
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("continuous silence-only stream does not trigger transcription", async () => {
+      const onTranscriptFinal = jest.fn();
+      const onSpeechStart = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 400 } },
+        { onTranscriptFinal, onSpeechStart },
+      );
+
+      session.handleMessage(makeStartMessage());
+
+      // Send many silence-only frames
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+      for (let i = 0; i < 50; i++) {
+        session.handleMessage(makeMediaMessage(silencePayload));
+        jest.advanceTimersByTime(20);
+      }
+
+      // Advance well past silence threshold
+      jest.advanceTimersByTime(2000);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // No turn should have started, so no transcript emitted
+      expect(onSpeechStart).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+  });
 });

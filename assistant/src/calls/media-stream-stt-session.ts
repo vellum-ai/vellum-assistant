@@ -206,7 +206,12 @@ export class MediaStreamSttSession {
     if (event.media.track !== "inbound") return;
 
     this.currentTurnChunks.push(event.media.payload);
-    this.turnDetector.onMediaChunk();
+
+    // Compute speech activity from the audio payload using a lightweight
+    // energy heuristic. mu-law encoded audio has a companded dynamic
+    // range — silence sits near 0xFF/0x7F while speech has higher energy.
+    const hasSpeech = detectSpeechActivity(event.media.payload);
+    this.turnDetector.onMediaChunk(hasSpeech);
   }
 
   private handleStop(): void {
@@ -320,6 +325,69 @@ export class MediaStreamSttSession {
     const buffers = chunks.map((chunk) => Buffer.from(chunk, "base64"));
     return Buffer.concat(buffers);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Speech activity detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Lightweight energy-based speech activity detector for mu-law encoded audio.
+ *
+ * mu-law encoding compands the dynamic range so that silence values cluster
+ * around 0xFF (negative zero) and 0x7F (positive zero). Speech produces
+ * samples with lower byte values (higher decoded amplitude).
+ *
+ * This function decodes the base64 payload, computes the average absolute
+ * linear amplitude of the mu-law samples, and compares it against a
+ * threshold. The threshold is tuned for Twilio's 8 kHz, 8-bit mu-law
+ * stream where typical silence RMS is ~50-100 and speech is >300.
+ *
+ * Exported for testing.
+ *
+ * @param base64Payload - Base64-encoded mu-law audio chunk from Twilio.
+ * @returns `true` if the chunk likely contains speech, `false` otherwise.
+ */
+export function detectSpeechActivity(base64Payload: string): boolean {
+  const SPEECH_ENERGY_THRESHOLD = 200;
+
+  let raw: Buffer;
+  try {
+    raw = Buffer.from(base64Payload, "base64");
+  } catch {
+    return false;
+  }
+
+  if (raw.length === 0) return false;
+
+  // Compute average absolute linear amplitude from mu-law samples.
+  let totalAmplitude = 0;
+  for (let i = 0; i < raw.length; i++) {
+    totalAmplitude += mulawToLinearMagnitude(raw[i]);
+  }
+  const avgAmplitude = totalAmplitude / raw.length;
+
+  return avgAmplitude > SPEECH_ENERGY_THRESHOLD;
+}
+
+/**
+ * Convert a single mu-law byte to its approximate absolute linear magnitude.
+ *
+ * mu-law decoding formula (ITU-T G.711):
+ * - Bit 7 is the sign bit (0 = positive, 1 = negative).
+ * - Bits 6-4 are the exponent (3 bits).
+ * - Bits 3-0 are the mantissa (4 bits).
+ *
+ * The decoded value is: sign * ((mantissa << 1 | 0x21) << exponent) - 0x21
+ * We return the absolute value since we only care about energy.
+ */
+function mulawToLinearMagnitude(mulawByte: number): number {
+  // mu-law bytes are bitwise-inverted in Twilio's encoding
+  const b = ~mulawByte & 0xff;
+  const exponent = (b >> 4) & 0x07;
+  const mantissa = b & 0x0f;
+  const magnitude = ((mantissa << 1) | 0x21) << exponent;
+  return magnitude - 0x21;
 }
 
 // ---------------------------------------------------------------------------
