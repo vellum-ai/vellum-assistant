@@ -144,15 +144,22 @@ public struct GuardianClient: GuardianClientProtocol {
 
         let rootDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vellum")
-        let lockPath = rootDir.appendingPathComponent("guardian-init.lock")
+        // The gateway now stores the lock inside the "protected" subdirectory
+        // (getGatewaySecurityDir). Remove from both the new and legacy paths
+        // so recovery works regardless of gateway version.
+        let lockPaths = [
+            rootDir.appendingPathComponent("protected").appendingPathComponent("guardian-init.lock"),
+            rootDir.appendingPathComponent("guardian-init.lock"),
+        ]
 
-        guard FileManager.default.fileExists(atPath: lockPath.path) else { return }
-
-        do {
-            try FileManager.default.removeItem(at: lockPath)
-            log.info("Removed guardian-init.lock to allow re-bootstrap")
-        } catch {
-            log.error("Failed to remove guardian-init.lock: \(error.localizedDescription)")
+        for lockPath in lockPaths {
+            guard FileManager.default.fileExists(atPath: lockPath.path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: lockPath)
+                log.info("Removed \(lockPath.lastPathComponent) at \(lockPath.path) to allow re-bootstrap")
+            } catch {
+                log.error("Failed to remove \(lockPath.path): \(error.localizedDescription)")
+            }
         }
     }
     #endif
