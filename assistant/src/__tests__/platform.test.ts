@@ -7,10 +7,13 @@ import {
   ensureDataDir,
   getDataDir,
   getDbPath,
+  getDotEnvPath,
   getHistoryPath,
   getInterfacesDir,
   getLogPath,
   getPidPath,
+  getProtectedDir,
+  getRuntimePortFilePath,
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,
@@ -21,12 +24,18 @@ import {
 } from "../util/platform.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+const originalBaseDataDir = process.env.BASE_DATA_DIR;
 
 afterEach(() => {
   if (originalWorkspaceDir == null) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
     process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+  }
+  if (originalBaseDataDir == null) {
+    delete process.env.BASE_DATA_DIR;
+  } else {
+    process.env.BASE_DATA_DIR = originalBaseDataDir;
   }
 });
 
@@ -69,6 +78,25 @@ describe("path characterization", () => {
     expect(getDataDir()).toBe("/tmp/custom-workspace/data");
     // Root-level paths are NOT affected by VELLUM_WORKSPACE_DIR
     expect(getPidPath()).toBe(join(homedir(), ".vellum", "vellum.pid"));
+  });
+
+  test("BASE_DATA_DIR relocates vellumRoot()-derived paths", () => {
+    const saved = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = "/tmp/fake-instance";
+    try {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      expect(getPidPath()).toBe("/tmp/fake-instance/.vellum/vellum.pid");
+      expect(getProtectedDir()).toBe("/tmp/fake-instance/.vellum/protected");
+      expect(getRuntimePortFilePath()).toBe(
+        "/tmp/fake-instance/.vellum/runtime-port",
+      );
+      expect(getDotEnvPath()).toBe("/tmp/fake-instance/.vellum/.env");
+      // Workspace transitively relocates via vellumRoot()
+      expect(getWorkspaceDir()).toBe("/tmp/fake-instance/.vellum/workspace");
+    } finally {
+      if (saved === undefined) delete process.env.BASE_DATA_DIR;
+      else process.env.BASE_DATA_DIR = saved;
+    }
   });
 
   test("hooks directory is inside the workspace boundary", () => {
