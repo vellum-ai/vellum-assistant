@@ -148,22 +148,6 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
   SttProviderEntry
 >([
   [
-    "openai-whisper",
-    {
-      id: "openai-whisper",
-      credentialProvider: "openai",
-      supportedBoundaries: new Set<SttBoundaryId>([
-        "daemon-batch",
-        "daemon-streaming",
-      ]),
-      telephonyMode: "batch-only",
-      conversationStreamingMode: "incremental-batch",
-      telephonyRouting: {
-        strategyKind: "media-stream-custom",
-      },
-    },
-  ],
-  [
     "deepgram",
     {
       id: "deepgram",
@@ -200,6 +184,22 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
           provider: "Google",
           defaultSpeechModel: undefined,
         },
+      },
+    },
+  ],
+  [
+    "openai-whisper",
+    {
+      id: "openai-whisper",
+      credentialProvider: "openai",
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
+      telephonyMode: "batch-only",
+      conversationStreamingMode: "incremental-batch",
+      telephonyRouting: {
+        strategyKind: "media-stream-custom",
       },
     },
   ],

@@ -3025,23 +3025,48 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Saves an API key for the given STT provider to the credential store
+    /// and synchronizes it to the assistant.
+    ///
+    /// Returns the gateway write result so callers can surface explicit
+    /// success/failure feedback in UI flows.
+    func saveSTTKeyResult(_ raw: String, sttProviderId: String) async -> APIKeyManager.SetKeyResult {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return APIKeyManager.SetKeyResult(
+                success: false,
+                error: "Please enter an API key.",
+                isTransient: false
+            )
+        }
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        let setLocalKey: (String, String) -> Void = APIKeyManager.setKey(_:for:)
+        setLocalKey(trimmed, keyProvider)
+        removeDeletionTombstone(type: "api_key", name: keyProvider)
+        let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
+        if result.success {
+            scheduleRoutingSourceRefresh()
+            return result
+        }
+        if let error = result.error {
+            log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
+        }
+        if !result.isTransient {
+            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
+        }
+        return result
+    }
+
     /// Saves an API key for the given STT provider to the credential store.
     /// The `sttProviderId` is the catalog identifier (e.g. `"openai-whisper"`,
     /// `"deepgram"`); the method resolves the credential provider name from
     /// the STT provider registry's `apiKeyProviderName` field so callers
     /// don't need to know the mapping.
     func saveSTTKey(_ raw: String, sttProviderId: String, onSuccess: (() -> Void)? = nil) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
-        APIKeyManager.setKey(trimmed, for: keyProvider)
-        removeDeletionTombstone(type: "api_key", name: keyProvider)
         Task {
-            let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
+            let result = await saveSTTKeyResult(raw, sttProviderId: sttProviderId)
             if result.success {
                 onSuccess?()
-            } else if let error = result.error {
-                log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
             }
         }
     }
