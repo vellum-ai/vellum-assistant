@@ -40,6 +40,7 @@ import { join } from "node:path";
 
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import {
@@ -270,8 +271,12 @@ async function runWrite(): Promise<void> {
   // so callers awaiting `patchFeedItemStatus` observe a fully
   // consistent world: the on-disk file, the SSE event, and the
   // returned `FeedItem` all reflect the same write.
+  //
+  // If the write failed, resolve all patch promises with `null` — the
+  // state was not persisted, and callers (e.g. HTTP route handlers)
+  // must not report success when the underlying write failed.
   for (const { resolve, value } of patchResults) {
-    resolve(value);
+    resolve(wrote ? value : null);
   }
 }
 
@@ -384,7 +389,7 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
 function publishHomeFeedUpdated(updatedAt: string, newItemCount: number): void {
   assistantEventHub
     .publish(
-      buildAssistantEvent("home", {
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
         type: "home_feed_updated",
         updatedAt,
         newItemCount,

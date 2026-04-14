@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import {
   mkdirSync,
   mkdtempSync,
@@ -7,7 +8,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 
 // ─── assistantEventHub mock ────────────────────────────────────────────
 // We spy on `publish` so the SSE-publish test can assert the writer
@@ -387,6 +398,48 @@ describe("feed-writer", () => {
       const result = await patchFeedItemStatus("unknown", "seen");
       expect(result).toBeNull();
     });
+
+    test("returns null when the underlying writeFileSync throws", async () => {
+      // Seed the feed with an existing item on disk so the patch path
+      // finds a match and would otherwise resolve with the mutated item.
+      await appendFeedItem(
+        makeItem({
+          id: "fail-item",
+          type: "nudge",
+          title: "Pre-fail title",
+        }),
+      );
+
+      // Force the next writeFileSync against the home-feed path to
+      // throw so `runWrite()` sets `wrote = false`. Other writes (e.g.
+      // to unrelated paths) are passed through untouched.
+      const feedPath = getHomeFeedPath();
+      const originalWrite = fs.writeFileSync;
+      const spy = spyOn(fs, "writeFileSync").mockImplementation(((
+        path: fs.PathOrFileDescriptor,
+        data: string | NodeJS.ArrayBufferView,
+        options?: fs.WriteFileOptions,
+      ) => {
+        if (typeof path === "string" && path === feedPath) {
+          throw new Error("Simulated write failure");
+        }
+        return originalWrite(path, data, options);
+      }) as typeof fs.writeFileSync);
+
+      try {
+        const result = await patchFeedItemStatus("fail-item", "seen");
+        // Core assertion: the caller must NOT observe a "success" return
+        // value when the write did not actually land.
+        expect(result).toBeNull();
+
+        // And the on-disk file should still show the pre-patch state.
+        const decoded = readFileJson();
+        expect(decoded.items[0]!.status).toBe("new");
+        expect(decoded.items[0]!.title).toBe("Pre-fail title");
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe("concurrency", () => {
@@ -452,7 +505,7 @@ describe("feed-writer", () => {
           newItemCount: number;
         };
       };
-      expect(event.assistantId).toBe("home");
+      expect(event.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
       expect(event.message.type).toBe("home_feed_updated");
       expect(event.message.newItemCount).toBe(2);
       expect(Number.isNaN(Date.parse(event.message.updatedAt))).toBe(false);
