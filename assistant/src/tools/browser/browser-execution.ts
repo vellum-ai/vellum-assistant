@@ -604,9 +604,12 @@ export async function executeBrowserNavigate(
     await ensureScreencast(context.conversationId);
   }
 
-  // SSRF route interception is a Playwright-specific affordance used
-  // whenever a Playwright page is available to block redirect-time
-  // requests to private networks.
+  // SSRF route interception uses the Playwright page.route() API to
+  // block redirect-time requests to private networks. This only works
+  // on the local path where Playwright manages the browser; on the
+  // extension/cdp-inspect paths, CDP navigates a different browser so
+  // the Playwright route handler would be a no-op. The post-navigation
+  // final URL check below provides defense-in-depth for all paths.
   let routeHandler: RouteHandler | null = null;
   let blockedUrl: string | null = null;
 
@@ -616,7 +619,11 @@ export async function executeBrowserNavigate(
       "Navigating",
     );
 
-    if (!allowPrivateNetwork && browserManager.supportsRouteInterception) {
+    if (
+      cdp.kind === "local" &&
+      !allowPrivateNetwork &&
+      browserManager.supportsRouteInterception
+    ) {
       // Cache DNS results per-hostname to avoid redundant lookups on subrequests
       // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
       // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
@@ -761,7 +768,8 @@ export async function executeBrowserNavigate(
       );
     }
 
-    // Remove the Playwright route handler now that navigation is complete.
+    // Remove the Playwright route handler now that navigation is
+    // complete (local path only — route interception is gated above).
     if (routeHandler) {
       const page = await browserManager.getOrCreateSessionPage(
         context.conversationId,
@@ -949,7 +957,7 @@ export async function executeBrowserNavigate(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
-    // Best-effort cleanup of route handler on error
+    // Best-effort cleanup of route handler on error (local path only)
     if (routeHandler) {
       try {
         const page = await browserManager.getOrCreateSessionPage(
