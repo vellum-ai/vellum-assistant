@@ -8,19 +8,21 @@ private let log = Logger(
     category: "SigningIdentityManager"
 )
 
-/// Manages the Ed25519 signing identity stored on disk in ~/.vellum/protected/.
-/// Previously used the macOS Keychain, which triggers repeated authorization
-/// prompts with ad-hoc code-signed builds.
+/// Manages the Ed25519 signing identity stored on disk. For production
+/// installs the key lives at `~/.vellum/protected/app-signing-key`; for
+/// non-production environments it lives at the env-scoped XDG config dir
+/// (see `VellumPaths.signingKeyFile`). Previously used the macOS Keychain,
+/// which triggers repeated authorization prompts with ad-hoc code-signed
+/// builds.
 ///
 /// Uses `actor` isolation instead of `@MainActor` so that file I/O
 /// (loading/saving the key) does not block the main thread.
 public actor SigningIdentityManager {
     public static let shared = SigningIdentityManager()
 
-    /// File path for the signing key: ~/.vellum/protected/app-signing-key
+    /// File path for the signing key. Env-aware via `VellumPaths`.
     private var keyFilePath: URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".vellum/protected/app-signing-key")
+        VellumPaths.current.signingKeyFile
     }
 
     /// Cached private key to avoid repeated file reads.

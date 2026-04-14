@@ -10,14 +10,14 @@ private let log = Logger(
 
 /// File-based CredentialStorage implementation.
 ///
-/// Stores each credential as an individual file under
-/// `~/.vellum/protected/credentials/` with 0600 permissions.
+/// Stores each credential as an individual file under the env-aware
+/// credentials directory with 0600 permissions. For production, this is
+/// the legacy `~/.vellum/protected/credentials/`; for non-production it's
+/// `$XDG_CONFIG_HOME/vellum-<env>/credentials/`. See
+/// `VellumPaths.credentialsDir`.
 struct FileCredentialStorage: CredentialStorage {
 
-    private static let credentialsDir: URL = {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".vellum/protected/credentials")
-    }()
+    private static let credentialsDir: URL = VellumPaths.current.credentialsDir
 
     /// Returns the file URL for a given credential account name.
     /// The account name is sanitized to a safe filename by replacing

@@ -1,11 +1,16 @@
 import Foundation
 
-/// Reads or creates a per-device UUID stored at ~/.vellum/device.json.
-/// This file is shared with the daemon (TypeScript), so both runtimes
-/// use the same device identifier for telemetry and platform registration.
+/// Reads or creates a per-device UUID. Shared with the daemon (TypeScript),
+/// so both runtimes use the same device identifier for telemetry and
+/// platform registration.
 ///
-/// The file is a JSON object: { "deviceId": "<uuid>", ... }
-/// Additional per-device metadata can be added alongside deviceId in the future.
+/// Path resolution: for production, the file lives at the legacy
+/// `~/.vellum/device.json` location. For non-production environments it
+/// lives at the env-scoped `$XDG_CONFIG_HOME/vellum-<env>/device.json`.
+/// See `VellumPaths.deviceIdFile`.
+///
+/// The file is a JSON object: { "deviceId": "<uuid>", ... }. Additional
+/// per-device metadata can be added alongside deviceId in the future.
 ///
 /// On first access, migrates any existing UUID from UserDefaults
 /// (legacy LocalInstallationIdStore key) into the file to preserve
@@ -15,8 +20,9 @@ public enum DeviceIdStore {
     private static var cached: String?
     private static let legacyUserDefaultsKey = "vellum_local_installation_id"
 
-    /// Returns the device ID, reading from ~/.vellum/device.json or creating it
-    /// if it doesn't exist. Thread-safe and cached after first access.
+    /// Returns the device ID, reading from the resolved device.json path
+    /// or creating it if it doesn't exist. Thread-safe and cached after
+    /// first access.
     ///
     /// Migration: if the file has no deviceId, checks UserDefaults for the
     /// legacy key and seeds the file with that value before cleaning up
@@ -27,9 +33,8 @@ public enum DeviceIdStore {
 
         if let cached { return cached }
 
-        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let vellumDir = home.appendingPathComponent(".vellum", isDirectory: true)
-        let deviceFile = vellumDir.appendingPathComponent("device.json")
+        let deviceFile = VellumPaths.current.deviceIdFile
+        let vellumDir = deviceFile.deletingLastPathComponent()
 
         // 1. Try to read existing file (daemon or a previous run may have created it).
         if let data = try? Data(contentsOf: deviceFile),
@@ -94,14 +99,8 @@ public enum DeviceIdStore {
     /// mirroring the daemon's `003-seed-device-id` migration so the same
     /// legacy ID is preserved regardless of whether macOS or daemon starts first.
     private static func installationIdFromLockfile() -> String? {
-        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let candidates = [
-            home.appendingPathComponent(".vellum.lock.json"),
-            home.appendingPathComponent(".vellum.lockfile.json"),
-        ]
-
         var lockJSON: [String: Any]?
-        for candidate in candidates {
+        for candidate in VellumPaths.current.lockfileCandidates {
             guard let data = try? Data(contentsOf: candidate),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
