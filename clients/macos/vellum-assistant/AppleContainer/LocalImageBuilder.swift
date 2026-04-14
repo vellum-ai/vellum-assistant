@@ -158,8 +158,13 @@ enum LocalImageBuilder {
         await progress("Building \(configs.count) service images from source...")
         log.info("Building images from \(repoRoot.path, privacy: .public)")
 
-        for config in configs {
-            try await buildAndLoadSingleImage(config: config, store: store, progress: progress)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for config in configs {
+                group.addTask {
+                    try await buildAndLoadSingleImage(config: config, store: store, progress: progress)
+                }
+            }
+            try await group.waitForAll()
         }
 
         await progress("All service images built and loaded")
