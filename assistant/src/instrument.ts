@@ -7,7 +7,7 @@ import {
   getPlatformUserId,
   getSentryDsn,
 } from "./config/env.js";
-import { APP_VERSION, COMMIT_SHA, IS_DEV_VERSION } from "./version.js";
+import { APP_VERSION, COMMIT_SHA } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
@@ -52,7 +52,7 @@ export function initSentry(): void {
     dsn,
     release: `vellum-assistant@${APP_VERSION}`,
     dist: COMMIT_SHA,
-    environment: IS_DEV_VERSION ? "development" : "production",
+    environment: process.env.VELLUM_ENVIRONMENT ?? "development",
     sendDefaultPii: false,
     serverName: hostname(),
     initialScope: {
