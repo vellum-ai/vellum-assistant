@@ -92,19 +92,6 @@ public struct GuardianClient: GuardianClientProtocol {
                 path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15
             )
 
-            // If the gateway rejects bootstrap with "Bootstrap already completed"
-            // (403), the guardian-init.lock file from a previous bootstrap is
-            // blocking re-issuance. Remove it so the next retry can succeed.
-            // This happens when credentials are wiped (terminal refresh error,
-            // daemon instance change) but the lock file persists.
-            if response.statusCode == 403 {
-                #if os(macOS)
-                Self.removeBootstrapLockFileIfNeeded(responseData: response.data)
-                #endif
-                log.error("Access token bootstrap failed (HTTP 403)")
-                return false
-            }
-
             guard response.isSuccess else {
                 log.error("Access token bootstrap failed (HTTP \(response.statusCode))")
                 return false
@@ -126,43 +113,6 @@ public struct GuardianClient: GuardianClientProtocol {
             return false
         }
     }
-
-    // MARK: - Bootstrap Lock File Recovery
-
-    #if os(macOS)
-    /// Removes the `guardian-init.lock` file when the gateway rejects
-    /// bootstrap with "Bootstrap already completed". The lock persists
-    /// from a prior successful bootstrap, but if the credentials were
-    /// wiped (terminal refresh error, instance change), the lock must
-    /// be cleared to allow re-issuance.
-    private static func removeBootstrapLockFileIfNeeded(responseData: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-              let error = json["error"] as? String,
-              error == "Bootstrap already completed" else {
-            return
-        }
-
-        let rootDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum")
-        // The gateway now stores the lock inside the "protected" subdirectory
-        // (getGatewaySecurityDir). Remove from both the new and legacy paths
-        // so recovery works regardless of gateway version.
-        let lockPaths = [
-            rootDir.appendingPathComponent("protected").appendingPathComponent("guardian-init.lock"),
-            rootDir.appendingPathComponent("guardian-init.lock"),
-        ]
-
-        for lockPath in lockPaths {
-            guard FileManager.default.fileExists(atPath: lockPath.path) else { continue }
-            do {
-                try FileManager.default.removeItem(at: lockPath)
-                log.info("Removed \(lockPath.lastPathComponent) at \(lockPath.path) to allow re-bootstrap")
-            } catch {
-                log.error("Failed to remove \(lockPath.path): \(error.localizedDescription)")
-            }
-        }
-    }
-    #endif
 
     // MARK: - Response Shapes
 

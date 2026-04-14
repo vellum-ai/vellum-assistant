@@ -3,22 +3,18 @@
  *
  * Each migration is guarded by the `one_time_migrations` table: once a
  * migration key is recorded, it never runs again. Migrations execute
- * sequentially in the order they are registered in the MIGRATIONS array.
+ * sequentially in filename order.
  *
  * To add a data migration:
- *   1. Create `m<NNNN>_<name>.ts` in this folder exporting up() and down().
- *   2. Import it here and append `{ key: "m<NNNN>_<name>", mod }` to MIGRATIONS.
- *
- * Migrations are registered statically (not discovered via readdirSync) so
- * this module works inside a Bun-compiled binary, where `import.meta.dir`
- * resolves to the virtual filesystem and `readdirSync` throws ENOENT.
+ *   1. Create `m<NNNN>-<name>.ts` in this folder exporting up() and down().
+ *      The file is auto-discovered at startup — no manual registration needed.
  */
 
 import type { Database } from "bun:sqlite";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
-
-import * as m0001GuardianInitLock from "./m0001-guardian-init-lock.js";
 
 const log = getLogger("data-migrations");
 
@@ -29,9 +25,18 @@ type MigrationModule = {
   down: () => MigrationResult;
 };
 
-const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
-  { key: "m0001-guardian-init-lock", mod: m0001GuardianInitLock },
-];
+const MIGRATION_RE = /^m\d{4}-.+\.ts$/;
+
+const MIGRATIONS: { key: string; mod: MigrationModule }[] = readdirSync(
+  import.meta.dirname!,
+)
+  .filter((f) => MIGRATION_RE.test(f))
+  .sort()
+  .map((f) => ({
+    key: f.replace(/\.ts$/, ""),
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    mod: require(join(import.meta.dirname!, f)) as MigrationModule,
+  }));
 
 /**
  * Execute any one-time data migrations that haven't run yet.

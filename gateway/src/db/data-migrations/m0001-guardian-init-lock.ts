@@ -15,7 +15,8 @@ import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
-import { getGatewaySecurityDir, getRootDir } from "../../paths.js";
+import { getGatewaySecurityDir } from "../../paths.js";
+import { getLegacyRootDir } from "../connection.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -24,7 +25,7 @@ const log = getLogger("m0001-guardian-init-lock");
 const FILES = ["guardian-init.lock", "guardian-init-consumed.json"] as const;
 
 export function up(): MigrationResult {
-  const legacyDir = getRootDir();
+  const legacyDir = getLegacyRootDir();
   const newDir = getGatewaySecurityDir();
 
   // If both resolve to the same directory (e.g. GATEWAY_SECURITY_DIR is set
