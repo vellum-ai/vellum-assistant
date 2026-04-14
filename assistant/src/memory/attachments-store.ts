@@ -272,11 +272,16 @@ function materializeAttachmentIntoConversation(
   persistAttachmentFilePath(row.id, targetPath, sourcePath);
 
   // Remove the old staging file now that the canonical copy lives in
-  // the conversation directory. Skip if the previous path is the same
-  // as the new target (shouldn't happen, but guard against it).
+  // the conversation directory.  Only delete files that live in the
+  // staging area (workspace/data/attachments/).  When an attachment is
+  // cloned across conversations (e.g. during a fork), previousFilePath
+  // may point to another conversation's directory — deleting that would
+  // cause data loss for the source conversation.
+  const stagingDir = join(getWorkspaceDir(), "data", "attachments");
   if (
     previousFilePath &&
     previousFilePath !== targetPath &&
+    dirname(previousFilePath) === stagingDir &&
     existsSync(previousFilePath)
   ) {
     try {
