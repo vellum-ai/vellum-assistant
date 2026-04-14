@@ -82,12 +82,16 @@ struct InlineAppCreatedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
-            // Fallback request: fires for history-loaded surfaces that didn't go
-            // through the eager uiSurfaceShow handler (app restart, reconnect,
-            // conversation switch). For live surfaces the eager request in
-            // ChatViewModel+MessageHandling may have already fired; the duplicate
-            // is harmless since the daemon treats preview requests idempotently.
-            if previewImage == nil, let appId = appId {
+            // Fallback request: fires ONLY for history-loaded surfaces where the
+            // build already completed (isToolCallComplete == true). These didn't
+            // go through handleToolResult (app restart, reconnect, conversation
+            // switch) so they need an explicit capture request.
+            //
+            // For live surfaces (isToolCallComplete == false), we do NOT request
+            // a preview here — the build hasn't finished yet and the daemon would
+            // return blank/incomplete HTML. The single authoritative capture will
+            // come from handleToolResult once the build completes.
+            if previewImage == nil, isToolCallComplete, let appId = appId {
                 var userInfo: [String: Any] = ["appId": appId]
                 if let html = html {
                     userInfo["html"] = html
