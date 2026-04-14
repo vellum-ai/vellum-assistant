@@ -453,6 +453,7 @@ struct ChatView: View {
             if isReadonly {
                 centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
                     HStack(spacing: VSpacing.xs) {
+                        Spacer(minLength: 0)
                         VIconView(.eye, size: 14)
                         Text("Read-only conversation")
                             .font(VFont.bodySmallDefault)
