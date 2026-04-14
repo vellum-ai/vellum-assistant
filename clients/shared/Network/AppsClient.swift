@@ -56,7 +56,19 @@ public struct AppsClient: AppsClientProtocol {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let lossy = try container.decode([LossyDecodable<HTTPAppsListItem>].self, forKey: .apps)
-            self.apps = lossy.compactMap(\.value)
+            let decoded = lossy.compactMap(\.value)
+            // If the daemon returned items but every single one failed to
+            // decode, treat it as a hard error so the caller sees
+            // success=false and preserves the existing local cache.
+            if decoded.isEmpty && !lossy.isEmpty {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: container.codingPath + [CodingKeys.apps],
+                        debugDescription: "All \(lossy.count) app items failed to decode individually"
+                    )
+                )
+            }
+            self.apps = decoded
         }
     }
 
