@@ -142,13 +142,15 @@ final class SoundManager {
             initialConfigLoaded = true
             flushPendingAppOpen()
         } catch WorkspaceFileError.notFound {
-            // First-run state: config.json doesn't exist yet. Treat as a
-            // successful empty-data load so the initial fetch settles and any
-            // pending `app_open` fires now instead of queuing indefinitely
-            // until an unrelated later reload.
-            if !hasLoadedConfig {
-                config = .defaultConfig
-            }
+            // Authoritative "file absent" from the gateway: config.json
+            // doesn't exist in this assistant's workspace. Reset to defaults
+            // unconditionally (including clearing `hasLoadedConfig`) so
+            // switching to an assistant with no config doesn't retain the
+            // previous assistant's settings. This is distinct from the
+            // generic `catch` below, which preserves known-good state on
+            // transient errors.
+            config = .defaultConfig
+            hasLoadedConfig = false
             initialConfigLoaded = true
             flushPendingAppOpen()
         } catch {
