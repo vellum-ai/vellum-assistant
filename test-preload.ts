@@ -7,19 +7,28 @@
  * which can cause tests to read/write production data (databases, credentials,
  * contacts, etc.).
  *
- * This preload is registered in the root bunfig.toml and will throw immediately
- * if bun test is invoked from the repo root, directing the developer to cd into
- * the correct package directory first.
+ * This preload is registered in the root bunfig.toml. It checks whether the
+ * current working directory is the repo root (by looking for this file) and
+ * only throws in that case. Sub-packages without their own bunfig.toml
+ * (e.g. cli/, packages/*) may inherit this preload but will pass through
+ * safely since their cwd differs from the repo root.
  */
 
-throw new Error(
-  [
-    "Do not run `bun test` from the repo root.",
-    "Each package has its own test isolation preload that protects production state.",
-    "Run tests from the correct package directory instead:",
-    "",
-    "  cd assistant && bun test src/path/to/file.test.ts",
-    "  cd gateway   && bun test src/path/to/file.test.ts",
-    "  cd cli       && bun test src/path/to/file.test.ts",
-  ].join("\n"),
-);
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+const isRepoRoot = existsSync(join(process.cwd(), "test-preload.ts"));
+
+if (isRepoRoot) {
+  throw new Error(
+    [
+      "Do not run `bun test` from the repo root.",
+      "Each package has its own test isolation preload that protects production state.",
+      "Run tests from the correct package directory instead:",
+      "",
+      "  cd assistant && bun test src/path/to/file.test.ts",
+      "  cd gateway   && bun test src/path/to/file.test.ts",
+      "  cd cli       && bun test src/path/to/file.test.ts",
+    ].join("\n"),
+  );
+}
