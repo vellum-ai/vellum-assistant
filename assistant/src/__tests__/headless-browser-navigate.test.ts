@@ -112,12 +112,14 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 
 // Default url-safety: allow everything
 let parseUrlResult: URL | null = null;
+let parseUrlMock: (input: unknown) => URL | null = () => parseUrlResult;
 let isPrivateResult = false;
+let isPrivateHostMock: (hostname: string) => boolean = () => isPrivateResult;
 let resolveResult: { blockedAddress?: string } = {};
 
 mock.module("../tools/network/url-safety.js", () => ({
-  parseUrl: (_input: unknown) => parseUrlResult,
-  isPrivateOrLocalHost: () => isPrivateResult,
+  parseUrl: (input: unknown) => parseUrlMock(input),
+  isPrivateOrLocalHost: (hostname: string) => isPrivateHostMock(hostname),
   resolveHostAddresses: async () => [],
   resolveRequestAddress: async () => resolveResult,
   sanitizeUrlForOutput: (url: URL) => url.href,
@@ -206,7 +208,9 @@ function resetCdp() {
 describe("executeBrowserNavigate", () => {
   beforeEach(() => {
     parseUrlResult = null;
+    parseUrlMock = () => parseUrlResult;
     isPrivateResult = false;
+    isPrivateHostMock = () => isPrivateResult;
     resolveResult = {};
     resetMockPage();
     resetCdp();
@@ -568,9 +572,9 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
   });
 
-  // ── Extension path (no browserManager / route interception) ───
+  // ── Extension path routing + redirect blocking ────────────────
 
-  test("extension path skips getOrCreateSessionPage and route interception", async () => {
+  test("extension path still navigates through CDP and installs route interception", async () => {
     parseUrlResult = new URL("https://example.com/page");
     // Supplying a non-null hostBrowserProxy on the context routes the
     // mocked getCdpClient to the extension path (it mirrors the real
@@ -579,7 +583,7 @@ describe("executeBrowserNavigate", () => {
       ...ctx,
       hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
     };
-    // Reset page call trackers to verify they are not touched.
+    // Reset page call trackers and assert route hooks are installed.
     const routeCallsBefore = mockPage.route.mock.calls.length;
     const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
 
@@ -589,11 +593,58 @@ describe("executeBrowserNavigate", () => {
     );
 
     expect(result.isError).toBe(false);
-    // Extension path never installs or removes a Playwright route.
-    expect(mockPage.route.mock.calls.length).toBe(routeCallsBefore);
-    expect(mockPage.unroute.mock.calls.length).toBe(unrouteCallsBefore);
+    expect(mockPage.route.mock.calls.length).toBe(routeCallsBefore + 1);
+    expect(mockPage.unroute.mock.calls.length).toBe(unrouteCallsBefore + 1);
     // Page.navigate still goes through the CdpClient.
     expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
     expect(cdpDisposed).toBe(true);
+  });
+
+  test("blocks extension redirects to private network targets", async () => {
+    parseUrlResult = new URL("https://public.example.com/start");
+    isPrivateResult = false;
+    let capturedHandler:
+      | ((route: unknown, request: unknown) => Promise<void>)
+      | null = null;
+    mockPage.route = mock(
+      async (
+        _pattern: string,
+        handler: (route: unknown, request: unknown) => Promise<void>,
+      ) => {
+        capturedHandler = handler;
+      },
+    );
+    cdpSendHandler = (method) => {
+      if (method === "Page.navigate") {
+        if (capturedHandler) {
+          const origPrivate = isPrivateResult;
+          isPrivateResult = true;
+          const mockRoute = {
+            abort: mock(async () => {}),
+            continue: mock(async () => {}),
+          };
+          const mockRequest = { url: () => "http://127.0.0.1/admin" };
+          void capturedHandler(mockRoute, mockRequest);
+          isPrivateResult = origPrivate;
+        }
+        throw new Error("net::ERR_BLOCKED_BY_CLIENT");
+      }
+      if (method === "Runtime.evaluate") {
+        return { result: { value: "about:blank" } };
+      }
+      return {};
+    };
+
+    const extensionCtx: ToolContext = {
+      ...ctx,
+      hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
+    };
+    const result = await executeBrowserNavigate(
+      { url: "https://public.example.com/start" },
+      extensionCtx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Navigation blocked");
+    expect(result.content).toContain("allow_private_network=true");
   });
 });

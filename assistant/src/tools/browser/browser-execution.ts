@@ -604,10 +604,9 @@ export async function executeBrowserNavigate(
     await ensureScreencast(context.conversationId);
   }
 
-  // SSRF route interception is a Playwright-specific affordance used on
-  // the local path to block redirect-time requests to private networks.
-  // On the extension path we rely on the pre-CDP URL validation above;
-  // see phase3-cdp-migration.md PR 7 for the rationale.
+  // SSRF route interception is a Playwright-specific affordance used
+  // whenever a Playwright page is available to block redirect-time
+  // requests to private networks.
   let routeHandler: RouteHandler | null = null;
   let blockedUrl: string | null = null;
 
@@ -617,11 +616,7 @@ export async function executeBrowserNavigate(
       "Navigating",
     );
 
-    if (
-      cdp.kind === "local" &&
-      !allowPrivateNetwork &&
-      browserManager.supportsRouteInterception
-    ) {
+    if (!allowPrivateNetwork && browserManager.supportsRouteInterception) {
       // Cache DNS results per-hostname to avoid redundant lookups on subrequests
       // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
       // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
@@ -719,6 +714,30 @@ export async function executeBrowserNavigate(
       { timeoutMs: NAVIGATE_TIMEOUT_MS },
       context.signal,
     );
+
+    // Defense-in-depth: check the final URL after navigation completes.
+    // This catches redirect-based SSRF even when Playwright route
+    // interception is unavailable (e.g. extension-backed sessions where
+    // the CDP transport is separate from the Playwright page).
+    if (!allowPrivateNetwork) {
+      const finalParsed = parseUrl(finalUrl);
+      if (
+        finalParsed &&
+        (isPrivateOrLocalHost(finalParsed.hostname) ||
+          (
+            await resolveRequestAddress(
+              finalParsed.hostname,
+              resolveHostAddresses,
+              false,
+            )
+          ).blockedAddress)
+      ) {
+        return {
+          content: `Error: Navigation blocked. Final URL resolved to a local/private network target (${sanitizeUrlForOutput(finalParsed)}). Set allow_private_network=true if you explicitly need it.`,
+          isError: true,
+        };
+      }
+    }
     if (navigationTimedOut) {
       // If the page URL never changed from before navigation, the page
       // never actually loaded - re-throw instead of reporting success.
