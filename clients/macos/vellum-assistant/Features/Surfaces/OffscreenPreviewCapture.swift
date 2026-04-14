@@ -120,9 +120,11 @@ enum OffscreenPreviewCapture {
         tearDown(webView: webView, window: window)
         log.info("[Timing] offscreen phase=teardownComplete elapsed=\(elapsedMs())ms")
 
-        // Encode the image off the main thread to avoid blocking the UI.
-        guard let image else { return nil }
-        let base64 = await encodeImageOffMain(image: image)
+        // Extract CGImage on the main thread (NSImage is not thread-safe),
+        // then encode off-main using only thread-safe CG/ImageIO APIs.
+        guard let image,
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let base64 = await encodeOffMain(cgImage: cgImage)
         log.info("[Timing] offscreen phase=imageEncoded hasResult=\(base64 != nil) elapsed=\(elapsedMs())ms")
         return base64
     }
@@ -148,19 +150,13 @@ enum OffscreenPreviewCapture {
         }
     }
 
-    /// Resizes and encodes an NSImage to a base64 PNG string using CGContext.
-    /// Runs on a background thread — no AppKit graphics context (lockFocus)
-    /// needed, so the main thread is not blocked.
-    private static func encodeImageOffMain(image: NSImage) async -> String? {
+    /// Resizes and encodes a CGImage to a base64 PNG string using CGContext.
+    /// Runs on a background thread using only thread-safe CG/ImageIO APIs.
+    /// The caller must extract the CGImage from NSImage on the main thread
+    /// before calling this method (NSImage is not thread-safe).
+    private static func encodeOffMain(cgImage: CGImage) async -> String? {
         await Task.detached(priority: .userInitiated) {
             let encodeStart = CFAbsoluteTimeGetCurrent()
-
-            // Resolve the image to a CGImage. NSImage can have multiple
-            // representations; pick the best one for the proposed size.
-            guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                log.warning("Failed to obtain CGImage from snapshot")
-                return nil as String?
-            }
 
             // Resize to max 400px wide thumbnail using CGContext (thread-safe).
             let maxWidth: CGFloat = 400

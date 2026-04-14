@@ -365,9 +365,13 @@ extension MainWindowView {
         let forceRecapture = notification.userInfo?["forceRecapture"] as? Bool ?? false
         Task { @MainActor in
             // De-duplicate: skip if a capture for the same appId is already
-            // in flight. This avoids redundant work when both onAppear and
-            // StreamingHelpers fire for the same card simultaneously.
-            guard !inFlightPreviewAppIds.contains(appId) else { return }
+            // in flight, unless the caller explicitly asked for a fresh
+            // capture (forceRecapture). This avoids redundant work when both
+            // onAppear and StreamingHelpers fire for the same card
+            // simultaneously, while still allowing post-build recaptures.
+            if !forceRecapture {
+                guard !inFlightPreviewAppIds.contains(appId) else { return }
+            }
             inFlightPreviewAppIds.insert(appId)
             defer { inFlightPreviewAppIds.remove(appId) }
 
