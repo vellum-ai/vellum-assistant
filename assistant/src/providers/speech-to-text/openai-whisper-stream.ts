@@ -49,10 +49,18 @@ const log = getLogger("openai-whisper-stream");
 export const POLL_INTERVAL_MS = 1_000;
 
 /**
- * Timeout per individual batch request (ms).
- * Prevents a single slow request from blocking the streaming pipeline.
+ * Timeout per incremental poll request (ms).
+ * Keeps the streaming pipeline responsive during active dictation.
  */
-const REQUEST_TIMEOUT_MS = 15_000;
+const POLL_TIMEOUT_MS = 15_000;
+
+/**
+ * Timeout for the final flush request (ms).
+ * The final request transcribes the full accumulated recording, which can
+ * be significantly larger than an incremental poll batch — allow more time
+ * so legitimate long recordings are not truncated.
+ */
+const FINAL_TIMEOUT_MS = 30_000;
 
 /**
  * Default PCM sample rate when the streaming session does not explicitly
@@ -113,6 +121,9 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
   /** Whether new audio has arrived since the last poll. */
   private audioDirty = false;
 
+  /** Promise tracking the currently in-flight poll (if any). */
+  private inflightPoll: Promise<void> | null = null;
+
   /** Event callback registered via start(). */
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
@@ -166,9 +177,12 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
       this.pollTimer = null;
     }
 
-    // Fire the final batch asynchronously; the session stays open until
-    // the final event and closed event are emitted.
-    void this.emitFinal();
+    // Wait for any in-flight poll to settle before sending the final
+    // request. This prevents a race where the final emits stale
+    // `lastEmittedText` while a concurrent poll is still in progress
+    // with newer data.
+    const pending = this.inflightPoll ?? Promise.resolve();
+    void pending.then(() => this.emitFinal());
   }
 
   // -----------------------------------------------------------------------
@@ -188,7 +202,11 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
 
     this.pollTimer = setTimeout(() => {
       this.pollTimer = null;
-      void this.doPoll();
+      const p = this.doPoll();
+      this.inflightPoll = p;
+      void p.finally(() => {
+        if (this.inflightPoll === p) this.inflightPoll = null;
+      });
     }, delay);
   }
 
@@ -208,7 +226,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
     );
 
     try {
-      const text = await this.transcribeAccumulated();
+      const text = await this.transcribeAccumulated(POLL_TIMEOUT_MS);
 
       // Guard: if stop() was called while we were awaiting the API
       // response, emitFinal() may have already sent final/closed.
@@ -274,7 +292,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
 
     try {
       if (this.audioChunks.length > 0) {
-        const text = await this.transcribeAccumulated();
+        const text = await this.transcribeAccumulated(FINAL_TIMEOUT_MS);
         log.info("Final transcription request complete");
         this.emit({ type: "final", text: text || this.lastEmittedText });
       } else {
@@ -305,7 +323,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
    * WAV container before submission since Whisper requires a supported
    * container format.
    */
-  private async transcribeAccumulated(): Promise<string> {
+  private async transcribeAccumulated(timeoutMs: number): Promise<string> {
     const rawAudio = Buffer.concat(this.audioChunks);
     const rawMimeType = this.audioMimeType;
 
@@ -323,7 +341,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
       this.apiKey,
       audio,
       mimeType,
-      AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      AbortSignal.timeout(timeoutMs),
     );
   }
 
