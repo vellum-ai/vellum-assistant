@@ -10,6 +10,7 @@ struct ToolSelectionView: View {
     @State private var showTitle = false
     @State private var showGrid = false
     @State private var showFooter = false
+    @State private var hoveredTool: String?
 
     private static let allItems: [ToolItem] = {
         var items = ToolItem.allTools
@@ -128,17 +129,22 @@ struct ToolSelectionView: View {
             .padding(.horizontal, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : VColor.surfaceLift)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : (hoveredTool == item.id ? VColor.surfaceHover : VColor.surfaceLift))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(
-                        isSelected ? VColor.primaryBase : VColor.borderElement.opacity(0.5),
+                        isSelected ? VColor.primaryBase : (hoveredTool == item.id ? VColor.borderHover : VColor.borderElement.opacity(0.5)),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredTool = hovering ? item.id : nil
+            }
+        })
         .accessibilityLabel(item.label)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(.isToggle)

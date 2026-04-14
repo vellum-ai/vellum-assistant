@@ -24,14 +24,18 @@ struct PreChatOnboardingFlow: View {
         Group {
             switch state.currentScreen {
             case 0:
-                ToolSelectionView(
-                    selectedTools: $state.selectedTools,
-                    onContinue: { advanceTo(1) },
-                    onSkip: { skipAll() }
-                )
+                VStack(spacing: 0) {
+                    stepIndicator(currentStep: 0)
+                    ToolSelectionView(
+                        selectedTools: $state.selectedTools,
+                        onContinue: { advanceTo(1) },
+                        onSkip: { skipAll() }
+                    )
+                }
             case 1:
                 VStack(spacing: 0) {
                     backButton { advanceTo(0) }
+                    stepIndicator(currentStep: 1)
                     TaskToneSelectionView(
                         selectedTasks: $state.selectedTasks,
                         toneValue: $state.toneValue,
@@ -42,6 +46,7 @@ struct PreChatOnboardingFlow: View {
             default:
                 VStack(spacing: 0) {
                     backButton { advanceTo(1) }
+                    stepIndicator(currentStep: 2)
                     NameExchangeView(
                         contextSummary: state.contextSummary,
                         userName: $state.userName,
@@ -76,6 +81,23 @@ struct PreChatOnboardingFlow: View {
             Spacer()
         }
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg, bottom: 0, trailing: VSpacing.lg))
+    }
+
+    // MARK: - Step Indicator
+
+    @ViewBuilder
+    private func stepIndicator(currentStep: Int, totalSteps: Int = 3) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(0..<totalSteps, id: \.self) { step in
+                Circle()
+                    .fill(step == currentStep ? VColor.primaryBase : VColor.borderElement)
+                    .frame(width: 6, height: 6)
+                    .animation(VAnimation.fast, value: currentStep)
+            }
+        }
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.sm)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Navigation

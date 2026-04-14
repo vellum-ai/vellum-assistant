@@ -18,6 +18,7 @@ struct TaskToneSelectionView: View {
     @State private var showTitle = false
     @State private var showContent = false
     @State private var showCharacters = false
+    @State private var hoveredTask: String?
 
     private static let welcomeCharacters: NSImage? = {
         guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
@@ -189,15 +190,20 @@ struct TaskToneSelectionView: View {
             .padding(VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : VColor.surfaceLift)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : (hoveredTask == category.id ? VColor.surfaceHover : VColor.surfaceLift))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : VColor.surfaceBase, lineWidth: 1)
+                            .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : (hoveredTask == category.id ? VColor.borderHover : VColor.surfaceBase), lineWidth: 1)
                     )
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredTask = hovering ? category.id : nil
+            }
+        })
         .accessibilityLabel(category.label)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(.isToggle)
