@@ -34,6 +34,13 @@ function resolveVersion(): string {
 // or "0.0.0-dev" if package.json is unavailable.
 export const APP_VERSION: string = resolveVersion();
 
+// True when the version was resolved from package.json or falls back to the
+// dev sentinel — i.e. no explicit APP_VERSION env var or --define was provided.
+// Used by instrument.ts to classify Sentry environment correctly: local dev
+// and containerised builds without an explicit version are "development".
+export const IS_DEV_VERSION: boolean =
+  !process.env.APP_VERSION || process.env.APP_VERSION === "0.0.0-dev";
+
 // Commit SHA is embedded at compile time via --define in CI.
 // Falls back to "unknown" for local development.
 function resolveCommitSha(): string {
