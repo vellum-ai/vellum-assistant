@@ -4,12 +4,24 @@
  * Registers a single catch-all route that delegates to the
  * UserRouteDispatcher for file-based dispatch from
  * `$VELLUM_WORKSPACE_DIR/routes/`.
+ *
+ * The dispatcher injects a `UserRouteContext` into every handler so
+ * that dynamically imported route modules can access daemon singletons
+ * (event hub, assistant ID) without relying on module-level imports
+ * that would resolve to separate instances due to cache-busting.
  */
 
+import { assistantEventHub } from "../assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { RouteDefinition } from "../http-router.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
 
-const dispatcher = new UserRouteDispatcher();
+const dispatcher = new UserRouteDispatcher({
+  context: {
+    assistantEventHub,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+  },
+});
 
 /**
  * HTTP methods supported by user-defined route handlers.
