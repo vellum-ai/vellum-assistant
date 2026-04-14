@@ -356,16 +356,21 @@ extension MainWindowView {
     func handleRequestAppPreview(_ notification: Notification) {
         guard let appId = notification.userInfo?["appId"] as? String else { return }
         let notificationHtml = notification.userInfo?["html"] as? String
+        let forceRecapture = notification.userInfo?["forceRecapture"] as? Bool ?? false
         Task { @MainActor in
-            // 1. Prefer the daemon's stored preview (fast, no rendering).
-            let response = await AppsClient().fetchAppPreview(appId: appId)
-            if let base64 = response?.preview, !base64.isEmpty {
-                NotificationCenter.default.post(
-                    name: .appPreviewImageCaptured,
-                    object: nil,
-                    userInfo: ["appId": appId, "previewImage": base64]
-                )
-                return
+            // 1. Prefer the daemon's stored preview (fast, no rendering)
+            //    unless the caller explicitly asked for a fresh capture (e.g.
+            //    post-build request where the stored preview is stale).
+            if !forceRecapture {
+                let response = await AppsClient().fetchAppPreview(appId: appId)
+                if let base64 = response?.preview, !base64.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
+                    return
+                }
             }
 
             // 2. No stored preview — fetch the current compiled HTML from the

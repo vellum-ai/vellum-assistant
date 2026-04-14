@@ -492,6 +492,9 @@ extension ChatViewModel {
                     if let html = surface.html {
                         userInfo["html"] = html
                     }
+                    // Force re-capture so a stale preview stored by the eager
+                    // pre-build request doesn't short-circuit this post-build one.
+                    userInfo["forceRecapture"] = true
                     NotificationCenter.default.post(
                         name: Notification.Name("MainWindow.requestAppPreview"),
                         object: nil,
