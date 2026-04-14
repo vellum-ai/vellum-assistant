@@ -312,20 +312,9 @@ export async function hatchLocal(
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
-  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
-  const prevBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = resources.instanceDir;
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-  if (prevBaseDataDir !== undefined) {
-    process.env.BASE_DATA_DIR = prevBaseDataDir;
-  } else {
-    delete process.env.BASE_DATA_DIR;
-  }
-
+  // Set BASE_DATA_DIR so ngrok reads the correct instance config. Keep the
+  // lockfile save/sync inside the same scope so syncConfigToLockfile() reads
+  // this instance's workspace/config.json rather than a stale default path.
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
@@ -335,10 +324,27 @@ export async function hatchLocal(
     hatchedAt: new Date().toISOString(),
     resources: { ...resources, signingKey },
   };
-  emitProgress(7, 7, "Saving configuration...");
-  saveAssistantEntry(localEntry);
-  setActiveAssistant(instanceName);
-  syncConfigToLockfile();
+
+  const prevBaseDataDir = process.env.BASE_DATA_DIR;
+  process.env.BASE_DATA_DIR = resources.instanceDir;
+  try {
+    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+    if (ngrokChild?.pid) {
+      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+    }
+
+    emitProgress(7, 7, "Saving configuration...");
+    saveAssistantEntry(localEntry);
+    setActiveAssistant(instanceName);
+    syncConfigToLockfile();
+  } finally {
+    if (prevBaseDataDir !== undefined) {
+      process.env.BASE_DATA_DIR = prevBaseDataDir;
+    } else {
+      delete process.env.BASE_DATA_DIR;
+    }
+  }
 
   if (process.env.VELLUM_DESKTOP_APP) {
     installCLISymlink();

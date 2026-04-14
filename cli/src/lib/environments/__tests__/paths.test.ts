@@ -22,7 +22,6 @@ mock.module("os", () => ({
 // mock.module() calls above.
 const {
   getConfigDir,
-  getDataDir,
   getDefaultPorts,
   getLockfilePath,
   getLockfilePaths,
@@ -61,54 +60,6 @@ describe("path helpers", () => {
         process.env[key] = value;
       }
     }
-  });
-
-  describe("getDataDir", () => {
-    test("production returns legacy ~/.vellum/", () => {
-      expect(getDataDir(prod)).toBe(join(TEST_HOME, ".vellum"));
-    });
-
-    test("dev returns ~/.local/share/vellum-dev/ by default", () => {
-      expect(getDataDir(dev)).toBe(
-        join(TEST_HOME, ".local", "share", "vellum-dev"),
-      );
-    });
-
-    test("staging returns ~/.local/share/vellum-staging/ by default", () => {
-      const staging: EnvironmentDefinition = {
-        name: "staging",
-        platformUrl: "https://staging-platform.vellum.ai",
-      };
-      expect(getDataDir(staging)).toBe(
-        join(TEST_HOME, ".local", "share", "vellum-staging"),
-      );
-    });
-
-    test("respects XDG_DATA_HOME for non-prod envs", () => {
-      process.env.XDG_DATA_HOME = "/custom/data";
-      expect(getDataDir(dev)).toBe("/custom/data/vellum-dev");
-    });
-
-    test("XDG_DATA_HOME does not affect production (legacy path)", () => {
-      process.env.XDG_DATA_HOME = "/custom/data";
-      expect(getDataDir(prod)).toBe(join(TEST_HOME, ".vellum"));
-    });
-
-    test("respects env.dataDirOverride for production", () => {
-      const env: EnvironmentDefinition = {
-        ...prod,
-        dataDirOverride: "/tmp/test",
-      };
-      expect(getDataDir(env)).toBe("/tmp/test");
-    });
-
-    test("respects env.dataDirOverride for non-prod", () => {
-      const env: EnvironmentDefinition = {
-        ...dev,
-        dataDirOverride: "/tmp/test",
-      };
-      expect(getDataDir(env)).toBe("/tmp/test");
-    });
   });
 
   describe("getConfigDir", () => {
