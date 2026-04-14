@@ -8,14 +8,14 @@
 import { v4 as uuid } from "uuid";
 
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import {
   attachInlineAttachmentToMessage,
   attachmentExists,
