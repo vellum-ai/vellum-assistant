@@ -226,6 +226,32 @@ describe("GoogleGeminiStreamingTranscriber", () => {
       expect(texts).toContain("Hello world");
       expect(texts).not.toContain("Hello");
     });
+
+    test("suppresses meta-response text and only emits real transcript partials", async () => {
+      const { transcriber } = createTranscriberWithMock([
+        { text: "The user did not provide an audio file for transcription." },
+        { text: "hello there" },
+        { text: "hello there friend" },
+      ]);
+      const events = collectEvents(transcriber);
+
+      transcriber.sendAudio(Buffer.from("chunk-1"), "audio/webm");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      transcriber.sendAudio(Buffer.from("chunk-2"), "audio/webm");
+      await waitFor(() => events.some((e) => e.type === "partial"));
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      const partials = events.filter((e) => e.type === "partial");
+      const texts = partials.map((e) => (e.type === "partial" ? e.text : ""));
+
+      expect(texts).not.toContain(
+        "The user did not provide an audio file for transcription.",
+      );
+      expect(texts).toContain("hello there");
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -363,6 +389,26 @@ describe("GoogleGeminiStreamingTranscriber", () => {
   // -----------------------------------------------------------------------
 
   describe("rate limiting", () => {
+    test("waits one poll interval before first incremental request", async () => {
+      const { transcriber, generateContent } = createTranscriberWithMock(
+        [{ text: "hello" }, { text: "hello" }],
+        { pollIntervalMs: 100 },
+      );
+      const events = collectEvents(transcriber);
+
+      transcriber.sendAudio(Buffer.from("chunk-1"), "audio/webm");
+
+      // Should not poll immediately on first chunk.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(generateContent).toHaveBeenCalledTimes(0);
+
+      await waitFor(() => events.some((e) => e.type === "partial"));
+      expect(generateContent).toHaveBeenCalledTimes(1);
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+    });
+
     test("does not send more than one batch request per poll interval", async () => {
       const { transcriber, generateContent } = createTranscriberWithMock(
         [
@@ -391,6 +437,43 @@ describe("GoogleGeminiStreamingTranscriber", () => {
 
       transcriber.stop();
       await waitFor(() => events.some((e) => e.type === "closed"));
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // PCM handling
+  // -----------------------------------------------------------------------
+
+  describe("pcm handling", () => {
+    test("wraps audio/pcm input as audio/wav before Gemini requests", async () => {
+      const { transcriber, generateContent } = createTranscriberWithMock(
+        [{ text: "hello" }, { text: "hello" }],
+        { pollIntervalMs: 10 },
+      );
+      const events = collectEvents(transcriber);
+      const pcmChunk = Buffer.from("pcm-audio-chunk");
+
+      transcriber.sendAudio(pcmChunk, "audio/pcm");
+      await waitFor(
+        () =>
+          (generateContent as ReturnType<typeof mock>).mock.calls.length > 0,
+      );
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      expect(generateContent).toHaveBeenCalled();
+
+      const firstCall = (generateContent as ReturnType<typeof mock>).mock
+        .calls[0][0] as {
+        contents: Array<{
+          parts: Array<{ inlineData?: { mimeType: string; data: string } }>;
+        }>;
+      };
+
+      const inlineData = firstCall.contents[0].parts[0].inlineData;
+      expect(inlineData?.mimeType).toBe("audio/wav");
+      expect(inlineData?.data).not.toBe(pcmChunk.toString("base64"));
     });
   });
 

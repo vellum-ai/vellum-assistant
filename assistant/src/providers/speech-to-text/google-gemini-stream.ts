@@ -29,6 +29,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { encodePcm16LeToWav } from "../../stt/wav-encoder.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("google-gemini-stream");
@@ -50,9 +51,17 @@ export const POLL_INTERVAL_MS = 1_000;
  * Prevents a single slow request from blocking the streaming pipeline.
  */
 const REQUEST_TIMEOUT_MS = 15_000;
+const MIN_FIRST_PCM_PARTIAL_AUDIO_MS = 1_500;
+const META_RESPONSE_PATTERNS: RegExp[] = [
+  /\b(did not provide|no)\s+an?\s+audio\s+file\b/i,
+  /\bno\s+audio\s+(was\s+)?provided\b/i,
+  /\bunable\s+to\s+transcrib(e|ing)\b/i,
+  /\bcannot\s+transcrib(e|ing)\b/i,
+  /\bplease\s+provide\s+audio\b/i,
+];
 
 const TRANSCRIPTION_PROMPT =
-  "Transcribe the audio exactly as spoken. Return only the transcribed text with no additional commentary, labels, or formatting.";
+  "Transcribe only words actually present in the audio. Return only the transcript text. If the audio is silent, unclear, or too incomplete to transcribe confidently, return an empty string. Do not guess and do not add commentary.";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -65,6 +74,10 @@ export interface GoogleGeminiStreamOptions {
   baseUrl?: string;
   /** Override the poll interval for testing (default: POLL_INTERVAL_MS). */
   pollIntervalMs?: number;
+  /** Sample rate for raw PCM input; used when wrapping PCM in WAV. */
+  pcmSampleRate?: number;
+  /** Channel count for raw PCM input; used when wrapping PCM in WAV. */
+  pcmChannels?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +91,8 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
   private readonly client: GoogleGenAI;
   private readonly model: string;
   private readonly pollIntervalMs: number;
+  private readonly pcmSampleRate: number;
+  private readonly pcmChannels: number;
 
   /** Accumulated audio chunks across the entire session. */
   private audioChunks: Buffer[] = [];
@@ -99,6 +114,8 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
   private polling = false;
   /** Whether new audio has arrived since the last poll. */
   private audioDirty = false;
+  /** First interim candidate for PCM sessions; emitted only after stabilization. */
+  private pendingFirstPcmPartial = "";
 
   /** Event callback registered via start(). */
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
@@ -106,6 +123,8 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
   constructor(apiKey: string, options: GoogleGeminiStreamOptions = {}) {
     this.model = options.model ?? DEFAULT_MODEL;
     this.pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
+    this.pcmSampleRate = options.pcmSampleRate ?? 48_000;
+    this.pcmChannels = options.pcmChannels ?? 1;
 
     this.client = options.baseUrl
       ? new GoogleGenAI({
@@ -125,6 +144,9 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
     }
     this.onEvent = onEvent;
     this.started = true;
+    // Avoid firing the first poll immediately on the first audio chunk.
+    // We want at least one poll interval of buffered audio context.
+    this.lastPollTime = Date.now();
 
     log.info(
       { model: this.model, pollIntervalMs: this.pollIntervalMs },
@@ -215,17 +237,50 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
         return;
       }
 
-      // Only emit a partial if the text has actually changed AND is
-      // a forward progression (longer or substantially different).
-      // This prevents flickering when the model returns a shorter
-      // intermediate result.
+      const nextText = text.trim();
+      if (!nextText) return;
+      if (this.isLikelyMetaResponse(nextText)) return;
+
+      // PCM streams from chat dictation are especially prone to low-context
+      // hallucinated early partials. Gate the first emitted partial until:
+      // 1) enough audio is buffered, and 2) two consecutive polls agree on a
+      // stable prefix.
+      if (this.isPcmMimeType(this.audioMimeType) && !this.lastEmittedText) {
+        const durationMs = this.getAccumulatedPcmDurationMs();
+        if (durationMs < MIN_FIRST_PCM_PARTIAL_AUDIO_MS) {
+          return;
+        }
+
+        if (!this.pendingFirstPcmPartial) {
+          this.pendingFirstPcmPartial = nextText;
+          return;
+        }
+
+        if (
+          !this.hasStrongPrefixOverlap(nextText, this.pendingFirstPcmPartial)
+        ) {
+          this.pendingFirstPcmPartial = nextText;
+          return;
+        }
+
+        const candidate =
+          nextText.length >= this.pendingFirstPcmPartial.length
+            ? nextText
+            : this.pendingFirstPcmPartial;
+        this.pendingFirstPcmPartial = "";
+        this.lastEmittedText = candidate;
+        this.emit({ type: "partial", text: candidate });
+        return;
+      }
+
+      // Only emit a partial if the text has changed and appears to move
+      // forward from the last emitted partial.
       if (
-        text &&
-        text !== this.lastEmittedText &&
-        text.length >= this.lastEmittedText.length
+        nextText !== this.lastEmittedText &&
+        this.isForwardProgression(nextText, this.lastEmittedText)
       ) {
-        this.lastEmittedText = text;
-        this.emit({ type: "partial", text });
+        this.lastEmittedText = nextText;
+        this.emit({ type: "partial", text: nextText });
       }
     } catch (err) {
       // Transient errors during polling are non-fatal — the final
@@ -294,8 +349,17 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
    * request to the Gemini API.
    */
   private async transcribeAccumulated(): Promise<string> {
-    const combined = Buffer.concat(this.audioChunks);
-    const base64Audio = combined.toString("base64");
+    const rawAudio = Buffer.concat(this.audioChunks);
+    const rawMimeType = this.audioMimeType;
+    const isPcm = this.isPcmMimeType(rawMimeType);
+    const audio = isPcm
+      ? encodePcm16LeToWav(rawAudio, {
+          sampleRate: this.pcmSampleRate,
+          channels: this.pcmChannels,
+        })
+      : rawAudio;
+    const mimeType = isPcm ? "audio/wav" : rawMimeType;
+    const base64Audio = audio.toString("base64");
 
     const response = await this.client.models.generateContent({
       model: this.model,
@@ -305,7 +369,7 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
           parts: [
             {
               inlineData: {
-                mimeType: this.audioMimeType,
+                mimeType,
                 data: base64Audio,
               },
             },
@@ -314,11 +378,52 @@ export class GoogleGeminiStreamingTranscriber implements StreamingTranscriber {
         },
       ],
       config: {
+        temperature: 0,
         abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
     });
 
     return response.text?.trim() ?? "";
+  }
+
+  private isPcmMimeType(mimeType: string): boolean {
+    const base = mimeType.split(";")[0].trim().toLowerCase();
+    return base === "audio/pcm";
+  }
+
+  private getAccumulatedPcmDurationMs(): number {
+    if (!this.isPcmMimeType(this.audioMimeType)) return 0;
+    const bytesPerSecond = this.pcmSampleRate * this.pcmChannels * 2;
+    if (bytesPerSecond <= 0) return 0;
+    const bytes = this.audioChunks.reduce(
+      (sum, chunk) => sum + chunk.length,
+      0,
+    );
+    return (bytes / bytesPerSecond) * 1_000;
+  }
+
+  private hasStrongPrefixOverlap(a: string, b: string): boolean {
+    const minLen = Math.min(a.length, b.length);
+    if (minLen === 0) return false;
+    const shared = this.commonPrefixLength(a, b);
+    return shared >= Math.min(minLen, 16);
+  }
+
+  private commonPrefixLength(a: string, b: string): number {
+    const len = Math.min(a.length, b.length);
+    let i = 0;
+    while (i < len && a[i] === b[i]) i++;
+    return i;
+  }
+
+  private isForwardProgression(next: string, prev: string): boolean {
+    if (!prev) return true;
+    if (next.length < prev.length) return false;
+    return next.startsWith(prev);
+  }
+
+  private isLikelyMetaResponse(text: string): boolean {
+    return META_RESPONSE_PATTERNS.some((pattern) => pattern.test(text));
   }
 
   // -----------------------------------------------------------------------
