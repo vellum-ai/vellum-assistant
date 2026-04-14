@@ -612,6 +612,7 @@ export function serviceDockerRunArgs(opts: {
       }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
       ]) {
         if (process.env[envVar]) {
