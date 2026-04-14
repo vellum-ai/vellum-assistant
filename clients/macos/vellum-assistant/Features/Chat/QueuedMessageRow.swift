@@ -29,7 +29,6 @@ struct QueuedMessageRow: View {
             RoundedRectangle(cornerRadius: 1)
                 .fill(VColor.systemPendingSoft)
                 .frame(width: 2)
-                .frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
 
             // (b) Position pill — tabular numerals so "#10" and "#1" align.
