@@ -108,4 +108,11 @@ struct TranscriptRowModel: Equatable, Identifiable {
     /// inside the ForEach so it shares the same minHeight wrapper that
     /// will later hold the real assistant message.
     var isThinkingPlaceholder: Bool = false
+
+    /// Accumulated estimated height of all preceding assistant rows in
+    /// the current turn (since the last user message). The first assistant
+    /// row after a user message always has 0. Downstream layout uses this
+    /// to size the dynamic min-height so the viewport doesn't jump when
+    /// content grows.
+    var priorTurnContentHeight: CGFloat = 0
 }

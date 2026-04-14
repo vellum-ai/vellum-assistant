@@ -166,6 +166,21 @@ enum TranscriptProjector {
             )
         }
 
+        // --- Prior turn content height ---
+
+        // Walk the rows and accumulate estimated heights within each
+        // assistant turn (reset on user messages).
+        var turnAccumulator: CGFloat = 0
+        for i in rows.indices {
+            let msg = rows[i].message
+            if msg.role == .user {
+                turnAccumulator = 0
+            } else if msg.role == .assistant {
+                rows[i].priorTurnContentHeight = turnAccumulator
+                turnAccumulator += Self.estimateAssistantRowHeight(for: msg)
+            }
+        }
+
         // When thinking indicator should show but no assistant message exists yet,
         // append a synthetic placeholder row so the thinking indicator renders
         // inside the ForEach's minHeight wrapper — same container that will later
@@ -269,5 +284,30 @@ enum TranscriptProjector {
         }
 
         return nil
+    }
+
+    // MARK: - Height estimation
+
+    /// Rough per-row height estimate for assistant messages. Used to
+    /// compute `priorTurnContentHeight` so the dynamic min-height can
+    /// anticipate how much space the turn occupies. Exact pixel accuracy
+    /// is not required — the value just needs to be in the right ballpark.
+    static func estimateAssistantRowHeight(for message: ChatMessage) -> CGFloat {
+        // Confirmation-only rows (no text content) get a compact height.
+        if message.confirmation != nil {
+            return 44
+        }
+
+        // Tool-call rows are taller due to the expanded card chrome.
+        if !message.toolCalls.isEmpty {
+            return 80
+        }
+
+        // Plain text: rough estimate based on character count.
+        let charCount = message.text.count
+        if charCount == 0 { return 32 }
+        if charCount < 100 { return 48 }
+        if charCount < 500 { return 120 }
+        return 200
     }
 }

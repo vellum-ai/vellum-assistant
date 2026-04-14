@@ -479,6 +479,130 @@ final class TranscriptProjectorTests: XCTestCase {
             XCTAssertEqual(row.index, i, "Row index should match position in rows array")
         }
     }
+
+    // MARK: - Prior Turn Content Height
+
+    func testPriorTurnContentHeight_SingleAssistantAfterUser() {
+        let user = makeMessage(role: .user, text: "Hi")
+        let assistant = makeMessage(role: .assistant, text: "Hello there")
+
+        let model = project(messages: [user, assistant])
+        XCTAssertEqual(model.rows[1].priorTurnContentHeight, 0,
+                       "First assistant message after user should have priorTurnContentHeight = 0")
+    }
+
+    func testPriorTurnContentHeight_AssistantPlusConfirmation() {
+        let user = makeMessage(role: .user, text: "Run something")
+        let assistant = makeMessage(role: .assistant, text: "Running command")
+        let confirmation = makeMessage(
+            role: .assistant,
+            text: "",
+            confirmation: ToolConfirmationData(
+                requestId: "req-1",
+                toolName: "bash",
+                riskLevel: "medium",
+                state: .pending
+            )
+        )
+
+        let model = project(messages: [user, assistant, confirmation])
+        XCTAssertEqual(model.rows[1].priorTurnContentHeight, 0,
+                       "First assistant row in turn has 0 prior height")
+        let expectedHeight = TranscriptProjector.estimateAssistantRowHeight(for: assistant)
+        XCTAssertEqual(model.rows[2].priorTurnContentHeight, expectedHeight,
+                       "Confirmation row should accumulate height of preceding assistant message")
+        XCTAssertGreaterThan(model.rows[2].priorTurnContentHeight, 0)
+    }
+
+    func testPriorTurnContentHeight_ThinkingPlaceholder() {
+        let user = makeMessage(role: .user, text: "Question")
+
+        let model = project(
+            messages: [user],
+            isSending: true,
+            isThinking: true
+        )
+
+        // Thinking placeholder is appended as a synthetic row
+        XCTAssertTrue(model.shouldShowThinkingIndicator)
+        let placeholder = model.rows.last!
+        XCTAssertTrue(placeholder.isThinkingPlaceholder)
+        XCTAssertEqual(placeholder.priorTurnContentHeight, 0,
+                       "Thinking placeholder with no preceding assistant rows should have 0 prior height")
+    }
+
+    func testPriorTurnContentHeight_MultipleToolCallsPlusConfirmation() {
+        let user = makeMessage(role: .user, text: "Do multiple things")
+        let tool1 = makeMessage(
+            role: .assistant,
+            text: "Running first",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "cmd1", isComplete: true)]
+        )
+        let tool2 = makeMessage(
+            role: .assistant,
+            text: "Running second",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "cmd2", isComplete: true)]
+        )
+        let confirmation = makeMessage(
+            role: .assistant,
+            text: "",
+            confirmation: ToolConfirmationData(
+                requestId: "req-1",
+                toolName: "bash",
+                riskLevel: "medium",
+                state: .pending
+            )
+        )
+
+        let model = project(messages: [user, tool1, tool2, confirmation])
+
+        XCTAssertEqual(model.rows[1].priorTurnContentHeight, 0,
+                       "First tool call row has 0 prior height")
+        let height1 = TranscriptProjector.estimateAssistantRowHeight(for: tool1)
+        XCTAssertEqual(model.rows[2].priorTurnContentHeight, height1,
+                       "Second tool call accumulates first tool call height")
+        let height2 = TranscriptProjector.estimateAssistantRowHeight(for: tool2)
+        XCTAssertEqual(model.rows[3].priorTurnContentHeight, height1 + height2,
+                       "Confirmation accumulates all preceding tool call heights")
+    }
+
+    func testPriorTurnContentHeight_NewTurnResetsAccumulator() {
+        // First turn
+        let user1 = makeMessage(role: .user, text: "First question")
+        let assistant1 = makeMessage(role: .assistant, text: "First answer with a lot of text to make it tall enough")
+        let tool1 = makeMessage(
+            role: .assistant,
+            text: "Tool output",
+            toolCalls: [ToolCallData(toolName: "bash", inputSummary: "ls", isComplete: true)]
+        )
+
+        // Second turn
+        let user2 = makeMessage(role: .user, text: "Second question")
+        let assistant2 = makeMessage(role: .assistant, text: "Second answer")
+
+        let model = project(messages: [user1, assistant1, tool1, user2, assistant2])
+
+        // Verify first turn accumulated
+        let height1 = TranscriptProjector.estimateAssistantRowHeight(for: assistant1)
+        XCTAssertEqual(model.rows[1].priorTurnContentHeight, 0)
+        XCTAssertEqual(model.rows[2].priorTurnContentHeight, height1)
+
+        // After user2, accumulator resets
+        XCTAssertEqual(model.rows[4].priorTurnContentHeight, 0,
+                       "First assistant row after a new user message should reset to 0")
+    }
+
+    func testPriorTurnContentHeight_UserMessageRowIsZero() {
+        let user = makeMessage(role: .user, text: "Hi")
+        let assistant = makeMessage(role: .assistant, text: "Hello")
+        let user2 = makeMessage(role: .user, text: "Thanks")
+
+        let model = project(messages: [user, assistant, user2])
+        XCTAssertEqual(model.rows[0].priorTurnContentHeight, 0,
+                       "User messages should always have 0 priorTurnContentHeight")
+        XCTAssertEqual(model.rows[2].priorTurnContentHeight, 0,
+                       "User messages should always have 0 priorTurnContentHeight")
+    }
 }
 
 // MARK: - ToolCallData convenience init for tests
