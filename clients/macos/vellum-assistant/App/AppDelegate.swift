@@ -143,6 +143,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
     var preVoiceInputText: String?
+    /// Set to `true` after the first `onTranscription` delivery for the current
+    /// recording session. Reset to `false` when a new recording starts (via
+    /// `onRecordingStateChanged`). Used to detect duplicate/stale deliveries
+    /// (e.g. the async batch STT fallback completing after the user already sent).
+    var voiceTranscriptionConsumed = false
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
