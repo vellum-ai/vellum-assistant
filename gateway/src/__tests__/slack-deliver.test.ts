@@ -12,6 +12,8 @@ let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
   async () => new Response(),
 );
 
+const logCalls: { args: unknown[]; method: string }[] = [];
+
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
@@ -21,6 +23,29 @@ mock.module("../auth/token-exchange.js", () => ({
   mintServiceToken: () => "mock-service-token",
   mintExchangeToken: () => "mock-exchange-token",
   validateEdgeToken: () => ({ ok: true }),
+}));
+
+function createMockLogger(): Record<string, unknown> {
+  const target = {} as Record<string, unknown>;
+  const proxy = new Proxy(target, {
+    get: (_innerTarget, prop) => {
+      if (prop === "child") {
+        return () => proxy;
+      }
+
+      if (typeof prop !== "string") return undefined;
+
+      return (...args: unknown[]) => {
+        logCalls.push({ method: prop, args });
+      };
+    },
+  });
+
+  return proxy;
+}
+
+mock.module("../logger.js", () => ({
+  getLogger: () => createMockLogger(),
 }));
 
 const { createSlackDeliverHandler } =
@@ -113,6 +138,7 @@ let fetchCalls: {
 
 beforeEach(() => {
   fetchCalls = [];
+  logCalls.length = 0;
   process.env.APP_VERSION = "0.0.0-dev";
   fetchMock = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
@@ -906,6 +932,164 @@ describe("slack-deliver endpoint", () => {
     expect(postCall).toBeDefined();
     const updateCall = fetchCalls.find((c) => c.url.includes("chat.update"));
     expect(updateCall).toBeUndefined();
+  });
+
+  test("retries chat.postMessage without blocks when Slack returns invalid_blocks", async () => {
+    let postMessageCalls = 0;
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        let body: unknown;
+        let rawBody: string | undefined;
+        try {
+          if (init?.body && typeof init.body === "string") {
+            rawBody = init.body;
+            body = JSON.parse(init.body);
+          }
+        } catch {
+          /* not JSON */
+        }
+        fetchCalls.push({ url, body, rawBody });
+
+        if (url.includes("chat.postMessage")) {
+          postMessageCalls++;
+          // First call (with blocks) fails with invalid_blocks;
+          // second call (without blocks) succeeds.
+          if (postMessageCalls === 1) {
+            return new Response(
+              JSON.stringify({ ok: false, error: "invalid_blocks" }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          }
+          return new Response(
+            JSON.stringify({ ok: true, ts: "123.456" }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
+    const customBlocks = [
+      { type: "section", text: { type: "mrkdwn", text: "Rich content" } },
+    ];
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Plain text fallback",
+      blocks: customBlocks,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Should have called chat.postMessage exactly twice.
+    const postCalls = fetchCalls.filter((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(postCalls.length).toBe(2);
+
+    // First call includes blocks.
+    expect((postCalls[0]!.body as any).blocks).toBeDefined();
+    expect((postCalls[0]!.body as any).blocks).toEqual(customBlocks);
+
+    // Second call (retry) has no blocks field but preserves text.
+    expect((postCalls[1]!.body as any).blocks).toBeUndefined();
+    expect((postCalls[1]!.body as any).text).toBe("Plain text fallback");
+    expect((postCalls[1]!.body as any).channel).toBe("C123");
+
+    // A warn-level log was emitted describing the fallback.
+    const retryLog = logCalls.find((c) => {
+      const [firstArg, secondArg] = c.args;
+      const message =
+        typeof firstArg === "string"
+          ? firstArg
+          : typeof secondArg === "string"
+            ? secondArg
+            : undefined;
+      return (
+        c.method === "warn" &&
+        typeof message === "string" &&
+        message.includes("Retrying Slack delivery without blocks")
+      );
+    });
+    expect(retryLog).toBeDefined();
+  });
+
+  test("does not retry when Slack returns a non-invalid_blocks error", async () => {
+    let postMessageCalls = 0;
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        let body: unknown;
+        let rawBody: string | undefined;
+        try {
+          if (init?.body && typeof init.body === "string") {
+            rawBody = init.body;
+            body = JSON.parse(init.body);
+          }
+        } catch {
+          /* not JSON */
+        }
+        fetchCalls.push({ url, body, rawBody });
+
+        if (url.includes("chat.postMessage")) {
+          postMessageCalls++;
+          return new Response(
+            JSON.stringify({ ok: false, error: "channel_not_found" }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
+    const customBlocks = [
+      { type: "section", text: { type: "mrkdwn", text: "Rich content" } },
+    ];
+    const req = makeRequest({
+      chatId: "C123",
+      text: "Plain text fallback",
+      blocks: customBlocks,
+    });
+    const res = await handler(req);
+    // channel_not_found maps to a 404 from the helper; either way the
+    // handler must NOT retry with blocks removed.
+    expect(res.status).toBe(404);
+
+    // chat.postMessage should have been called exactly once.
+    expect(postMessageCalls).toBe(1);
+    const postCalls = fetchCalls.filter((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(postCalls.length).toBe(1);
   });
 });
 
