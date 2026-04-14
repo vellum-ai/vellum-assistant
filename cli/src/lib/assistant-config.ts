@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -16,8 +16,13 @@ import {
   DEFAULT_DAEMON_PORT,
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
-  LOCKFILE_NAMES,
 } from "./constants.js";
+import {
+  getLockfilePath,
+  getLockfilePaths,
+  getMultiInstanceDir,
+} from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 import { probePort } from "./port-probe.js";
 
 /**
@@ -27,10 +32,11 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root. The first local assistant uses `~` (home
-   * directory) with default ports. Subsequent instances are placed under
-   * `~/.local/share/vellum/assistants/<name>/`.
-   * The daemon's `.vellum/` directory lives inside it.
+   * Instance-specific data root. New local assistants are placed under
+   * `$XDG_DATA_HOME/vellum{-env}/assistants/<name>/`. Legacy entries
+   * (pre env-data-layout) may still point at `~` — the read path honors
+   * whatever `instanceDir` is stored. The daemon's `.vellum/` directory
+   * lives inside it.
    */
   instanceDir: string;
   /** HTTP port for the daemon runtime server */
@@ -113,15 +119,8 @@ export function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
-/** The lockfile always lives under the home directory. */
-function getLockfileDir(): string {
-  return process.env.VELLUM_LOCKFILE_DIR?.trim() || homedir();
-}
-
 function readLockfile(): LockfileData {
-  const base = getLockfileDir();
-  const candidates = LOCKFILE_NAMES.map((name) => join(base, name));
-  for (const lockfilePath of candidates) {
+  for (const lockfilePath of getLockfilePaths(getCurrentEnvironment())) {
     if (!existsSync(lockfilePath)) continue;
     try {
       const raw = readFileSync(lockfilePath, "utf-8");
@@ -137,7 +136,8 @@ function readLockfile(): LockfileData {
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = join(getLockfileDir(), LOCKFILE_NAMES[0]);
+  const lockfilePath = getLockfilePath(getCurrentEnvironment());
+  mkdirSync(dirname(lockfilePath), { recursive: true });
   const tmpPath = `${lockfilePath}.${randomBytes(4).toString("hex")}.tmp`;
   try {
     writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n");
@@ -186,6 +186,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     return false;
   }
 
+  const env = getCurrentEnvironment();
   let mutated = false;
 
   // Migrate top-level `baseDataDir` → `resources.instanceDir`
@@ -207,11 +208,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     const gatewayPort =
       parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
     const instanceDir = join(
-      homedir(),
-      ".local",
-      "share",
-      "vellum",
-      "assistants",
+      getMultiInstanceDir(env),
       typeof raw.assistantId === "string"
         ? raw.assistantId
         : DAEMON_INTERNAL_ASSISTANT_ID,
@@ -230,11 +227,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     const res = raw.resources as Record<string, unknown>;
     if (!res.instanceDir) {
       res.instanceDir = join(
-        homedir(),
-        ".local",
-        "share",
-        "vellum",
-        "assistants",
+        getMultiInstanceDir(env),
         typeof raw.assistantId === "string"
           ? raw.assistantId
           : DAEMON_INTERNAL_ASSISTANT_ID,
@@ -416,58 +409,32 @@ async function findAvailablePort(
 
 /**
  * Allocate an isolated set of resources for a named local instance.
- * The first local assistant uses the home directory with default ports.
- * Subsequent assistants are placed under
- * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
+ * Every new local assistant is allocated under
+ * `$XDG_DATA_HOME/vellum{-env}/assistants/<name>/`. The legacy `~/.vellum/`
+ * path is only reached via existing lockfile entries from before this change
+ * — the read path honors whatever `resources.instanceDir` is stored, so
+ * production users' existing first-local assistants keep their `~/.vellum/`
+ * roots unchanged.
  */
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
-  // First local assistant gets the home directory with default ports.
-  // Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the daemon,
-  // gateway, and credential store all resolve paths under the same root.
-  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
-  if (existingLocals.length === 0) {
-    const baseDir = getBaseDir();
-    const vellumDir = join(baseDir, ".vellum");
-    return {
-      instanceDir: baseDir,
-      daemonPort: DEFAULT_DAEMON_PORT,
-      gatewayPort: DEFAULT_GATEWAY_PORT,
-      qdrantPort: DEFAULT_QDRANT_PORT,
-      cesPort: DEFAULT_CES_PORT,
-      pidFile: join(vellumDir, "vellum.pid"),
-    };
-  }
-
-  const instanceDir = join(
-    homedir(),
-    ".local",
-    "share",
-    "vellum",
-    "assistants",
-    instanceName,
-  );
+  const env = getCurrentEnvironment();
+  const instanceDir = join(getMultiInstanceDir(env), instanceName);
   mkdirSync(instanceDir, { recursive: true });
 
   // Collect ports already assigned to other local instances in the lockfile.
-  // Even if those instances are stopped, we must avoid reusing their ports
-  // to prevent binding collisions when both are woken.
   const reservedPorts: number[] = [];
   for (const entry of loadAllAssistants()) {
-    if (entry.cloud !== "local") continue;
-    if (entry.resources) {
-      reservedPorts.push(
-        entry.resources.daemonPort,
-        entry.resources.gatewayPort,
-        entry.resources.qdrantPort,
-        entry.resources.cesPort,
-      );
-    }
+    if (entry.cloud !== "local" || !entry.resources) continue;
+    reservedPorts.push(
+      entry.resources.daemonPort,
+      entry.resources.gatewayPort,
+      entry.resources.qdrantPort,
+      entry.resources.cesPort,
+    );
   }
 
-  // Allocate ports sequentially to avoid overlapping ranges assigning the
-  // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).
   const daemonPort = await findAvailablePort(
     DEFAULT_DAEMON_PORT,
     reservedPorts,
