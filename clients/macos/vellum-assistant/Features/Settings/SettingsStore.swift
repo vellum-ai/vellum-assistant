@@ -374,6 +374,8 @@ public final class SettingsStore: ObservableObject {
     private var pendingIngressUrl: String?
     private var routingSourceRefreshTask: Task<Void, Never>?
     private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
+    private var trustRulesObservationTask: Task<Void, Never>?
+    private var modelInfoObservationTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
@@ -594,20 +596,29 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
-        connectionManager?.$isTrustRulesSheetOpen
-            .receive(on: RunLoop.main)
-            .assign(to: &$isAnyTrustRulesSheetOpen)
+        trustRulesObservationTask?.cancel()
+        if let connectionManager {
+            trustRulesObservationTask = Task { @MainActor [weak self] in
+                for await isOpen in observationStream({ connectionManager.isTrustRulesSheetOpen }) {
+                    guard let self, !Task.isCancelled else { break }
+                    self.isAnyTrustRulesSheetOpen = isOpen
+                }
+            }
+        }
 
         // Subscribe to daemon-pushed model changes so the UI stays in sync
         // when the model is changed externally (e.g. via CLI or another client).
-        connectionManager?.$latestModelInfo
-            .compactMap { $0 }
-            .receive(on: RunLoop.main)
-            .sink { [weak self] info in
-                guard let self else { return }
-                self.applyModelInfoResponse(info)
+        modelInfoObservationTask?.cancel()
+        if let connectionManager {
+            modelInfoObservationTask = Task { @MainActor [weak self] in
+                for await info in observationStream({ connectionManager.latestModelInfo }) {
+                    guard let self, !Task.isCancelled else { break }
+                    if let info {
+                        self.applyModelInfoResponse(info)
+                    }
+                }
             }
-            .store(in: &cancellables)
+        }
 
         // Subscribe to SSE-pushed config updates
         Task { @MainActor [weak self] in
