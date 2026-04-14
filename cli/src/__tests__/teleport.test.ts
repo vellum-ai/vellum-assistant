@@ -23,11 +23,16 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Import the real assistant-config module — do NOT mock it with mock.module()
-// because Bun's mock.module() replaces the module globally and leaks into
-// other test files (e.g. multi-local.test.ts) running in the same process.
-// Instead, we use spyOn to mock findAssistantByName on the imported module object.
+// Import the real modules — do NOT mock them with mock.module() because
+// Bun's mock.module() replaces modules globally and the replacement leaks
+// into other test files (e.g. platform-client.test.ts, guardian-token.test.ts,
+// multi-local.test.ts) running in the same process with no way to unmock.
+// Instead, we use spyOn() on the imported module namespace objects — these
+// mutate only the current process's live binding and are restored via
+// mockRestore() in afterAll.
 import * as assistantConfig from "../lib/assistant-config.js";
+import * as guardianToken from "../lib/guardian-token.js";
+import * as platformClient from "../lib/platform-client.js";
 
 const findAssistantByNameMock = spyOn(
   assistantConfig,
@@ -49,43 +54,72 @@ const removeAssistantEntryMock = spyOn(
   "removeAssistantEntry",
 ).mockImplementation(() => {});
 
-const loadGuardianTokenMock = mock((_id: string) => ({
+const loadGuardianTokenMock = spyOn(
+  guardianToken,
+  "loadGuardianToken",
+).mockReturnValue({
   accessToken: "local-token",
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-}));
-const leaseGuardianTokenMock = mock(async () => ({
+} as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
+
+const leaseGuardianTokenMock = spyOn(
+  guardianToken,
+  "leaseGuardianToken",
+).mockResolvedValue({
   accessToken: "leased-token",
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-}));
+} as unknown as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>);
 
-mock.module("../lib/guardian-token.js", () => ({
-  loadGuardianToken: loadGuardianTokenMock,
-  leaseGuardianToken: leaseGuardianTokenMock,
-}));
+const readPlatformTokenMock = spyOn(
+  platformClient,
+  "readPlatformToken",
+).mockReturnValue("platform-token");
 
-const readPlatformTokenMock = mock((): string | null => "platform-token");
-const getPlatformUrlMock = mock(() => "https://platform.vellum.ai");
-const hatchAssistantMock = mock(async () => ({
+const getPlatformUrlMock = spyOn(
+  platformClient,
+  "getPlatformUrl",
+).mockReturnValue("https://platform.vellum.ai");
+
+const hatchAssistantMock = spyOn(
+  platformClient,
+  "hatchAssistant",
+).mockResolvedValue({
   assistant: {
     id: "platform-new-id",
     name: "platform-new",
     status: "active",
   },
   reusedExisting: false,
-}));
-const platformInitiateExportMock = mock(async () => ({
+});
+
+const platformInitiateExportMock = spyOn(
+  platformClient,
+  "platformInitiateExport",
+).mockResolvedValue({
   jobId: "job-1",
   status: "pending",
-}));
-const platformPollExportStatusMock = mock(async () => ({
+});
+
+const platformPollExportStatusMock = spyOn(
+  platformClient,
+  "platformPollExportStatus",
+).mockResolvedValue({
   status: "complete" as string,
   downloadUrl: "https://cdn.example.com/bundle.tar.gz",
-}));
-const platformDownloadExportMock = mock(async () => {
+});
+
+const platformDownloadExportMock = spyOn(
+  platformClient,
+  "platformDownloadExport",
+).mockImplementation(async () => {
   const data = new Uint8Array([10, 20, 30]);
   return new Response(data, { status: 200 });
 });
-const platformImportPreflightMock = mock(async () => ({
+
+const platformImportPreflightMock = spyOn(
+  platformClient,
+  "platformImportPreflight",
+).mockResolvedValue({
   statusCode: 200,
   body: {
     can_import: true,
@@ -96,8 +130,12 @@ const platformImportPreflightMock = mock(async () => ({
       total_files: 3,
     },
   } as Record<string, unknown>,
-}));
-const platformImportBundleMock = mock(async () => ({
+});
+
+const platformImportBundleMock = spyOn(
+  platformClient,
+  "platformImportBundle",
+).mockResolvedValue({
   statusCode: 200,
   body: {
     success: true,
@@ -109,14 +147,26 @@ const platformImportBundleMock = mock(async () => ({
       backups_created: 1,
     },
   } as Record<string, unknown>,
-}));
-const platformRequestUploadUrlMock = mock(async () => ({
+});
+
+const platformRequestUploadUrlMock = spyOn(
+  platformClient,
+  "platformRequestUploadUrl",
+).mockResolvedValue({
   uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
   bundleKey: "bundle-key-123",
   expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-}));
-const platformUploadToSignedUrlMock = mock(async () => {});
-const platformImportPreflightFromGcsMock = mock(async () => ({
+});
+
+const platformUploadToSignedUrlMock = spyOn(
+  platformClient,
+  "platformUploadToSignedUrl",
+).mockResolvedValue(undefined);
+
+const platformImportPreflightFromGcsMock = spyOn(
+  platformClient,
+  "platformImportPreflightFromGcs",
+).mockResolvedValue({
   statusCode: 200,
   body: {
     can_import: true,
@@ -127,8 +177,12 @@ const platformImportPreflightFromGcsMock = mock(async () => ({
       total_files: 3,
     },
   } as Record<string, unknown>,
-}));
-const platformImportBundleFromGcsMock = mock(async () => ({
+});
+
+const platformImportBundleFromGcsMock = spyOn(
+  platformClient,
+  "platformImportBundleFromGcs",
+).mockResolvedValue({
   statusCode: 200,
   body: {
     success: true,
@@ -140,27 +194,12 @@ const platformImportBundleFromGcsMock = mock(async () => ({
       backups_created: 1,
     },
   } as Record<string, unknown>,
-}));
-const checkExistingPlatformAssistantMock = mock(
-  async (): Promise<{ id: string; name: string; status: string } | null> =>
-    null,
-);
+});
 
-mock.module("../lib/platform-client.js", () => ({
-  readPlatformToken: readPlatformTokenMock,
-  getPlatformUrl: getPlatformUrlMock,
-  hatchAssistant: hatchAssistantMock,
-  checkExistingPlatformAssistant: checkExistingPlatformAssistantMock,
-  platformInitiateExport: platformInitiateExportMock,
-  platformPollExportStatus: platformPollExportStatusMock,
-  platformDownloadExport: platformDownloadExportMock,
-  platformImportPreflight: platformImportPreflightMock,
-  platformImportBundle: platformImportBundleMock,
-  platformRequestUploadUrl: platformRequestUploadUrlMock,
-  platformUploadToSignedUrl: platformUploadToSignedUrlMock,
-  platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
-  platformImportBundleFromGcs: platformImportBundleFromGcsMock,
-}));
+const checkExistingPlatformAssistantMock = spyOn(
+  platformClient,
+  "checkExistingPlatformAssistant",
+).mockResolvedValue(null);
 
 const hatchLocalMock = mock(async () => {});
 
@@ -222,6 +261,21 @@ afterAll(() => {
   saveAssistantEntryMock.mockRestore();
   loadAllAssistantsMock.mockRestore();
   removeAssistantEntryMock.mockRestore();
+  loadGuardianTokenMock.mockRestore();
+  leaseGuardianTokenMock.mockRestore();
+  readPlatformTokenMock.mockRestore();
+  getPlatformUrlMock.mockRestore();
+  hatchAssistantMock.mockRestore();
+  checkExistingPlatformAssistantMock.mockRestore();
+  platformInitiateExportMock.mockRestore();
+  platformPollExportStatusMock.mockRestore();
+  platformDownloadExportMock.mockRestore();
+  platformImportPreflightMock.mockRestore();
+  platformImportBundleMock.mockRestore();
+  platformRequestUploadUrlMock.mockRestore();
+  platformUploadToSignedUrlMock.mockRestore();
+  platformImportPreflightFromGcsMock.mockRestore();
+  platformImportBundleFromGcsMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
@@ -249,7 +303,7 @@ beforeEach(() => {
   loadGuardianTokenMock.mockReturnValue({
     accessToken: "local-token",
     accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-  });
+  } as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
   leaseGuardianTokenMock.mockReset();
 
   readPlatformTokenMock.mockReset();
