@@ -35,7 +35,6 @@ public struct InlineDocumentPreview: View {
 
                 Spacer()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
