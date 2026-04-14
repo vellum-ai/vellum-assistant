@@ -46,7 +46,14 @@ struct IntelligencePanel: View {
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
         _pendingSkillId = pendingSkillId
-        let homeTabFlagOn = assistantFeatureFlagStore?.isEnabled("home-tab") ?? false
+        // `home-tab` is a macos-scope flag, so it lives in
+        // `MacOSClientFeatureFlagManager`, NOT the assistant-scope
+        // `AssistantFeatureFlagStore`. The assistant store filters out
+        // macos-scope flags from its registry defaults, so calling
+        // `.isEnabled("home-tab")` on it falls through to its `?? true`
+        // fallback and silently shows the tab even when the registry says
+        // `defaultEnabled: false`. Same fix in `visibleTabs` below.
+        let homeTabFlagOn = MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
         let defaultTab: IntelligenceTab = homeTabFlagOn ? .home : .identity
         _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? defaultTab)
     }
@@ -95,7 +102,7 @@ struct IntelligencePanel: View {
     }
 
     private var visibleTabs: [IntelligenceTab] {
-        let flagOn = assistantFeatureFlagStore?.isEnabled("home-tab") ?? false
+        let flagOn = MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
         return IntelligenceTab.allCases.filter { tab in
             if tab == .home { return flagOn }
             return true

@@ -3,12 +3,16 @@ import VellumAssistantShared
 
 /// Left-column identity panel on the Home page.
 ///
-/// Composes the relationship "who am I" summary as a vertical column: a
-/// progress ring wrapping an avatar placeholder, the assistant name, a tagline
-/// derived from the tier description, the tappable tier badge, and a tiny
-/// metadata strip ("Hatched X ago" + conversation count). When the user has
-/// never had a conversation, a "Start a conversation" call-to-action button is
-/// surfaced inline.
+/// Mirrors the avatar treatment from `IdentityPanel` so the assistant looks
+/// the same wherever it appears: a large centered `AnimatedAvatarView` that
+/// pops in via the entry animation, custom-upload override, or fallback
+/// initial-letter image. Below the avatar a slim horizontal capsule progress
+/// bar shows relationship progression — replacing the older ring treatment so
+/// the avatar isn't visually constrained by a circle.
+///
+/// Stack order top-to-bottom: avatar → progress bar → assistant name +
+/// tagline → tappable tier badge → divider → metadata strip → optional
+/// "Start a conversation" zero-state button.
 ///
 /// This view is deliberately store-free — it takes a fully-materialised
 /// `RelationshipState` plus an `onStartConversation` closure so it can be
@@ -20,14 +24,14 @@ struct HomeIdentityPanel: View {
     /// Pulls the user's actual configured avatar (custom upload, character
     /// traits, or fallback initial-letter image) so the Home page reads as
     /// "this is your assistant" rather than a generic placeholder.
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     private var tier: RelationshipTier {
         RelationshipTier(rawValue: state.tier) ?? .gettingToKnowYou
     }
 
-    private var progress: Double {
-        Double(state.progressPercent) / 100.0
+    private var clampedProgress: Double {
+        Double(min(max(state.progressPercent, 0), 100)) / 100.0
     }
 
     private var tagline: String {
@@ -62,7 +66,8 @@ struct HomeIdentityPanel: View {
 
     var body: some View {
         VStack(alignment: .center, spacing: VSpacing.lg) {
-            ringSection
+            avatarSection
+            progressBar
             nameAndTagline
             TierBadgeView(tier: tier)
             metadataDivider
@@ -81,34 +86,20 @@ struct HomeIdentityPanel: View {
         .frame(width: 220)
     }
 
-    // MARK: - Ring + avatar
+    // MARK: - Avatar
 
-    /// Diameter of the entire ring frame. The avatar inside renders inset so
-    /// the ring stroke wraps around it with a small breathing gap.
-    private let ringDiameter: CGFloat = 132
+    /// Rendered avatar diameter. Matches the visual weight the IdentityPanel
+    /// gives its avatar in a similarly sized sidebar (~140pt for a 220pt
+    /// column with comfortable horizontal padding).
+    private let avatarSize: CGFloat = 140
 
-    /// Inset between the ring stroke and the avatar — picks up the warm
-    /// background color so the avatar appears to "sit" inside the ring.
-    private let avatarInset: CGFloat = 10
-
-    private var ringSection: some View {
-        ProgressRingView(progress: progress) {
-            avatarContent
-        }
-        .frame(width: ringDiameter, height: ringDiameter)
-        .padding(.bottom, VSpacing.xs)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Relationship progress"))
-        .accessibilityValue(Text("\(min(max(state.progressPercent, 0), 100)) percent"))
-    }
-
-    /// Real assistant avatar — custom upload, character traits (animated
-    /// `AnimatedAvatarView`), or initial-letter fallback. Resolution mirrors
-    /// `ChatEmptyStateView.heroSection` so the Home page and the chat empty
-    /// state always show the same visual identity.
+    /// Mirrors the resolution chain in `IdentityPanel.swift` and
+    /// `ChatEmptyStateView.heroSection`: custom upload first, then the
+    /// `AnimatedAvatarView` built from character traits with the entry
+    /// animation enabled (this is what gives the "pop in" feel), then the
+    /// bundled initial-letter image as a final fallback.
     @ViewBuilder
-    private var avatarContent: some View {
-        let avatarSize = ringDiameter - (avatarInset * 2)
+    private var avatarSection: some View {
         Group {
             if appearance.customAvatarImage != nil {
                 VAvatarImage(
@@ -116,6 +107,7 @@ struct HomeIdentityPanel: View {
                     size: avatarSize,
                     showBorder: false
                 )
+                .frame(maxWidth: .infinity, alignment: .center)
             } else if let body = appearance.characterBodyShape,
                       let eyes = appearance.characterEyeStyle,
                       let color = appearance.characterColor {
@@ -123,18 +115,65 @@ struct HomeIdentityPanel: View {
                     bodyShape: body,
                     eyeStyle: eyes,
                     color: color,
-                    size: avatarSize
+                    size: avatarSize,
+                    entryAnimationEnabled: true
                 )
                 .frame(width: avatarSize, height: avatarSize)
+                .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 VAvatarImage(
                     image: appearance.fullAvatarImage,
                     size: avatarSize,
                     showBorder: false
                 )
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
-        .frame(width: avatarSize, height: avatarSize)
+    }
+
+    // MARK: - Progress bar
+
+    /// Slim horizontal capsule progress bar replacing the older `ProgressRingView`.
+    /// Sits directly under the avatar so the relationship progression reads as
+    /// "loading toward something" instead of being trapped inside a ring.
+    private var progressBar: some View {
+        VStack(spacing: VSpacing.xxs) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(VColor.surfaceActive)
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    VColor.funGreen.opacity(0.85),
+                                    VColor.funGreen
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * clampedProgress)
+                        .animation(.easeOut(duration: 0.6), value: clampedProgress)
+                }
+            }
+            .frame(height: 6)
+
+            HStack {
+                Text("Relationship")
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                Spacer(minLength: 0)
+                Text("\(min(max(state.progressPercent, 0), 100))%")
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, VSpacing.xs)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Relationship progress"))
+        .accessibilityValue(Text("\(min(max(state.progressPercent, 0), 100)) percent"))
     }
 
     // MARK: - Name + tagline

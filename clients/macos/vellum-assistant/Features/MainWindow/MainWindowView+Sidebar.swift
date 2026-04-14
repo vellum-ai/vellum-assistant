@@ -76,9 +76,12 @@ extension MainWindowView {
         // count as "seen" — the user can be in the panel without ever opening
         // Home. `IntelligencePanel` flips `isHomeTabVisible` via .onAppear /
         // .onDisappear on the Home tab content, so this stays in sync.
-        if assistantFeatureFlagStore.isEnabled("home-tab")
-            && (homeStore?.hasUnseenChanges ?? false)
-            && !(homeStore?.isHomeTabVisible ?? false) {
+        //
+        // `home-tab` is a macos-scope flag, resolved via
+        // `MacOSClientFeatureFlagManager`, not the assistant-scope store.
+        if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
+            && homeStore.hasUnseenChanges
+            && !homeStore.isHomeTabVisible {
             Circle()
                 .fill(VColor.systemNegativeStrong)
                 .frame(width: 8, height: 8)

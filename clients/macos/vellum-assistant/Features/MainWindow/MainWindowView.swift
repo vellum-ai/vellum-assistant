@@ -81,13 +81,14 @@ struct MainWindowView: View {
     @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State var isInFullscreen: Bool = false
-    /// Long-lived store for the Home page. Lazily constructed on first appear
-    /// when the `home-tab` feature flag is on, so flag-off users do NOT pay
-    /// for an SSE subscription, a foreground observer, or `/v1/home/state`
-    /// fetches. Stays `nil` for the lifetime of the window when the flag is
-    /// off; downstream consumers (IntelligencePanel, sidebar dot) gracefully
-    /// handle the nil case.
-    @State var homeStore: HomeStore?
+    /// Long-lived store for the Home page. Constructed eagerly so the
+    /// Intelligence panel's Home sub-tab always has a backing store the
+    /// instant the user toggles the `home-tab` flag on, even if the panel
+    /// is opened without a relaunch. The cost (one SSE subscriber + one
+    /// foreground observer + one cached HTTP client) is small enough that
+    /// gating construction on the flag isn't worth the runtime-toggle
+    /// surface bug it created.
+    @State var homeStore: HomeStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.appListManager = appListManager
@@ -111,10 +112,13 @@ struct MainWindowView: View {
         // Show skeleton loading only for normal launches (not post-onboarding where
         // ComingAliveOverlay handles the transition).
         self._showDaemonLoading = State(initialValue: onSendWakeUp == nil)
-        // Home store is built lazily on first appear (see `.task` below)
-        // and only when the `home-tab` flag is on, so flag-off users incur
-        // zero cost (no SSE subscription, no foreground observer, no fetch).
-        self._homeStore = State(initialValue: nil)
+        // Eagerly construct the Home store so it's ready the moment the user
+        // toggles the `home-tab` flag on — even if the panel is opened
+        // without an app relaunch.
+        self._homeStore = State(initialValue: HomeStore(
+            client: DefaultHomeStateClient(),
+            messageStream: eventStreamClient.subscribe()
+        ))
     }
 
     // MARK: - Layout Constants
@@ -270,19 +274,6 @@ struct MainWindowView: View {
                         }
                     })
                     .transition(.opacity)
-                }
-            }
-            .task {
-                // Lazily construct the Home store on first appear, gated on
-                // the `home-tab` flag. Flag-off users never pay for the SSE
-                // subscription, foreground observer, or fetch. Fires once
-                // because `MainWindowView` is the window's root view and is
-                // not torn down across re-renders.
-                if homeStore == nil && assistantFeatureFlagStore.isEnabled("home-tab") {
-                    homeStore = HomeStore(
-                        client: DefaultHomeStateClient(),
-                        messageStream: eventStreamClient.subscribe()
-                    )
                 }
             }
             .onChange(of: conversationManager.activeConversationId) { oldId, newId in
