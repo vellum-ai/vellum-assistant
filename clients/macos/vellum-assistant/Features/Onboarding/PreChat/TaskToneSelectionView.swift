@@ -81,7 +81,8 @@ struct TaskToneSelectionView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(spacing: VSpacing.xs) {
-                    VSlider(value: $toneValue, range: 0...1, step: 0.5, showTickMarks: true)
+                    Slider(value: $toneValue, in: 0...1, step: 0.5)
+                        .tint(VColor.primaryBase)
 
                     HStack {
                         Text("Casual")
