@@ -113,6 +113,21 @@ final class ChatActionHandler {
                 break
             }
 
+            // Race-condition fallback: the echo may arrive before the HTTP 202
+            // response tags the optimistic row with daemonMessageId. Match by
+            // text against recent untagged optimistic user rows instead.
+            if let echoId = echo.messageId,
+               let idx = vm.messages.lastIndex(where: {
+                   $0.role == .user
+                       && $0.text == echo.text
+                       && $0.daemonMessageId == nil
+               }) {
+                // Tag the optimistic row so the 202 handler (userMessagePersisted)
+                // and future echoes can match by ID.
+                vm.messages[idx].daemonMessageId = echoId
+                break
+            }
+
             // Passive client (or nil messageId for back-compat surface-action
             // echoes): append a new user row and enter "reply incoming" state.
             var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
