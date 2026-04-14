@@ -176,6 +176,75 @@ final class HomeFeedStoreTests: XCTestCase {
         XCTAssertEqual(client.patchCallCount, 1)
     }
 
+    func testUpdateStatusRollbackSkippedIfLoadLandedFirst() async {
+        // Seed the store, then race `updateStatus` (delayed PATCH that
+        // will fail) against a concurrent `load()` that lands a fresh
+        // server snapshot. The rollback path must NOT overwrite the
+        // fresh load's view of the item with the stale pre-patch copy.
+        let original = makeFeedItem(id: "x", status: .new, title: "Pre-patch")
+        let client = MockHomeFeedClient(response: makeResponse(items: [original]))
+        let (store, _) = makeStore(client: client)
+        await store.load()
+        XCTAssertEqual(store.items.first?.title, "Pre-patch")
+
+        client.setPatchError(HomeFeedClientError.httpError(statusCode: 500))
+        client.setNextPatchDelay(nanoseconds: 200_000_000) // 200 ms
+
+        async let patching: Void = store.updateStatus(itemId: "x", status: .seen)
+
+        // Let the patch enter its delay, then swap the fetch response
+        // and run a concurrent `load()` that finishes before the patch
+        // unblocks. The load's fresh snapshot becomes the source of truth.
+        try? await Task.sleep(nanoseconds: 30_000_000) // 30 ms
+        let fresh = makeFeedItem(
+            id: "x",
+            status: .seen,
+            title: "Server-fresh",
+            timestamp: Date(timeIntervalSince1970: 1_760_000_500),
+            createdAt: Date(timeIntervalSince1970: 1_760_000_500)
+        )
+        client.setResponse(makeResponse(items: [fresh]))
+        await store.load()
+        XCTAssertEqual(store.items.first?.title, "Server-fresh")
+
+        // Now unblock the delayed patch — it will error, and the
+        // rollback guard must skip the restore because loadGeneration
+        // has advanced past the entry value.
+        await patching
+
+        XCTAssertEqual(store.items.first?.title, "Server-fresh",
+                       "rollback must not stomp the fresh load() snapshot")
+        XCTAssertEqual(store.items.first?.status, .seen)
+    }
+
+    func testMarkAllSeenAppliesLocallyAndPatchesEachItem() async {
+        let items = [
+            makeFeedItem(id: "a", status: .new, title: "First"),
+            makeFeedItem(id: "b", status: .new, title: "Second"),
+            makeFeedItem(id: "c", status: .seen, title: "Already seen"),
+        ]
+        let client = MockHomeFeedClient(response: makeResponse(items: items))
+        let (store, _) = makeStore(client: client)
+        await store.load()
+
+        // Server will echo each patched item; we don't actually need
+        // the mock to return a real replacement because markAllSeen
+        // is fire-and-forget — but supply one anyway so errors aren't
+        // spurious.
+        for item in items where item.status == .new {
+            client.setPatchedItem(
+                id: item.id,
+                item: makeFeedItem(id: item.id, status: .seen, title: item.title)
+            )
+        }
+
+        await store.markAllSeen()
+
+        XCTAssertEqual(store.items.map { $0.status }, [.seen, .seen, .seen])
+        XCTAssertEqual(client.patchCallCount, 2,
+                       "only the two originally-new items should have been PATCHed")
+    }
+
     func testSSEEventTriggersReload() async throws {
         let initial = makeResponse(items: [makeFeedItem(id: "first")])
         let client = MockHomeFeedClient(response: initial)

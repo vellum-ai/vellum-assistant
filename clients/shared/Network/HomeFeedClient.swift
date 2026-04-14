@@ -106,7 +106,7 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.patch(
-                path: "assistants/{assistantId}/home/feed/\(itemId)",
+                path: "assistants/{assistantId}/home/feed/\(Self.pathEscape(itemId))",
                 json: ["status": status.rawValue],
                 timeout: 10
             )
@@ -135,7 +135,7 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let response: GatewayHTTPClient.Response
         do {
             response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/home/feed/\(itemId)/actions/\(actionId)",
+                path: "assistants/{assistantId}/home/feed/\(Self.pathEscape(itemId))/actions/\(Self.pathEscape(actionId))",
                 json: [:],
                 timeout: 10
             )
@@ -170,5 +170,13 @@ public struct DefaultHomeFeedClient: HomeFeedClient {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+
+    /// Percent-encodes a URL path component so opaque IDs with
+    /// reserved characters (e.g. `/`, `?`, `#`) don't corrupt the
+    /// generated request URL. Daemon IDs are UUIDs today, but defensive
+    /// encoding costs nothing and protects future callers.
+    private static func pathEscape(_ component: String) -> String {
+        component.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? component
     }
 }

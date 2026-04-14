@@ -43,13 +43,15 @@ public final class HomeFeedStore {
     @ObservationIgnored private let client: HomeFeedClient
     @ObservationIgnored let messageStream: AsyncStream<ServerMessage>
     @ObservationIgnored var sseTask: Task<Void, Never>?
-    @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
 
-    /// Timestamp of the most recent moment the client was in the
-    /// foreground. Used to compute `timeAwaySeconds` on the next `load()`.
-    /// Initialized to `now` at construction so a cold-start load sees a
-    /// zero-delta instead of a nonsensical negative or epoch value.
-    @ObservationIgnored private var lastForegroundAt: Date
+    /// Moment the user last stepped away from the app (from
+    /// `willResignActive`). Consumed by the next `load()` as
+    /// `timeAwaySeconds = now - lastAwayAt` and then cleared — the
+    /// away→back transition is one-shot and each load reports exactly
+    /// one measurement. `nil` while the app is still active or before
+    /// the user has ever stepped away.
+    @ObservationIgnored private var lastAwayAt: Date?
 
     /// Monotonically-increasing generation token bumped on every `load()`
     /// entry. Used to discard out-of-order responses when concurrent
@@ -62,14 +64,13 @@ public final class HomeFeedStore {
     public init(client: HomeFeedClient, messageStream: AsyncStream<ServerMessage>) {
         self.client = client
         self.messageStream = messageStream
-        self.lastForegroundAt = Date()
         startListening()
-        observeForeground()
+        observeLifecycle()
     }
 
     deinit {
         sseTask?.cancel()
-        if let observer = foregroundObserver {
+        for observer in lifecycleObservers {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -78,10 +79,13 @@ public final class HomeFeedStore {
 
     /// Fetches the latest feed + context banner from the daemon.
     ///
-    /// `timeAwaySeconds` is computed from `lastForegroundAt`; callers do
-    /// not supply it. Leaves `items` / `contextBanner` unchanged on
-    /// failure so the UI keeps showing whatever we last successfully
-    /// fetched. Errors are logged, never thrown out.
+    /// `timeAwaySeconds` is consumed from `lastAwayAt` (set on
+    /// `willResignActive`) and cleared — the away→back transition is
+    /// one-shot, and a reload that fires for any other reason (SSE,
+    /// view appear) reports zero time-away instead of re-billing a
+    /// stale gap. Leaves `items` / `contextBanner` unchanged on failure
+    /// so the UI keeps showing whatever we last successfully fetched.
+    /// Errors are logged, never thrown out.
     public func load() async {
         loadGeneration &+= 1
         let myGeneration = loadGeneration
@@ -92,7 +96,13 @@ public final class HomeFeedStore {
             }
         }
 
-        let timeAwaySeconds = max(0, Date().timeIntervalSince(lastForegroundAt))
+        let timeAwaySeconds: TimeInterval
+        if let awayAt = lastAwayAt {
+            timeAwaySeconds = max(0, Date().timeIntervalSince(awayAt))
+            lastAwayAt = nil
+        } else {
+            timeAwaySeconds = 0
+        }
 
         do {
             let response = try await client.fetchFeed(timeAwaySeconds: timeAwaySeconds)
@@ -106,14 +116,18 @@ public final class HomeFeedStore {
     }
 
     /// Optimistically updates the item's status in memory, then confirms
-    /// with the server. On failure the local change is rolled back to the
-    /// prior status so the UI and server stay consistent.
+    /// with the server. On failure the local change is rolled back to
+    /// the prior status — *unless* a `load()` landed a fresh server
+    /// snapshot while the PATCH was in flight, in which case the
+    /// server's canonical state is already authoritative and a
+    /// rollback would clobber it with stale pre-patch data.
     public func updateStatus(itemId: String, status: FeedItemStatus) async {
         guard let index = items.firstIndex(where: { $0.id == itemId }) else { return }
 
         let previous = items[index]
         if previous.status == status { return }
 
+        let entryGeneration = loadGeneration
         items[index] = replacingStatus(previous, with: status)
 
         do {
@@ -126,6 +140,11 @@ public final class HomeFeedStore {
             }
         } catch {
             log.error("HomeFeedStore.updateStatus(\(itemId)) failed: \(error.localizedDescription)")
+            // Only roll back if nothing else has rewritten `items` in
+            // the meantime — a concurrent `load()` completing makes its
+            // fresh snapshot the new source of truth, and stomping it
+            // with our stale pre-patch copy would be a regression.
+            guard loadGeneration == entryGeneration else { return }
             if let freshIndex = items.firstIndex(where: { $0.id == itemId }) {
                 items[freshIndex] = previous
             }
@@ -181,21 +200,32 @@ public final class HomeFeedStore {
 
     // MARK: - Foreground Refresh
 
-    private func observeForeground() {
-        foregroundObserver = NotificationCenter.default.addObserver(
+    /// Observe both sides of the foreground transition so the next
+    /// `load()` can report an accurate `timeAwaySeconds`. Stamp
+    /// `lastAwayAt` on `willResignActive`, reload on
+    /// `didBecomeActive`; the load consumes and clears the stamp.
+    /// Time the user spends with the app merely unfocused (another
+    /// app on top) counts as "away"; active-but-idle does not.
+    private func observeLifecycle() {
+        let resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.lastAwayAt = Date()
+            }
+        }
+        let becomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                // Load first against the existing `lastForegroundAt` so the
-                // daemon sees the real time-away gap, then reset the stamp
-                // to the current moment for the next cycle.
-                await self.load()
-                self.lastForegroundAt = Date()
+                await self?.load()
             }
         }
+        lifecycleObservers = [resignObserver, becomeActiveObserver]
     }
 
     // MARK: - Helpers
@@ -239,6 +269,7 @@ public final class MockHomeFeedClient: HomeFeedClient, @unchecked Sendable {
     private var _patchCallCount: Int = 0
     private var _triggerCallCount: Int = 0
     private var _pendingFetchDelay: UInt64 = 0
+    private var _pendingPatchDelay: UInt64 = 0
 
     public init(response: HomeFeedResponse? = nil) {
         self._response = response
@@ -278,6 +309,12 @@ public final class MockHomeFeedClient: HomeFeedClient, @unchecked Sendable {
         lock.withLock { _pendingFetchDelay = nanoseconds }
     }
 
+    /// Inserts a one-shot sleep inside `patchStatus` so tests can race
+    /// a concurrent `load()` against an in-flight patch.
+    public func setNextPatchDelay(nanoseconds: UInt64) {
+        lock.withLock { _pendingPatchDelay = nanoseconds }
+    }
+
     public func fetchFeed(timeAwaySeconds: TimeInterval) async throws -> HomeFeedResponse {
         let (error, response, delay) = lock.withLock {
             () -> (Error?, HomeFeedResponse?, UInt64) in
@@ -297,9 +334,15 @@ public final class MockHomeFeedClient: HomeFeedClient, @unchecked Sendable {
     }
 
     public func patchStatus(itemId: String, status: FeedItemStatus) async throws -> FeedItem {
-        let (error, replacement) = lock.withLock { () -> (Error?, FeedItem?) in
+        let (error, replacement, delay) = lock.withLock {
+            () -> (Error?, FeedItem?, UInt64) in
             _patchCallCount += 1
-            return (_patchError, _patchedItems[itemId])
+            let d = _pendingPatchDelay
+            _pendingPatchDelay = 0
+            return (_patchError, _patchedItems[itemId], d)
+        }
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: delay)
         }
         if let error { throw error }
         if let replacement { return replacement }
