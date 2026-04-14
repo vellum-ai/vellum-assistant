@@ -304,6 +304,39 @@ describe("feed-writer", () => {
       expect(decoded.items[0]!.expiresAt).toBe(explicit);
     });
 
+    test("action with same id updates the existing entry in place", async () => {
+      // Deterministic-dedup callers (emit-feed-event.ts dedupKey)
+      // emit the same id on repeat signals; the writer must refresh
+      // the existing entry rather than append a duplicate, otherwise
+      // the same event would show up N times until the per-source
+      // cap trimmed it.
+      await appendFeedItem(
+        makeItem({
+          id: "emit:gmail:unread-msg-42",
+          type: "action",
+          source: "gmail",
+          title: "Unread from Alice",
+          createdAt: "2026-04-14T10:00:00.000Z",
+        }),
+      );
+      await appendFeedItem(
+        makeItem({
+          id: "emit:gmail:unread-msg-42",
+          type: "action",
+          source: "gmail",
+          title: "Unread from Alice (refreshed)",
+          createdAt: "2026-04-14T12:00:00.000Z",
+        }),
+      );
+
+      const decoded = readFileJson();
+      const matching = decoded.items.filter(
+        (i) => i.id === "emit:gmail:unread-msg-42",
+      );
+      expect(matching).toHaveLength(1);
+      expect(matching[0]!.title).toBe("Unread from Alice (refreshed)");
+    });
+
     test("multiple actions with the same (type, source) all persist", async () => {
       // Actions must not collapse onto each other by (type, source) —
       // each append is a distinct entry in the activity log.

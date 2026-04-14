@@ -20,9 +20,13 @@
  *   - Action append-without-replace: `action` items are the feed's
  *     activity log and never merge by `(type, source)` — each append
  *     becomes a distinct entry so successive background-job events
- *     don't collapse onto each other. Callers that want to auto-expire
- *     an action item must set `expiresAt` explicitly; the writer
- *     does NOT fill in a default expiry.
+ *     don't collapse onto each other. A same-`id` action is the one
+ *     exception: it performs an in-place update (same semantics as
+ *     threads) so callers using a deterministic dedup id via
+ *     `emit-feed-event.ts` can refresh an entry without appending a
+ *     duplicate. Callers that want to auto-expire an action item
+ *     must set `expiresAt` explicitly; the writer does NOT fill in
+ *     a default expiry.
  *   - Per-source action cap: after merge, each source keeps at most
  *     {@link MAX_ACTIONS_PER_SOURCE} action items (most recent by
  *     `createdAt`). Older actions for that source are dropped so the
@@ -325,7 +329,21 @@ function mergeIncoming(items: FeedItem[], incoming: FeedItem): FeedItem[] {
   // activity-log entry and must NOT collapse onto an existing action
   // for the same (type, source) pair. The per-source volume cap in
   // `pruneActionsPerSource` keeps the log from growing unbounded.
+  //
+  // Exception: same-id in-place update. Callers that want
+  // deterministic dedup (e.g. via `emit-feed-event.ts`'s `dedupKey`)
+  // produce a stable id per logical event; a second emit with the
+  // same id refreshes the existing entry in place rather than
+  // appending a duplicate.
   if (incoming.type === "action") {
+    const idx = items.findIndex(
+      (i) => i.type === "action" && i.id === incoming.id,
+    );
+    if (idx !== -1) {
+      const copy = items.slice();
+      copy[idx] = incoming;
+      return copy;
+    }
     return [...items, incoming];
   }
 
