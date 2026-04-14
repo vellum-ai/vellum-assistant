@@ -1318,8 +1318,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      // /v1/contacts/guardian/channel removed (ATL-102) — restricted to
-      // platform service calls via vembda only.
       "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",

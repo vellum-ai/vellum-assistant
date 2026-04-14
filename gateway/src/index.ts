@@ -573,11 +573,6 @@ async function main() {
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
     },
-    // ATL-102: /v1/contacts/guardian/channel gateway route removed.
-    // This endpoint bypasses channel verification and is restricted to
-    // platform service calls only (via proxy_gateway_request → vembda).
-    // Exposing it through the gateway allowed actor edge-JWT calls to
-    // be rewritten as svc_gateway tokens, bypassing the runtime guard.
     {
       path: /^\/v1\/contact-channels\/([^/]+)$/,
       method: "PATCH",
