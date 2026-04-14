@@ -112,12 +112,14 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 
 // Default url-safety: allow everything
 let parseUrlResult: URL | null = null;
+let parseUrlMock: (input: unknown) => URL | null = () => parseUrlResult;
 let isPrivateResult = false;
+let isPrivateHostMock: (hostname: string) => boolean = () => isPrivateResult;
 let resolveResult: { blockedAddress?: string } = {};
 
 mock.module("../tools/network/url-safety.js", () => ({
-  parseUrl: (_input: unknown) => parseUrlResult,
-  isPrivateOrLocalHost: () => isPrivateResult,
+  parseUrl: (input: unknown) => parseUrlMock(input),
+  isPrivateOrLocalHost: (hostname: string) => isPrivateHostMock(hostname),
   resolveHostAddresses: async () => [],
   resolveRequestAddress: async () => resolveResult,
   sanitizeUrlForOutput: (url: URL) => url.href,
@@ -206,7 +208,9 @@ function resetCdp() {
 describe("executeBrowserNavigate", () => {
   beforeEach(() => {
     parseUrlResult = null;
+    parseUrlMock = () => parseUrlResult;
     isPrivateResult = false;
+    isPrivateHostMock = () => isPrivateResult;
     resolveResult = {};
     resetMockPage();
     resetCdp();
@@ -568,9 +572,9 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
   });
 
-  // ── Extension path (no browserManager / route interception) ───
+  // ── Extension path (no Playwright route interception) ──────────
 
-  test("extension path skips getOrCreateSessionPage and route interception", async () => {
+  test("extension path skips Playwright route interception", async () => {
     parseUrlResult = new URL("https://example.com/page");
     // Supplying a non-null hostBrowserProxy on the context routes the
     // mocked getCdpClient to the extension path (it mirrors the real
@@ -589,11 +593,133 @@ describe("executeBrowserNavigate", () => {
     );
 
     expect(result.isError).toBe(false);
-    // Extension path never installs or removes a Playwright route.
+    // Extension path never installs or removes a Playwright route
+    // (route interception only works on the local Playwright path).
     expect(mockPage.route.mock.calls.length).toBe(routeCallsBefore);
     expect(mockPage.unroute.mock.calls.length).toBe(unrouteCallsBefore);
     // Page.navigate still goes through the CdpClient.
     expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
+    expect(cdpDisposed).toBe(true);
+  });
+
+  test("extension path blocks redirects via post-navigation final URL check", async () => {
+    // The initial URL is public and passes pre-flight checks. The
+    // extension path has no Playwright route interception, but the
+    // post-navigation defense-in-depth check catches the private final URL.
+    parseUrlResult = new URL("https://public.example.com/start");
+    isPrivateResult = false;
+
+    // Configure mocks to return different results for the initial URL
+    // vs. the final URL returned by navigateAndWait.
+    parseUrlMock = (input: unknown) => {
+      if (typeof input === "string" && input.includes("127.0.0.1")) {
+        return new URL(input);
+      }
+      return parseUrlResult;
+    };
+    isPrivateHostMock = (hostname: string) => {
+      return hostname === "127.0.0.1";
+    };
+
+    // navigateAndWait returns a private final URL (simulating a
+    // server-side redirect).
+    cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Runtime.evaluate") {
+        const expression = String(params?.["expression"] ?? "");
+        if (expression === "document.location.href") {
+          return { result: { value: "about:blank" } };
+        }
+        if (
+          expression.includes("readyState") &&
+          expression.includes("document.location.href")
+        ) {
+          return {
+            result: {
+              value: {
+                readyState: "complete",
+                href: "http://127.0.0.1/admin",
+              },
+            },
+          };
+        }
+        return { result: { value: null } };
+      }
+      return {};
+    };
+
+    const extensionCtx: ToolContext = {
+      ...ctx,
+      hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
+    };
+    const result = await executeBrowserNavigate(
+      { url: "https://public.example.com/start" },
+      extensionCtx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Navigation blocked");
+    expect(result.content).toContain("Final URL resolved to a local/private");
+    expect(result.content).toContain("allow_private_network=true");
+    expect(cdpDisposed).toBe(true);
+  });
+
+  // ── Defense-in-depth: post-navigation final URL check ─────────
+
+  test("post-nav check blocks when final URL resolves to private target", async () => {
+    // The initial URL is public and passes pre-flight checks, but the
+    // final URL (after redirect) resolves to a private address. The
+    // route handler is NOT triggered (navigation succeeds), so only the
+    // post-navigation defense-in-depth check catches it.
+    parseUrlResult = new URL("https://public.example.com/redirect");
+    isPrivateResult = false;
+
+    // Configure parseUrlMock to return different results for the initial
+    // URL vs. the final URL returned by navigateAndWait.
+    parseUrlMock = (input: unknown) => {
+      if (typeof input === "string" && input.includes("192.168")) {
+        return new URL(input);
+      }
+      return parseUrlResult;
+    };
+    isPrivateHostMock = (hostname: string) => {
+      return hostname === "192.168.1.1";
+    };
+
+    // navigateAndWait returns a private final URL (simulating a
+    // server-side redirect that the route handler didn't catch).
+    cdpSendHandler = (method, params) => {
+      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Runtime.evaluate") {
+        const expression = String(params?.["expression"] ?? "");
+        if (expression === "document.location.href") {
+          return { result: { value: "about:blank" } };
+        }
+        if (
+          expression.includes("readyState") &&
+          expression.includes("document.location.href")
+        ) {
+          return {
+            result: {
+              value: {
+                readyState: "complete",
+                href: "http://192.168.1.1/admin",
+              },
+            },
+          };
+        }
+        return { result: { value: null } };
+      }
+      return {};
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://public.example.com/redirect" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Navigation blocked");
+    expect(result.content).toContain("Final URL resolved to a local/private");
+    expect(result.content).toContain("allow_private_network=true");
     expect(cdpDisposed).toBe(true);
   });
 });

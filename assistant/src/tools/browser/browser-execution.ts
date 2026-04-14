@@ -604,10 +604,12 @@ export async function executeBrowserNavigate(
     await ensureScreencast(context.conversationId);
   }
 
-  // SSRF route interception is a Playwright-specific affordance used on
-  // the local path to block redirect-time requests to private networks.
-  // On the extension path we rely on the pre-CDP URL validation above;
-  // see phase3-cdp-migration.md PR 7 for the rationale.
+  // SSRF route interception uses the Playwright page.route() API to
+  // block redirect-time requests to private networks. This only works
+  // on the local path where Playwright manages the browser; on the
+  // extension/cdp-inspect paths, CDP navigates a different browser so
+  // the Playwright route handler would be a no-op. The post-navigation
+  // final URL check below provides defense-in-depth for all paths.
   let routeHandler: RouteHandler | null = null;
   let blockedUrl: string | null = null;
 
@@ -719,6 +721,53 @@ export async function executeBrowserNavigate(
       { timeoutMs: NAVIGATE_TIMEOUT_MS },
       context.signal,
     );
+
+    // Defense-in-depth: check the final URL after navigation completes.
+    // This catches redirect-based SSRF even when Playwright route
+    // interception is unavailable (e.g. extension-backed sessions where
+    // the CDP transport is separate from the Playwright page).
+    if (!allowPrivateNetwork) {
+      const finalParsed = parseUrl(finalUrl);
+      if (
+        finalParsed &&
+        (isPrivateOrLocalHost(finalParsed.hostname) ||
+          (
+            await resolveRequestAddress(
+              finalParsed.hostname,
+              resolveHostAddresses,
+              false,
+            )
+          ).blockedAddress)
+      ) {
+        // Navigate the page away from the private target to prevent
+        // follow-up tool calls (e.g. browser_snapshot) from reading
+        // the already-loaded private content.
+        try {
+          await navigateAndWait(
+            cdp,
+            "about:blank",
+            { timeoutMs: 3_000 },
+            context.signal,
+          );
+        } catch {
+          // Best-effort — if the reset fails, the CDP session will be
+          // disposed in the finally block anyway.
+        }
+        // Clean up the route handler before returning to avoid leaking
+        // a stale interception handler on the session page.
+        if (routeHandler) {
+          const page = await browserManager.getOrCreateSessionPage(
+            context.conversationId,
+          );
+          await page.unroute("**/*", routeHandler);
+          routeHandler = null;
+        }
+        return {
+          content: `Error: Navigation blocked. Final URL resolved to a local/private network target (${sanitizeUrlForOutput(finalParsed)}). Set allow_private_network=true if you explicitly need it.`,
+          isError: true,
+        };
+      }
+    }
     if (navigationTimedOut) {
       // If the page URL never changed from before navigation, the page
       // never actually loaded - re-throw instead of reporting success.
@@ -734,7 +783,7 @@ export async function executeBrowserNavigate(
     }
 
     // Remove the Playwright route handler now that navigation is
-    // complete (local path only).
+    // complete (local path only — route interception is gated above).
     if (routeHandler) {
       const page = await browserManager.getOrCreateSessionPage(
         context.conversationId,
