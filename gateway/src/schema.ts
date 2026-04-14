@@ -822,28 +822,20 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/twilio/media-stream/{callSessionId}/{token}": {
+      "/webhooks/twilio/media-stream": {
         get: {
           summary: "Twilio Media Stream WebSocket",
           description:
-            "Accepts a WebSocket upgrade from Twilio Media Streams and bidirectionally proxies frames to the assistant runtime's /v1/calls/media-stream endpoint. Handshake metadata (callSessionId and auth token) is carried in URL path segments because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. Legacy query-parameter-based handshake is still supported as a fallback. Also accepts /webhooks/twilio/media-stream (bare path) with query params for backward compatibility.",
+            "Accepts a WebSocket upgrade from Twilio Media Streams and bidirectionally proxies frames to the assistant runtime's /v1/calls/media-stream endpoint. Handshake metadata (callSessionId and auth token) is carried in URL path segments (e.g. /webhooks/twilio/media-stream/<callSessionId>/<token>) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. Legacy query-parameter-based handshake is still supported as a fallback.",
           operationId: "twilioMediaStreamWebsocket",
           parameters: [
             {
               name: "callSessionId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description:
-                "Call session identifier used to correlate the WebSocket connection with the runtime media-stream session. Encoded as a URL path segment (primary) or query parameter (legacy fallback).",
-            },
-            {
-              name: "token",
-              in: "path",
+              in: "query",
               required: false,
               schema: { type: "string" },
               description:
-                "JWT edge token for authentication. Encoded as a URL path segment (primary), query parameter (legacy fallback), or Authorization header.",
+                "Call session identifier (legacy fallback). The primary transport encodes callSessionId as a URL path segment: /webhooks/twilio/media-stream/<callSessionId>/<token>.",
             },
           ],
           responses: {
