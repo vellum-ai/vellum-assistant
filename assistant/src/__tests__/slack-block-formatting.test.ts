@@ -140,6 +140,27 @@ describe("textToSlackBlocks", () => {
     expect(section.text.text).toContain("Description: filters output");
   });
 
+  test("treats pipe after even backslashes as a real column separator", () => {
+    // C:\\ ends with two backslashes (even count), so the trailing | is a
+    // real column separator, not an escaped pipe.
+    const table = [
+      "| Path | Description |",
+      "| --- | --- |",
+      "| C:\\\\| a windows path |",
+    ].join("\n");
+
+    const blocks = textToSlackBlocks(table);
+    expect(blocks).toBeDefined();
+    expect(blocks!.length).toBe(1);
+    const section = blocks![0] as {
+      type: "section";
+      text: { type: string; text: string };
+    };
+    // C:\\ should be its own cell, "a windows path" in the Description column
+    expect(section.text.text).toContain("C:\\\\");
+    expect(section.text.text).toContain("Description: a windows path");
+  });
+
   test("requires header + separator + data row for table detection", () => {
     // Only header and separator, no data rows
     const input = "| A | B |\n| --- | --- |";

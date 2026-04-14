@@ -205,13 +205,20 @@ function splitIntoSegments(text: string): Segment[] {
  */
 function parseTableRow(line: string): string[] {
   const ESCAPED_PIPE_PLACEHOLDER = "\x00PIPE\x00";
+  const ESCAPED_BACKSLASH_PLACEHOLDER = "\x00BSLASH\x00";
   return line
+    // First, protect escaped backslashes (\\) so they don't interfere
+    .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
+    // Now a remaining \| is a genuinely escaped pipe (odd backslash)
     .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
     .replace(/^\|/, "")
     .replace(/\|$/, "")
     .split("|")
     .map((cell) =>
-      cell.replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|").trim(),
+      cell
+        .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
+        .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
+        .trim(),
     );
 }
 
