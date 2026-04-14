@@ -43,13 +43,13 @@ process.env.XDG_DATA_HOME = xdgDataHome;
 // (which nothing mocks) for the recover side. That's enough to regression-
 // guard both halves of the bug: archive format (contents, no wrapper dir)
 // and extraction target (entry.resources.instanceDir).
-import { extractArchive, resolveExtractTarget } from "../commands/recover";
+import { extractArchive, resolveExtractTarget } from "../commands/recover.js";
 import {
   saveAssistantEntry,
   type AssistantEntry,
-} from "../lib/assistant-config";
-import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
-import { DEFAULT_DAEMON_PORT } from "../lib/constants";
+} from "../lib/assistant-config.js";
+import { getArchivePath, getMetadataPath } from "../lib/retire-archive.js";
+import { DEFAULT_DAEMON_PORT } from "../lib/constants.js";
 
 // Each test creates a fresh instance dir under this scratch root so the
 // retire → recover round-trip operates on real files.

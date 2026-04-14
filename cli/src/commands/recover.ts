@@ -3,14 +3,14 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-import { getBaseDir, saveAssistantEntry } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
+import { getBaseDir, saveAssistantEntry } from "../lib/assistant-config.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   generateLocalSigningKey,
   startLocalDaemon,
   startGateway,
-} from "../lib/local";
-import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
+} from "../lib/local.js";
+import { getArchivePath, getMetadataPath } from "../lib/retire-archive.js";
 
 export async function recover(): Promise<void> {
   const args = process.argv.slice(3);
