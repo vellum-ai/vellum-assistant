@@ -14,6 +14,8 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import {
   attachInlineAttachmentToMessage,
   attachmentExists,
@@ -224,9 +226,24 @@ export function enqueueMessage(
   options?: { isInteractive?: boolean },
   displayContent?: string,
   transport?: ConversationTransportMetadata,
-): { queued: boolean; requestId: string; rejected?: boolean } {
+): {
+  queued: boolean;
+  requestId: string;
+  rejected?: boolean;
+  reason?: "queue_full" | "queue_disabled";
+} {
   if (!ctx.processing) {
     return { queued: false, requestId };
+  }
+
+  if (!isAssistantFeatureFlagEnabled("chat-message-queue", getConfig())) {
+    onEvent({
+      type: "error",
+      message:
+        "The assistant is busy processing another message. Please wait for it to finish before sending a new one.",
+      category: "queue_disabled",
+    });
+    return { queued: false, requestId, rejected: true, reason: "queue_disabled" };
   }
 
   const turnChannelContext =
@@ -259,7 +276,7 @@ export function enqueueMessage(
         "The assistant is busy and cannot accept more messages right now. Please try again shortly.",
       category: "queue_full",
     });
-    return { queued: false, requestId, rejected: true };
+    return { queued: false, requestId, rejected: true, reason: "queue_full" };
   }
   return { queued: true, requestId };
 }

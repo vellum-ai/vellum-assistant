@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -295,8 +295,19 @@ function resolveRun(index: number) {
 // ---------------------------------------------------------------------------
 
 describe("Conversation queue — slash-like messages pass through to agent loop", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     pendingRuns = [];
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({ "chat-message-queue": true });
+  });
+
+  afterEach(async () => {
+    const { _setOverridesForTesting } = await import(
+      "../config/assistant-feature-flags.js"
+    );
+    _setOverridesForTesting({});
   });
 
   test("queued slash-like input does not stall queue — batches with siblings", async () => {

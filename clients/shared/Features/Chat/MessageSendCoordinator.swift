@@ -86,6 +86,12 @@ final class MessageSendCoordinator {
     private let settingsClient: any SettingsClientProtocol
     private let conversationListClient: any ConversationListClientProtocol
 
+    /// Closure that resolves assistant-scoped feature flags by key.
+    /// Defaults to reading the bundled registry, which reflects compile-time defaults.
+    /// Callers (e.g. macOS app) can inject `AssistantFeatureFlagStore.isEnabled` to
+    /// pick up runtime overrides from the gateway.
+    private let isAssistantFeatureFlagEnabled: (String) -> Bool
+
     init(
         delegate: any MessageSendCoordinatorDelegate,
         messageManager: ChatMessageManager,
@@ -93,7 +99,10 @@ final class MessageSendCoordinator {
         errorManager: ChatErrorManager,
         btwState: ChatBtwState,
         settingsClient: any SettingsClientProtocol,
-        conversationListClient: any ConversationListClientProtocol
+        conversationListClient: any ConversationListClientProtocol,
+        isAssistantFeatureFlagEnabled: @escaping (String) -> Bool = { key in
+            loadFeatureFlagRegistry()?.flags.first(where: { $0.key == key })?.defaultEnabled ?? true
+        }
     ) {
         self.delegate = delegate
         self.messageManager = messageManager
@@ -102,6 +111,7 @@ final class MessageSendCoordinator {
         self.btwState = btwState
         self.settingsClient = settingsClient
         self.conversationListClient = conversationListClient
+        self.isAssistantFeatureFlagEnabled = isAssistantFeatureFlagEnabled
 
     }
 
@@ -416,21 +426,26 @@ final class MessageSendCoordinator {
             log.error("Cannot send user_message: daemon not connected")
 
             // Buffer the primary (non-queued-retry) send in the offline queue
-            // instead of surfacing an error. The message stays visible with a
-            // "pending" indicator and is flushed automatically on reconnect.
+            // instead of surfacing an error — but only when the feature flag is enabled.
             if queuedMessageId == nil {
-                log.info("Buffering message in offline queue (conversation: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
-                // Mark the corresponding chat message as offline-pending so the UI
-                // can show a visual indicator. Find the last user message with this
-                // text — it is the one just appended by sendMessage().
-                let matchText = displayText ?? text
-                if let idx = messageManager.messages.indices.reversed().first(where: { messageManager.messages[$0].role == .user && messageManager.messages[$0].text == matchText }) {
-                    messageManager.messages[idx].status = .pendingOffline
+                if isAssistantFeatureFlagEnabled("chat-message-queue") {
+                    log.info("Buffering message in offline queue (conversation: \(conversationId))")
+                    OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
+                    // Mark the corresponding chat message as offline-pending so the UI
+                    // can show a visual indicator. Find the last user message with this
+                    // text — it is the one just appended by sendMessage().
+                    let matchText = displayText ?? text
+                    if let idx = messageManager.messages.indices.reversed().first(where: { messageManager.messages[$0].role == .user && messageManager.messages[$0].text == matchText }) {
+                        messageManager.messages[idx].status = .pendingOffline
+                    }
+                    // Don't show the error banner — the pending indicator on the bubble
+                    // communicates the offline state without interrupting the conversation.
+                    return
+                } else {
+                    log.info("Message queue disabled — rejecting offline send")
+                    // Fall through to the error handling below so the user sees
+                    // a connection failure instead of a pending indicator.
                 }
-                // Don't show the error banner — the pending indicator on the bubble
-                // communicates the offline state without interrupting the conversation.
-                return
             }
 
             // Always track the failed message for retry support.
@@ -675,6 +690,17 @@ final class MessageSendCoordinator {
     func flushOfflineQueue() {
         guard let delegate else { return }
         let queue = OfflineMessageQueue.shared
+
+        // When the flag is disabled, clear any stale queued messages so they
+        // are not flushed if the flag is later re-enabled.
+        guard isAssistantFeatureFlagEnabled("chat-message-queue") else {
+            if !queue.isEmpty {
+                log.info("Message queue disabled — clearing \(queue.allMessages.count) stale offline message(s)")
+                queue.clear()
+            }
+            return
+        }
+
         guard !queue.isEmpty else { return }
 
         guard let currentConversationId = delegate.conversationId else {
