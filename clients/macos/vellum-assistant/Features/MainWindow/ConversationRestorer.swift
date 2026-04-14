@@ -14,8 +14,6 @@ protocol ConversationRestorerDelegate: AnyObject {
     var groups: [ConversationGroup] { get set }
     var daemonSupportsGroups: Bool { get set }
     var restoreRecentConversations: Bool { get }
-    /// The persisted last-active conversation UUID string (UserDefaults-backed).
-    var lastActiveConversationIdString: String? { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
     var serverOffset: Int { get set }
@@ -347,28 +345,12 @@ final class ConversationRestorer {
             delegate.hasMoreConversations = hasMore
         }
 
-        // Determine the activation target once up front.
-        // Priority: saved last-active > first visible restored > new conversation.
-        let activationTarget: UUID? = {
-            // Try the user's last active conversation first.
-            if delegate.restoreRecentConversations,
-               let savedString = delegate.lastActiveConversationIdString,
-               let savedUUID = UUID(uuidString: savedString),
-               delegate.conversations.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
-                return savedUUID
-            }
-            // Fall back to the first visible restored conversation.
-            if let firstVisible = restoredConversations.first(where: { !$0.isArchived }) {
-                return firstVisible.id
-            }
-            return nil
-        }()
-
-        if let target = activationTarget {
-            delegate.activateConversation(target)
-        } else if defaultConversationIsEmpty {
-            // All restored conversations are archived and the default conversation was removed,
-            // so create a new empty conversation to avoid a blank window.
+        // Cold launch lands on the draft VM created by ConversationManager.init —
+        // do not auto-activate a restored conversation. The sidebar above is still
+        // populated so the user can click into a recent conversation if desired.
+        if defaultConversationIsEmpty && restoredConversations.first(where: { !$0.isArchived }) == nil {
+            // All restored conversations are archived and the default was removed:
+            // fall back to an explicit draft so the window isn't blank.
             delegate.createConversation()
         }
 
