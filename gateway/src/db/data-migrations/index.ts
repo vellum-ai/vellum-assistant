@@ -18,8 +18,6 @@ import type { Database } from "bun:sqlite";
 
 import { getLogger } from "../../logger.js";
 
-import * as m0001GuardianInitLock from "./m0001-guardian-init-lock.js";
-
 const log = getLogger("data-migrations");
 
 export type MigrationResult = "done" | "skip";
@@ -29,9 +27,7 @@ type MigrationModule = {
   down: () => MigrationResult;
 };
 
-const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
-  { key: "m0001-guardian-init-lock", mod: m0001GuardianInitLock },
-];
+const MIGRATIONS: { key: string; mod: MigrationModule }[] = [];
 
 /**
  * Execute any one-time data migrations that haven't run yet.

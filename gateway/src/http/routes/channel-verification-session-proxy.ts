@@ -5,12 +5,12 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
-import { getGatewaySecurityDir } from "../../paths.js";
+import { getGatewaySecurityDir, getRootDir } from "../../paths.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
@@ -41,9 +41,38 @@ function parseBootstrapSecrets(): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Copy guardian-init lock files from the legacy path (~/.vellum/) to the
+ * new gateway-security directory (~/.vellum/protected/ in bare-metal mode).
+ * Runs once at handler creation (gateway startup) so that existing bare-metal
+ * instances retain their bootstrap lock state after the path change.
+ */
+function migrateLegacyGuardianLockFiles(): void {
+  const legacyDir = getRootDir();
+  const newDir = getGatewaySecurityDir();
+  if (legacyDir === newDir) return;
+
+  for (const file of ["guardian-init.lock", "guardian-init-consumed.json"]) {
+    const legacyPath = join(legacyDir, file);
+    const newPath = join(newDir, file);
+    if (!existsSync(legacyPath) || existsSync(newPath)) continue;
+    try {
+      copyFileSync(legacyPath, newPath);
+      log.info(
+        { file, from: legacyPath, to: newPath },
+        "Copied legacy guardian lock file",
+      );
+    } catch (err) {
+      log.warn({ err, file }, "Failed to copy legacy guardian lock file");
+    }
+  }
+}
+
 export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
+  migrateLegacyGuardianLockFiles();
+
   let guardianInitInFlight = false;
   const secretsInFlight = new Set<number>();
 
