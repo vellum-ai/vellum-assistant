@@ -35,25 +35,54 @@ import type {
 const userNameCache = new Map<string, string>();
 
 /**
- * Cached auth resolved during resolveConnection().
+ * Cached auth resolved during resolveConnection(), split by direction.
  *
- * For Socket Mode this holds a raw bot token string; for OAuth it holds the
+ * Read and write auth are tracked separately so a future change can point
+ * reads at a user OAuth token (xoxp-) while writes continue to use the bot
+ * token (xoxb-). Today both caches hold the same value (behavior-preserving
+ * refactor); PR 5 of the slack-user-token-triage plan wires a user_token
+ * into the read cache.
+ *
+ * For Socket Mode these hold a raw bot token string; for OAuth they hold the
  * OAuthConnection. The Slack client functions accept both via their own
- * OAuthConnection | string union, so we can pass this value through directly.
+ * OAuthConnection | string union, so we can pass the cached value through
+ * directly.
  */
-let _cachedSlackAuth: OAuthConnection | string | null = null;
+let _cachedSlackWriteAuth: OAuthConnection | string | null = null;
+let _cachedSlackReadAuth: OAuthConnection | string | null = null;
 
 /**
  * Get the Slack auth value to pass to Slack client functions.
  * Prefers the explicit connection from the caller; falls back to the cached
- * value set during resolveConnection().
+ * write auth (which equals the read auth until PR 5 introduces a split).
  */
 function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
   if (connection) return connection;
-  if (_cachedSlackAuth) return _cachedSlackAuth;
+  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
+  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
   throw new Error(
     "Slack: no connection or cached token available. Was resolveConnection() called?",
   );
+}
+
+/**
+ * Resolve auth for read operations (listConversations, getHistory,
+ * conversation replies, search, users.info lookups).
+ */
+function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
+  if (connection) return connection;
+  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
+  return getSlackAuth(connection);
+}
+
+/**
+ * Resolve auth for write operations (postMessage, markRead, and any future
+ * state-changing method like reactions, joins, leaves, updates, or deletes).
+ */
+function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
+  if (connection) return connection;
+  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
+  return getSlackAuth(connection);
 }
 
 async function resolveUserName(
@@ -188,12 +217,14 @@ export const slackProvider: MessagingProvider = {
       credentialKey("slack_channel", "bot_token"),
     );
     if (botToken) {
-      _cachedSlackAuth = botToken;
+      _cachedSlackWriteAuth = botToken;
+      _cachedSlackReadAuth = botToken; // PR 5 will point this at user_token when available
       return undefined;
     }
     // Preserve existing OAuth path for backwards compat.
     const conn = await resolveOAuthConnection("slack", { account });
-    _cachedSlackAuth = conn;
+    _cachedSlackWriteAuth = conn;
+    _cachedSlackReadAuth = conn;
     return conn;
   },
 
@@ -212,7 +243,7 @@ export const slackProvider: MessagingProvider = {
     connection: OAuthConnection | undefined,
     options?: ListOptions,
   ): Promise<Conversation[]> {
-    const auth = getSlackAuth(connection);
+    const auth = getReadAuth(connection);
     const typeMap: Record<string, string> = {
       channel: "public_channel,private_channel",
       dm: "im",
@@ -280,7 +311,7 @@ export const slackProvider: MessagingProvider = {
     conversationId: string,
     options?: HistoryOptions,
   ): Promise<Message[]> {
-    const auth = getSlackAuth(connection);
+    const auth = getReadAuth(connection);
     const resp = await slack.conversationHistory(
       auth,
       conversationId,
@@ -303,7 +334,7 @@ export const slackProvider: MessagingProvider = {
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult> {
-    const auth = getSlackAuth(connection);
+    const auth = getReadAuth(connection);
     const resp = await slack.searchMessages(auth, query, options?.count ?? 20);
     return {
       total: resp.messages.total,
@@ -318,7 +349,7 @@ export const slackProvider: MessagingProvider = {
     text: string,
     options?: SendOptions,
   ): Promise<SendResult> {
-    const auth = getSlackAuth(connection);
+    const auth = getWriteAuth(connection);
     const resp = await slack.postMessage(
       auth,
       conversationId,
@@ -338,7 +369,7 @@ export const slackProvider: MessagingProvider = {
     threadId: string,
     options?: HistoryOptions,
   ): Promise<Message[]> {
-    const auth = getSlackAuth(connection);
+    const auth = getReadAuth(connection);
     const resp = await slack.conversationReplies(
       auth,
       conversationId,
@@ -358,7 +389,7 @@ export const slackProvider: MessagingProvider = {
     conversationId: string,
     messageId?: string,
   ): Promise<void> {
-    const auth = getSlackAuth(connection);
+    const auth = getWriteAuth(connection);
     // Slack's conversations.mark requires a timestamp — use the provided one or "now"
     const ts = messageId ?? String(Date.now() / 1000);
     await slack.conversationMark(auth, conversationId, ts);
