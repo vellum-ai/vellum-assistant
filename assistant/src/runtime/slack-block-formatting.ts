@@ -93,13 +93,15 @@ export function textToSlackBlocks(text: string): Block[] | undefined {
       }
     } else {
       // Transform to Slack mrkdwn FIRST, then split. Splitting raw markdown
-      // can bisect `[link text](url)` spans or `**bold**` markers at sentence
-      // boundaries inside link text, leaving orphan tokens that the regex in
-      // `markdownToMrkdwn` won't match — raw markdown would then leak through
-      // to Slack. Splitting already-converted mrkdwn is safe because
-      // well-formed `<url|text>` / `*bold*` spans don't contain the `. `,
-      // `! `, `? `, or newline delimiters the splitter looks for (and the
-      // preceding table branch follows this same ordering).
+      // can bisect `[link text](url)` spans or `**bold**` markers, leaving
+      // orphan tokens that `markdownToMrkdwn`'s regex won't match — raw
+      // markdown would then leak through to Slack. The splitter is also
+      // span-aware (see `splitLongTextSegment`) so candidate boundaries
+      // landing inside a `<url|text>` or `*bold*` span are rejected, which
+      // matters when link text contains `. `/`! `/`? ` (e.g.
+      // `<url|First sentence. Second sentence>`) or when a span straddles
+      // the maxChars window. The preceding table branch uses the same
+      // ordering.
       const mrkdwn = markdownToMrkdwn(segment.content);
       const chunks = splitLongTextSegment(mrkdwn);
       for (let c = 0; c < chunks.length; c++) {
@@ -346,7 +348,14 @@ export const SLACK_SECTION_MAX_CHARS = 2800;
  *  1. Paragraph boundary (`\n\n`)
  *  2. Single newline (`\n`)
  *  3. Sentence boundary (`. `, `! `, `? `)
- *  4. Hard slice at `maxChars`
+ *  4. Hard slice at `maxChars` (backed up to the start of any straddling
+ *     mrkdwn span, when possible)
+ *
+ * Span-aware: candidate boundaries that fall strictly inside a Slack
+ * `<...>` link/user token or a `*...*` bold span are rejected so chunks
+ * never end with an unclosed `<` or orphan `*`. This matters because
+ * `markdownToMrkdwn` runs before splitting, and link text can legitimately
+ * contain `. `/`! `/`? ` (e.g. `<url|First sentence. Second sentence>`).
  *
  * Short inputs (length ≤ `maxChars`) return `[text]` unchanged. Each chunk
  * is trimmed of leading/trailing whitespace at chunk boundaries; interior
@@ -363,11 +372,11 @@ export function splitLongTextSegment(
 
   while (remaining.length > maxChars) {
     const window = remaining.slice(0, maxChars);
-    let splitAt = findBoundary(window, ["\n\n"]);
-    if (splitAt < 0) splitAt = findBoundary(window, ["\n"]);
-    if (splitAt < 0) splitAt = findBoundary(window, [". ", "! ", "? "]);
-    // Hard-slice fallback: no natural boundary in the first `maxChars`.
-    if (splitAt < 0) splitAt = maxChars;
+    const spans = computeMrkdwnSpans(window);
+    let splitAt = findBoundary(window, ["\n\n"], spans);
+    if (splitAt < 0) splitAt = findBoundary(window, ["\n"], spans);
+    if (splitAt < 0) splitAt = findBoundary(window, [". ", "! ", "? "], spans);
+    if (splitAt < 0) splitAt = hardSliceAvoidingSpans(maxChars, spans);
 
     const chunk = remaining.slice(0, splitAt).trim();
     if (chunk.length > 0) chunks.push(chunk);
@@ -378,6 +387,64 @@ export function splitLongTextSegment(
   if (tail.length > 0) chunks.push(tail);
 
   return chunks;
+}
+
+/**
+ * Find half-open intervals `[start, end)` covering Slack mrkdwn spans in
+ * `window` that the splitter must not bisect: `<...>` tokens (links, user
+ * mentions, channel refs) and `*...*` single-asterisk bold runs. An
+ * unclosed `<` is treated as a span extending to the end of the window so
+ * the splitter avoids landing inside a span that straddles the cutoff.
+ */
+function computeMrkdwnSpans(window: string): Array<[number, number]> {
+  const intervals: Array<[number, number]> = [];
+
+  let i = 0;
+  while (i < window.length) {
+    const open = window.indexOf("<", i);
+    if (open < 0) break;
+    const close = window.indexOf(">", open + 1);
+    // For unclosed `<...` (span continues past the window), use a sentinel
+    // larger than any in-window position so split-point checks treat the
+    // window's right edge as inside the span and back the hard-slice up.
+    const end = close < 0 ? window.length + 1 : close + 1;
+    intervals.push([open, end]);
+    i = close < 0 ? window.length : end;
+  }
+
+  // Bold spans cannot contain `*` or `\n`.
+  const boldRe = /\*[^*\n]+\*/g;
+  let m: RegExpExecArray | null;
+  while ((m = boldRe.exec(window)) !== null) {
+    intervals.push([m.index, m.index + m[0].length]);
+  }
+
+  return intervals;
+}
+
+function isInsideSpan(
+  pos: number,
+  spans: Array<[number, number]>,
+): boolean {
+  for (const [start, end] of spans) {
+    if (pos > start && pos < end) return true;
+  }
+  return false;
+}
+
+function hardSliceAvoidingSpans(
+  maxChars: number,
+  spans: Array<[number, number]>,
+): number {
+  for (const [start, end] of spans) {
+    if (maxChars > start && maxChars < end) {
+      // Back up to the start of the straddling span so it stays intact in
+      // the next chunk. If the span starts at 0, we have no choice but to
+      // hard-slice through it.
+      return start > 0 ? start : maxChars;
+    }
+  }
+  return maxChars;
 }
 
 /**
@@ -444,15 +511,27 @@ export function splitCodeSegmentContent(
 
 /**
  * Return the end index of the last occurrence of any delimiter in `window`
- * (so the preceding content becomes one chunk). Returns -1 if none match.
+ * whose split point does not fall inside a mrkdwn span. Returns -1 if no
+ * delimiter has a valid split point.
  */
-function findBoundary(window: string, delimiters: string[]): number {
+function findBoundary(
+  window: string,
+  delimiters: string[],
+  spans: Array<[number, number]> = [],
+): number {
   let best = -1;
   for (const delim of delimiters) {
-    const idx = window.lastIndexOf(delim);
-    if (idx < 0) continue;
-    const end = idx + delim.length;
-    if (end > best) best = end;
+    let from = window.length;
+    while (from > 0) {
+      const idx = window.lastIndexOf(delim, from - 1);
+      if (idx < 0) break;
+      const end = idx + delim.length;
+      if (!isInsideSpan(end, spans)) {
+        if (end > best) best = end;
+        break;
+      }
+      from = idx;
+    }
   }
   return best;
 }

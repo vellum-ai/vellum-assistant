@@ -253,6 +253,71 @@ describe("textToSlackBlocks long-text splitting", () => {
     );
   });
 
+  test("does not bisect a `<url|text>` span when its internal `. ` is the latest sentence delimiter in the window", () => {
+    // Construct a window where the only `. ` candidate inside the maxChars
+    // window lies INSIDE the converted link span. A naive splitter would
+    // pick that `. ` and emit chunk 1 ending with `<url|First sentence.`
+    // (unclosed `<`) and chunk 2 starting with `Second sentence>` (orphan
+    // `>`). Span-aware splitting must reject that boundary and either back
+    // up to before the span or hard-slice safely.
+    const filler = "a".repeat(2770);
+    const linkMarkdown = "[First sentence. Second sentence](https://example.com)";
+    const text = filler + linkMarkdown + " trailing content here. ".repeat(40);
+    expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
+
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+    const sectionBlocks = blocks!.filter((b) => b.type === "section") as Array<{
+      type: "section";
+      text: { type: string; text: string };
+    }>;
+
+    for (const section of sectionBlocks) {
+      // Each chunk must have balanced `<...>` tokens — no unclosed `<` or
+      // orphan `>` from a bisected span.
+      const opens = (section.text.text.match(/</g) ?? []).length;
+      const closes = (section.text.text.match(/>/g) ?? []).length;
+      expect(opens).toBe(closes);
+      expect(section.text.text).not.toContain("](");
+      expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    }
+
+    const combined = sectionBlocks.map((s) => s.text.text).join("\n");
+    expect(combined).toContain(
+      "<https://example.com|First sentence. Second sentence>",
+    );
+  });
+
+  test("does not bisect a `<url|text>` span that straddles the maxChars cutoff with no in-window delimiters", () => {
+    // Pathological prefix with no natural boundaries: the splitter would
+    // hard-slice at maxChars, which falls inside the converted link token.
+    // Span-aware hard-slice must back up to the start of the span.
+    const filler = "a".repeat(2793);
+    const linkMarkdown = "[link text here](https://example.com/path)";
+    const text = filler + " " + linkMarkdown + " trailing";
+    expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
+
+    const blocks = textToSlackBlocks(text);
+    expect(blocks).toBeDefined();
+    const sectionBlocks = blocks!.filter((b) => b.type === "section") as Array<{
+      type: "section";
+      text: { type: string; text: string };
+    }>;
+
+    for (const section of sectionBlocks) {
+      const opens = (section.text.text.match(/</g) ?? []).length;
+      const closes = (section.text.text.match(/>/g) ?? []).length;
+      expect(opens).toBe(closes);
+      expect(section.text.text).not.toContain("](");
+      expect(section.text.text.length).toBeLessThanOrEqual(3000);
+    }
+
+    const combined = sectionBlocks.map((s) => s.text.text).join("\n");
+    expect(combined).toContain(
+      "<https://example.com/path|link text here>",
+    );
+  });
+
   test("does not split a **bold** span across section blocks when the bold text contains a sentence boundary near maxChars", () => {
     // Same shape as the link-straddle test, but for `**bold**`. If splitting
     // ran on raw markdown, the splitter would land on a `. ` inside the bold
