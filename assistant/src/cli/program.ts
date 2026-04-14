@@ -43,6 +43,12 @@ import { log } from "./logger.js";
  * the gateway so flag-gated commands are registered correctly.
  */
 export async function buildCliProgram(): Promise<Command> {
+  // Snapshot workspace existence BEFORE getConfig() runs, because getConfig()
+  // calls ensureDataDir() which creates the workspace directory as a side
+  // effect. We need to know whether the workspace existed before that.
+  const workspaceDir = getWorkspaceDir();
+  const workspaceExistedBeforeBoot = existsSync(workspaceDir);
+
   await initFeatureFlagOverrides();
   const program = new Command();
 
@@ -95,8 +101,10 @@ Examples:
   registerShotgunCommand(program);
   registerSequenceCommand(program);
 
-  // Fail fast when no assistant workspace exists on disk. The workspace is
-  // created by `vellum hatch` and must be present for any command to work.
+  // Fail fast when no assistant workspace existed on disk before
+  // buildCliProgram() ran. We check the snapshot captured at the top of this
+  // function because getConfig() (called during email-command registration)
+  // creates the workspace directory as a side effect via ensureDataDir().
   // Commander handles --help and --version before preAction fires, so those
   // remain available even without a workspace.
   // Workspace-independent commands are exempt:
@@ -106,8 +114,7 @@ Examples:
     if (workspaceExemptCommands.has(actionCommand.name())) {
       return;
     }
-    const workspaceDir = getWorkspaceDir();
-    if (!existsSync(workspaceDir)) {
+    if (!workspaceExistedBeforeBoot) {
       log.error(
         `No assistant workspace found at ${workspaceDir}.\nRun 'vellum hatch' to create an assistant first.`,
       );
