@@ -124,6 +124,17 @@ function attachmentResponse(
  * Expects: "file" (Blob), "filename" (string), "mimeType" (string).
  */
 async function handleMultipartUpload(req: Request): Promise<Response> {
+  // Pre-check Content-Length before parsing to reject oversized requests
+  // without buffering the full multipart body into memory.
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_UPLOAD_BODY_BYTES) {
+    return httpError(
+      "BAD_REQUEST",
+      `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
+      413,
+    );
+  }
+
   let formData: FormData;
   try {
     formData = await req.formData();
@@ -150,9 +161,8 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "mimeType field is required", 400);
   }
 
-  // Enforce body-level size limit (the overall request may contain form
-  // overhead beyond the file part, but checking the file size is the
-  // meaningful limit here).
+  // Secondary check on the file part itself (Content-Length may be absent
+  // or inaccurate; this catches the actual parsed file size).
   if (file.size > MAX_UPLOAD_BODY_BYTES) {
     return httpError(
       "BAD_REQUEST",
