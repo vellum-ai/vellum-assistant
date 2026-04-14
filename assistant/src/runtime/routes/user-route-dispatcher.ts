@@ -41,9 +41,9 @@ const log = getLogger("user-routes");
  */
 export interface UserRouteContext {
   /** The daemon's event hub singleton — use this to publish events to connected SSE clients. */
-  assistantEventHub: AssistantEventHub;
+  readonly assistantEventHub: AssistantEventHub;
   /** The logical assistant ID used by the daemon (typically "self"). */
-  assistantId: string;
+  readonly assistantId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ export class UserRouteDispatcher {
   }) {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
-    this.context = options.context;
+    this.context = Object.freeze({ ...options.context });
   }
 
   /**

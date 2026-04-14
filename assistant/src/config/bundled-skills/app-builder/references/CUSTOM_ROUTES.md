@@ -6,7 +6,7 @@ When the app needs server-side persistence, custom API logic, or workspace file 
 
 ## Handler file convention
 
-Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers use the standard Web API `Request`/`Response` signature.
+Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers receive two arguments: the standard Web API `Request` and an optional `context` object with runtime singletons.
 
 ```
 {workspaceDir}/routes/
@@ -75,6 +75,42 @@ const createRes = await window.vellum.fetch("/v1/x/items", {
 });
 if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 ```
+
+## Runtime context
+
+Every handler receives a frozen `context` object as its second argument. This provides access to daemon singletons that are otherwise unreachable from dynamically imported route modules.
+
+```typescript
+export async function POST(request: Request, context): Promise<Response> {
+  // context.assistantEventHub — publish events to connected SSE clients
+  // context.assistantId       — the daemon's logical assistant ID ("self")
+}
+```
+
+### Publishing events to the client
+
+Use `context.assistantEventHub` to push real-time events to connected desktop/mobile clients. This is how route handlers can trigger client-side navigation, update UI, or deliver notifications.
+
+```typescript
+// routes/open-conversation.ts
+export async function POST(request: Request, context): Promise<Response> {
+  const { conversationId } = await request.json();
+
+  await context.assistantEventHub.publish({
+    id: crypto.randomUUID(),
+    assistantId: context.assistantId,
+    conversationId,
+    emittedAt: new Date().toISOString(),
+    message: { type: "open_conversation", conversationId },
+  });
+
+  return Response.json({ ok: true });
+}
+```
+
+The context object is **immutable** — attempting to reassign its properties will throw in strict mode (ESM). This prevents user route handlers from accidentally corrupting shared state.
+
+Legacy handlers that only accept `(request)` continue to work — the context is passed positionally but ignored if the handler doesn't declare the parameter.
 
 ## Key rules
 
