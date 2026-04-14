@@ -33,6 +33,7 @@ import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { OnboardingContext } from "../types/onboarding-context.js";
 import { getLogger } from "../util/logger.js";
 import {
   getDataDir,
@@ -56,6 +57,17 @@ const log = getLogger("relationship-state-writer");
 export const RELATIONSHIP_STATE_FILENAME = "relationship-state.json";
 
 /**
+ * Filename for the pre-chat onboarding sidecar. Lives under the workspace
+ * data dir alongside `relationship-state.json`. Written once by the
+ * `POST /v1/messages` handler on first message and read on every
+ * `computeRelationshipState()` call so onboarding-sourced facts survive
+ * the pure-recomputation write cycle (every turn boundary rebuilds facts
+ * from scratch — without the sidecar, onboarding chips would vanish on
+ * turn 2).
+ */
+export const ONBOARDING_SIDECAR_FILENAME = "onboarding-context.json";
+
+/**
  * Conversation-count threshold at which the "voice-writing" capability
  * flips from `earned` (gated, shown with an `unlockHint`) to `unlocked`.
  *
@@ -77,6 +89,60 @@ const DEFAULT_ASSISTANT_ID = "default";
  */
 export function getRelationshipStatePath(): string {
   return join(getDataDir(), RELATIONSHIP_STATE_FILENAME);
+}
+
+/**
+ * Canonical path to the onboarding sidecar
+ * (`<workspace>/data/onboarding-context.json`).
+ */
+export function getOnboardingSidecarPath(): string {
+  return join(getDataDir(), ONBOARDING_SIDECAR_FILENAME);
+}
+
+/**
+ * Persist the pre-chat onboarding context to the sidecar file. Called
+ * once from the first-message path in `handleSendMessage`. Never throws
+ * — a failed write degrades to "no onboarding facts on the Home page",
+ * which is the same state as a skipped onboarding flow.
+ */
+export function writeOnboardingSidecar(ctx: OnboardingContext): void {
+  try {
+    mkdirSync(getDataDir(), { recursive: true });
+    writeFileSync(
+      getOnboardingSidecarPath(),
+      JSON.stringify(ctx, null, 2),
+      "utf-8",
+    );
+    log.info(
+      {
+        path: getOnboardingSidecarPath(),
+        tools: ctx.tools.length,
+        tasks: ctx.tasks.length,
+      },
+      "Wrote onboarding-context.json sidecar",
+    );
+  } catch (err) {
+    log.warn({ err }, "Failed to write onboarding-context.json sidecar");
+  }
+}
+
+/**
+ * Read and parse the onboarding sidecar, returning null when the file
+ * is missing or unreadable. Used by `computeRelationshipState()` to
+ * inject onboarding-sourced facts alongside the inferred ones.
+ */
+function readOnboardingSidecar(): OnboardingContext | null {
+  try {
+    const path = getOnboardingSidecarPath();
+    if (!existsSync(path)) return null;
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as OnboardingContext;
+    if (!parsed || !Array.isArray(parsed.tools) || !Array.isArray(parsed.tasks))
+      return null;
+    return parsed;
+  } catch (err) {
+    log.warn({ err }, "Failed to read onboarding-context.json sidecar");
+    return null;
+  }
 }
 
 /**
@@ -104,15 +170,30 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
   const userMd = resolveGuardianUserContent();
   const soulMd = safeRead(getWorkspacePromptPath("SOUL.md"));
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
+  const onboarding = readOnboardingSidecar();
 
   const facts = extractFacts({
     userContent: userMd,
     soulContent: soulMd,
+    onboarding,
   });
   const conversationCount = countConversations();
   const capabilities = resolveCapabilityTiers({ conversationCount });
-  const { assistantName, hatchedDate } = parseIdentity(identityPath);
-  const userName = parseUserName(userMd);
+  const { assistantName: identityName, hatchedDate } =
+    parseIdentity(identityPath);
+  const parsedUserName = parseUserName(userMd);
+
+  // Fall back to onboarding sidecar values when IDENTITY.md / USER.md
+  // haven't yielded anything yet. On a brand-new workspace the sidecar
+  // is often the only source of these names until the daemon parses the
+  // markdown files on a subsequent turn.
+  const sidecarAssistantName = onboarding?.assistantName?.trim();
+  const assistantName =
+    identityName !== DEFAULT_ASSISTANT_NAME || !sidecarAssistantName
+      ? identityName
+      : sidecarAssistantName;
+  const userName =
+    parsedUserName ?? (onboarding?.userName?.trim() || undefined);
 
   const tier = computeTier({ facts, capabilities, conversationCount });
   const progressPercent = computeProgressPercent({
@@ -314,10 +395,7 @@ function resolveGuardianUserContent(): string {
     const defaultContent = safeRead(defaultUserPath);
     if (defaultContent) return defaultContent;
   } catch (err) {
-    log.warn(
-      { err },
-      "Failed to read users/default.md; trying legacy USER.md",
-    );
+    log.warn({ err }, "Failed to read users/default.md; trying legacy USER.md");
   }
 
   // Legacy fallback: workspace-root USER.md for very old workspaces
@@ -359,6 +437,7 @@ function safeRead(path: string): string {
 function extractFacts(input: {
   userContent: string;
   soulContent: string;
+  onboarding?: OnboardingContext | null;
 }): Fact[] {
   const facts: Fact[] = [];
   let counter = 0;
@@ -366,6 +445,45 @@ function extractFacts(input: {
     counter += 1;
     return `${prefix}-${counter}`;
   };
+
+  // Onboarding-sourced facts come first so they render at the top of
+  // the Home page chip list until enough inferred facts accumulate to
+  // displace them. Each tool/task/tone line the user picked becomes a
+  // dashed-border chip tagged `source: "onboarding"`.
+  if (input.onboarding) {
+    for (const tool of input.onboarding.tools) {
+      const text = tool.trim();
+      if (!text) continue;
+      facts.push({
+        id: nextId("onboarding"),
+        category: "world",
+        text,
+        confidence: "strong",
+        source: "onboarding",
+      });
+    }
+    for (const task of input.onboarding.tasks) {
+      const text = task.trim();
+      if (!text) continue;
+      facts.push({
+        id: nextId("onboarding"),
+        category: "priorities",
+        text,
+        confidence: "strong",
+        source: "onboarding",
+      });
+    }
+    const tone = input.onboarding.tone?.trim();
+    if (tone) {
+      facts.push({
+        id: nextId("onboarding"),
+        category: "voice",
+        text: tone,
+        confidence: "strong",
+        source: "onboarding",
+      });
+    }
+  }
 
   // Heuristic keyword map for USER.md sections -> fact category. Keys
   // are matched case-insensitively as a prefix of the heading/bullet
