@@ -355,8 +355,9 @@ extension MainWindowView {
 
     func handleRequestAppPreview(_ notification: Notification) {
         guard let appId = notification.userInfo?["appId"] as? String else { return }
-        let html = notification.userInfo?["html"] as? String
+        let notificationHtml = notification.userInfo?["html"] as? String
         Task { @MainActor in
+            // 1. Prefer the daemon's stored preview (fast, no rendering).
             let response = await AppsClient().fetchAppPreview(appId: appId)
             if let base64 = response?.preview, !base64.isEmpty {
                 NotificationCenter.default.post(
@@ -364,8 +365,22 @@ extension MainWindowView {
                     object: nil,
                     userInfo: ["appId": appId, "previewImage": base64]
                 )
-            } else if let html,
-                      let base64 = await OffscreenPreviewCapture.capture(html: html) {
+                return
+            }
+
+            // 2. No stored preview — fetch the current compiled HTML from the
+            //    daemon. The inline surface HTML may be stale (set before the
+            //    build completed), so we prefer the daemon's authoritative copy.
+            let effectiveHtml: String?
+            if let openResult = await AppsClient().openApp(id: appId) {
+                effectiveHtml = openResult.html
+            } else {
+                effectiveHtml = notificationHtml
+            }
+
+            // 3. Offscreen capture with the best available HTML.
+            if let captureHtml = effectiveHtml,
+               let base64 = await OffscreenPreviewCapture.capture(html: captureHtml) {
                 _ = await AppsClient().updateAppPreview(appId: appId, preview: base64)
                 NotificationCenter.default.post(
                     name: .appPreviewImageCaptured,

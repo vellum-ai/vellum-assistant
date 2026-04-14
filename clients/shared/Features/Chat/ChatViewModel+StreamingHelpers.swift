@@ -503,12 +503,12 @@ extension ChatViewModel {
                 // the Library panel. The app_files_changed event may have fired
                 // before the daemon fully registered the app; this ensures the
                 // fetch happens after tool completion (authoritative "done" signal).
-                if !completedAppSurfaces.isEmpty {
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MainWindow.refreshAppsCache"),
-                        object: nil
-                    )
-                }
+                // Posted unconditionally for app tools — even when no inline
+                // surfaces carry an appId, the daemon's app list should be current.
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.refreshAppsCache"),
+                    object: nil
+                )
             }
         }
         // Auto-open clip files in the default video player.
