@@ -151,29 +151,22 @@ public final class MockHomeStateClient: HomeStateClient, @unchecked Sendable {
     }
 
     public var callCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return _callCount
+        lock.withLock { _callCount }
     }
 
     public func setState(_ state: RelationshipState?) {
-        lock.lock()
-        defer { lock.unlock() }
-        _state = state
+        lock.withLock { _state = state }
     }
 
     public func setError(_ error: Error?) {
-        lock.lock()
-        defer { lock.unlock() }
-        _error = error
+        lock.withLock { _error = error }
     }
 
     public func fetchRelationshipState() async throws -> RelationshipState {
-        lock.lock()
-        _callCount += 1
-        let error = _error
-        let state = _state
-        lock.unlock()
+        let (error, state) = lock.withLock { () -> (Error?, RelationshipState?) in
+            _callCount += 1
+            return (_error, _state)
+        }
 
         if let error { throw error }
         guard let state else {
