@@ -48,7 +48,7 @@ function makeServiceAuthContext(
     principalType: "svc_gateway",
     assistantId: "test-assistant",
     actorPrincipalId: undefined,
-    scopeProfile: "service_v1",
+    scopeProfile: "gateway_service_v1",
     scopes: new Set(),
     policyEpoch: 0,
     ...overrides,

@@ -1318,34 +1318,8 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contacts/guardian/channel": {
-        post: {
-          summary: "Add a channel to the guardian contact",
-          description:
-            "Authenticated gateway endpoint that adds a channel to the guardian contact via the assistant runtime.",
-          operationId: "contactsGuardianChannelPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Channel added to guardian" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "No guardian contact exists" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
+      // /v1/contacts/guardian/channel removed (ATL-102) — restricted to
+      // platform service calls via vembda only.
       "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",

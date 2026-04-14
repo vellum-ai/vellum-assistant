@@ -121,9 +121,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, "/v1/contacts/merge", "");
     },
 
-    async handleAddGuardianChannel(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/contacts/guardian/channel", "");
-    },
+    // handleAddGuardianChannel removed (ATL-102) — endpoint restricted to
+    // platform service calls via vembda only.
 
     async handleUpdateContactChannel(
       req: Request,
