@@ -315,7 +315,9 @@ async function createStreamingTranscriber(
     case "google-gemini": {
       const { GoogleGeminiStreamingTranscriber } =
         await import("./google-gemini-stream.js");
-      return new GoogleGeminiStreamingTranscriber(apiKey);
+      return new GoogleGeminiStreamingTranscriber(apiKey, {
+        pcmSampleRate: options.sampleRate,
+      });
     }
     case "openai-whisper": {
       const { OpenAIWhisperStreamingTranscriber } =
