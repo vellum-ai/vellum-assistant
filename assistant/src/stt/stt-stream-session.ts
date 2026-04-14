@@ -175,7 +175,7 @@ export class SttStreamSession {
         this.sendEvent({
           type: "error",
           category: "provider-error",
-          message: `Streaming transcription is not supported for provider "${this.provider}". Supported providers: deepgram, google-gemini.`,
+          message: `Streaming transcription is not supported for provider "${this.provider}". Supported providers: deepgram, google-gemini, openai-whisper.`,
         });
         this.sendEvent({ type: "closed" });
         this.state = "closed";
