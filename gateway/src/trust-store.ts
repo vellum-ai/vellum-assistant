@@ -20,7 +20,7 @@ import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "./logger.js";
-import { getRootDir } from "./credential-reader.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 const log = getLogger("trust-store");
 
@@ -174,11 +174,7 @@ function rebuildPatternCache(rules: TrustRule[]): void {
 // ---------------------------------------------------------------------------
 
 function getTrustPath(): string {
-  const securityDir = process.env.GATEWAY_SECURITY_DIR;
-  if (securityDir) {
-    return join(securityDir, "trust.json");
-  }
-  return join(getRootDir(), "protected", "trust.json");
+  return join(getGatewaySecurityDir(), "trust.json");
 }
 
 // ---------------------------------------------------------------------------
