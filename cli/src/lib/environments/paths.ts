@@ -26,20 +26,6 @@ const DEFAULT_PORTS: Readonly<PortMap> = {
 };
 
 /**
- * Root data directory for an environment.
- * Production is grandfathered at `~/.vellum/` to preserve backward compatibility;
- * non-production environments use `$XDG_DATA_HOME/vellum-<env>/`.
- */
-export function getDataDir(env: EnvironmentDefinition): string {
-  if (env.dataDirOverride) return env.dataDirOverride;
-  // `production` is the legacy-compat alias; it keeps its pre-plan path.
-  if (env.name === PRODUCTION_ENVIRONMENT_NAME) {
-    return join(homedir(), ".vellum");
-  }
-  return join(xdgDataHome(), `vellum-${env.name}`);
-}
-
-/**
  * Config directory for an environment.
  * Production preserves the existing `~/.config/vellum/` location;
  * non-production environments use `$XDG_CONFIG_HOME/vellum-<env>/`.

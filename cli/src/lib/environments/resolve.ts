@@ -30,7 +30,7 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  *   - `VELLUM_PLATFORM_URL` overrides `platformUrl`
  *   - `VELLUM_ASSISTANT_PLATFORM_URL` overrides `assistantPlatformUrl`
  *   - `VELLUM_LOCKFILE_DIR` overrides `lockfileDirOverride` (legacy e2e
- *     test hook used by `cli/src/lib/assistant-config.ts:getLockfileDir`)
+ *     test hook)
  *
  * This function should be the single entrypoint for environment resolution.
  * No other code should drive off `VELLUM_ENVIRONMENT` directly.

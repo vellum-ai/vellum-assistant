@@ -48,17 +48,13 @@ export interface EnvironmentDefinition {
   /** Per-service port overrides merged on top of defaults. */
   portsOverride?: Partial<PortMap>;
 
-  /** Override for the data directory root (e.g. used by e2e tests). */
-  dataDirOverride?: string;
-
   /** Override for the XDG config directory. */
   configDirOverride?: string;
 
   /**
    * Override for the directory containing the lockfile. Populated by the
-   * resolver from `VELLUM_LOCKFILE_DIR` (an existing e2e test escape hatch
-   * — see `cli/src/lib/assistant-config.ts:getLockfileDir`) so path helpers
-   * don't read env vars directly.
+   * resolver from `VELLUM_LOCKFILE_DIR` (an existing e2e test escape hatch)
+   * so path helpers don't read env vars directly.
    */
   lockfileDirOverride?: string;
 }
