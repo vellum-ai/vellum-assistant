@@ -163,8 +163,7 @@ final class AppleContainersLauncher: AssistantManagementClient {
             hatchedAt: hatchedAt,
             signingKey: signingKey,
             runtimeUrl: runtime.gatewayURL,
-            mgmtSocket: mgmtSocketPath,
-            instanceDir: instanceDir.path
+            mgmtSocket: mgmtSocketPath
         )
         LockfileAssistant.setActiveAssistantId(assistantName)
 
@@ -677,7 +676,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
         signingKey: String,
         runtimeUrl: String? = nil,
         mgmtSocket: String? = nil,
-        instanceDir: String? = nil,
         lockfilePath: String? = nil
     ) -> Bool {
         let path = lockfilePath ?? LockfilePaths.primaryPath
@@ -707,9 +705,6 @@ final class AppleContainersLauncher: AssistantManagementClient {
         }
         if let mgmtSocket {
             newEntry["mgmtSocket"] = mgmtSocket
-        }
-        if let instanceDir {
-            newEntry["instanceDir"] = instanceDir
         }
 
         if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {

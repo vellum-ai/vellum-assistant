@@ -219,7 +219,7 @@ public struct LockfileAssistant {
                 hatchedAt: entry["hatchedAt"] as? String,
                 baseDataDir: entry["baseDataDir"] as? String,
                 gatewayPort: resources?["gatewayPort"] as? Int,
-                instanceDir: entry["instanceDir"] as? String ?? resources?["instanceDir"] as? String,
+                instanceDir: resources?["instanceDir"] as? String,
                 containerInfo: containerInfo,
                 mgmtSocket: entry["mgmtSocket"] as? String,
                 previousContainerInfo: previousContainerInfo

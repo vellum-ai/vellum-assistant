@@ -142,57 +142,18 @@ final class LockfileAssistantAppleContainerTests: XCTestCase {
         )
     }
 
-    func testWritesInstanceDirWhenProvided() {
-        let result = AppleContainersLauncher.writeLockfileEntry(
-            assistantId: "ac-dir",
-            hatchedAt: "2025-08-01T00:00:00Z",
-            signingKey: "key7",
-            instanceDir: "/Users/test/Library/Application Support/vellum-assistant-dev/apple-containers/ac-dir",
-            lockfilePath: lockfilePath
-        )
-        XCTAssertTrue(result)
-
-        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
-        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let assistants = json["assistants"] as! [[String: Any]]
-        XCTAssertEqual(assistants.count, 1)
-        XCTAssertEqual(
-            assistants[0]["instanceDir"] as? String,
-            "/Users/test/Library/Application Support/vellum-assistant-dev/apple-containers/ac-dir"
-        )
-    }
-
-    func testOmitsInstanceDirWhenNil() {
-        let result = AppleContainersLauncher.writeLockfileEntry(
-            assistantId: "ac-no-dir",
-            hatchedAt: "2025-08-01T00:00:00Z",
-            signingKey: "key8",
-            lockfilePath: lockfilePath
-        )
-        XCTAssertTrue(result)
-
-        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
-        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let assistants = json["assistants"] as! [[String: Any]]
-        XCTAssertEqual(assistants.count, 1)
-        XCTAssertNil(assistants[0]["instanceDir"])
-    }
-
-    func testInstanceDirRoundTripsViaLockfileParser() {
-        let expectedDir = "/Users/test/Library/Application Support/vellum-assistant-dev/apple-containers/ac-rt"
+    func testMgmtSocketRoundTripsViaLockfileParser() {
         let socketPath = "/Users/test/Library/Application Support/vellum-assistant-dev/cli.sock"
         AppleContainersLauncher.writeLockfileEntry(
             assistantId: "ac-rt",
             hatchedAt: "2025-08-01T00:00:00Z",
             signingKey: "key9",
             mgmtSocket: socketPath,
-            instanceDir: expectedDir,
             lockfilePath: lockfilePath
         )
 
         let loaded = LockfileAssistant.loadByName("ac-rt", lockfilePath: lockfilePath)
         XCTAssertNotNil(loaded)
-        XCTAssertEqual(loaded?.instanceDir, expectedDir)
         XCTAssertEqual(loaded?.mgmtSocket, socketPath)
         XCTAssertEqual(loaded?.cloud, "apple-container")
     }
