@@ -154,9 +154,12 @@ export function getTCPHost(): string {
   return "127.0.0.1";
 }
 
-// Kept in sync with `cli/src/lib/environments/seeds.ts`. The daemon does not
-// import from the CLI package, so the list is duplicated here. If a new
-// environment is added to the seed table, add it here too.
+// Kept in sync with `cli/src/lib/environments/seeds.ts` and
+// `clients/chrome-extension/native-host/src/lockfile.ts`. Drift between
+// these three sites is caught at test time by
+// `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
+// list into a `packages/environments` package so all three sites import
+// from one place.
 const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
   "production",
   "staging",

@@ -34,8 +34,12 @@ const PRODUCTION_LOCKFILE_NAMES = [
 /**
  * Non-production environment names that map to `$XDG_CONFIG_HOME/vellum-<env>/`.
  * Anything not in this set (including typos like `foo`) falls back to the
- * production path. Mirrors `KNOWN_ENVIRONMENTS` in
- * `assistant/src/util/platform.ts` — keep in sync when new envs are added.
+ * production path. Mirrors `SEEDS` in `cli/src/lib/environments/seeds.ts`
+ * and `KNOWN_ENVIRONMENTS` in `assistant/src/util/platform.ts`. Drift
+ * between these three sites is caught at test time by
+ * `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
+ * list into a `packages/environments` package so all three sites import
+ * from one place.
  */
 const NON_PRODUCTION_ENVIRONMENTS: ReadonlySet<string> = new Set([
   "dev",
