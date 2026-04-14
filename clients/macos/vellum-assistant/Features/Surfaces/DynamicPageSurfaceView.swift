@@ -340,7 +340,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // requests through the native Swift bridge via postMessage → URLSession.
         // This bypasses WKWebView's mixed-content blocking (the page loads from
         // https://*.vellum.local but the gateway runs on http://127.0.0.1).
-        if let credentials = GatewayHTTPClient.resolveWebViewCredentials() {
+        //
+        // SECURITY: Only inject into trusted app surfaces (appId != nil).
+        // Non-app dynamic pages contain untrusted model output and must not
+        // receive authenticated fetch capabilities. (ATL-83)
+        if appId != nil, let credentials = GatewayHTTPClient.resolveWebViewCredentials() {
             let headerKeys = credentials.headers.keys.sorted().joined(separator: ", ")
             let hasAuth = credentials.headers.keys.contains(where: { $0 == "Authorization" || $0 == "X-Session-Token" })
             log.info("[vellum.fetch] Bridge injected (native): baseURL=\(credentials.baseURL, privacy: .public) pathPrefix=\(credentials.pathPrefix, privacy: .public) headerKeys=[\(headerKeys, privacy: .public)] hasAuth=\(hasAuth, privacy: .public)")
