@@ -442,6 +442,170 @@ describe("Slack channel config handler", () => {
     ).toBeUndefined();
   });
 
+  test("POST drops stale user_token when bot_token workspace differs", async () => {
+    // Scenario: user provisionally stores a user_token for workspace A before
+    // any bot token exists. Later they store a bot_token for workspace B.
+    // The handler must clear the stale user_token so reads (user_token) and
+    // writes (bot_token) never span workspaces.
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-workspace-a",
+    );
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+    // No bot token yet — config has no teamId.
+
+    // fetch is called twice: once to validate the new bot_token (workspace B),
+    // once to auth.test the persisted user_token (workspace A).
+    const calls: string[] = [];
+    globalThis.fetch = (async (
+      _url: string,
+      init?: { headers?: Record<string, string> },
+    ) => {
+      const auth = init?.headers?.["Authorization"] ?? "";
+      calls.push(auth);
+      if (auth === "Bearer xoxb-workspace-b") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_B",
+            team: "TeamB",
+            user_id: "U_BOT_B",
+            user: "botb",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (auth === "Bearer xoxp-workspace-a") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_A",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected auth header: ${auth}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-workspace-b");
+
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+    expect(result.teamId).toBe("T_B");
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("different workspace");
+
+    // user_token secure key + metadata are gone.
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeUndefined();
+
+    // Both fetches happened: bot validation and user_token cross-check.
+    expect(calls).toContain("Bearer xoxb-workspace-b");
+    expect(calls).toContain("Bearer xoxp-workspace-a");
+  });
+
+  test("POST keeps user_token when bot_token workspace matches", async () => {
+    // Same workspace as persisted user_token — keep it.
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-workspace-a",
+    );
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+
+    globalThis.fetch = (async (
+      _url: string,
+      init?: { headers?: Record<string, string> },
+    ) => {
+      const auth = init?.headers?.["Authorization"] ?? "";
+      if (auth === "Bearer xoxb-workspace-a") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_A",
+            team: "TeamA",
+            user_id: "U_BOT_A",
+            user: "bota",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (auth === "Bearer xoxp-workspace-a") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_A",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected auth header: ${auth}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-workspace-a");
+
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasUserToken).toBe(true);
+    expect(result.teamId).toBe("T_A");
+    // No cross-workspace warning — both tokens match.
+    expect(result.warning ?? "").not.toContain("different workspace");
+
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBe("xoxp-workspace-a");
+  });
+
+  test("POST drops user_token whose auth.test now fails when bot_token is stored", async () => {
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      "xoxp-revoked",
+    );
+    upsertCredentialMetadata("slack_channel", "user_token", {});
+
+    globalThis.fetch = (async (
+      _url: string,
+      init?: { headers?: Record<string, string> },
+    ) => {
+      const auth = init?.headers?.["Authorization"] ?? "";
+      if (auth === "Bearer xoxb-workspace-a") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T_A",
+            team: "TeamA",
+            user_id: "U_BOT_A",
+            user: "bota",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (auth === "Bearer xoxp-revoked") {
+        return new Response(
+          JSON.stringify({ ok: false, error: "token_revoked" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected auth header: ${auth}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await setSlackChannelConfig("xoxb-workspace-a");
+
+    expect(result.success).toBe(true);
+    expect(result.hasBotToken).toBe(true);
+    expect(result.hasUserToken).toBe(false);
+    expect(result.warning).toBeDefined();
+    expect(result.warning).toContain("User token");
+
+    expect(
+      await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
+    ).toBeUndefined();
+  });
+
   test("POST rejects user token from a different workspace than the bot token", async () => {
     // Pre-seed config with bot-token-derived team id (T_TEAM) to simulate that
     // a bot token has already been configured.

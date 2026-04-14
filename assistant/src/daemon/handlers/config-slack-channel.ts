@@ -221,6 +221,51 @@ export async function setSlackChannelConfig(
     setNestedValue(raw, "slack.botUsername", metadata.botUsername ?? "");
     saveRawConfig(raw);
     invalidateConfigCache();
+
+    // Cross-check existing user_token against the newly-stored bot_token's
+    // workspace. A user_token persisted under a previous workspace (or whose
+    // auth.test now fails) must be cleared so reads and writes never fan out
+    // across workspaces. Best-effort: any failure fetching auth.test is treated
+    // as a reason to drop the token defensively.
+    const existingUserToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    );
+    if (existingUserToken) {
+      let shouldClear = false;
+      let clearReason: string | undefined;
+      try {
+        const res = await fetch("https://slack.com/api/auth.test", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${existingUserToken}` },
+        });
+        const data = (await res.json()) as {
+          ok: boolean;
+          error?: string;
+          team_id?: string;
+        };
+        if (!data.ok) {
+          shouldClear = true;
+          clearReason = "User token validation failed; it has been removed.";
+        } else if (
+          metadata.teamId &&
+          data.team_id &&
+          data.team_id !== metadata.teamId
+        ) {
+          shouldClear = true;
+          clearReason =
+            "User token from a different workspace was removed.";
+        }
+      } catch {
+        shouldClear = true;
+        clearReason = "User token validation failed; it has been removed.";
+      }
+      if (shouldClear) {
+        await clearSlackUserToken();
+        if (clearReason) {
+          warning = warning ? `${warning} ${clearReason}` : clearReason;
+        }
+      }
+    }
   } else {
     // Use existing metadata from config if no new bot token provided
     const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
@@ -316,11 +361,13 @@ export async function setSlackChannelConfig(
   ));
 
   if (hasBotToken && !hasAppToken) {
-    warning =
+    const msg =
       "Bot token stored but app token is missing — connection incomplete.";
+    warning = warning ? `${warning} ${msg}` : msg;
   } else if (!hasBotToken && hasAppToken) {
-    warning =
+    const msg =
       "App token stored but bot token is missing — connection incomplete.";
+    warning = warning ? `${warning} ${msg}` : msg;
   }
 
   // Sync oauth_connection record so getConnectionByProvider("slack_channel")
