@@ -405,6 +405,7 @@ struct ChatView: View {
                 containerWidth: containerWidth,
                 containerHeight: containerHeight
             )
+            .id(conversationId)
             .animation(nil, value: queuedMessages.isEmpty)
 
             if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
