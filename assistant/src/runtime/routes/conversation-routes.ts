@@ -1803,9 +1803,10 @@ export async function handleSendMessage(
       transport,
     );
     if (enqueueResult.rejected) {
+      const isDisabled = enqueueResult.reason === "queue_disabled";
       return Response.json(
-        { accepted: false, error: "queue_full" },
-        { status: 429 },
+        { accepted: false, error: enqueueResult.reason ?? "queue_full" },
+        { status: isDisabled ? 503 : 429 },
       );
     }
 

@@ -300,7 +300,12 @@ export interface SurfaceConversationContext {
     options?: { isInteractive?: boolean },
     displayContent?: string,
     transport?: ConversationTransportMetadata,
-  ): { queued: boolean; requestId: string; rejected?: boolean };
+  ): {
+    queued: boolean;
+    requestId: string;
+    rejected?: boolean;
+    reason?: "queue_full" | "queue_disabled";
+  };
   getQueueDepth(): number;
   processMessage(
     content: string,
