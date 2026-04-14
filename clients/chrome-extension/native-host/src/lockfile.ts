@@ -9,7 +9,7 @@
  * the full lockfile schema.
  *
  * The lockfile filenames and priority order are kept in sync with
- * `cli/src/lib/constants.ts` (`LOCKFILE_NAMES`).
+ * `PRODUCTION_LOCKFILE_NAMES` in `cli/src/lib/environments/paths.ts`.
  */
 
 import { readFileSync } from "node:fs";
@@ -21,7 +21,7 @@ import { join } from "node:path";
  * `.vellum.lock.json` is the current name; `.vellum.lockfile.json` is the
  * legacy name kept for backwards compatibility with older installs.
  *
- * Mirrors `LOCKFILE_NAMES` in `cli/src/lib/constants.ts`.
+ * Mirrors `PRODUCTION_LOCKFILE_NAMES` in `cli/src/lib/environments/paths.ts`.
  */
 const LOCKFILE_NAMES = [
   ".vellum.lock.json",
