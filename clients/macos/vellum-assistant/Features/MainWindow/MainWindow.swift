@@ -326,6 +326,9 @@ public final class MainWindow {
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
+            isAssistantFeatureFlagEnabled: { [weak assistantFeatureFlagStore] key in
+                assistantFeatureFlagStore?.isEnabled(key) ?? false
+            },
             isFirstLaunch: isFirstLaunch,
             preChatContext: preChatContext
         )

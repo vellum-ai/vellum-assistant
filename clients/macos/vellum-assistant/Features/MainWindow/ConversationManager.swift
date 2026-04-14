@@ -60,6 +60,11 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
 
+    /// Closure that resolves assistant-scoped feature flags by key.
+    /// Injected by the app layer so ChatViewModels pick up runtime overrides
+    /// from the gateway via AssistantFeatureFlagStore.
+    private let isAssistantFeatureFlagEnabled: (String) -> Bool
+
     // MARK: - Pre-Chat Onboarding
 
     /// Pre-chat onboarding context from the onboarding flow. Set by AppDelegate
@@ -172,6 +177,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
         conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
+        isAssistantFeatureFlagEnabled: @escaping (String) -> Bool = { key in
+            loadFeatureFlagRegistry()?.flags.first(where: { $0.key == key })?.defaultEnabled ?? true
+        },
         isFirstLaunch: Bool = false,
         preChatContext: PreChatOnboardingContext? = nil
     ) {
@@ -183,6 +191,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationDetailClient = conversationDetailClient
         self.conversationHostAccessClient = conversationHostAccessClient
         self.conversationAnalysisClient = conversationAnalysisClient
+        self.isAssistantFeatureFlagEnabled = isAssistantFeatureFlagEnabled
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
 
@@ -360,7 +369,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     // MARK: - VM Factory
 
     func makeViewModel() -> ChatViewModel {
-        let viewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
+        let viewModel = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient, isAssistantFeatureFlagEnabled: isAssistantFeatureFlagEnabled)
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)

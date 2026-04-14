@@ -1067,7 +1067,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),
         conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient(),
-        onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
+        onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil,
+        isAssistantFeatureFlagEnabled: @escaping (String) -> Bool = { key in
+            loadFeatureFlagRegistry()?.flags.first(where: { $0.key == key })?.defaultEnabled ?? true
+        }
     ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
@@ -1096,7 +1099,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             errorManager: errorManager,
             btwState: btwState,
             settingsClient: settingsClient,
-            conversationListClient: conversationListClient
+            conversationListClient: conversationListClient,
+            isAssistantFeatureFlagEnabled: isAssistantFeatureFlagEnabled
         )
 
         // Initialize the action handler for server message dispatch.
