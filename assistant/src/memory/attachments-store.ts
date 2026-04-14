@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -277,7 +278,15 @@ function materializeAttachmentIntoConversation(
   // cloned across conversations (e.g. during a fork), previousFilePath
   // may point to another conversation's directory — deleting that would
   // cause data loss for the source conversation.
-  const stagingDir = join(getWorkspaceDir(), "data", "attachments");
+  const stagingDirRaw = join(getWorkspaceDir(), "data", "attachments");
+  let stagingDir: string;
+  try {
+    stagingDir = existsSync(stagingDirRaw)
+      ? realpathSync(stagingDirRaw)
+      : stagingDirRaw;
+  } catch {
+    stagingDir = stagingDirRaw;
+  }
   if (
     previousFilePath &&
     previousFilePath !== targetPath &&
