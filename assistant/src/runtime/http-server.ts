@@ -164,6 +164,7 @@ import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
+import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
@@ -358,6 +359,7 @@ export class RuntimeHttpServer {
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
+  private getFilingService?: RuntimeHttpServerOptions["getFilingService"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -382,6 +384,7 @@ export class RuntimeHttpServer {
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
+    this.getFilingService = options.getFilingService;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -1686,6 +1689,9 @@ export class RuntimeHttpServer {
       }),
       ...heartbeatRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
+      }),
+      ...filingRouteDefinitions({
+        getFilingService: this.getFilingService,
       }),
       ...homeStateRouteDefinitions(),
       ...homeFeedRouteDefinitions(),

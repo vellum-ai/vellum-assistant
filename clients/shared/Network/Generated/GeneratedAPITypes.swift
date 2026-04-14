@@ -1894,6 +1894,44 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     }
 }
 
+public struct FilingConfigResponse: Codable, Sendable {
+    public let type: String
+    public let enabled: Bool
+    public let intervalMs: Double
+    public let activeHoursStart: Double?
+    public let activeHoursEnd: Double?
+    public let nextRunAt: Int?
+    public let lastRunAt: Int?
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+        self.type = type
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.activeHoursStart = activeHoursStart
+        self.activeHoursEnd = activeHoursEnd
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct FilingRunNowResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let ran: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, ran: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.ran = ran
+        self.error = error
+    }
+}
+
 public struct HeartbeatRunNow: Codable, Sendable {
     public let type: String
 

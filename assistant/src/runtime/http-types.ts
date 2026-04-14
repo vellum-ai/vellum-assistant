@@ -241,6 +241,10 @@ export interface RuntimeHttpServerOptions {
   getHeartbeatService?: () =>
     | import("../heartbeat/heartbeat-service.js").HeartbeatService
     | undefined;
+  /** Accessor for the filing service (for run-now and config routes). */
+  getFilingService?: () =>
+    | import("../filing/filing-service.js").FilingService
+    | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

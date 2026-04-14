@@ -23,6 +23,7 @@ import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
+import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -365,6 +366,17 @@ export class DaemonServer {
 
   getHeartbeatService(): HeartbeatService | undefined {
     return this._heartbeatService;
+  }
+
+  /** Optional filing service reference for "Run Now" from the UI. */
+  private _filingService?: FilingService;
+
+  setFilingService(service: FilingService): void {
+    this._filingService = service;
+  }
+
+  getFilingService(): FilingService | undefined {
+    return this._filingService;
   }
 
   private deriveMemoryPolicy(conversationId: string): ConversationMemoryPolicy {
