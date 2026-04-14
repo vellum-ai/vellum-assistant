@@ -69,12 +69,19 @@ final class SoundManager {
     /// the suppression window isn't permanently missed.
     @ObservationIgnored private var pendingReloadAfterSuppression = false
 
-    /// Whether a valid config has ever been decoded from disk. While `false`,
-    /// fetch failures fall back to `.defaultConfig` so first-run (no file
-    /// yet) still renders sensible state. Once `true`, fetch failures
-    /// preserve the in-memory config rather than clobbering a known-good
-    /// state with defaults on a transient read error (e.g. a read that
-    /// raced a concurrent write).
+    /// Whether a valid config currently exists in memory for the active
+    /// assistant context. Not monotonic: the `.notFound` branch in
+    /// `fetchConfig()` resets this to `false` when the gateway reports the
+    /// file is absent, so switching to an assistant with no sounds config
+    /// loads defaults instead of retaining the previous assistant's state.
+    ///
+    /// Only the generic `catch` branch in `fetchConfig()` consults this flag
+    /// to preserve known-good state on transient errors (empty body from a
+    /// read that raced a concurrent write, decode errors, network errors).
+    /// The `.notFound` branch intentionally bypasses it because an
+    /// authoritative "file absent" response is not a transient failure.
+    /// While `false`, fetch failures fall back to `.defaultConfig` so
+    /// first-run (no file yet) still renders sensible state.
     @ObservationIgnored private var hasLoadedConfig = false
 
     /// True once `fetchConfig()` has settled with any deterministic result — a
