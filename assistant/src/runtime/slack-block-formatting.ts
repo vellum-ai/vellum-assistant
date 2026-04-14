@@ -289,3 +289,71 @@ function markdownToMrkdwn(text: string): string {
   result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Long-text splitting
+// ---------------------------------------------------------------------------
+
+/**
+ * Slack's `section` block has a documented ~3000-character limit on the
+ * `text.text` value. Keep a margin under that so downstream transforms
+ * (e.g. `markdownToMrkdwn` expansions) don't push a chunk over.
+ */
+export const SLACK_SECTION_MAX_CHARS = 2800;
+
+/**
+ * Split `text` into chunks no larger than `maxChars`, preferring natural
+ * boundaries. Pure helper: no Block Kit knowledge, safe to unit test.
+ *
+ * Preference order for split points:
+ *  1. Paragraph boundary (`\n\n`)
+ *  2. Single newline (`\n`)
+ *  3. Sentence boundary (`. `, `! `, `? `)
+ *  4. Hard slice at `maxChars`
+ *
+ * Short inputs (length ≤ `maxChars`) return `[text]` unchanged. Each chunk
+ * is trimmed of leading/trailing whitespace at chunk boundaries; interior
+ * whitespace is preserved.
+ */
+export function splitLongTextSegment(
+  text: string,
+  maxChars: number = SLACK_SECTION_MAX_CHARS,
+): string[] {
+  if (text.length <= maxChars) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > maxChars) {
+    const window = remaining.slice(0, maxChars);
+    let splitAt = findBoundary(window, ["\n\n"]);
+    if (splitAt < 0) splitAt = findBoundary(window, ["\n"]);
+    if (splitAt < 0) splitAt = findBoundary(window, [". ", "! ", "? "]);
+    // Hard-slice fallback: no natural boundary in the first `maxChars`.
+    if (splitAt < 0) splitAt = maxChars;
+
+    const chunk = remaining.slice(0, splitAt).trim();
+    if (chunk.length > 0) chunks.push(chunk);
+    remaining = remaining.slice(splitAt);
+  }
+
+  const tail = remaining.trim();
+  if (tail.length > 0) chunks.push(tail);
+
+  return chunks;
+}
+
+/**
+ * Return the end index of the last occurrence of any delimiter in `window`
+ * (so the preceding content becomes one chunk). Returns -1 if none match.
+ */
+function findBoundary(window: string, delimiters: string[]): number {
+  let best = -1;
+  for (const delim of delimiters) {
+    const idx = window.lastIndexOf(delim);
+    if (idx < 0) continue;
+    const end = idx + delim.length;
+    if (end > best) best = end;
+  }
+  return best;
+}
