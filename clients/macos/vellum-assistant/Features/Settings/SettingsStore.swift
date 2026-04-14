@@ -619,6 +619,11 @@ public final class SettingsStore: ObservableObject {
         modelInfoObservationTask?.cancel()
         if let connectionManager {
             modelInfoObservationTask = Task { @MainActor [weak self] in
+                // Apply current value before waiting for changes — the old
+                // Combine $publisher delivered the current value on subscription.
+                if let info = connectionManager.latestModelInfo {
+                    self?.applyModelInfoResponse(info)
+                }
                 while !Task.isCancelled {
                     let box = CancellableContinuationBox()
                     await withTaskCancellationHandler {

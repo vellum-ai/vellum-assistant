@@ -41,6 +41,12 @@ public func observationStream<Value: Equatable & Sendable>(
                     } onChange: {
                         box.resume()
                     }
+                    // If the value already changed between the initial read
+                    // (or previous iteration) and tracking installation, wake
+                    // immediately so the new value is not lost.
+                    if getValue() != lastValue {
+                        box.resume()
+                    }
                     box.set(resume)
                 }
             } onCancel: {
