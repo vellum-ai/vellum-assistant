@@ -146,7 +146,9 @@ declare -a SAFE_LINE_PATTERNS=(
     # TS/JS: camelCase variable containing ApiKey assigned from a function call
     # (not a string literal). E.g. `const internalApiKey = getPlatformInternalApiKey().trim();`
     # or `const assistantApiKey = storedAssistantApiKeyRaw?.trim() || "";`
-    "[a-zA-Z]*[Aa]pi[Kk]ey[[:space:]]*=[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?()]*[[:space:]]*([|&?]+[[:space:]]*[a-zA-Z0-9_\"'().]*)*[[:space:]]*[;,]?[[:space:]]*$"
+    # The fallback after || may only be an empty string literal ("" or '') or
+    # an identifier — never a non-empty quoted value, which could be a real secret.
+    "[a-zA-Z]*[Aa]pi[Kk]ey[[:space:]]*=[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?()]*[[:space:]]*([|&?]+[[:space:]]*(\"\"|\x27\x27|[a-zA-Z0-9_().]+))*[[:space:]]*[;,]?[[:space:]]*$"
     # TS/JS: property key followed by type annotation or opening brace.
     # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
     "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
@@ -343,6 +345,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_TS_APIKEY_VAR_ASSIGN='  const assistantApiKey = storedAssistantApiKeyRaw?.trim() || "";'
     # TS/JS: camelCase ApiKey variable assigned a literal string (dangerous — must NOT be whitelisted)
     UNSAFE_TS_APIKEY_LITERAL='const internalApiKey = "sk_live_12345678901234567890";'
+    # TS/JS: camelCase ApiKey variable with a non-empty quoted fallback (dangerous — must NOT be whitelisted)
+    UNSAFE_TS_APIKEY_SECRET_FALLBACK='const assistantApiKey = storedAssistantApiKeyRaw?.trim() || "sk_live_12345678901234567890";'
 
     # Function-call assignments (false positives to whitelist)
     SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKeyAsync(keyVault)'
@@ -640,6 +644,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_TS_APIKEY_LITERAL" && matches_safe_line_pattern "$UNSAFE_TS_APIKEY_LITERAL"; then
         echo -e "${RED}Self-test failed:${NC} camelCase ApiKey with literal secret was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_TS_APIKEY_SECRET_FALLBACK" && matches_safe_line_pattern "$UNSAFE_TS_APIKEY_SECRET_FALLBACK"; then
+        echo -e "${RED}Self-test failed:${NC} camelCase ApiKey with non-empty quoted fallback was incorrectly whitelisted"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_TYPED_PROP_SECRET" && ! matches_safe_line_pattern "$SAFE_TYPED_PROP_SECRET"; then

@@ -105,7 +105,7 @@ async function registerManagedTelegramCallbackRoute(
         assistant_id: assistantId,
         callback_path: TELEGRAM_CALLBACK_PATH,
         type: TELEGRAM_CALLBACK_TYPE,
-        source_identifier: sourceIdentifier,
+        ...(sourceIdentifier ? { source_identifier: sourceIdentifier } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     },
