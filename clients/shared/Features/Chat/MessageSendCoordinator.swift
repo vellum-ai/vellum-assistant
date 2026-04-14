@@ -707,7 +707,12 @@ final class MessageSendCoordinator {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments, automated: queued.automated)
+            let attachments = queued.messageAttachments
+            let multipartCount = attachments?.filter({ $0.rawData != nil }).count ?? 0
+            if multipartCount > 0 {
+                log.info("Offline flush: \(multipartCount) attachment(s) have rawData for multipart upload")
+            }
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated)
         }
     }
 
