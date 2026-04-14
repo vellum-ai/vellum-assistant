@@ -155,60 +155,68 @@ extension MainWindowView {
 
     @ViewBuilder
     func homePanelView(onDismiss: @escaping () -> Void) -> some View {
-        VPageContainer(title: "Home") {
-            HomePageView(
-                store: homeStore,
-                feedStore: feedStore,
-                onStartConversation: {
-                    startNewConversation()
-                    onDismiss()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onPrimaryCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    onDismiss()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onShortcutCTA: { capability in
-                    let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
-                    conversationManager.openConversation(message: seed, forceNew: true)
-                    onDismiss()
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    }
-                },
-                onFeedConversationOpened: { conversationId in
-                    // Daemon already created the conversation in response to
-                    // `store.triggerAction`; the client just needs to navigate.
-                    // A non-UUID id here means the daemon returned something
-                    // the client contract does not allow — log loudly so the
-                    // regression is visible instead of silently dropping.
-                    guard let uuid = UUID(uuidString: conversationId) else {
-                        panelCoordinatorLog.error(
-                            "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
-                        )
-                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
-                        return
-                    }
-                    onDismiss()
-                    windowState.selection = .conversation(uuid)
+        // Home intentionally skips ``VPageContainer`` — the redesigned
+        // Home page has its own centered hero greeting, so a top-aligned
+        // "Home" title would double up and steal vertical space from the
+        // first scroll viewport. ``HomePageView`` paints its own full
+        // background internally, so no outer chrome is needed here.
+        HomePageView(
+            store: homeStore,
+            feedStore: feedStore,
+            onPrimaryCTA: { capability in
+                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
+                conversationManager.openConversation(message: seed, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
                 }
-            )
-            .onAppear {
-                homeStore.isHomeTabVisible = true
-                homeStore.markSeen()
+            },
+            onShortcutCTA: { capability in
+                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                conversationManager.openConversation(message: seed, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
+                }
+            },
+            onFeedConversationOpened: { conversationId in
+                // Daemon already created the conversation in response to
+                // `store.triggerAction`; the client just needs to navigate.
+                // A non-UUID id here means the daemon returned something
+                // the client contract does not allow — log loudly so the
+                // regression is visible instead of silently dropping.
+                guard let uuid = UUID(uuidString: conversationId) else {
+                    panelCoordinatorLog.error(
+                        "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                    )
+                    windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                    return
+                }
+                onDismiss()
+                windowState.selection = .conversation(uuid)
+            },
+            onSubmitMessage: { message in
+                // Home inline composer: start a brand-new conversation
+                // pre-seeded with the user's text and navigate into it.
+                // `forceNew: true` is critical — we always want the
+                // Home composer to create a fresh thread rather than
+                // append to whatever was last active.
+                conversationManager.openConversation(message: message, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
+                }
             }
-            .onDisappear {
-                homeStore.isHomeTabVisible = false
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .clipped()
+        )
+        .onAppear {
+            homeStore.isHomeTabVisible = true
+            homeStore.markSeen()
         }
+        .onDisappear {
+            homeStore.isHomeTabVisible = false
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
     }
 
     @ViewBuilder
