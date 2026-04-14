@@ -739,6 +739,20 @@ export async function executeBrowserNavigate(
             )
           ).blockedAddress)
       ) {
+        // Navigate the page away from the private target to prevent
+        // follow-up tool calls (e.g. browser_snapshot) from reading
+        // the already-loaded private content.
+        try {
+          await navigateAndWait(
+            cdp,
+            "about:blank",
+            { timeoutMs: 3_000 },
+            context.signal,
+          );
+        } catch {
+          // Best-effort — if the reset fails, the CDP session will be
+          // disposed in the finally block anyway.
+        }
         // Clean up the route handler before returning to avoid leaking
         // a stale interception handler on the session page.
         if (routeHandler) {
