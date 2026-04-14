@@ -9,8 +9,8 @@ import {
   PER_TURN_WEIGHTS,
   PROCEDURAL_WEIGHTS,
   scoreCandidate,
-  weightsForContextLoad,
   type ScoringWeights,
+  weightsForContextLoad,
 } from "./scoring.js";
 import type { MemoryNode } from "./types.js";
 
