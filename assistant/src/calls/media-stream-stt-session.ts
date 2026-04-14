@@ -208,13 +208,17 @@ export class MediaStreamSttSession {
     // Only process inbound (caller) audio
     if (event.media.track !== "inbound") return;
 
-    this.currentTurnChunks.push(event.media.payload);
-
     // Compute speech activity from the audio payload using a lightweight
     // energy heuristic. mu-law encoded audio has a companded dynamic
     // range — silence sits near 0xFF/0x7F while speech has higher energy.
+    //
+    // The detector call runs BEFORE the push so that the onTurnStart
+    // callback can clear stale inter-turn silence from the buffer
+    // without also wiping the first speech chunk of the new turn.
     const hasSpeech = detectSpeechActivity(event.media.payload);
     this.turnDetector.onMediaChunk(hasSpeech);
+
+    this.currentTurnChunks.push(event.media.payload);
   }
 
   private handleStop(): void {
