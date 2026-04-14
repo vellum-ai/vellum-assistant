@@ -327,7 +327,7 @@
       "key": "stt-service",
       "label": "Voice STT Service",
       "description": "Enable Voice settings STT service configuration UI for selecting and configuring speech-to-text providers",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "onboarding-pre-chat",
