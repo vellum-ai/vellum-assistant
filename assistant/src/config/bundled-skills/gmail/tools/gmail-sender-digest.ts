@@ -135,14 +135,32 @@ export async function run(
       );
     }
 
-    // Settle all fetch promises — collect successes and tolerate 429 failures
-    const settled = await Promise.allSettled(fetchPromises);
+    // Settle all fetch promises — collect successes and tolerate 429 failures.
+    // Race each promise against a deadline so slow retries don't exceed the
+    // executor's 120s tool timeout.
+    const elapsedMs = Date.now() - startTime;
+    const settleDeadlineMs = Math.max(TIME_BUDGET_MS - elapsedMs, 5_000);
+    const deadlineRejection = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("fetch deadline exceeded")),
+        settleDeadlineMs,
+      ),
+    );
+    const settled = await Promise.allSettled(
+      fetchPromises.map((p) => Promise.race([p, deadlineRejection])),
+    );
     const messages: GmailMessage[] = [];
     for (const result of settled) {
       if (result.status === "fulfilled") {
         messages.push(...result.value);
       } else if (isRateLimitError(result.reason)) {
         rateLimited = true;
+        truncated = true;
+      } else if (
+        result.reason instanceof Error &&
+        result.reason.message === "fetch deadline exceeded"
+      ) {
+        timeBudgetExceeded = true;
         truncated = true;
       } else {
         throw result.reason;
