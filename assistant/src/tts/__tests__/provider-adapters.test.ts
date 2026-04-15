@@ -172,10 +172,10 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(provider.id).toBe("elevenlabs");
   });
 
-  test("advertises mp3 format support without streaming", () => {
+  test("advertises mp3 and pcm format support without streaming", () => {
     const provider = createElevenLabsProvider();
     expect(provider.capabilities.supportsStreaming).toBe(false);
-    expect(provider.capabilities.supportedFormats).toEqual(["mp3"]);
+    expect(provider.capabilities.supportedFormats).toEqual(["mp3", "pcm"]);
   });
 
   // -- Request mapping -----------------------------------------------------
