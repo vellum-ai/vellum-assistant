@@ -589,6 +589,12 @@ export function serviceDockerRunArgs(opts: {
         `--network=${res.network}`,
         "-p",
         `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+        // Published so the Meet subsystem's sibling bot containers can reach
+        // the daemon's internal HTTP API at host.docker.internal:<port>. Bound
+        // to 127.0.0.1 so the daemon API is not exposed beyond the host's
+        // loopback.
+        "-p",
+        `127.0.0.1:${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
         "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",

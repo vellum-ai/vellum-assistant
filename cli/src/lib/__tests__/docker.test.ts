@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
+  ASSISTANT_INTERNAL_PORT,
   dockerResourceNames,
   serviceDockerRunArgs,
   type ServiceName,
@@ -53,5 +54,14 @@ describe("serviceDockerRunArgs — assistant", () => {
     expect(args).toContain("IS_CONTAINERIZED=true");
     expect(args).toContain("VELLUM_WORKSPACE_DIR=/workspace");
     expect(args).toContain(`VELLUM_ASSISTANT_NAME=${instanceName}`);
+  });
+
+  test("publishes the assistant HTTP port on 127.0.0.1 so sibling bot containers can reach the daemon via host.docker.internal", () => {
+    const args = buildAssistantArgs();
+    // The port mapping is expressed as two adjacent args: "-p" then the spec.
+    const portSpec = `127.0.0.1:${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`;
+    const portIndex = args.indexOf(portSpec);
+    expect(portIndex).toBeGreaterThan(0);
+    expect(args[portIndex - 1]).toBe("-p");
   });
 });
