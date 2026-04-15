@@ -232,7 +232,7 @@ jobs:
           ASSISTANT_REPO="${{ steps.images.outputs.assistant_image }}"
           GATEWAY_REPO="${{ steps.images.outputs.gateway_image }}"
           CREDENTIAL_EXECUTOR_REPO="${{ steps.images.outputs.ce_image }}"
-          IS_STABLE="false"
+          IS_STABLE="true"
 
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \

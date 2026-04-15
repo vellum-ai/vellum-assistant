@@ -177,6 +177,12 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
     environment: dev
     steps:
       - name: Generate GitHub App token
@@ -209,37 +215,137 @@ jobs:
           DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
         run: bun scripts/docker-login-with-retry.ts
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute dev version and image name
-        id: meta
+      - name: Compute image name
+        id: image
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
-          echo "image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=dev.${GITHUB_RUN_NUMBER}.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: assistant/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
-            ${{ steps.meta.outputs.image }}:dev
-          cache-from: type=gha,scope=assistant-dev-linux/amd64
-          cache-to: type=gha,mode=max,scope=assistant-dev-linux/amd64
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=assistant-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-dev-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Prepare platform suffix
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "suffix=${platform//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-digests-dev-${{ steps.platform.outputs.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  push-dev-manifest:
+    name: Push Dev Manifest (Assistant)
+    needs: [push-dev-image]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Fail if image build failed
+        if: needs.push-dev-image.result != 'success'
+        run: |
+          echo "::error::push-dev-image failed with result: ${{ needs.push-dev-image.result }}"
+          exit 1
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: assistant-digests-dev-*
+          merge-multiple: true
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          IMMUTABLE_TAG="dev.${GITHUB_RUN_NUMBER}.${SHORT_SHA}"
+          GCP_TAGS="${GCP_IMAGE}:${GITHUB_SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:${IMMUTABLE_TAG}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:dev")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
 
       - name: Write image ref artifact
         run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          IMMUTABLE_TAG="dev.${GITHUB_RUN_NUMBER}.${SHORT_SHA}"
           mkdir -p /tmp/dev-image-ref
-          echo "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" > /tmp/dev-image-ref/image-ref.txt
+          echo "${IMAGE}:${IMMUTABLE_TAG}" > /tmp/dev-image-ref/image-ref.txt
           echo "Image ref: $(cat /tmp/dev-image-ref/image-ref.txt)"
 
       - name: Upload image ref
