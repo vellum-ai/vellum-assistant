@@ -12,7 +12,6 @@ import { describe, expect, mock, test } from "bun:test";
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
 import {
-  DEDUPE_WINDOW_MS,
   LLM_CHECK_DEBOUNCE_MS,
   LLM_TICK_INTERVAL_MS,
   MeetConsentMonitor,
@@ -362,7 +361,11 @@ describe("MeetConsentMonitor dedupe", () => {
     t = LLM_CHECK_DEBOUNCE_MS + 1;
     dispatcher.dispatch(
       "m1",
-      transcriptChunk("m1", new Date(t).toISOString(), "please leave the meeting"),
+      transcriptChunk(
+        "m1",
+        new Date(t).toISOString(),
+        "please leave the meeting",
+      ),
     );
     await flushPromises();
     expect(llm).toHaveBeenCalledTimes(2);
@@ -613,12 +616,10 @@ describe("MeetConsentMonitor content-watermark tick skip", () => {
     t = 1_000;
     dispatcher.dispatch(
       "m1",
-      transcriptChunk(
-        "m1",
-        "2024-01-01T00:00:01.000Z",
-        "kicking things off",
-        { speakerLabel: "Alice", speakerId: "alice" },
-      ),
+      transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "kicking things off", {
+        speakerLabel: "Alice",
+        speakerId: "alice",
+      }),
     );
     await flushPromises();
 
@@ -897,12 +898,9 @@ describe("MeetConsentMonitor resilience", () => {
 
     dispatcher.dispatch(
       "m1",
-      transcriptChunk(
-        "m1",
-        "2024-01-01T00:00:00.000Z",
-        "please leave now",
-        { isFinal: false },
-      ),
+      transcriptChunk("m1", "2024-01-01T00:00:00.000Z", "please leave now", {
+        isFinal: false,
+      }),
     );
     await flushPromises();
 
