@@ -51,3 +51,7 @@ When a single meeting is active, `meetingId` can be omitted — the tool targets
 - This skill NEVER joins a meeting based on calendar context alone. Always require an explicit user request.
 - Only one set of tools is exposed: `meet_join` and `meet_leave`. Future phases may add chat/speak capabilities; this skill will be updated when they land.
 - If the `meet` feature flag is disabled, both tools return a clear error — relay that to the user rather than retrying.
+
+## Transcription
+
+Transcription quality and latency reflect the user's configured `services.stt.provider`. Deepgram returns sub-second partials over a WebSocket; Gemini and Whisper are chunked (roughly 1 s and 400 ms poll intervals respectively) and therefore produce finals slightly later. Speaker attribution in meeting transcripts is derived from the Meet DOM active-speaker signal — it is independent of the STT provider.
