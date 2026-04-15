@@ -13,7 +13,7 @@ on:
 
 concurrency:
   group: register-dev-images
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   register-dev-images:
@@ -26,6 +26,24 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Skip if newer run is pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="${{ github.repository }}"
+          THIS_RUN_ID="${{ github.run_id }}"
+          # Check for newer pending or in_progress runs of this workflow
+          NEWER_COUNT=$(gh api "repos/${REPO}/actions/workflows/ci-register-dev-images.yaml/runs?status=queued&per_page=100" \
+            --jq "[.workflow_runs[] | select(.id > ${THIS_RUN_ID})] | length")
+          NEWER_IN_PROGRESS=$(gh api "repos/${REPO}/actions/workflows/ci-register-dev-images.yaml/runs?status=in_progress&per_page=100" \
+            --jq "[.workflow_runs[] | select(.id > ${THIS_RUN_ID})] | length")
+          TOTAL_NEWER=$(( ${NEWER_COUNT:-0} + ${NEWER_IN_PROGRESS:-0} ))
+          if [ "$TOTAL_NEWER" -gt 0 ]; then
+            echo "Newer registration run(s) pending — skipping this run to avoid redundant work."
+            exit 1
+          fi
+          echo "✓ No newer runs pending — proceeding."
+
       - name: Verify push-dev-image succeeded for triggered workflow
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,6 +76,8 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -71,7 +91,33 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute image references and get digest for triggering service
+      - name: Compute dev version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the latest release tag to use as the base version
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p')
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION=${LATEST_TAG#v}
+
+          # Count total runs of this workflow for a monotonically increasing
+          # dev version number (mirrors staging's RUN_COUNT approach).
+          REPO="${{ github.repository }}"
+          WORKFLOW_FILE="ci-register-dev-images.yaml"
+          DEV_COUNT=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1" --jq '.total_count' || true)
+          if [ -z "$DEV_COUNT" ] || ! [ "$DEV_COUNT" -ge 0 ] 2>/dev/null; then
+            DEV_COUNT=0
+          fi
+          DEV_COUNT=$((DEV_COUNT + 1))
+
+          VERSION="${LATEST_VERSION}-dev.${DEV_COUNT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Dev version: $VERSION (base: $LATEST_TAG, count: $DEV_COUNT)"
+
+      - name: Resolve image digests and tag bundle
         id: images
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,22 +126,23 @@ jobs:
           GATEWAY_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CE_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
 
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_TAG="v${VERSION}"
+
           # The triggering CI workflow tags images as dev.{run_number}.{short_sha}.
-          # Use the immutable tag from the triggering run to get the exact digest,
-          # avoiding races with the mutable :dev tag.
+          # Use the immutable tag for the triggered service to get the exact digest.
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.event.workflow_run.id }}"
           RUN_NUMBER=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.run_number')
-          SHORT_SHA="${{ github.event.workflow_run.head_sha }}"
-          SHORT_SHA="${SHORT_SHA:0:7}"
+          SHORT_SHA="${SHA:0:7}"
           IMMUTABLE_TAG="dev.${RUN_NUMBER}.${SHORT_SHA}"
-          echo "Using immutable tag: ${IMMUTABLE_TAG}"
 
-          # Determine which service was just built based on the triggering workflow name.
+          # Determine which service was just built.
           WF_NAME="${{ github.event.workflow_run.name }}"
           case "$WF_NAME" in
-            *Assistant*) TRIGGERED_IMAGE="$ASSISTANT_IMAGE" ;;
-            *Gateway*)   TRIGGERED_IMAGE="$GATEWAY_IMAGE" ;;
+            *Assistant*)  TRIGGERED_IMAGE="$ASSISTANT_IMAGE" ;;
+            *Gateway*)    TRIGGERED_IMAGE="$GATEWAY_IMAGE" ;;
             *Credential*) TRIGGERED_IMAGE="$CE_IMAGE" ;;
           esac
 
@@ -103,7 +150,7 @@ jobs:
           TRIGGERED_DIGEST=$(docker buildx imagetools inspect "${TRIGGERED_IMAGE}:${IMMUTABLE_TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "Triggered service digest (${WF_NAME}): ${TRIGGERED_DIGEST}"
 
-          # For the other two services, use the current :dev tag (latest available).
+          # For the other two services, capture the current :dev digest.
           case "$WF_NAME" in
             *Assistant*)
               ASSISTANT_DIGEST="$TRIGGERED_DIGEST"
@@ -121,6 +168,21 @@ jobs:
               CE_DIGEST="$TRIGGERED_DIGEST"
               ;;
           esac
+
+          # Tag all three images with the version tag and SHA tag.
+          # Uses digest-pinned retags so even if :dev moves, we tag the
+          # exact digests we captured above.
+          for IMAGE_REF in \
+            "${ASSISTANT_IMAGE}@${ASSISTANT_DIGEST}" \
+            "${GATEWAY_IMAGE}@${GATEWAY_DIGEST}" \
+            "${CE_IMAGE}@${CE_DIGEST}"; do
+            BASE="${IMAGE_REF%%@*}"
+            echo "Tagging ${BASE} with ${VERSION_TAG} and ${SHA}"
+            docker buildx imagetools create \
+              -t "${BASE}:${VERSION_TAG}" \
+              -t "${BASE}:${SHA}" \
+              "${IMAGE_REF}"
+          done
 
           echo "assistant_image=$ASSISTANT_IMAGE" >> "$GITHUB_OUTPUT"
           echo "gateway_image=$GATEWAY_IMAGE" >> "$GITHUB_OUTPUT"
@@ -162,37 +224,11 @@ jobs:
           echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
 
-      - name: Compute dev version
-        id: version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the latest release tag to use as the base version
-          git fetch --tags
-          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p')
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          LATEST_VERSION=${LATEST_TAG#v}
-
-          # Count successful runs of this workflow to get a monotonically
-          # increasing dev version number
-          REPO="${{ github.repository }}"
-          WORKFLOW_FILE="ci-register-dev-images.yaml"
-          DEV_COUNT=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=1" --jq '.total_count' || true)
-          if [ -z "$DEV_COUNT" ] || ! [ "$DEV_COUNT" -ge 0 ] 2>/dev/null; then
-            DEV_COUNT=0
-          fi
-          DEV_COUNT=$((DEV_COUNT + 1))
-
-          VERSION="${LATEST_VERSION}.dev.${DEV_COUNT}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Dev version: $VERSION (base: $LATEST_TAG, count: $DEV_COUNT)"
-
       - name: Register with platform
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
           VERSION="${{ steps.version.outputs.version }}"
+          VERSION_TAG="v${VERSION}"
           ASSISTANT_REPO="${{ steps.images.outputs.assistant_image }}"
           GATEWAY_REPO="${{ steps.images.outputs.gateway_image }}"
           CREDENTIAL_EXECUTOR_REPO="${{ steps.images.outputs.ce_image }}"
@@ -205,15 +241,15 @@ jobs:
             --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
             --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
-            --arg assistant_tag "dev" \
+            --arg assistant_tag "$VERSION_TAG" \
             --arg assistant_sha "$SHA" \
             --arg assistant_digest "${{ steps.images.outputs.assistant_digest }}" \
             --arg gateway_repo "$GATEWAY_REPO" \
-            --arg gateway_tag "dev" \
+            --arg gateway_tag "$VERSION_TAG" \
             --arg gateway_sha "$SHA" \
             --arg gateway_digest "${{ steps.images.outputs.gateway_digest }}" \
             --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
-            --arg credential_executor_tag "dev" \
+            --arg credential_executor_tag "$VERSION_TAG" \
             --arg credential_executor_sha "$SHA" \
             --arg credential_executor_digest "${{ steps.images.outputs.ce_digest }}" \
             '{
@@ -283,5 +319,6 @@ jobs:
           echo "## Dev Images Registered" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`v${VERSION}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Trigger:** ${{ github.event.workflow_run.name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** Registered successfully" >> $GITHUB_STEP_SUMMARY
