@@ -66,6 +66,7 @@ describe("route policy coverage", () => {
       "browser-extension-pair-routes.ts",
       "guardian-bootstrap-routes.ts",
       "guardian-refresh-routes.ts",
+      "meet-internal.ts",
     ]);
     const allSources = [httpServerSrc];
     try {
