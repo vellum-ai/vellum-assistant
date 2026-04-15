@@ -379,6 +379,54 @@ export function countConversationsByScheduleJobId(
   );
 }
 
+/**
+ * Find the rolling analysis conversation for a given source conversation,
+ * or null if none exists yet. Used by the auto-analyze loop to append
+ * to an existing analysis conversation rather than creating a new one
+ * each time the analyze job fires.
+ *
+ * Returns the most recently updated match if multiple exist (defensive —
+ * shouldn't happen in normal operation but the contract is well-defined).
+ *
+ * Hits `idx_conversations_fork_parent_conversation_id` for the
+ * `forkParentConversationId` lookup.
+ */
+export function findAnalysisConversationFor(
+  parentConversationId: string,
+): { id: string } | null {
+  const db = getDb();
+  const row = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.source, "auto-analysis"),
+        eq(conversations.forkParentConversationId, parentConversationId),
+      ),
+    )
+    .orderBy(desc(conversations.updatedAt))
+    .limit(1)
+    .get();
+  return row ? { id: row.id } : null;
+}
+
+/**
+ * Returns the `source` column for the given conversation, or null if
+ * not found. Tiny convenience used by the recursion guard in the
+ * auto-analyze loop.
+ */
+export function getConversationSource(
+  conversationId: string,
+): string | null {
+  const db = getDb();
+  const row = db
+    .select({ source: conversations.source })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return row?.source ?? null;
+}
+
 export function getConversationType(
   conversationId: string,
 ): "standard" | "private" {
