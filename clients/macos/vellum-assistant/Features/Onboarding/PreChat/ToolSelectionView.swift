@@ -207,9 +207,9 @@ struct ToolSelectionView: View {
             VTextField(
                 placeholder: "e.g. Trello, Basecamp, Asana...",
                 text: $otherText,
-                size: .small
+                size: .small,
+                isFocused: $otherFieldFocused
             )
-            .focused($otherFieldFocused)
             .onSubmit {
                 commitOtherText()
             }
