@@ -5,17 +5,40 @@
  * that will join a Google Meet session on behalf of an AI assistant so the
  * assistant can listen in (and eventually participate).
  *
- * The real implementation (Playwright-driven Meet join flow, audio capture
- * via PulseAudio, Hono HTTP control surface, etc.) lands in later PRs of the
- * meet-phase-1 plan. See `meet-bot/README.md` for links.
+ * Current behavior:
  *
- * For now this just logs a boot marker and exits cleanly so the Docker image
- * build, the package scripts, and the boot test can all verify the package
- * structure is valid end-to-end.
+ *   - Logs a boot marker so the boot smoke test and the Docker `CMD` can
+ *     verify the package structure.
+ *   - If `MEET_URL` is set, brings up Xvfb + Chromium, navigates to the URL,
+ *     drops a screenshot at `/tmp/boot-screenshot.png`, closes the session,
+ *     and exits 0. This is the browser-runtime smoke path; the real Meet
+ *     join flow (lobby handling, name entry, join-button clicks) lands in
+ *     PR 11 of the meet-phase-1 plan.
+ *
+ * Anything heavier — Hono HTTP control surface, PulseAudio capture wiring,
+ * transcript streaming — lands in later PRs.
  */
 
-function main(): void {
+import { createBrowserSession } from "./browser/session.js";
+
+async function main(): Promise<void> {
   console.log("meet-bot booted");
+
+  const meetUrl = process.env.MEET_URL;
+  if (meetUrl) {
+    const session = await createBrowserSession(meetUrl);
+    try {
+      await session.page.screenshot({ path: "/tmp/boot-screenshot.png" });
+      console.log(
+        `meet-bot captured boot screenshot for ${meetUrl} at /tmp/boot-screenshot.png`,
+      );
+    } finally {
+      await session.close();
+    }
+  }
 }
 
-main();
+void main().catch((err) => {
+  console.error("meet-bot failed:", err);
+  process.exit(1);
+});
