@@ -52,7 +52,6 @@ KNOWN_BROKEN_FILES=(
   "email-list.test.ts"
   "email-register.test.ts"
   "email-send.test.ts"
-  "email-status.test.ts"
   "email-unregister.test.ts"
   "feature-flag-registry-bundled.test.ts"
   "guard-tests.test.ts"

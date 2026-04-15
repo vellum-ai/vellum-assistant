@@ -109,7 +109,11 @@ describe("assistant email status", () => {
 
     await runAssistantCommand("email", "--json", "status");
 
-    const calls = getMockFetchCalls();
+    // Filter out the feature-flags bootstrap call (initFeatureFlagOverrides
+    // fires on every CLI invocation to pre-populate the flag cache).
+    const calls = getMockFetchCalls().filter(
+      (c) => !c.path.includes("/v1/feature-flags"),
+    );
     expect(calls).toHaveLength(2);
     expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
