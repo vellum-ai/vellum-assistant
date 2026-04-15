@@ -23,7 +23,8 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import type { TtsProvider } from "../tts/types.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
+import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
@@ -840,15 +841,15 @@ export class CallController {
             ? (err as Error & { code?: string }).code
             : undefined;
 
-        // Deepgram is a synthesized-only provider with no native Twilio
-        // TTS integration. Silently falling back to token-based speech
-        // would route audio through a path that cannot produce output,
-        // so we fail explicitly and let the outer error handler surface
-        // a user-facing recovery message.
-        if (provider.id === "deepgram") {
+        // Check whether this provider supports falling back to native
+        // Twilio token-based TTS. Providers without a native fallback
+        // (e.g. Deepgram) must propagate the error so the outer handler
+        // can surface a user-facing recovery message.
+        const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
+        if (!catalogEntry.allowNativeFallback) {
           log.error(
             { err, provider: provider.id, errName, errCode },
-            "Deepgram TTS synthesis failed — no native fallback available",
+            "TTS synthesis failed — no native fallback available",
           );
           throw err;
         }
@@ -860,8 +861,7 @@ export class CallController {
         // If synthesis fails before any audio has started, degrade to
         // token-based speech on ConversationRelay so the caller still
         // hears a response instead of silence. This fallback is only
-        // used for providers that have a viable native-twilio path
-        // (e.g. Fish Audio with ConversationRelay text tokens).
+        // used for providers whose catalog entry allows native fallback.
         if (!playUrlSent && !this.transport.requiresWavAudio) {
           this.transport.sendTextToken(text, false);
         }

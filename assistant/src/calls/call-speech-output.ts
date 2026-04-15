@@ -16,7 +16,8 @@
 
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
-import type { TtsProvider } from "../tts/types.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
+import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
@@ -147,16 +148,17 @@ async function synthesizeAndPlay(
         ? (err as Error & { code?: string }).code
         : undefined;
 
-    // Deepgram is a synthesized-only provider with no native Twilio
-    // TTS integration. Silently falling back to token-based speech
-    // would route audio through a path that cannot produce output,
-    // so we log the error and return without sending any fallback.
+    // Check whether this provider supports falling back to native
+    // Twilio token-based TTS. Providers without a native fallback
+    // (e.g. Deepgram) must not attempt token-based speech — it would
+    // route audio through a path that cannot produce output.
     // Callers use fire-and-forget (`void speakSystemPrompt(...)`) so
     // throwing here would produce an unhandled promise rejection.
-    if (provider.id === "deepgram") {
+    const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
+    if (!catalogEntry.allowNativeFallback) {
       log.error(
         { err, provider: provider.id, errName, errCode },
-        "Deepgram system prompt TTS synthesis failed — no native fallback available",
+        "System prompt TTS synthesis failed — no native fallback available",
       );
       // Send the end-of-turn signal so ConversationRelay transitions from
       // "assistant speaking" to "caller speaking" state. Without this, the
@@ -172,8 +174,8 @@ async function synthesizeAndPlay(
     );
     // Fallback: send text via native TTS so the caller still hears the message.
     // sendTextToken with last:true includes the end-of-turn signal inherently.
-    // This fallback is only used for providers that have a viable
-    // native-twilio path.
+    // This fallback is only used for providers whose catalog entry allows
+    // native fallback.
     relay.sendTextToken(text, true);
   } finally {
     handle?.finalize();
