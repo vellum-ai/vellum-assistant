@@ -187,10 +187,6 @@ export async function indexMessageNow(
           scopeId: input.scopeId ?? "default",
         });
         setMemoryCheckpoint(graphPendingKey, "0");
-        enqueueAutoAnalysisIfEnabled({
-          conversationId: input.conversationId,
-          trigger: "batch",
-        });
       }
 
       upsertDebouncedJob(
@@ -198,10 +194,47 @@ export async function indexMessageNow(
         { conversationId: input.conversationId },
         Date.now() + idleTimeoutMs,
       );
+
+      // ── Auto-analysis triggers ─────────────────────────────────────
+      // Both triggers route through `upsertDebouncedJob` in the helper,
+      // so a single pending row is shared. Order matters: the idle
+      // upsert runs first (pushing `runAfter` into the future); the
+      // batch trigger runs last so a threshold crossing pulls
+      // `runAfter` back to "now" and overrides the idle debounce.
       enqueueAutoAnalysisIfEnabled({
         conversationId: input.conversationId,
         trigger: "idle",
       });
+
+      // Auto-analysis cadence is tracked by its own pending-count
+      // checkpoint so it fires at `analysis.batchSize` (default 30)
+      // rather than piggy-backing on the extraction batch size.
+      // Reading config here is best-effort: if it fails we skip the
+      // batch trigger (the idle-debounced enqueue above still runs).
+      let analysisBatchSize: number | null = null;
+      try {
+        analysisBatchSize = getConfig().analysis.batchSize;
+      } catch (err) {
+        log.debug(
+          { err, conversationId: input.conversationId },
+          "Skipping auto-analysis batch trigger: failed to load config",
+        );
+      }
+      if (analysisBatchSize != null) {
+        const analysisPendingKey = `conversation_analyze:${input.conversationId}:pending_count`;
+        const analysisCurrentVal = getMemoryCheckpoint(analysisPendingKey);
+        const analysisPendingCount =
+          (analysisCurrentVal ? parseInt(analysisCurrentVal, 10) : 0) + 1;
+        setMemoryCheckpoint(analysisPendingKey, String(analysisPendingCount));
+
+        if (analysisPendingCount >= analysisBatchSize) {
+          setMemoryCheckpoint(analysisPendingKey, "0");
+          enqueueAutoAnalysisIfEnabled({
+            conversationId: input.conversationId,
+            trigger: "batch",
+          });
+        }
+      }
     }
 
     // ── Conversation summarization (independent of extraction) ────────
