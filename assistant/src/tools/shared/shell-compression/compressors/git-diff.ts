@@ -1,5 +1,5 @@
 const LOCK_FILE_PATTERNS = [
-  /lock\b/i,
+  /\block\b/i,
   /-lock\./,
   /^package-lock\.json$/,
   /^yarn\.lock$/,
@@ -151,11 +151,8 @@ export function compressGitDiff(
   exitCode: number | null,
 ): string {
   // Error case: prepend stderr and return as-is
-  if (stderr || exitCode !== 0) {
-    const parts: string[] = [];
-    if (stderr) parts.push(stderr);
-    if (stdout) parts.push(stdout);
-    return parts.join("\n");
+  if (exitCode !== 0 && exitCode !== null) {
+    return stderr ? `${stderr}\n${stdout}` : stdout;
   }
 
   if (!stdout.trim()) return stdout;
@@ -171,13 +168,18 @@ export function compressGitDiff(
   const preamble =
     firstDiffIndex > 0 ? stdout.slice(0, firstDiffIndex).trimEnd() : "";
 
-  const compressed = sections
+  // Filter to only actual diff sections (skip preamble captured by the split)
+  const diffSections = sections.filter((s) => s.startsWith("diff --git"));
+  const compressed = diffSections
     .map((section) => compressFileDiff(section.trimEnd()))
     .join("\n");
 
-  if (preamble) {
-    return preamble + "\n" + compressed;
+  let result = preamble ? preamble + "\n" + compressed : compressed;
+
+  // Preserve stderr (e.g., git warnings) even on success
+  if (stderr.trim()) {
+    result += "\n\n--- stderr ---\n" + stderr.trim();
   }
 
-  return compressed;
+  return result;
 }
