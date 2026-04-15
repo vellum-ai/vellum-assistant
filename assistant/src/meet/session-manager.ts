@@ -335,7 +335,7 @@ class MeetSessionManagerImpl {
       CONSENT_MESSAGE: consentMessage ?? meet.consentMessage,
       DAEMON_URL: daemonUrl,
       BOT_API_TOKEN: botApiToken,
-      DEEPGRAM_API_KEY: deepgramKey,
+      // STT credentials live on the daemon, not the bot — bot connects via Unix socket.
       TTS_API_KEY: ttsKey,
       // Enable the in-container Pulse null-sink by default (set to "1" to
       // disable in dev). Match the meet-bot image expectation.
