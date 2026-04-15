@@ -74,6 +74,20 @@ export interface TtsProviderCatalogEntry {
   /** How this provider integrates with the telephony call path. */
   readonly callMode: TtsCallMode;
 
+  /**
+   * Whether the call path may fall back to native Twilio token-based
+   * TTS when synthesized audio fails.
+   *
+   * Providers with `callMode: "native-twilio"` always set this to `true`.
+   * Synthesized-play providers that also work through Twilio's built-in
+   * TTS (e.g. Fish Audio) set this to `true` so callers still hear
+   * a response if synthesis fails. Providers that have **no** native
+   * Twilio integration (e.g. Deepgram) set this to `false` — a synthesis
+   * failure must propagate so the outer error handler can surface a
+   * user-facing recovery message.
+   */
+  readonly allowNativeFallback: boolean;
+
   /** Static provider-level capabilities. */
   readonly capabilities: Readonly<TtsProviderCatalogCapabilities>;
 
@@ -95,6 +109,7 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     id: "elevenlabs",
     displayName: "ElevenLabs",
     callMode: "native-twilio",
+    allowNativeFallback: true,
     capabilities: {
       supportsStreaming: false,
       supportedFormats: ["mp3"],
@@ -112,6 +127,7 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     id: "fish-audio",
     displayName: "Fish Audio",
     callMode: "synthesized-play",
+    allowNativeFallback: true,
     capabilities: {
       supportsStreaming: true,
       supportedFormats: ["mp3", "wav", "opus"],
@@ -129,6 +145,7 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     id: "deepgram",
     displayName: "Deepgram",
     callMode: "synthesized-play",
+    allowNativeFallback: false,
     capabilities: {
       supportsStreaming: false,
       supportedFormats: ["mp3", "wav", "opus"],
