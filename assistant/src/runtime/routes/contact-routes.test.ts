@@ -1,7 +1,7 @@
 /**
  * Tests for POST /v1/contacts/guardian/channel endpoint.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -23,7 +23,7 @@ mock.module("../../config/env.js", () => ({
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../../memory/db.js";
+import { getDb, initializeDb } from "../../memory/db.js";
 import { contactChannels, contacts } from "../../memory/schema.js";
 import type { AuthContext } from "../auth/types.js";
 import { handleAddGuardianChannel } from "./contact-routes.js";
@@ -110,6 +110,10 @@ function seedGuardian(
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/contacts/guardian/channel", () => {
+  beforeAll(() => {
+    initializeDb();
+  });
+
   beforeEach(() => {
     const db = getDb();
     db.delete(contactChannels).run();

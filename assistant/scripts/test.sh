@@ -45,7 +45,6 @@ KNOWN_BROKEN_FILES=(
   "callback-routes-list.test.ts"
   "client.test.ts"
   "connect.test.ts"
-  "contact-routes.test.ts"
   "conversation-tool-setup.test.ts"
   "credentials-cli.test.ts"
   "disconnect.test.ts"
