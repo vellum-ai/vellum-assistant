@@ -30,10 +30,16 @@ mock.module("../util/logger.js", () => ({
 
 import { QdrantManager } from "../memory/qdrant-manager.js";
 
-/** Short timeouts so tests complete fast but with enough headroom for CI. */
+/**
+ * Short timeouts so tests complete fast but with enough headroom for CI and
+ * for Bun's subprocess-exit detection. Bun's `proc.exited` promise can take
+ * ~80–150ms to resolve on macOS after a subprocess exits (especially the
+ * first cold spawn in a test run), so `readyzTimeoutMs` must be comfortably
+ * above that to reliably catch "exited before becoming ready" cases.
+ */
 const FAST_TIMEOUTS = {
   readyzPollIntervalMs: 5,
-  readyzTimeoutMs: 100,
+  readyzTimeoutMs: 500,
   shutdownGraceMs: 50,
 } as const;
 
@@ -252,15 +258,23 @@ describe("QdrantManager", () => {
       await mgr.stop();
       expect(existsSync(pidPath)).toBe(false);
 
-      // start() should now reject because process was killed
-      await expect(startPromise).rejects.toThrow("did not become ready");
+      // start() should now reject because process was killed. Either the
+      // readyz timeout fires first or waitForReady notices the process
+      // exited — accept both since the race depends on timing.
+      await expect(startPromise).rejects.toThrow(
+        /did not become ready|exited with code/,
+      );
     }, 10_000);
 
     test("stop() escalates to SIGKILL after grace period", async () => {
       const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
 
-      // Binary that ignores SIGTERM
-      placeFakeBinary('#!/bin/sh\ntrap "" TERM\nexec sleep 300');
+      // Binary that ignores SIGTERM. Cannot use `exec` here: `exec sleep 300`
+      // replaces the shell with `sleep`, dropping the trap and letting SIGTERM
+      // terminate the process immediately. Keep the shell alive as the
+      // foreground PID so the trap applies, and run sleep in a loop since the
+      // orphan gets reaped when the shell is SIGKILLed at the end.
+      placeFakeBinary('#!/bin/sh\ntrap "" TERM\nwhile :; do sleep 1; done');
 
       const port = getTestPort();
       const mgr = new QdrantManager({
@@ -269,7 +283,10 @@ describe("QdrantManager", () => {
       });
 
       const startPromise = mgr.start();
-      await Bun.sleep(50);
+      // Give the shell enough time to install its SIGTERM trap. 50ms is
+      // unreliable on cold spawns — bun takes ~100ms to fully settle the
+      // child before signals hit a trap-aware state.
+      await Bun.sleep(150);
 
       expect(existsSync(pidPath)).toBe(true);
 
@@ -281,7 +298,11 @@ describe("QdrantManager", () => {
       expect(stopElapsed).toBeGreaterThanOrEqual(30);
       expect(existsSync(pidPath)).toBe(false);
 
-      await expect(startPromise).rejects.toThrow("did not become ready");
+      // start() rejects because its in-progress waitForReady either times
+      // out or observes the SIGKILLed process exit. Accept either outcome.
+      await expect(startPromise).rejects.toThrow(
+        /did not become ready|exited with code/,
+      );
     }, 10_000);
   });
 
