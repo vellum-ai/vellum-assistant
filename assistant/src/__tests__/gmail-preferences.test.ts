@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // Create a temp workspace dir for each test
 const testWorkspace = join(tmpdir(), `gmail-prefs-test-${Date.now()}`);
@@ -17,9 +17,7 @@ const {
   addToSafelist,
   removeFromBlocklist,
   removeFromSafelist,
-} = await import(
-  "../config/bundled-skills/gmail/tools/gmail-preferences.js"
-);
+} = await import("../config/bundled-skills/gmail/tools/gmail-preferences.js");
 
 describe("gmail preferences", () => {
   afterEach(() => {
@@ -45,9 +43,9 @@ describe("gmail preferences", () => {
     expect(prefs.blocklist).toContain("spam@example.com");
     expect(prefs.blocklist).toContain("junk@test.com");
     expect(prefs.blocklist).toContain("more@test.com");
-    expect(prefs.blocklist.filter((e) => e === "spam@example.com")).toHaveLength(
-      1,
-    );
+    expect(
+      prefs.blocklist.filter((e) => e === "spam@example.com"),
+    ).toHaveLength(1);
   });
 
   test("addToSafelist persists and deduplicates emails", () => {
