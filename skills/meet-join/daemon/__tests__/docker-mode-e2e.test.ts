@@ -1,23 +1,20 @@
 /**
  * End-to-end Docker-mode spawn-arg regression test for the Meet pipeline.
  *
- * What this test covers:
+ * What this test covers (Phase 1.10 — DinD):
  *   - Bare-metal mode: `DockerRunner.resolveMounts` emits host-path `Binds`
- *     instead of named-volume `Mounts`, and does not reference the workspace
- *     volume name.
- *   - Docker mode: `DockerRunner.resolveMounts` emits `HostConfig.Mounts`
- *     with `VolumeOptions.Subpath` referencing the injected workspace volume
- *     name, the `ExtraHosts` entry for `host.docker.internal:host-gateway`
- *     is always present, the daemon URL uses `host.docker.internal`, the
- *     internal bot port is published on `127.0.0.1:<ephemeral>`, and the env
- *     vars the bot requires (`DAEMON_URL`, `MEETING_ID`, `MEET_URL`,
- *     `JOIN_NAME`, `BOT_API_TOKEN`, `CONSENT_MESSAGE`) are present.
- *   - Docker mode with no workspace volume: `join()` surfaces the
- *     prerequisite-missing error before any `/containers/create` is issued
- *     (only the memoized `/_ping` round-trip happens).
- *   - Docker mode with unreachable socket: `join()` surfaces the
- *     socket-unreachable prerequisite-missing error from the ping probe
- *     before any create/start is issued.
+ *     rooted at the workspace directory.
+ *   - Docker mode: `DockerRunner.resolveMounts` emits host-path `Binds`
+ *     rooted at the daemon container's internal workspace dir (inner
+ *     `dockerd` sees that as a regular path). The `ExtraHosts` entry for
+ *     `host.docker.internal:host-gateway` is always present, the daemon
+ *     URL uses `host.docker.internal`, the internal bot port is published
+ *     on `127.0.0.1:<ephemeral>`, and the env vars the bot requires
+ *     (`DAEMON_URL`, `MEETING_ID`, `MEET_URL`, `JOIN_NAME`,
+ *     `BOT_API_TOKEN`, `CONSENT_MESSAGE`) are present.
+ *   - Docker mode with unreachable socket: `join()` surfaces the Phase
+ *     1.10 inner-dockerd-not-running error from the ping probe before any
+ *     create/start is issued.
  *
  * Nothing here touches a real Docker daemon or a real Meet URL. The
  * DockerRunner talks to an in-process HTTP server bound to a tempdir unix
@@ -43,7 +40,6 @@ import {
 } from "bun:test";
 
 import {
-  DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE,
   DockerRunner,
   dockerSocketUnreachableMessage,
   HOST_GATEWAY_ALIAS,
@@ -270,7 +266,7 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("Meet Docker-mode spawn-arg E2E", () => {
-  test("docker mode: uses named-volume subpath mounts, host-gateway alias, host.docker.internal DAEMON_URL, and ephemeral 127.0.0.1 port binding", async () => {
+  test("docker mode (DinD): uses host-path Binds to daemon-internal workspace paths, host-gateway alias, host.docker.internal DAEMON_URL, and ephemeral 127.0.0.1 port binding", async () => {
     engine = await startDockerEngineMock();
     // /_ping → /containers/create → /containers/<id>/start → /containers/<id>/json
     engine.queueResponse({ status: 200, body: "OK" });
@@ -293,7 +289,9 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
     const runner = new DockerRunner({
       socketPath: engine.socketPath,
       resolveMode: () => "docker",
-      resolveWorkspaceVolumeName: async () => "test-workspace-vol",
+      // In Docker (DinD) mode the runner uses the daemon container's own
+      // workspace dir as the bind source — inner dockerd sees it as a
+      // regular path. The tempdir stands in for that.
       workspaceDir,
     });
 
@@ -326,24 +324,15 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
 
       const body = JSON.parse(createReq!.body) as DockerCreateBody;
 
-      // ── Subpath volume mounts referencing the injected volume name ──
-      expect(body.HostConfig.Binds).toEqual([]);
-      expect(body.HostConfig.Mounts).toEqual([
-        {
-          Type: "volume",
-          Source: "test-workspace-vol",
-          Target: "/sockets",
-          ReadOnly: false,
-          VolumeOptions: { Subpath: "meets/m-docker-1/sockets" },
-        },
-        {
-          Type: "volume",
-          Source: "test-workspace-vol",
-          Target: "/out",
-          ReadOnly: false,
-          VolumeOptions: { Subpath: "meets/m-docker-1/out" },
-        },
+      // ── Host-path binds rooted at the daemon container's workspace dir ──
+      // No named-volume Mounts payload — that's a Phase 1.8 relic, replaced
+      // by direct host-path binds now that inner dockerd has direct
+      // visibility into /workspace.
+      expect(body.HostConfig.Binds).toEqual([
+        `${workspaceDir}/meets/m-docker-1/sockets:/sockets`,
+        `${workspaceDir}/meets/m-docker-1/out:/out`,
       ]);
+      expect(body.HostConfig.Mounts).toBeUndefined();
 
       // ── host-gateway alias is always emitted ──
       expect(body.HostConfig.ExtraHosts).toEqual([HOST_GATEWAY_ALIAS]);
@@ -384,7 +373,7 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
     }
   });
 
-  test("bare-metal mode: uses host-path Binds, no named-volume Mounts, and does not reference the volume name", async () => {
+  test("bare-metal mode: uses host-path Binds and no named-volume Mounts", async () => {
     engine = await startDockerEngineMock();
     // Bare-metal skips /_ping. create → start → inspect.
     engine.queueResponse({ status: 201, body: { Id: "bm-1" } });
@@ -403,18 +392,9 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
       },
     });
 
-    // Resolver should never be consulted in bare-metal mode — surface a
-    // clear failure if that invariant ever regresses.
-    const resolveWorkspaceVolumeNameSpy = mock(async () => {
-      throw new Error(
-        "resolveWorkspaceVolumeName must not be called in bare-metal mode",
-      );
-    });
-
     const runner = new DockerRunner({
       socketPath: engine.socketPath,
       resolveMode: () => "bare-metal",
-      resolveWorkspaceVolumeName: resolveWorkspaceVolumeNameSpy,
       workspaceDir,
     });
 
@@ -452,15 +432,8 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
       // ── No Mounts payload at all — purely bind-mount path ──
       expect(body.HostConfig.Mounts).toBeUndefined();
 
-      // ── And no reference to the Docker-mode volume name ──
-      const serialized = JSON.stringify(body);
-      expect(serialized).not.toContain("test-workspace-vol");
-
       // ── host-gateway alias is still emitted unconditionally ──
       expect(body.HostConfig.ExtraHosts).toEqual([HOST_GATEWAY_ALIAS]);
-
-      // ── Resolver must not be consulted in bare-metal mode ──
-      expect(resolveWorkspaceVolumeNameSpy).toHaveBeenCalledTimes(0);
 
       // ── /_ping is skipped in bare-metal mode — only create + start + inspect ──
       expect(engine.captured).toHaveLength(3);
@@ -472,68 +445,16 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
     }
   });
 
-  test("docker mode: missing workspace volume surfaces the prerequisite-missing error before any create is issued", async () => {
-    engine = await startDockerEngineMock();
-    // Only /_ping should be consumed — the runner bails on the volume lookup
-    // before reaching /containers/create.
-    engine.queueResponse({ status: 200, body: "OK" });
-
-    const runner = new DockerRunner({
-      socketPath: engine.socketPath,
-      resolveMode: () => "docker",
-      resolveWorkspaceVolumeName: async () => null,
-      workspaceDir,
-    });
-
-    const manager = _createMeetSessionManagerForTests({
-      dockerRunnerFactory: () => runner,
-      getProviderKey: async () => "tts-k",
-      getWorkspaceDir: () => workspaceDir,
-      botLeaveFetch: async () => {},
-      audioIngestFactory: makeFakeAudioIngest,
-      consentMonitorFactory: makeFakeConsentMonitor,
-      conversationBridgeFactory: makeFakeConversationBridge,
-      storageWriterFactory: makeFakeStorageWriter,
-      resolveAssistantDisplayName: () => "Atlas",
-    });
-
-    await expect(
-      manager.join({
-        url: "https://meet.google.com/xxx-yyyy-zzz",
-        meetingId: "m-no-vol",
-        conversationId: "conv-no-vol",
-      }),
-    ).rejects.toThrow(DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE);
-
-    // Only the memoized /_ping round-trip happened — no create/start.
-    expect(engine.captured).toHaveLength(1);
-    expect(engine.captured[0].url).toContain("/_ping");
-    expect(
-      engine.captured.find((c) => c.url.includes("/containers/create")),
-    ).toBeUndefined();
-    expect(
-      engine.captured.find((c) => c.url.includes("/start")),
-    ).toBeUndefined();
-
-    // No session lingers on the error path.
-    expect(manager.activeSessions()).toHaveLength(0);
-  });
-
-  test("docker mode: unreachable docker socket surfaces the prerequisite-missing error before any create is issued", async () => {
+  test("docker mode: unreachable inner dockerd surfaces the Phase 1.10 prerequisite-missing error before any create is issued", async () => {
     // No mock server — point at a socket path that nobody is listening on so
     // the /_ping probe fails fast. This parallels the DockerRunner unit test
-    // but covers the full session-manager → docker-runner pipe.
+    // but covers the full session-manager → docker-runner pipe and stands
+    // in for the init supervisor failing to bring up dockerd.
     const bogusSocketPath = join(tempDir, "nonexistent.sock");
 
     const runner = new DockerRunner({
       socketPath: bogusSocketPath,
       resolveMode: () => "docker",
-      // Volume name resolver should never be consulted — we bail at ping.
-      resolveWorkspaceVolumeName: async () => {
-        throw new Error(
-          "resolveWorkspaceVolumeName must not be called when the socket is unreachable",
-        );
-      },
       workspaceDir,
     });
 
