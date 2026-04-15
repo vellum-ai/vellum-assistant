@@ -48,7 +48,6 @@ KNOWN_BROKEN_FILES=(
   "contact-routes.test.ts"
   "conversation-tool-setup.test.ts"
   "credentials-cli.test.ts"
-  "disconnect.test.ts"
   "email-attachment.test.ts"
   "email-download.test.ts"
   "email-list.test.ts"
