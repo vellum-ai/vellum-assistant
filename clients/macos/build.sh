@@ -1537,49 +1537,6 @@ if [ "$CMD" = "run" ]; then
         fi
     fi
 
-    # Refresh /Applications/$BUNDLE_DISPLAY_NAME.app from the freshly-built
-    # dist/ bundle, if a copy already exists. Without this, `./build.sh run`
-    # only updates dist/ and a Finder/dock launch silently keeps using the
-    # last DMG-installed bundle — which can be many features stale and
-    # presents as missing menus, missing feature flags, and ghost data loss.
-    # We only refresh when /Applications already has a copy so this doesn't
-    # become an unsolicited installer for users who never installed via DMG.
-    #
-    # The refresh is *best-effort*: under `set -euo pipefail` we have to
-    # guard every failable step with `|| refresh_ok=false`, otherwise a
-    # permission error or disk-full would propagate up and abort the entire
-    # `run` flow before `open "$APP_DIR"` executes — turning a best-effort
-    # mirror into a hard launch failure for anyone whose /Applications
-    # bundle isn't writable. We also stage the new copy beside the
-    # destination *before* removing the old one, so a partial cp failure
-    # doesn't leave the user with no installed bundle at all.
-    INSTALLED_APP="/Applications/$BUNDLE_DISPLAY_NAME.app"
-    if [ -d "$INSTALLED_APP" ]; then
-        echo "Refreshing $INSTALLED_APP from dist/..."
-        STAGING_APP="$INSTALLED_APP.tmp.$$"
-        refresh_ok=true
-        cp -R "$APP_DIR" "$STAGING_APP" 2>/dev/null || refresh_ok=false
-        if $refresh_ok; then
-            rm -rf "$INSTALLED_APP" 2>/dev/null || refresh_ok=false
-        fi
-        if $refresh_ok; then
-            mv "$STAGING_APP" "$INSTALLED_APP" 2>/dev/null || refresh_ok=false
-        fi
-        if $refresh_ok; then
-            echo "Refreshed installed bundle."
-        else
-            # The realistic failure modes we're protecting against are
-            # `cp` failing (disk full / permission denied), which happens
-            # *before* we touch $INSTALLED_APP. The staging-then-swap
-            # ordering means an `rm` or `mv` failure after a successful
-            # `cp` is only possible under TOCTOU races with another
-            # process — vanishingly rare and out of scope for a
-            # best-effort dev mirror. Clean up the staging copy and warn.
-            rm -rf "$STAGING_APP" 2>/dev/null || true
-            echo "Warning: failed to refresh $INSTALLED_APP — Finder launches may use a stale bundle."
-        fi
-    fi
-
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
