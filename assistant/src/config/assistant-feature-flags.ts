@@ -350,12 +350,18 @@ export function clearFeatureFlagOverridesCache(): void {
  * flag state without writing to disk. Production code should never call this;
  * use `clearFeatureFlagOverridesCache()` instead and let the resolver
  * re-read from the appropriate source.
+ *
+ * Forces `cachedRemoteValues` to an empty record (not `null`) so the resolver
+ * does not fall through to reading `feature-flags-remote.json` from disk. This
+ * matters because a developer's local remote-cache file can leak platform-set
+ * values into the test environment (e.g. `email-channel: true`), defeating
+ * test isolation.
  */
 export function _setOverridesForTesting(
   overrides: Record<string, boolean>,
 ): void {
   cachedOverrides = { ...overrides };
-  cachedRemoteValues = null;
+  cachedRemoteValues = {};
 }
 
 // ---------------------------------------------------------------------------
