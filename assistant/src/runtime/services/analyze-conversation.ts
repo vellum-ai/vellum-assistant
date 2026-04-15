@@ -36,7 +36,10 @@ import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { SendMessageDeps } from "../http-types.js";
-import { buildAutoAnalysisPrompt } from "./auto-analysis-prompt.js";
+import {
+  buildAutoAnalysisPrompt,
+  neutralizeTranscriptSentinel,
+} from "./auto-analysis-prompt.js";
 
 const log = getLogger("analyze-conversation-service");
 
@@ -320,9 +323,10 @@ export async function analyzeConversation(
  * transcript is attacker-controlled so the prompt explicitly disables tool
  * usage and asks for memory candidates rather than in-band writes.
  */
-function buildManualAnalysisPrompt(transcript: string): string {
+export function buildManualAnalysisPrompt(transcript: string): string {
+  const safeTranscript = neutralizeTranscriptSentinel(transcript);
   return `<transcript>
-${transcript}
+${safeTranscript}
 </transcript>
 
 Analyze the conversation above. Provide a structured self-assessment:
