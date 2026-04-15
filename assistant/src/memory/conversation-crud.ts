@@ -248,6 +248,7 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         hostAccess?: boolean;
+        forkParentConversationId?: string;
       },
 ) {
   const db = getDb();
@@ -284,6 +285,7 @@ export function createConversation(
     source,
     memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
+    forkParentConversationId: opts.forkParentConversationId ?? null,
   };
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL

@@ -4,6 +4,7 @@ import { getConfig } from "../../config/loader.js";
 import type { Speed } from "../../config/schemas/inference.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import type { ModelIntent } from "../../providers/types.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
@@ -127,6 +128,19 @@ export interface ConversationCreateOptions {
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
+  /**
+   * Optional model selection strategy for this conversation's agent loop.
+   * When set, overrides the provider's default model per-turn. Used by the
+   * auto-analyze loop to route the analysis agent to a dedicated model.
+   */
+  modelIntent?: ModelIntent;
+  /**
+   * Optional explicit model override (provider/model string) for this
+   * conversation's agent loop. Takes precedence over `modelIntent` when
+   * both are set. Used by the auto-analyze loop to pin the analysis agent
+   * to a specific model.
+   */
+  modelOverride?: string;
 }
 
 /**

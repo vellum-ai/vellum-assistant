@@ -129,6 +129,20 @@ describe("findAnalysisConversationFor", () => {
 
     expect(findAnalysisConversationFor(parent.id)).toEqual({ id: analysis.id });
   });
+
+  test("createConversation persists forkParentConversationId when supplied", () => {
+    const parent = createConversation("parent");
+
+    // Auto-analyze path creates the rolling analysis conversation with
+    // source + forkParentConversationId in the same call.
+    const analysis = createConversation({
+      title: "rolling analysis",
+      source: "auto-analysis",
+      forkParentConversationId: parent.id,
+    });
+
+    expect(findAnalysisConversationFor(parent.id)).toEqual({ id: analysis.id });
+  });
 });
 
 describe("getConversationSource", () => {

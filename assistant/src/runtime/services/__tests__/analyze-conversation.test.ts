@@ -24,8 +24,14 @@ const mockGetConversation = mock(
     }) as Record<string, unknown> | null,
 );
 const mockGetMessages = mock(() => [{ id: "m-source" }] as Array<{ id: string }>);
-const mockCreateConversation = mock(() => ({ id: "analysis-1" }));
+const mockCreateConversation = mock(
+  (_opts?: Record<string, unknown>) => ({ id: "analysis-new" }),
+);
 const mockAddMessage = mock(async () => ({ id: "msg-1" }));
+const mockFindAnalysisConversationFor = mock(
+  (_parent: string) => null as { id: string } | null,
+);
+const mockGetConversationSource = mock((_id: string) => null as string | null);
 
 mock.module("../../../memory/conversation-key-store.js", () => ({
   resolveConversationId: mockResolveConversationId,
@@ -36,10 +42,29 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   getMessages: mockGetMessages,
   createConversation: mockCreateConversation,
   addMessage: mockAddMessage,
+  findAnalysisConversationFor: mockFindAnalysisConversationFor,
+  getConversationSource: mockGetConversationSource,
 }));
 
 mock.module("../../../export/transcript-formatter.js", () => ({
   buildAnalysisTranscript: () => "user: hi",
+}));
+
+// Default config stub — individual tests can override via mockGetConfig.
+interface AnalysisConfigStub {
+  analysis: {
+    modelIntent?: string;
+    modelOverride?: string;
+  };
+}
+const mockGetConfig = mock(
+  (): AnalysisConfigStub => ({
+    analysis: {},
+  }),
+);
+
+mock.module("../../../config/loader.js", () => ({
+  getConfig: mockGetConfig,
 }));
 
 import { AssistantEventHub } from "../../assistant-event-hub.js";
@@ -58,9 +83,15 @@ beforeEach(() => {
   mockGetMessages.mockReset();
   mockGetMessages.mockImplementation(() => [{ id: "m-source" }]);
   mockCreateConversation.mockReset();
-  mockCreateConversation.mockImplementation(() => ({ id: "analysis-1" }));
+  mockCreateConversation.mockImplementation(() => ({ id: "analysis-new" }));
   mockAddMessage.mockReset();
   mockAddMessage.mockImplementation(async () => ({ id: "msg-1" }));
+  mockFindAnalysisConversationFor.mockReset();
+  mockFindAnalysisConversationFor.mockImplementation(() => null);
+  mockGetConversationSource.mockReset();
+  mockGetConversationSource.mockImplementation(() => null);
+  mockGetConfig.mockReset();
+  mockGetConfig.mockImplementation(() => ({ analysis: {} }));
 });
 
 function makeConversation() {
@@ -78,14 +109,16 @@ function makeConversation() {
 
 function makeDeps(conversation: ReturnType<typeof makeConversation>) {
   const assistantEventHub = new AssistantEventHub();
+  const getOrCreateConversation = mock(async () => conversation);
   const sendMessageDeps = {
-    getOrCreateConversation: mock(async () => conversation),
+    getOrCreateConversation,
     assistantEventHub,
     resolveAttachments: () => [],
   } as unknown as SendMessageDeps;
   return {
     sendMessageDeps,
     buildConversationDetailResponse: (id: string) => ({ id }),
+    getOrCreateConversation,
   };
 }
 
@@ -161,11 +194,11 @@ describe("analyzeConversation", () => {
 
     expect("error" in result).toBe(false);
     if ("error" in result) throw new Error("expected success");
-    expect(result.analysisConversationId).toBe("analysis-1");
+    expect(result.analysisConversationId).toBe("analysis-new");
 
     // Persists the prompt as a user message with unknown trust.
     expect(mockAddMessage).toHaveBeenCalledWith(
-      "analysis-1",
+      "analysis-new",
       "user",
       expect.any(String),
       { provenanceTrustClass: "unknown" },
@@ -194,5 +227,147 @@ describe("analyzeConversation", () => {
       expect.any(Function),
       expect.objectContaining({ isInteractive: false, isUserMessage: true }),
     );
+  });
+
+  // ── Auto trigger ──────────────────────────────────────────────────
+
+  test("auto: creates a new analysis conversation when none exists, with source=auto-analysis and forkParentConversationId", async () => {
+    mockFindAnalysisConversationFor.mockImplementation(() => null);
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+
+    expect("error" in result).toBe(false);
+    if ("error" in result) throw new Error("expected success");
+    expect(result.analysisConversationId).toBe("analysis-new");
+
+    // Verifies the rolling-analysis lookup was consulted against the source ID.
+    expect(mockFindAnalysisConversationFor).toHaveBeenCalledWith("conv-1");
+
+    // Created exactly one new conversation row, with the expected shape.
+    expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Analysis: Source",
+        source: "auto-analysis",
+        forkParentConversationId: "conv-1",
+      }),
+    );
+  });
+
+  test("auto: reuses an existing rolling analysis conversation (no new row)", async () => {
+    mockFindAnalysisConversationFor.mockImplementation(() => ({
+      id: "analysis-existing",
+    }));
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+
+    expect("error" in result).toBe(false);
+    if ("error" in result) throw new Error("expected success");
+    expect(result.analysisConversationId).toBe("analysis-existing");
+
+    // No new conversation row is created on reuse.
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+
+    // The new user message is appended to the existing analysis conversation.
+    expect(mockAddMessage).toHaveBeenCalledWith(
+      "analysis-existing",
+      "user",
+      expect.any(String),
+      { provenanceTrustClass: "guardian" },
+    );
+  });
+
+  test("auto: sets trustClass to guardian", async () => {
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+    expect("error" in result).toBe(false);
+
+    expect(conversation.setTrustContext).toHaveBeenCalledWith({
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+    });
+  });
+
+  test("auto: does NOT strip the tool surface", async () => {
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+    expect("error" in result).toBe(false);
+
+    // Manual mode calls this with an empty Set; auto mode must leave the
+    // conversation's default tool surface intact.
+    expect(conversation.setSubagentAllowedTools).not.toHaveBeenCalled();
+  });
+
+  test("auto: rejects when the source conversation is itself an auto-analysis conversation", async () => {
+    mockGetConversationSource.mockImplementation(() => "auto-analysis");
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+
+    expect("error" in result).toBe(true);
+    if (!("error" in result)) throw new Error("expected error");
+    expect(result.error.kind).toBe("BAD_REQUEST");
+    expect(result.error.status).toBe(400);
+
+    // Nothing downstream of the guard should have fired.
+    expect(mockFindAnalysisConversationFor).not.toHaveBeenCalled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockAddMessage).not.toHaveBeenCalled();
+  });
+
+  test("auto: passes modelOverride through to getOrCreateConversation when set in config", async () => {
+    mockGetConfig.mockImplementation(() => ({
+      analysis: {
+        modelIntent: "quality-optimized",
+        modelOverride: "claude-opus-4-6",
+      },
+    }));
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    await analyzeConversation("conv-1", deps, { trigger: "auto" });
+
+    expect(deps.getOrCreateConversation).toHaveBeenCalledWith(
+      "analysis-new",
+      expect.objectContaining({
+        modelIntent: "quality-optimized",
+        modelOverride: "claude-opus-4-6",
+      }),
+    );
+  });
+
+  test("auto: does not pass modelOverride/modelIntent keys when config leaves them unset", async () => {
+    const conversation = makeConversation();
+    const deps = makeDeps(conversation);
+
+    await analyzeConversation("conv-1", deps, { trigger: "auto" });
+
+    const [, passedOpts] = (
+      deps.getOrCreateConversation.mock.calls as unknown as Array<
+        [string, Record<string, unknown>]
+      >
+    )[0] ?? ["", {}];
+    expect(passedOpts).toBeDefined();
+    expect("modelIntent" in (passedOpts ?? {})).toBe(false);
+    expect("modelOverride" in (passedOpts ?? {})).toBe(false);
   });
 });
