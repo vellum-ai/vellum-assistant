@@ -98,6 +98,7 @@ export interface MigrationWizardState {
     succeeded: number;
     failed: number;
     failedAccounts: string[];
+    skippedPlatform?: number;
   };
 
   /** Timestamp of last state change (ISO 8601). */

@@ -524,7 +524,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
           );
           const succeeded = userCredentials.length - failedResults.length;
           credentialsImported = {
-            total: bundleCredentials.length,
+            total: userCredentials.length,
             succeeded,
             failed: failedResults.length,
             failedAccounts: failedResults.map((f) => f.account),
@@ -540,12 +540,19 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
           result.report.warnings.push(
             `Credential import failed: ${err instanceof Error ? err.message : String(err)}`,
           );
+          credentialsImported = {
+            total: userCredentials.length,
+            succeeded: 0,
+            failed: userCredentials.length,
+            failedAccounts: userCredentials.map((c) => c.account),
+            skippedPlatform,
+          };
         }
       } else if (skippedPlatform > 0) {
         // All credentials in the bundle were platform credentials — report
         // the skip count even though nothing was sent to CES.
         credentialsImported = {
-          total: bundleCredentials.length,
+          total: userCredentials.length,
           succeeded: 0,
           failed: 0,
           failedAccounts: [],
