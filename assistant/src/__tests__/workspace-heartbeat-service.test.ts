@@ -342,6 +342,13 @@ describe("WorkspaceHeartbeatService", () => {
       const firstResult = await heartbeat.check();
       expect(firstResult.committed).toBe(1);
 
+      // Drain fire-and-forget enrichment from the first commit before the
+      // next commit. Enrichment's writeNote() can leave a stale index.lock
+      // on some git versions (see heartbeat-service.ts:240-242), causing
+      // the subsequent commit to fail with "index.lock: File exists".
+      await getEnrichmentService().shutdown();
+      _resetEnrichmentService();
+
       // Create new changes after the commit
       writeFileSync(join(testDir, "file2.txt"), "more content");
 
