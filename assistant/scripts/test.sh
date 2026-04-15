@@ -42,7 +42,6 @@ KNOWN_BROKEN_FILES=(
   "backup-routes.test.ts"
   "byo-connection.test.ts"
   "connect.test.ts"
-  "conversation-tool-setup.test.ts"
   "credentials-cli.test.ts"
   "disconnect.test.ts"
   "email-attachment.test.ts"

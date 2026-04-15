@@ -1,19 +1,23 @@
 /**
  * Tests for `isToolActiveForContext` host-tool capability gating.
  *
- * Two scenarios are verified:
+ * Scenarios verified:
  * - chrome-extension is its own executor and is exempt from the hasNoClient
  *   gate (the extension's own popup UI gates commands; there is no SSE
  *   interactive approval channel, and chrome-extension turns intentionally
  *   run with `hasNoClient: true` because chrome-extension is not in
  *   `INTERACTIVE_INTERFACES`).
- * - macos still requires a connected SSE client for interactive approval, so
- *   `hasNoClient: true` continues to deny all host tools on macos.
+ * - macos requires a connected SSE client for host tools that flow through
+ *   the proxy (e.g. host_bash, host_file_*), so `hasNoClient: true` denies
+ *   those on macos.
+ * - host_browser is NOT in the macos capability set (PR #24571) because the
+ *   proxy path requires a Chrome extension that isn't guaranteed to be
+ *   attached; macos browser tools fall back to local Playwright Chromium.
  *
  * The per-capability check (`supportsHostProxy(transport, capability)`) runs
  * first and is authoritative for structural support, so host_bash and
  * host_file_* are filtered out for chrome-extension regardless of the
- * hasNoClient flag.
+ * hasNoClient flag, and host_browser is filtered out for macos.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -70,18 +74,23 @@ describe("isToolActiveForContext — host tool capability gating", () => {
     ).toBe(false);
   });
 
-  test("host_browser is active for macOS with a connected client", () => {
+  test("host_browser is NOT active for macOS (capability dropped — uses local Playwright)", () => {
+    // PR #24571 dropped `host_browser` from the macos capability set because
+    // the proxy path requires a Chrome extension that isn't guaranteed to be
+    // attached; macos browser tools fall back to local Playwright Chromium
+    // instead. The per-capability check is authoritative, so host_browser is
+    // filtered out for macos regardless of client connection state.
     expect(
       isToolActiveForContext(
         "host_browser",
         makeCtx({ hasNoClient: false, transportInterface: "macos" }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("host_browser is NOT active for macOS when hasNoClient is true", () => {
-    // macOS requires a client for any host tool — the SSE interactive
-    // approval channel must be available regardless of capability.
+    // Same capability gate as above: host_browser is unsupported on macos
+    // regardless of connection state.
     expect(
       isToolActiveForContext(
         "host_browser",
