@@ -316,8 +316,9 @@ extension AppDelegate {
                 }
                 connectionStatusCancellable?.cancel()
                 connectionStatusCancellable = nil
-                pulseTimer?.invalidate()
-                pulseTimer = nil
+                statusDotLayer?.removeAllAnimations()
+                statusDotLayer?.removeFromSuperlayer()
+                statusDotLayer = nil
 
                 if let item = statusItem {
                     NSStatusBar.system.removeStatusItem(item)
@@ -713,8 +714,9 @@ extension AppDelegate {
         }
         connectionStatusCancellable?.cancel()
         connectionStatusCancellable = nil
-        pulseTimer?.invalidate()
-        pulseTimer = nil
+        statusDotLayer?.removeAllAnimations()
+        statusDotLayer?.removeFromSuperlayer()
+        statusDotLayer = nil
 
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)

@@ -117,6 +117,9 @@ extension AppDelegate {
 
     func setupMenuBar() {
         if statusItem != nil {
+            statusDotLayer?.removeAllAnimations()
+            statusDotLayer?.removeFromSuperlayer()
+            statusDotLayer = nil
             NSStatusBar.system.removeStatusItem(statusItem)
             statusItem = nil
         }
@@ -316,57 +319,65 @@ extension AppDelegate {
             return circular
         }()
 
+        // Set the button image to the avatar only — the status dot is
+        // rendered by a separate CAShapeLayer so pulse animation can run
+        // on Core Animation's render-server thread without touching the
+        // main thread or triggering implicit CA::Transactions.
+        appIcon.isTemplate = false
+        button.image = appIcon
+
         let status = currentAssistantStatus
         let dotColor = status.statusColor
-        let dotAlpha = status.shouldPulse ? pulsePhase : 1.0
 
-        let composited = NSImage(
-            size: NSSize(width: iconSize, height: iconSize), flipped: false
-        ) { rect in
-            appIcon.draw(in: rect, from: NSRect(origin: .zero, size: appIcon.size),
-                         operation: .copy, fraction: 1.0)
-            let dotX = iconSize - dotSize - dotPadding
-            let dotY = dotPadding
-            let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-            NSColor(VColor.auxBlack).withAlphaComponent(0.5).setFill()
-            NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-            dotColor.withAlphaComponent(dotAlpha).setFill()
-            NSBezierPath(ovalIn: dotRect).fill()
-            return true
+        // Ensure the button is layer-backed so we can add sublayers.
+        button.wantsLayer = true
+        guard let buttonLayer = button.layer else { return }
+
+        // Create the dot layer on first use.
+        if statusDotLayer == nil {
+            let dot = CAShapeLayer()
+            dot.bounds = CGRect(x: 0, y: 0, width: dotSize, height: dotSize)
+            dot.path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: dotSize, height: dotSize), transform: nil)
+            buttonLayer.addSublayer(dot)
+            statusDotLayer = dot
         }
-        composited.isTemplate = false
-        button.image = composited
 
-        managePulseTimer(for: status)
+        if let dot = statusDotLayer {
+            // Position the dot in the bottom-right corner of the button,
+            // matching the previous composited image layout.
+            // NSStatusBarButton's layer is not flipped, so Y=0 is at the bottom.
+            let dotX = iconSize - dotSize / 2 - dotPadding
+            let dotY = dotSize / 2 + dotPadding
+            dot.position = CGPoint(x: dotX, y: dotY)
+
+            // Dark outline ring behind the dot for contrast.
+            dot.strokeColor = NSColor(VColor.auxBlack).withAlphaComponent(0.5).cgColor
+            dot.lineWidth = 1.0
+            dot.fillColor = dotColor.cgColor
+        }
+
+        managePulseAnimation(for: status)
     }
 
-    /// Starts or stops the pulse timer based on the current status.
-    private func managePulseTimer(for status: AssistantStatus) {
+    /// Adds or removes a Core Animation opacity pulse on the status dot layer.
+    /// The animation runs entirely on CA's render-server thread, so it never
+    /// touches the main thread or contends with CA::Transaction locks held
+    /// during status-bar menu display.
+    private func managePulseAnimation(for status: AssistantStatus) {
+        guard let dot = statusDotLayer else { return }
         if status.shouldPulse {
-            guard pulseTimer == nil else { return }
-            pulsePhase = 1.0
-            pulseDirection = -1.0
-            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, self.statusItem != nil, let button = self.statusItem.button else { return }
-                    // Triangle wave: smoothly oscillate between 1.0 and 0.3,
-                    // reversing direction at each boundary to avoid abrupt jumps.
-                    self.pulsePhase += self.pulseDirection * 0.05
-                    if self.pulsePhase <= 0.3 {
-                        self.pulsePhase = 0.3
-                        self.pulseDirection = 1.0
-                    } else if self.pulsePhase >= 1.0 {
-                        self.pulsePhase = 1.0
-                        self.pulseDirection = -1.0
-                    }
-                    self.configureMenuBarIcon(button)
-                }
-            }
+            guard dot.animation(forKey: "pulse") == nil else { return }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1.0
+            pulse.toValue = 0.3
+            pulse.duration = 0.7
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            dot.add(pulse, forKey: "pulse")
         } else {
-            pulseTimer?.invalidate()
-            pulseTimer = nil
-            pulsePhase = 1.0
-            pulseDirection = -1.0
+            dot.removeAnimation(forKey: "pulse")
+            dot.opacity = 1.0
         }
     }
 
