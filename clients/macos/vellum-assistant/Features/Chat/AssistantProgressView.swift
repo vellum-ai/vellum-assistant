@@ -34,6 +34,12 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
+    /// When the post-tool-completion thinking phase started (typically the last
+    /// tool's `completedAt`). Nil until all tools complete and the card remains active.
+    @State private var thinkingAfterToolsStartDate: Date?
+    /// When the thinking phase ended (card transitioned to `.complete`).
+    /// Nil while thinking is still in progress.
+    @State private var thinkingAfterToolsEndDate: Date?
 
     // MARK: - Init
 
@@ -86,12 +92,40 @@ struct AssistantProgressView: View {
         } else {
             nil
         }
+        // Seed thinking timestamps for view recycling.
+        // If we have a persisted thinking duration (from a previous render that survived
+        // through completion), reconstruct the dates. Otherwise, seed from model state.
+        let cardKeyForInit = toolCalls.first?.id
+        let persistedThinkingDuration = cardKeyForInit.flatMap {
+            progressUIState.wrappedValue.thinkingDuration(for: $0)
+        }
+        let initialThinkingStart: Date?
+        let initialThinkingEnd: Date?
+        if let duration = persistedThinkingDuration, let latestEnd = model.latestCompletedAt {
+            // Reconstruct from persisted duration
+            initialThinkingStart = latestEnd
+            initialThinkingEnd = latestEnd.addingTimeInterval(duration)
+        } else if model.allComplete && model.hasTools {
+            let phase = model.phase
+            if phase == .toolsCompleteThinking || phase == .processing {
+                initialThinkingStart = model.latestCompletedAt ?? Date()
+                initialThinkingEnd = nil
+            } else {
+                initialThinkingStart = nil
+                initialThinkingEnd = nil
+            }
+        } else {
+            initialThinkingStart = nil
+            initialThinkingEnd = nil
+        }
         // Seed from user override via ProgressCardUIState if one exists, otherwise use model's auto-expand.
         let cardKey = toolCalls.first?.id
         let resolved = progressUIState.wrappedValue.resolveCardExpanded(cardKey: cardKey, model: model)
         _isExpanded = State(initialValue: resolved)
         _startDate = State(initialValue: initialStartDate)
         _processingStartDate = State(initialValue: initialProcessingStartDate)
+        _thinkingAfterToolsStartDate = State(initialValue: initialThinkingStart)
+        _thinkingAfterToolsEndDate = State(initialValue: initialThinkingEnd)
     }
 
     /// Stable key for this progress card in `progressUIState.cardExpansionOverrides`.
@@ -254,6 +288,21 @@ struct AssistantProgressView: View {
                 processingStartDate = Date()
                 if model.earliestStartedAt == nil {
                     startDate = Date()
+                }
+            }
+            // Track thinking phase start: all tools complete, card still active.
+            if (newPhase == .toolsCompleteThinking || newPhase == .processing)
+                && model.allComplete && model.hasTools
+                && thinkingAfterToolsStartDate == nil {
+                thinkingAfterToolsStartDate = model.latestCompletedAt ?? Date()
+            }
+            // Track thinking phase end: card transitioned to complete.
+            if newPhase == .complete, let thinkingStart = thinkingAfterToolsStartDate, thinkingAfterToolsEndDate == nil {
+                thinkingAfterToolsEndDate = Date()
+                // Persist duration so it survives view recycling.
+                if let key = cardKey {
+                    let duration = Date().timeIntervalSince(thinkingStart)
+                    progressUIState.setThinkingDuration(for: key, duration: duration)
                 }
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
@@ -509,6 +558,15 @@ struct AssistantProgressView: View {
                     )
                     .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 }
+            }
+
+            // Synthetic "Thinking" row for the post-tool-completion thinking phase.
+            if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
+                ThinkingStepRow(
+                    startDate: thinkingStart,
+                    completedAt: thinkingAfterToolsEndDate,
+                    isActive: model.isActive
+                )
             }
         }
     }
