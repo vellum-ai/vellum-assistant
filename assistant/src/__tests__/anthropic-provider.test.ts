@@ -1889,26 +1889,27 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     expect(lastConstructorArgs).toMatchObject({
       apiKey: null,
       authToken: "or-key",
-      baseURL: "https://openrouter.ai/api/v1/anthropic",
+      baseURL: "https://openrouter.ai/api",
     });
     expect(lastStreamParams).toBeTruthy();
     expect(lastStreamParams!.model).toBe("anthropic/claude-sonnet-4.6");
   });
 
-  test("custom baseURL is suffixed with /anthropic for Messages API", async () => {
+  test("custom baseURL has trailing /v1 stripped for Messages API", async () => {
     const { OpenRouterProvider } = await import(
       "../providers/openrouter/client.js"
     );
     const provider = new OpenRouterProvider(
       "ast-key",
       "anthropic/claude-opus-4.6",
-      { baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter" },
+      {
+        baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter/v1",
+      },
     );
     await provider.sendMessage([userMsg("hi")]);
 
     expect(lastConstructorArgs).toMatchObject({
-      baseURL:
-        "https://platform.example.com/v1/runtime-proxy/openrouter/anthropic",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
     });
   });
 
