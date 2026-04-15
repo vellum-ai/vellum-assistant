@@ -1973,3 +1973,182 @@ describe("version guard: block platform→non-platform when target is behind", (
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Credential import display tests
+// ---------------------------------------------------------------------------
+
+describe("credential import display", () => {
+  test("prints credential counts when credentialsImported is present", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 5,
+          succeeded: 5,
+          failed: 0,
+          failedAccounts: [],
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not print credential line when credentialsImported is absent (old server)", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Default mock already has no credentialsImported field
+    platformImportBundleMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      const allLogCalls = consoleLogSpy.mock.calls.map((c: unknown[]) => c[0]);
+      const credentialLines = allLogCalls.filter(
+        (msg: string) =>
+          typeof msg === "string" && msg.includes("Credentials imported"),
+      );
+      expect(credentialLines).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("lists failed credential accounts individually", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 5,
+          succeeded: 3,
+          failed: 2,
+          failedAccounts: ["google:user@example.com", "github:octocat"],
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 3/5");
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials failed:  2");
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "    - google:user@example.com",
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith("    - github:octocat");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("shows platform credentials skipped count", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 8,
+          succeeded: 5,
+          failed: 0,
+          failedAccounts: [],
+          skippedPlatform: 3,
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/8");
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "  Platform credentials skipped: 3",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

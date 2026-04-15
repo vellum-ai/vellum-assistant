@@ -609,6 +609,13 @@ interface ImportResponse {
     files_skipped: number;
     backups_created: number;
   };
+  credentialsImported?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    failedAccounts: string[];
+    skippedPlatform?: number;
+  };
 }
 
 async function importToAssistant(
@@ -1072,6 +1079,20 @@ function printImportSummary(result: ImportResponse): void {
   console.log(`  Files overwritten: ${summary.files_overwritten}`);
   console.log(`  Files skipped:     ${summary.files_skipped}`);
   console.log(`  Backups created:   ${summary.backups_created}`);
+
+  const creds = result.credentialsImported;
+  if (creds) {
+    console.log(`  Credentials imported: ${creds.succeeded}/${creds.total}`);
+    if (creds.skippedPlatform) {
+      console.log(`  Platform credentials skipped: ${creds.skippedPlatform}`);
+    }
+    if (creds.failed > 0) {
+      console.log(`  Credentials failed:  ${creds.failed}`);
+      for (const account of creds.failedAccounts) {
+        console.log(`    - ${account}`);
+      }
+    }
+  }
 
   const warnings = result.warnings ?? [];
   if (warnings.length > 0) {
