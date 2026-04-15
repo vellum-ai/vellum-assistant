@@ -34,6 +34,10 @@ const EFFORT_TO_REASONING_EFFORT: Record<string, "low" | "medium" | "high"> = {
 interface ResponsesStreamEvent {
   type: string;
   delta?: string;
+  /** Present on function_call_arguments.done — the complete final arguments. */
+  arguments?: string;
+  /** Present on function_call_arguments.done — the function name. */
+  name?: string;
   item?: { type?: string; id?: string; call_id?: string; name?: string };
   item_id?: string;
   response?: {
@@ -209,8 +213,19 @@ export class OpenAIResponsesProvider implements Provider {
             }
 
             case "response.function_call_arguments.done": {
-              // Tool call arguments are complete; no action needed since
-              // deltas are routed by item_id.
+              // The done event carries the authoritative final arguments.
+              // Overwrite whatever was accumulated from deltas to guard
+              // against partial or missing delta delivery.
+              const itemId = event.item_id;
+              if (itemId && event.arguments !== undefined) {
+                const callId = itemIdToCallId.get(itemId);
+                if (callId) {
+                  const entry = toolCallMap.get(callId);
+                  if (entry) {
+                    entry.args = event.arguments;
+                  }
+                }
+              }
               break;
             }
 

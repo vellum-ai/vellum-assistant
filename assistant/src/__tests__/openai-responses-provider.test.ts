@@ -105,8 +105,17 @@ function functionCallArgsDeltaEvent(
   };
 }
 
-function functionCallArgsDoneEvent(): FakeStreamEvent {
-  return { type: "response.function_call_arguments.done" };
+function functionCallArgsDoneEvent(
+  callId: string,
+  name: string,
+  args: string,
+): FakeStreamEvent {
+  return {
+    type: "response.function_call_arguments.done",
+    item_id: `item_${callId}`,
+    name,
+    arguments: args,
+  };
 }
 
 function completedEvent(
@@ -296,7 +305,11 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_abc", "file_read"),
       functionCallArgsDeltaEvent('{"path":"/tmp/test"}', "call_abc"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent(
+        "call_abc",
+        "file_read",
+        '{"path":"/tmp/test"}',
+      ),
       completedEvent(10, 15),
     ];
 
@@ -321,7 +334,7 @@ describe("OpenAIResponsesProvider", () => {
       textDeltaEvent("I will read that file."),
       functionCallAddedEvent("call_1", "file_read"),
       functionCallArgsDeltaEvent('{"path":"/a"}', "call_1"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent("call_1", "file_read", '{"path":"/a"}'),
       completedEvent(10, 20),
     ];
 
@@ -349,10 +362,10 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_1", "file_read"),
       functionCallArgsDeltaEvent('{"path":"/a"}', "call_1"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent("call_1", "file_read", '{"path":"/a"}'),
       functionCallAddedEvent("call_2", "file_read"),
       functionCallArgsDeltaEvent('{"path":"/b"}', "call_2"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent("call_2", "file_read", '{"path":"/b"}'),
       completedEvent(10, 30),
     ];
 
@@ -382,7 +395,7 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_bad", "test"),
       functionCallArgsDeltaEvent("not valid json{", "call_bad"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent("call_bad", "test", "not valid json{"),
       completedEvent(10, 5),
     ];
 
@@ -1025,7 +1038,7 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_1", "test"),
       functionCallArgsDeltaEvent("{}", "call_1"),
-      functionCallArgsDoneEvent(),
+      functionCallArgsDoneEvent("call_1", "test", "{}"),
       completedEvent(10, 5),
     ];
 

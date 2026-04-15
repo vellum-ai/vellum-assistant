@@ -49,7 +49,7 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
  *
  * Encapsulates the request/stream-parsing logic for `chat.completions.create`,
  * tool-call chunk assembly, usage mapping, and error wrapping. Used directly by
- * OpenRouter, Fireworks, Ollama, and (for now) the `openai` provider entry.
+ * OpenRouter, Fireworks, Ollama, and other OpenAI-compatible providers.
  */
 export class OpenAIChatCompletionsProvider implements Provider {
   public readonly name: string;
