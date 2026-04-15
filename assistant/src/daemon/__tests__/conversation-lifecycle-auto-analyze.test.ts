@@ -11,10 +11,17 @@
  * can invoke `disposeConversation` with a minimal `DisposeContext` and assert
  * on the enqueue bookkeeping alone.
  *
- * Recursion guard — when the source conversation is itself an auto-analysis
- * conversation — is enforced inside `enqueueAutoAnalysisIfEnabled` (PR 12),
- * not here. We stub that helper to simulate "flag enabled / flag disabled /
- * recursion guard hit" states.
+ * Two recursion guards apply when the source conversation is itself an
+ * auto-analysis conversation:
+ *   1. `enqueueAutoAnalysisIfEnabled` short-circuits internally (PR 12),
+ *      preventing the analyzer from analyzing its own output.
+ *   2. `disposeConversation` skips `graph_extract` directly via
+ *      `isAutoAnalysisConversation()`, mirroring the guard the indexer
+ *      applies on the per-message path. The analysis agent writes memory
+ *      directly via tools, so extracting its reflective musings would
+ *      double-write the graph.
+ * We stub both the helper and the guard so the test can simulate "flag
+ * enabled / flag disabled / source is auto-analysis" states.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,6 +50,17 @@ const autoAnalyzeCalls: Array<{
 // when `autoAnalyzeEnabled` is false. When true, we record the call so the
 // test can assert the trigger and conversation id.
 let autoAnalyzeEnabled = true;
+
+// Tracks whether the conversation under test should be treated as an
+// auto-analysis source by `isAutoAnalysisConversation`. When true,
+// `disposeConversation` must skip the `graph_extract` enqueue.
+const autoAnalysisConversations = new Set<string>();
+
+mock.module("../../memory/auto-analysis-guard.js", () => ({
+  AUTO_ANALYSIS_SOURCE: "auto-analysis",
+  isAutoAnalysisConversation: (conversationId: string) =>
+    autoAnalysisConversations.has(conversationId),
+}));
 
 const realJobsStore = await import("../../memory/jobs-store.js");
 mock.module("../../memory/jobs-store.js", () => ({
@@ -149,6 +167,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     memoryJobCalls.length = 0;
     autoAnalyzeCalls.length = 0;
     autoAnalyzeEnabled = true;
+    autoAnalysisConversations.clear();
   });
 
   test("guardian conversation with auto-analyze ON — enqueues both graph_extract and conversation_analyze (via helper)", () => {
@@ -190,15 +209,18 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     expect(autoAnalyzeCalls).toHaveLength(0);
   });
 
-  test("auto-analysis conversation (recursion guard) — helper no-ops, so only graph_extract is enqueued", () => {
-    // The recursion guard lives inside `enqueueAutoAnalysisIfEnabled` (it
-    // checks `isAutoAnalysisConversation()`). From disposeConversation's
-    // vantage point the helper simply no-ops. We simulate that by flipping
-    // the shared flag — the stubbed helper respects it.
-    //
-    // graph_extract still fires here; suppressing graph_extract for
-    // auto-analysis conversations is a separate concern and not gated by
-    // this helper.
+  test("auto-analysis conversation — neither graph_extract nor conversation_analyze is enqueued", () => {
+    // Two recursion guards apply when the source conversation is itself an
+    // auto-analysis conversation:
+    //   1. `disposeConversation` skips the `graph_extract` enqueue directly
+    //      via `isAutoAnalysisConversation()` — mirroring the indexer's
+    //      per-message guard. Without this, evicting an auto-analysis
+    //      conversation from the LRU would double-write the memory graph
+    //      because the analysis agent already writes memory via tools.
+    //   2. `enqueueAutoAnalysisIfEnabled` no-ops internally for
+    //      auto-analysis conversations (its own recursion guard). We
+    //      simulate that by flipping `autoAnalyzeEnabled` off.
+    autoAnalysisConversations.add("conv-auto");
     autoAnalyzeEnabled = false;
     const ctx = makeDisposeContext({
       conversationId: "conv-auto",
@@ -207,8 +229,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
 
     disposeConversation(ctx);
 
-    expect(memoryJobCalls).toHaveLength(1);
-    expect(memoryJobCalls[0]!.type).toBe("graph_extract");
+    expect(memoryJobCalls).toHaveLength(0);
     expect(autoAnalyzeCalls).toHaveLength(0);
   });
 

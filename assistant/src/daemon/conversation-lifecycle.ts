@@ -10,6 +10,7 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
+import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
 import {
   getConversation,
   getMessages,
@@ -311,19 +312,29 @@ export function disposeConversation(ctx: DisposeContext): void {
   // Only extract from guardian conversations to preserve the memory trust
   // boundary — untrusted content must not influence future memory retrieval.
   if (!isUntrustedTrustClass(ctx.trustContext?.trustClass)) {
-    try {
-      enqueueMemoryJob("graph_extract", {
-        conversationId: ctx.conversationId,
-        scopeId: ctx.memoryScopeId ?? "default",
-        ...(ctx.activeContextNodeIds?.length
-          ? { activeContextNodeIds: ctx.activeContextNodeIds }
-          : {}),
-      });
-    } catch {
-      // Best-effort — don't block conversation disposal
+    // Recursion guard: skip graph_extract for auto-analysis conversations.
+    // The analysis agent writes memory directly via tools, so extracting
+    // from its reflective musings would double-write into the memory graph.
+    // Mirrors the same guard applied in `indexer.ts` for the per-message
+    // indexing path.
+    if (!isAutoAnalysisConversation(ctx.conversationId)) {
+      try {
+        enqueueMemoryJob("graph_extract", {
+          conversationId: ctx.conversationId,
+          scopeId: ctx.memoryScopeId ?? "default",
+          ...(ctx.activeContextNodeIds?.length
+            ? { activeContextNodeIds: ctx.activeContextNodeIds }
+            : {}),
+        });
+      } catch {
+        // Best-effort — don't block conversation disposal
+      }
     }
 
     try {
+      // `enqueueAutoAnalysisIfEnabled` has its own internal recursion guard
+      // (it checks `isAutoAnalysisConversation()`), so it's safe to call
+      // unconditionally here.
       enqueueAutoAnalysisIfEnabled({
         conversationId: ctx.conversationId,
         trigger: "lifecycle",
