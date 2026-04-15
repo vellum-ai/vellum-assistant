@@ -135,6 +135,42 @@ describe("extractCredentialsFromBundle", () => {
       value: "value with spaces & special=chars!",
     });
   });
+
+  test("extracts vellum:-prefixed credentials (filtering happens in migration-routes)", () => {
+    const entries = new Map<string, VBundleTarEntry>();
+    entries.set(
+      "credentials/vellum:assistant_api_key",
+      makeTarEntry("key-123"),
+    );
+    entries.set(
+      "credentials/vellum:platform_assistant_id",
+      makeTarEntry("asst-456"),
+    );
+    entries.set("credentials/openai-key", makeTarEntry("sk-user-789"));
+
+    const manifest = makeManifest([
+      "credentials/vellum:assistant_api_key",
+      "credentials/vellum:platform_assistant_id",
+      "credentials/openai-key",
+    ]);
+    const credentials = extractCredentialsFromBundle(entries, manifest);
+
+    // extractCredentialsFromBundle does NOT filter — it returns all credentials.
+    // Filtering of vellum:* platform credentials is done in migration-routes.ts.
+    expect(credentials).toHaveLength(3);
+    expect(credentials).toContainEqual({
+      account: "vellum:assistant_api_key",
+      value: "key-123",
+    });
+    expect(credentials).toContainEqual({
+      account: "vellum:platform_assistant_id",
+      value: "asst-456",
+    });
+    expect(credentials).toContainEqual({
+      account: "openai-key",
+      value: "sk-user-789",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
