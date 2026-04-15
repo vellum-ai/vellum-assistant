@@ -55,7 +55,7 @@ export function listConversations(
   const query = db
     .select()
     .from(conversations)
-    .where(where)
+    .where(and(where, sql`${conversations.archivedAt} IS NULL`))
     .orderBy(
       desc(
         sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
@@ -77,6 +77,7 @@ export function listPinnedConversations(): ConversationRow[] {
       and(
         sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
         sql`is_pinned = 1`,
+        sql`${conversations.archivedAt} IS NULL`,
       ),
     )
     .orderBy(
@@ -96,7 +97,7 @@ export function countConversations(backgroundOnly = false): number {
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
-    .where(where)
+    .where(and(where, sql`${conversations.archivedAt} IS NULL`))
     .all();
   return total;
 }
@@ -107,7 +108,10 @@ export function getLatestConversation(): ConversationRow | null {
     .select()
     .from(conversations)
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+      and(
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+        sql`${conversations.archivedAt} IS NULL`,
+      ),
     )
     .orderBy(
       desc(
