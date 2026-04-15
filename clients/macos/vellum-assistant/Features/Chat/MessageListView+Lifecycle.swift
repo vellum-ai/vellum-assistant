@@ -69,21 +69,20 @@ extension MessageListView {
             // First mount (no prior conversationId, no anchor) — also needs
             // multi-stage scroll since the first conversation load must land
             // at the bottom, same as a switch.
+            // Use edge-based positioning — doesn't force LazyVStack to materialize
+            // all cells between current position and bottom. Uses estimated heights
+            // which may overshoot, but the opacity fade hides this from the user.
             scrollState.switchRestoreTask?.cancel()
             let scrollBinding = $scrollPosition
             scrollState.switchRestoreTask = Task { @MainActor in
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                scrollBinding.wrappedValue = ScrollPosition(edge: .bottom)
 
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+                scrollBinding.wrappedValue = ScrollPosition(edge: .bottom)
                 withAnimation(VAnimation.fast) {
                     isScrollRestored = true
                 }
-
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
 
                 scrollState.switchRestoreTask = nil
             }
@@ -222,29 +221,23 @@ extension MessageListView {
         scrollState.lastAutoFocusedRequestId = nil
         // Seed lastMessageId so scroll-to-bottom can target it.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Multi-stage scroll-to-bottom: gives LazyVStack time to materialize
-        // bottom cells across multiple layout passes. Targets "scroll-bottom-anchor"
-        // (a real Color.clear view at the absolute content bottom) instead of a
-        // message ID, avoiding height estimation errors from unmaterialized cells.
+        // Use edge-based positioning — doesn't force LazyVStack to materialize
+        // all cells between current position and bottom. Uses estimated heights
+        // which may overshoot, but the opacity fade hides this from the user.
         scrollState.switchRestoreTask?.cancel()
         let scrollBinding = $scrollPosition
         scrollState.switchRestoreTask = Task { @MainActor in
-            // Stage 0: immediate — catches conversations already laid out
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+            // Stage 0: immediate — edge-based uses estimated heights (no materialization)
+            scrollBinding.wrappedValue = ScrollPosition(edge: .bottom)
 
-            // Stage 1: ~3 frames (50ms) — LazyVStack initial materialization
+            // Stage 1: ~3 frames (50ms) — settle after initial layout
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
+            scrollBinding.wrappedValue = ScrollPosition(edge: .bottom)
             // Fade in after scroll is positioned
             withAnimation(VAnimation.fast) {
                 isScrollRestored = true
             }
-
-            // Stage 2: slower content (150ms) — final correction
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
 
             scrollState.switchRestoreTask = nil
         }
