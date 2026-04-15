@@ -12,7 +12,7 @@
  *     session manager no longer needs to know which STT provider is in
  *     use or how to fetch its key.
  *   - Drive `DockerRunner` to create + start the Meet-bot container with the
- *     right env/binds/port mappings.
+ *     right env/workspaceMounts/port mappings.
  *   - Register the per-meeting handler with `MeetSessionEventRouter` via
  *     the shared `meetEventDispatcher` so multiple subscribers (this
  *     manager, PR 17's conversation bridge, PR 18's storage writer,

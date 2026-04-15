@@ -43,10 +43,11 @@ import {
 } from "bun:test";
 
 import {
-  DOCKER_SOCKET_UNREACHABLE_MESSAGE,
   DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE,
   DockerRunner,
+  dockerSocketUnreachableMessage,
   HOST_GATEWAY_ALIAS,
+  resetSocketReachabilityCacheForTests,
 } from "../docker-runner.js";
 import { meetEventDispatcher } from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
@@ -246,6 +247,11 @@ beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "docker-mode-e2e-ws-"));
   __resetMeetSessionEventRouterForTests();
   meetEventDispatcher._resetForTests();
+  // The `/_ping` reachability cache is module-scoped so it survives
+  // per-test teardown; tempdir socket paths are unique so cross-test
+  // pollution is unlikely, but we reset defensively to keep assertions on
+  // call counts deterministic.
+  resetSocketReachabilityCacheForTests();
   engine = null;
 });
 
@@ -549,7 +555,7 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
         meetingId: "m-no-sock",
         conversationId: "conv-no-sock",
       }),
-    ).rejects.toThrow(DOCKER_SOCKET_UNREACHABLE_MESSAGE);
+    ).rejects.toThrow(dockerSocketUnreachableMessage(bogusSocketPath));
 
     // No session lingers on the error path.
     expect(manager.activeSessions()).toHaveLength(0);

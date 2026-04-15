@@ -6,6 +6,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   test,
@@ -13,12 +14,13 @@ import {
 
 import {
   buildCreateBody,
-  DOCKER_SOCKET_UNREACHABLE_MESSAGE,
   DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE,
   DockerApiError,
   DockerRunner,
+  dockerSocketUnreachableMessage,
   extractBoundPorts,
   HOST_GATEWAY_ALIAS,
+  resetSocketReachabilityCacheForTests,
   resolveWorkspaceSubpath,
 } from "../docker-runner.js";
 
@@ -142,17 +144,17 @@ describe("DockerRunner.run", () => {
       },
     });
 
-    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const runner = new DockerRunner({
+      socketPath: mock.socketPath,
+      resolveMode: () => "bare-metal",
+      workspaceDir: "/host",
+    });
     const result = await runner.run({
       image: "vellum-meet-bot:dev",
       env: { FOO: "bar", BAZ: "qux" },
-      binds: [
-        { hostPath: "/host/sockets", containerPath: "/sockets" },
-        {
-          hostPath: "/host/out",
-          containerPath: "/out",
-          readOnly: true,
-        },
+      workspaceMounts: [
+        { target: "/sockets", subpath: "sockets" },
+        { target: "/out", subpath: "out", readOnly: true },
       ],
       ports: [
         {
@@ -188,6 +190,7 @@ describe("DockerRunner.run", () => {
     expect(createBody.Image).toBe("vellum-meet-bot:dev");
     expect(createBody.Env).toContain("FOO=bar");
     expect(createBody.Env).toContain("BAZ=qux");
+    // Bare-metal mode: workspaceMounts resolve to host-path binds.
     expect(createBody.HostConfig.Binds).toEqual([
       "/host/sockets:/sockets",
       "/host/out:/out:ro",
@@ -336,14 +339,10 @@ describe("DockerRunner.inspect", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildCreateBody", () => {
-  test("serializes env + binds + ports + network and always sets host-gateway", () => {
+  test("serializes env + ports + network and always sets host-gateway (no workspace mounts)", () => {
     const body = buildCreateBody({
       image: "foo:bar",
       env: { A: "1", B: "two" },
-      binds: [
-        { hostPath: "/h", containerPath: "/c" },
-        { hostPath: "/h2", containerPath: "/c2", readOnly: true },
-      ],
       ports: [
         { hostIp: "127.0.0.1", hostPort: 0, containerPort: 3000 },
         {
@@ -362,7 +361,8 @@ describe("buildCreateBody", () => {
       "9000/udp": {},
     });
     const hc = body.HostConfig as Record<string, unknown>;
-    expect(hc.Binds).toEqual(["/h:/c", "/h2:/c2:ro"]);
+    // No workspace mounts passed → no binds emitted.
+    expect(hc.Binds).toEqual([]);
     expect(hc.NetworkMode).toBe("host");
     expect(hc.PortBindings).toEqual({
       "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: "0" }],
@@ -374,12 +374,9 @@ describe("buildCreateBody", () => {
     expect(hc.Mounts).toBeUndefined();
   });
 
-  test("appends extraBinds from resolved workspace mounts (bare-metal mode)", () => {
+  test("serializes extraBinds from resolved workspace mounts (bare-metal mode)", () => {
     const body = buildCreateBody(
-      {
-        image: "x:y",
-        binds: [{ hostPath: "/explicit", containerPath: "/mnt" }],
-      },
+      { image: "x:y" },
       {
         extraBinds: [
           {
@@ -397,7 +394,6 @@ describe("buildCreateBody", () => {
     );
     const hc = body.HostConfig as Record<string, unknown>;
     expect(hc.Binds).toEqual([
-      "/explicit:/mnt",
       "/ws/meets/abc/sockets:/sockets",
       "/ws/meets/abc/out:/out:ro",
     ]);
@@ -500,6 +496,14 @@ describe("extractBoundPorts", () => {
 
 describe("DockerRunner workspace-mount mode branching", () => {
   let mock: MockDocker;
+
+  beforeEach(() => {
+    // The `/_ping` reachability cache is module-scoped so it survives
+    // per-test teardown. Reset between tests so assertions on call
+    // counts (e.g. the memoization test) and tests with bogus sockets
+    // don't contaminate each other.
+    resetSocketReachabilityCacheForTests();
+  });
 
   afterEach(async () => {
     await mock?.close();
@@ -644,8 +648,9 @@ describe("DockerRunner workspace-mount mode branching", () => {
 
   test("Docker mode surfaces the prerequisite-missing error when the socket is unreachable", async () => {
     // Use a bogus socket path — no server listening there.
+    const socketPath = join(tempDir, "nonexistent.sock");
     const runner = new DockerRunner({
-      socketPath: join(tempDir, "nonexistent.sock"),
+      socketPath,
       resolveMode: () => "docker",
       resolveWorkspaceVolumeName: async () => "vellum-inst-workspace",
     });
@@ -657,7 +662,7 @@ describe("DockerRunner workspace-mount mode branching", () => {
           { target: "/sockets", subpath: "meets/m1/sockets" },
         ],
       }),
-    ).rejects.toThrow(DOCKER_SOCKET_UNREACHABLE_MESSAGE);
+    ).rejects.toThrow(dockerSocketUnreachableMessage(socketPath));
   });
 
   test("Docker-mode ping success is memoized across run() calls", async () => {

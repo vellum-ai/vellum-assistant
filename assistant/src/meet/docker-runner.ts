@@ -76,7 +76,11 @@ export interface PortMapping {
   protocol?: "tcp" | "udp";
 }
 
-/** A single bind mount request passed to `run`. */
+/**
+ * Internal host-path bind spec produced by {@link DockerRunner.resolveMounts}
+ * in bare-metal mode. Not exposed on the public run options — callers use
+ * {@link WorkspaceMount} and let the runner resolve it.
+ */
 export interface BindMount {
   hostPath: string;
   containerPath: string;
@@ -87,9 +91,8 @@ export interface BindMount {
 /**
  * A workspace-rooted mount request. The runner translates these to either a
  * host-path bind (bare-metal mode) or a named-volume `Mounts` entry with
- * `VolumeOptions.Subpath` (Docker mode). Callers should prefer this over
- * raw `binds` for anything that lives inside the daemon's workspace — the
- * same logical spec then works in both deployment modes.
+ * `VolumeOptions.Subpath` (Docker mode). The same logical spec works in
+ * both deployment modes.
  *
  * `subpath` is interpreted relative to the workspace root on disk — e.g.
  * `"meets/<id>/sockets"`. `target` is the absolute path inside the bot
@@ -106,8 +109,6 @@ export interface WorkspaceMount {
 export interface DockerRunOptions {
   image: string;
   env?: Record<string, string>;
-  /** Raw host-path bind mounts. Prefer `workspaceMounts` for workspace-rooted paths. */
-  binds?: BindMount[];
   /**
    * Workspace-rooted mounts resolved according to the current runtime
    * mode. In bare-metal mode these become host-path binds; in Docker mode
@@ -117,8 +118,6 @@ export interface DockerRunOptions {
   ports?: PortMapping[];
   name?: string;
   network?: string;
-  /** Extra HostConfig overrides — applied after standard fields. Use sparingly. */
-  hostConfigExtras?: Record<string, unknown>;
 }
 
 /** Minimal shape of the Docker `containers/<id>/json` response we rely on. */
@@ -194,11 +193,14 @@ export class DockerApiError extends Error {
 
 /**
  * Message surfaced when the Docker Engine socket is unreachable from the
- * daemon in Docker mode. Exported so the session-manager error path and
- * unit tests can share the exact string.
+ * daemon in Docker mode. Exported as a function so the session-manager
+ * error path and unit tests share the exact string while still letting the
+ * configured socket path flow through (useful when tests run against a
+ * tempdir socket, or if an operator overrides the default socket path).
  */
-export const DOCKER_SOCKET_UNREACHABLE_MESSAGE =
-  "The daemon cannot reach the Docker Engine at /var/run/docker.sock. In Docker mode the daemon container must have the socket bind-mounted. Upgrade your vellum CLI to a version that supports Meet in Docker mode (see Phase 1.8 docs).";
+export function dockerSocketUnreachableMessage(socketPath: string): string {
+  return `The daemon cannot reach the Docker Engine at ${socketPath}. In Docker mode the daemon container must have the socket bind-mounted. Upgrade your vellum CLI to a version that supports Meet in Docker mode (see Phase 1.8 docs).`;
+}
 
 /**
  * Message surfaced when Docker mode is active but no named workspace
@@ -208,18 +210,115 @@ export const DOCKER_SOCKET_UNREACHABLE_MESSAGE =
 export const DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE =
   "Meet in Docker mode requires the workspace to be on a named Docker volume. Ensure the vellum CLI launched the daemon with a named volume at /workspace, or set VELLUM_WORKSPACE_VOLUME_NAME.";
 
+/**
+ * Module-level cache of in-flight or resolved `/_ping` reachability probes,
+ * keyed by socket path. Promoted from an instance field because
+ * `MeetSessionManager` constructs a fresh `DockerRunner` on every
+ * `dockerRunnerFactory()` call (which runs per `join()`/`leave()`/`shutdown()`),
+ * which would make instance-scoped memoization effectively never reuse a
+ * result in production. Module scope gives the de-dupe the full process
+ * lifetime and also covers concurrent first-spawn callers.
+ *
+ * Keyed by socket path so tests using distinct tempdir sockets don't share
+ * cache entries with real runners or with each other.
+ */
+const socketReachabilityCache = new Map<string, Promise<true>>();
+
+/**
+ * One-time `GET /_ping` reachability probe for a given Docker Engine socket.
+ * Memoizes the success so the second and later spawns skip the extra
+ * round-trip; memoizes the in-flight promise so concurrent first spawns
+ * share a single round-trip and all surface the same clear
+ * prerequisite-missing error. On failure, the cache entry is cleared so
+ * subsequent spawns can retry if the operator bind-mounts the socket and
+ * restarts the daemon — the current call still rejects so fail-fast
+ * semantics hold.
+ */
+export function ensureSocketReachable(socketPath: string): Promise<true> {
+  let cached = socketReachabilityCache.get(socketPath);
+  if (cached === undefined) {
+    cached = probePing(socketPath).catch((err) => {
+      socketReachabilityCache.delete(socketPath);
+      throw err;
+    });
+    socketReachabilityCache.set(socketPath, cached);
+  }
+  return cached;
+}
+
+/**
+ * Reset the memoized reachability cache. Only for tests that want to
+ * re-exercise the probe path; production code should never call this.
+ */
+export function resetSocketReachabilityCacheForTests(): void {
+  socketReachabilityCache.clear();
+}
+
+async function probePing(socketPath: string): Promise<true> {
+  // `/_ping` returns the literal text `"OK"` (not JSON), so we go straight
+  // to the raw-response helper rather than a JSON-decoding request helper
+  // which would choke on the non-JSON body.
+  try {
+    await requestRaw(socketPath, "GET", `/${DOCKER_API_VERSION}/_ping`, null);
+    return true;
+  } catch (err) {
+    log.warn(
+      { err, socketPath },
+      "Docker Engine socket reachability probe failed",
+    );
+    throw new Error(dockerSocketUnreachableMessage(socketPath));
+  }
+}
+
+/**
+ * Lower-level request helper used for endpoints that return non-JSON
+ * bodies (e.g. `/_ping` → `"OK"`). Resolves with the raw body string on
+ * 2xx; rejects with {@link DockerApiError} otherwise.
+ */
+function requestRaw(
+  socketPath: string,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const payload =
+      body === null || body === undefined ? null : JSON.stringify(body);
+    const headers: Record<string, string | number> = {
+      Host: UNIX_SOCKET_HOST,
+      Accept: "*/*",
+    };
+    if (payload !== null) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(payload);
+    }
+    const req = httpRequest(
+      { socketPath, method, path, headers },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(new DockerApiError(method, path, status, raw));
+            return;
+          }
+          resolve(raw);
+        });
+      },
+    );
+    req.on("error", (err) => reject(err));
+    if (payload !== null) req.write(payload);
+    req.end();
+  });
+}
+
 export class DockerRunner {
   readonly socketPath: string;
   private readonly resolveMode: () => DaemonRuntimeMode;
   private readonly resolveWorkspaceVolumeName: () => Promise<string | null>;
   private readonly workspaceDir: string;
-  /**
-   * Memoized result of the one-time `/_ping` reachability probe. Resolves
-   * to `true` on success, rejects with a clear prerequisite-missing error
-   * on failure. Shared across concurrent callers so we don't hammer the
-   * socket on the first-spawn path.
-   */
-  private pingPromise: Promise<true> | null = null;
 
   constructor(options: DockerRunnerOptions = {}) {
     this.socketPath = options.socketPath ?? DEFAULT_DOCKER_SOCKET_PATH;
@@ -249,7 +348,7 @@ export class DockerRunner {
     // so we only hard-gate in Docker mode where a missing bind-mount is
     // a deployment bug the caller cannot work around.
     if (mode === "docker") {
-      await this.ensureSocketReachable();
+      await ensureSocketReachable(this.socketPath);
     }
 
     const resolvedMounts = await this.resolveMounts(mode, opts.workspaceMounts);
@@ -325,88 +424,6 @@ export class DockerRunner {
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
-
-  /**
-   * One-time `GET /_ping` reachability probe. Memoizes the success so the
-   * second and later spawns skip the extra round-trip; memoizes failures
-   * for the same promise too so concurrent first spawns all surface the
-   * same clear prerequisite-missing error.
-   */
-  private ensureSocketReachable(): Promise<true> {
-    if (this.pingPromise === null) {
-      this.pingPromise = this.probePing().catch((err) => {
-        // Clear the cache on failure so subsequent spawns can retry if
-        // the operator bind-mounts the socket and restarts the daemon.
-        // We still reject the current call so fail-fast semantics hold.
-        this.pingPromise = null;
-        throw err;
-      });
-    }
-    return this.pingPromise;
-  }
-
-  private async probePing(): Promise<true> {
-    // `/_ping` returns the literal text `"OK"` (not JSON), so we go
-    // straight to the raw-response helper rather than `request<T>`
-    // which would choke on the non-JSON body.
-    try {
-      await this.requestRaw(
-        "GET",
-        `/${DOCKER_API_VERSION}/_ping`,
-        null,
-      );
-      return true;
-    } catch (err) {
-      log.warn(
-        { err, socketPath: this.socketPath },
-        "Docker Engine socket reachability probe failed",
-      );
-      throw new Error(DOCKER_SOCKET_UNREACHABLE_MESSAGE);
-    }
-  }
-
-  /**
-   * Lower-level request helper used for endpoints that return non-JSON
-   * bodies (e.g. `/_ping` → `"OK"`). Resolves with the raw body string
-   * on 2xx; rejects with {@link DockerApiError} otherwise.
-   */
-  private requestRaw(
-    method: string,
-    path: string,
-    body: unknown,
-  ): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-      const payload =
-        body === null || body === undefined ? null : JSON.stringify(body);
-      const headers: Record<string, string | number> = {
-        Host: UNIX_SOCKET_HOST,
-        Accept: "*/*",
-      };
-      if (payload !== null) {
-        headers["Content-Type"] = "application/json";
-        headers["Content-Length"] = Buffer.byteLength(payload);
-      }
-      const req = httpRequest(
-        { socketPath: this.socketPath, method, path, headers },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on("data", (chunk: Buffer) => chunks.push(chunk));
-          res.on("end", () => {
-            const raw = Buffer.concat(chunks).toString("utf8");
-            const status = res.statusCode ?? 0;
-            if (status < 200 || status >= 300) {
-              reject(new DockerApiError(method, path, status, raw));
-              return;
-            }
-            resolve(raw);
-          });
-        },
-      );
-      req.on("error", (err) => reject(err));
-      if (payload !== null) req.write(payload);
-      req.end();
-    });
-  }
 
   /**
    * Translate `workspaceMounts` into either host-path binds or
@@ -565,8 +582,11 @@ export function buildCreateBody(
   const env = opts.env
     ? Object.entries(opts.env).map(([k, v]) => `${k}=${v}`)
     : [];
-  const allBinds = [...(opts.binds ?? []), ...resolved.extraBinds];
-  const binds = allBinds.map((b) =>
+  // In bare-metal mode the resolver produces host-path binds from
+  // `workspaceMounts`; in Docker mode it produces named-volume `Mounts`
+  // instead and `extraBinds` is empty. Either way, `Binds` is what the
+  // engine expects for the host-path style so we serialize it here.
+  const binds = resolved.extraBinds.map((b) =>
     b.readOnly
       ? `${b.hostPath}:${b.containerPath}:ro`
       : `${b.hostPath}:${b.containerPath}`,
@@ -604,7 +624,6 @@ export function buildCreateBody(
     ExtraHosts: [HOST_GATEWAY_ALIAS],
     ...(resolved.mounts.length > 0 ? { Mounts: resolved.mounts } : {}),
     ...(opts.network ? { NetworkMode: opts.network } : {}),
-    ...(opts.hostConfigExtras ?? {}),
   };
 
   return {
