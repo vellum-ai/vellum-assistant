@@ -41,7 +41,6 @@ EXPERIMENTAL_FILES=(
 KNOWN_BROKEN_FILES=(
   "backup-routes.test.ts"
   "byo-connection.test.ts"
-  "callback-routes-list.test.ts"
   "connect.test.ts"
   "contact-routes.test.ts"
   "conversation-tool-setup.test.ts"

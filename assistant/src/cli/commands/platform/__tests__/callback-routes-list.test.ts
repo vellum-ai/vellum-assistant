@@ -39,7 +39,9 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
   }),
 }));
 
+const realLogger = await import("../../../../util/logger.js");
 mock.module("../../../../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -53,13 +55,12 @@ mock.module("../../../../util/logger.js", () => ({
     debug: () => {},
   }),
   initLogger: () => {},
-  truncateForLog: (value: string, maxLen = 500) =>
-    value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   pruneOldLogFiles: () => 0,
 }));
 
+const realConfigLoader = await import("../../../../config/loader.js");
 mock.module("../../../../config/loader.js", () => ({
-  API_KEY_PROVIDERS: [] as const,
+  ...realConfigLoader,
   getConfig: () => ({
     permissions: { mode: "workspace" },
     skills: { load: { extraDirs: [] } },
@@ -70,12 +71,6 @@ mock.module("../../../../config/loader.js", () => ({
   saveConfig: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeMissing: () => false,
-  deepMergeOverwrite: () => {},
-  mergeDefaultWorkspaceConfig: () => {},
 }));
 
 // ---------------------------------------------------------------------------
