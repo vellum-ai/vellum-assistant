@@ -290,6 +290,12 @@ struct AssistantProgressView: View {
                     startDate = Date()
                 }
             }
+            // Reset thinking anchor when tools resume in a multi-wave run
+            // (tools complete → think → more tools → think → complete).
+            if newPhase == .toolRunning || newPhase == .streamingCode {
+                thinkingAfterToolsStartDate = nil
+                thinkingAfterToolsEndDate = nil
+            }
             // Track thinking phase start: all tools complete, card still active.
             if (newPhase == .toolsCompleteThinking || newPhase == .processing)
                 && model.allComplete && model.hasTools
@@ -298,10 +304,11 @@ struct AssistantProgressView: View {
             }
             // Track thinking phase end: card transitioned to complete.
             if newPhase == .complete, let thinkingStart = thinkingAfterToolsStartDate, thinkingAfterToolsEndDate == nil {
-                thinkingAfterToolsEndDate = Date()
+                let now = Date()
+                thinkingAfterToolsEndDate = now
                 // Persist duration so it survives view recycling.
                 if let key = cardKey {
-                    let duration = Date().timeIntervalSince(thinkingStart)
+                    let duration = now.timeIntervalSince(thinkingStart)
                     progressUIState.setThinkingDuration(for: key, duration: duration)
                 }
             }
@@ -1060,8 +1067,7 @@ private struct ThinkingStepRow: View {
                     }
                 }
             }
-            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
-            .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
         }
     }
 }
