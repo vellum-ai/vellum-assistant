@@ -46,6 +46,10 @@ import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
+import {
+  registerDefaultWakeResolver,
+  type WakeTarget,
+} from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -777,6 +781,26 @@ export class DaemonServer {
         params.sourceInterface,
       );
       return { accepted: true };
+    });
+
+    // Install the default resolver for `wakeAgentForOpportunity()` so
+    // internal subsystems (e.g. the Meet chat-opportunity detector wired
+    // up in `MeetSessionManager`) can invoke it without having to build
+    // a `WakeTarget` adapter themselves. The adapter wraps a live
+    // `Conversation` fetched from the in-memory map / hydrated from the
+    // DB, exposing only the narrow surface the wake helper needs.
+    registerDefaultWakeResolver(async (conversationId) => {
+      try {
+        const conversation =
+          await this.getOrCreateConversation(conversationId);
+        return conversationToWakeTarget(conversation);
+      } catch (err) {
+        log.warn(
+          { err, conversationId },
+          "agent-wake default resolver: failed to hydrate conversation",
+        );
+        return null;
+      }
     });
 
     // Wire the launchConversation helper to daemon-side state so
@@ -1647,4 +1671,23 @@ function extractConversationId(msg: ServerMessage): string | undefined {
     return record.conversationId as string;
   }
   return undefined;
+}
+
+/**
+ * Adapt a live {@link Conversation} to the narrow {@link WakeTarget}
+ * surface expected by `wakeAgentForOpportunity()`. Kept here so the
+ * runtime-level wake helper stays decoupled from the heavyweight
+ * conversation class (see `registerDefaultWakeResolver` above).
+ */
+function conversationToWakeTarget(conversation: Conversation): WakeTarget {
+  return {
+    conversationId: conversation.conversationId,
+    agentLoop: conversation.agentLoop,
+    getMessages: () => conversation.getMessages(),
+    pushMessage: (msg) => {
+      conversation.messages.push(msg);
+    },
+    emitToClient: (msg) => conversation.sendToClient(msg),
+    isProcessing: () => conversation.isProcessing(),
+  };
 }
