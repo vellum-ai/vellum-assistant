@@ -19,6 +19,9 @@ function isRateLimitError(e: unknown): boolean {
 const MAX_MESSAGES_CAP = 5000;
 const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
+const MAX_SENDERS_CAP = 75;
+const MAX_SUBJECT_LENGTH = 80;
+const MAX_RESULT_BYTES = 24_000;
 
 interface SenderAggregation {
   displayName: string;
@@ -60,7 +63,10 @@ export async function run(
     (input.max_messages as number) ?? 2000,
     MAX_MESSAGES_CAP,
   );
-  const maxSenders = (input.max_senders as number) ?? 50;
+  const maxSenders = Math.min(
+    (input.max_senders as number) ?? 50,
+    MAX_SENDERS_CAP,
+  );
   const inputPageToken = input.page_token as string | undefined;
 
   try {
@@ -265,7 +271,7 @@ export async function run(
       .sort((a, b) => b.messageCount - a.messageCount)
       .slice(0, maxSenders);
 
-    const resultSenders = sorted.map((s) => ({
+    let resultSenders = sorted.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
       email: s.email,
@@ -280,17 +286,38 @@ export async function run(
       newest_date: s.newestDate,
       // Preserve original query filters so follow-up searches stay scoped
       search_query: `from:${s.email} ${query}`,
-      sample_subjects: s.sampleSubjects,
+      sample_subjects: s.sampleSubjects.map((subj) =>
+        subj.length > MAX_SUBJECT_LENGTH
+          ? subj.slice(0, MAX_SUBJECT_LENGTH) + "…"
+          : subj,
+      ),
     }));
+
+    // Trim senders if the serialized result would exceed the byte budget.
+    // Senders are already sorted by message_count desc, so we drop the
+    // least-active ones first.
+    while (resultSenders.length > 1) {
+      const probe = JSON.stringify({ senders: resultSenders });
+      if (probe.length <= MAX_RESULT_BYTES) break;
+      resultSenders.pop();
+    }
+
+    // Build a set of sender IDs that survived the trim so the scan store
+    // only holds entries the LLM can reference.
+    const keptSenderIds = new Set(resultSenders.map((s) => s.id));
 
     // Store message IDs server-side to keep them out of LLM context
     const scanId = storeScanResult(
-      sorted.map((s) => ({
-        id: Buffer.from(s.email).toString("base64url"),
-        messageIds: s.messageIds,
-        newestMessageId: s.newestMessageId,
-        newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
-      })),
+      sorted
+        .filter((s) =>
+          keptSenderIds.has(Buffer.from(s.email).toString("base64url")),
+        )
+        .map((s) => ({
+          id: Buffer.from(s.email).toString("base64url"),
+          messageIds: s.messageIds,
+          newestMessageId: s.newestMessageId,
+          newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
+        })),
     );
 
     return ok(

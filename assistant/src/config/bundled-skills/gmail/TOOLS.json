@@ -498,7 +498,7 @@
           },
           "max_senders": {
             "type": "number",
-            "description": "Maximum senders to return (default 50)"
+            "description": "Maximum senders to return (default 50, max 75)"
           },
           "page_token": {
             "type": "string",
