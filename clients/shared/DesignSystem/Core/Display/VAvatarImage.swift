@@ -54,33 +54,62 @@ public struct VAvatarImage: View {
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
-    /// Public so callers in animated render paths can precompute the result once
-    /// (e.g. in `@State` + `.task {}`) and pass it to the `isTransparent:` initializer.
+    ///
+    /// Uses direct `CGImage` pixel access via `CGDataProvider` instead of
+    /// `NSImage.tiffRepresentation`, which triggers the full TIFF encoding
+    /// pipeline on the main thread (~2000ms for large images).
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsimage/cgimage(forproposedRect:context:hints:)
     public static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
+        guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
         }
 
-        // If the image doesn't even have an alpha channel, it's fully opaque.
-        guard bitmap.hasAlpha else { return false }
+        // If the pixel format has no alpha channel, the image is fully opaque.
+        let alphaInfo = cgImage.alphaInfo
+        switch alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return false
+        default:
+            break
+        }
 
-        // Sample corners and edges — if any sampled pixel is transparent,
-        // the image has a transparent background.
-        let width = bitmap.pixelsWide
-        let height = bitmap.pixelsHigh
+        let width = cgImage.width
+        let height = cgImage.height
         guard width > 0, height > 0 else { return false }
 
+        // Draw into a known-layout 32-bit BGRA context so we can read alpha
+        // bytes at predictable offsets regardless of the source pixel format.
+        let bytesPerRow = width * 4
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return false }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return false }
+        let pixels = data.bindMemory(to: UInt32.self, capacity: width * height)
+
+        // Sample corners and edge midpoints — same 8 points as before.
         let samplePoints: [(Int, Int)] = [
-            (0, 0), (width - 1, 0),                     // top corners
-            (0, height - 1), (width - 1, height - 1),   // bottom corners
-            (width / 2, 0), (width / 2, height - 1),    // top/bottom center
-            (0, height / 2), (width - 1, height / 2),   // left/right center
+            (0, 0), (width - 1, 0),
+            (0, height - 1), (width - 1, height - 1),
+            (width / 2, 0), (width / 2, height - 1),
+            (0, height / 2), (width - 1, height / 2),
         ]
 
+        // In BGRA-little-endian layout the alpha byte is bits 24-31.
         for (x, y) in samplePoints {
-            guard let color = bitmap.colorAt(x: x, y: y) else { continue }
-            if color.alphaComponent < 0.95 {
+            let pixel = pixels[y * width + x]
+            let alpha = UInt8((pixel >> 24) & 0xFF)
+            if alpha < 242 { // ~0.95 threshold (242/255 ≈ 0.949)
                 return true
             }
         }

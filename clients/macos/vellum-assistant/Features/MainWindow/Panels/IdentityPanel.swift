@@ -80,7 +80,7 @@ struct IdentityPanel: View {
                             // Large centered avatar
                             Group {
                                 if appearance.customAvatarImage != nil {
-                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
                                         .frame(maxWidth: .infinity, alignment: .center)
                                 } else if let body = appearance.characterBodyShape,
                                    let eyes = appearance.characterEyeStyle,
@@ -90,7 +90,7 @@ struct IdentityPanel: View {
                                         .frame(width: avatarSize, height: avatarSize)
                                         .frame(maxWidth: .infinity, alignment: .center)
                                 } else {
-                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, showBorder: false)
+                                    VAvatarImage(image: appearance.fullAvatarImage, size: avatarSize, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
                                         .frame(maxWidth: .infinity, alignment: .center)
                                 }
                             }

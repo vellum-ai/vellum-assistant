@@ -45,6 +45,7 @@ struct HomeHeroView: View {
             VAvatarImage(
                 image: appearance.fullAvatarImage,
                 size: avatarSize,
+                isTransparent: appearance.isFullAvatarTransparent,
                 showBorder: false
             )
         } else if let body = appearance.characterBodyShape,
@@ -62,6 +63,7 @@ struct HomeHeroView: View {
             VAvatarImage(
                 image: appearance.fullAvatarImage,
                 size: avatarSize,
+                isTransparent: appearance.isFullAvatarTransparent,
                 showBorder: false
             )
         }

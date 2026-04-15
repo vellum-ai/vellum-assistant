@@ -30,6 +30,12 @@ final class AvatarAppearanceManager {
     /// Cached full-size fallback avatar for larger displays (identity panel, constellation).
     @ObservationIgnored private var cachedFullFallbackAvatar: NSImage?
     @ObservationIgnored private var cachedFullFallbackName: String?
+    /// Cached transparency flags for chat and full avatars.
+    /// Leverages domain knowledge: character avatars are always transparent
+    /// (drawn on a clear canvas), initial-letter avatars are always opaque
+    /// (filled circle). Only custom uploads need actual pixel inspection.
+    @ObservationIgnored private var cachedChatAvatarTransparent: Bool?
+    @ObservationIgnored private var cachedFullAvatarTransparent: Bool?
 
     /// Bundled initial avatar loaded once from Resources.
     private static let bundledInitialAvatar: NSImage? = {
@@ -67,6 +73,24 @@ final class AvatarAppearanceManager {
         cachedFallbackAvatar = avatar
         cachedFallbackName = name
         return avatar
+    }
+
+    /// Whether the chat-size avatar has a transparent background.
+    /// Computed once per image change and cached — safe to read in view bodies.
+    var isChatAvatarTransparent: Bool {
+        if let cached = cachedChatAvatarTransparent { return cached }
+        let result = resolveTransparency(for: chatAvatarImage)
+        cachedChatAvatarTransparent = result
+        return result
+    }
+
+    /// Whether the full-size avatar has a transparent background.
+    /// Computed once per image change and cached — safe to read in view bodies.
+    var isFullAvatarTransparent: Bool {
+        if let cached = cachedFullAvatarTransparent { return cached }
+        let result = resolveTransparency(for: fullAvatarImage)
+        cachedFullAvatarTransparent = result
+        return result
     }
 
     /// Returns the full-size custom avatar for large displays (identity panel, constellation node),
@@ -132,6 +156,8 @@ final class AvatarAppearanceManager {
                 self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil
                 self.cachedFullFallbackName = nil
+                self.cachedChatAvatarTransparent = nil
+                self.cachedFullAvatarTransparent = nil
                 self.updateDockLabel()
             }
         }
@@ -161,16 +187,22 @@ final class AvatarAppearanceManager {
             guard response.isSuccess, !response.data.isEmpty else {
                 if customAvatarImage != nil { customAvatarImage = nil }
                 cachedChatAvatar = nil
+                cachedChatAvatarTransparent = nil
+                cachedFullAvatarTransparent = nil
                 updateDockIcon()
                 return
             }
             cachedChatAvatar = nil
+            cachedChatAvatarTransparent = nil
+            cachedFullAvatarTransparent = nil
             customAvatarImage = NSImage(data: response.data)
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
             if customAvatarImage != nil { customAvatarImage = nil }
             cachedChatAvatar = nil
+            cachedChatAvatarTransparent = nil
+            cachedFullAvatarTransparent = nil
             updateDockIcon()
         }
     }
@@ -189,6 +221,8 @@ final class AvatarAppearanceManager {
                 if characterColor != nil { characterColor = nil }
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
+                cachedChatAvatarTransparent = nil
+                cachedFullAvatarTransparent = nil
                 updateDockIcon()
                 return
             }
@@ -205,6 +239,8 @@ final class AvatarAppearanceManager {
             cachedChatAvatar = nil
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
+            cachedChatAvatarTransparent = nil
+            cachedFullAvatarTransparent = nil
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
@@ -213,6 +249,8 @@ final class AvatarAppearanceManager {
             if characterColor != nil { characterColor = nil }
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
+            cachedChatAvatarTransparent = nil
+            cachedFullAvatarTransparent = nil
             updateDockIcon()
         }
     }
@@ -229,6 +267,8 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        cachedChatAvatarTransparent = nil
+        cachedFullAvatarTransparent = nil
 
         if isCharacter {
             // Character save: set traits, clear the custom image so
@@ -281,6 +321,8 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
+        cachedChatAvatarTransparent = nil
+        cachedFullAvatarTransparent = nil
 
         Task { [weak self] in
             await self?.fetchComponents()
@@ -347,6 +389,8 @@ final class AvatarAppearanceManager {
         cachedFallbackName = nil
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
+        cachedChatAvatarTransparent = nil
+        cachedFullAvatarTransparent = nil
         assistantName = "V"
         updateDockIcon()
         updateDockLabel()
@@ -360,6 +404,8 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        cachedChatAvatarTransparent = nil
+        cachedFullAvatarTransparent = nil
         updateDockIcon()
 
         // Remove files from the assistant's workspace via the gateway.
@@ -531,6 +577,25 @@ final class AvatarAppearanceManager {
             source.draw(in: rect, from: cropRect, operation: .copy, fraction: 1.0)
             return true
         }
+    }
+
+    // MARK: - Transparency Resolution
+
+    /// Determines transparency using domain knowledge when possible,
+    /// falling back to pixel inspection only for custom uploads.
+    private func resolveTransparency(for image: NSImage) -> Bool {
+        // Character avatars are always transparent — the compositor draws
+        // shapes on a clear NSImage canvas with no background fill.
+        if characterBodyShape != nil, characterEyeStyle != nil, characterColor != nil {
+            return true
+        }
+        // Custom uploads need actual pixel inspection.
+        if customAvatarImage != nil {
+            return VAvatarImage.imageHasTransparency(image)
+        }
+        // Bundled logo and initial-letter avatars are always opaque
+        // (filled circle or opaque PNG).
+        return false
     }
 
     // MARK: - Initial Letter Avatar
