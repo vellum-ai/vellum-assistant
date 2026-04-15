@@ -84,7 +84,6 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
@@ -1413,10 +1412,12 @@ export async function handleSendMessage(
     conversationType,
   });
 
+  const smDeps = deps.sendMessageDeps;
+
   // Notify all connected clients that the conversation list changed when a
   // new standard conversation is created so sidebars can refresh.
   if (mapping.created && mapping.conversationType === "standard") {
-    assistantEventHub
+    smDeps.assistantEventHub
       .publish(
         buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
           type: "conversation_list_invalidated",
@@ -1427,8 +1428,6 @@ export async function handleSendMessage(
         log.warn({ err }, "Failed to publish conversation_list_invalidated");
       });
   }
-
-  const smDeps = deps.sendMessageDeps;
 
   // Build transport metadata from the request so the daemon can inject
   // host environment hints (home directory, username) into the LLM context.
