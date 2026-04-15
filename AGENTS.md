@@ -68,6 +68,17 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
+## GitHub Actions Allowlist
+
+This repository uses a **GitHub Actions allowlist** — only pre-approved actions can run in workflows. The allowlist is managed at https://github.com/vellum-ai/vellum-assistant/settings/actions.
+
+When adding or changing a `uses:` step in any `.github/workflows/*.yml` file (e.g. a new action, or bumping an existing action to a new major version), you **must** also add the action to the allowlist. If you don't, CI and release workflows will fail with a permissions error.
+
+**Checklist for workflow changes:**
+1. Before merging, verify every `uses:` reference in your diff is already on the allowlist.
+2. If a new action is needed, request that a repo admin add it at the settings URL above.
+3. Include this in PR descriptions when adding new actions so reviewers know the allowlist needs updating.
+
 ## Keep Docs Up to Date
 
 - **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
