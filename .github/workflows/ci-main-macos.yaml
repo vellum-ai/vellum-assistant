@@ -95,19 +95,6 @@ jobs:
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v5
-        with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
-
       - name: Run tests
         working-directory: clients/macos
         run: ./build.sh test
@@ -201,19 +188,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.9'
-
-      - name: Compute cache week
-        id: week
-        run: echo "num=$(date -u +%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v5
-        with:
-          path: clients/.build
-          key: macos-spm-debug-week${{ steps.week.outputs.num }}-${{ hashFiles('clients/Package.resolved') }}
-          restore-keys: |
-            macos-spm-debug-week${{ steps.week.outputs.num }}-
-            macos-spm-debug-
 
       - name: Compute dev version
         id: version
