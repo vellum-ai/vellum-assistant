@@ -230,10 +230,6 @@ jobs:
         if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
-      - name: Build executable
-        working-directory: clients
-        run: swift build --product vellum-assistant
-
       - name: Configure GitHub auth for SPM binary downloads
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
