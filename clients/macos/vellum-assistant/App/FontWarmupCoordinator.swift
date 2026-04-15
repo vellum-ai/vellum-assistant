@@ -42,10 +42,6 @@ final class FontWarmupCoordinator {
             logger.info("[fontWarmup] prewarm done")
 
             await MainActor.run {
-                // Prewarm NSFontManager-dependent tokens on the main thread.
-                // NSFontManager.shared is an AppKit class that must not be
-                // accessed from a background thread.
-                VFont.prewarmNSFontManagerTokens()
                 self.refreshTypographyStateForReadyFonts()
                 self.markReady()
             }
