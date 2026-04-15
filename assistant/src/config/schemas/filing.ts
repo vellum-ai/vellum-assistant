@@ -24,21 +24,42 @@ export const FilingConfigSchema = z
       .int("filing.activeHoursStart must be an integer")
       .min(0, "filing.activeHoursStart must be >= 0")
       .max(23, "filing.activeHoursStart must be <= 23")
-      .default(8)
-      .describe("Hour of the day (0-23) when filing runs begin"),
+      .nullable()
+      .default(null)
+      .describe(
+        "Hour of the day (0-23) when filing runs begin, or null to disable active hours restriction",
+      ),
     activeHoursEnd: z
       .number({ error: "filing.activeHoursEnd must be a number" })
       .int("filing.activeHoursEnd must be an integer")
       .min(0, "filing.activeHoursEnd must be >= 0")
       .max(23, "filing.activeHoursEnd must be <= 23")
-      .default(22)
-      .describe("Hour of the day (0-23) when filing runs stop"),
+      .nullable()
+      .default(null)
+      .describe(
+        "Hour of the day (0-23) when filing runs stop, or null to disable active hours restriction",
+      ),
   })
   .describe(
     "Periodic PKB (personal knowledge base) filing — processes the buffer into topic files and maintains knowledge organization",
   )
   .superRefine((config, ctx) => {
-    if (config.activeHoursStart === config.activeHoursEnd) {
+    const startNull = config.activeHoursStart == null;
+    const endNull = config.activeHoursEnd == null;
+    if (startNull !== endNull) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
+        message:
+          "filing.activeHoursStart and filing.activeHoursEnd must both be set or both be null",
+      });
+      return;
+    }
+    if (
+      config.activeHoursStart != null &&
+      config.activeHoursEnd != null &&
+      config.activeHoursStart === config.activeHoursEnd
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["activeHoursEnd"],
