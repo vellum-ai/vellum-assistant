@@ -7,8 +7,13 @@ import { API_KEY_PROVIDERS } from "../provider-secret-catalog.js";
 // ---------------------------------------------------------------------------
 
 describe("API_KEY_PROVIDERS", () => {
-  test("includes deepgram (STT catalog-derived)", () => {
+  test("includes deepgram (shared by STT and TTS catalogs)", () => {
     expect(API_KEY_PROVIDERS).toContain("deepgram");
+  });
+
+  test("includes deepgram exactly once despite appearing in both STT and TTS catalogs", () => {
+    const occurrences = API_KEY_PROVIDERS.filter((p) => p === "deepgram");
+    expect(occurrences.length).toBe(1);
   });
 
   test("includes openai exactly once (shared by LLM and STT)", () => {

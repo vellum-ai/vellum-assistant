@@ -10,6 +10,7 @@
  */
 
 import type { TtsProvider, TtsProviderId } from "../types.js";
+import { createDeepgramProvider } from "./deepgram-provider.js";
 import { createElevenLabsProvider } from "./elevenlabs-provider.js";
 import { createFishAudioProvider } from "./fish-audio-provider.js";
 
@@ -37,4 +38,5 @@ export const providerFactories: ReadonlyMap<TtsProviderId, TtsProviderFactory> =
   new Map<TtsProviderId, TtsProviderFactory>([
     ["elevenlabs", createElevenLabsProvider],
     ["fish-audio", createFishAudioProvider],
+    ["deepgram", createDeepgramProvider],
   ]);

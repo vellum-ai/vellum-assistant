@@ -125,6 +125,22 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       },
     ],
   },
+  {
+    id: "deepgram",
+    displayName: "Deepgram",
+    callMode: "synthesized-play",
+    capabilities: {
+      supportsStreaming: false,
+      supportedFormats: ["mp3", "wav", "opus"],
+    },
+    secretRequirements: [
+      {
+        credentialStoreKey: "deepgram",
+        displayName: "Deepgram API Key",
+        setCommand: "assistant keys set deepgram <key>",
+      },
+    ],
+  },
 ] as const;
 
 /** Index for O(1) lookup by provider ID. */

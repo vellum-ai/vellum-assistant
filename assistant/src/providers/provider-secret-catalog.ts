@@ -73,21 +73,27 @@ function sttApiKeyProviderNames(): string[] {
 const CREDENTIAL_KEY_PREFIX = "credential/";
 
 /**
- * Derive the set of TTS provider IDs that use the `api_key` secret type
- * by inspecting the catalog's secret requirements.
+ * Derive the set of TTS bare-name credential store keys that use the
+ * `api_key` secret type by inspecting the catalog's secret requirements.
  *
- * A TTS provider is considered API-key-addressable when it declares at
- * least one secret whose `credentialStoreKey` is a bare name (i.e. does
- * NOT start with the `credential/` prefix).
+ * A TTS provider entry is API-key-addressable when it declares at least
+ * one secret whose `credentialStoreKey` is a bare name (i.e. does NOT
+ * start with the `credential/` prefix). The bare key name is returned
+ * rather than the provider ID because the key name is what appears in
+ * the credential store (e.g. `deepgram` not `deepgram-tts`).
  */
-function catalogApiKeyProviderIds(): string[] {
+function catalogApiKeyNames(): string[] {
   return listCatalogProviders()
     .filter((entry) =>
       entry.secretRequirements.some(
         (s) => !s.credentialStoreKey.startsWith(CREDENTIAL_KEY_PREFIX),
       ),
     )
-    .map((entry) => entry.id);
+    .flatMap((entry) =>
+      entry.secretRequirements
+        .filter((s) => !s.credentialStoreKey.startsWith(CREDENTIAL_KEY_PREFIX))
+        .map((s) => s.credentialStoreKey),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -108,12 +114,26 @@ function catalogApiKeyProviderIds(): string[] {
  * requirement automatically includes it here. Adding a new STT
  * provider to the STT catalog automatically includes it here (shared
  * credential names like `openai` are deduplicated against the LLM
- * list). Adding a new LLM or search provider requires appending to
+ * list). Shared credential names across STT and TTS (e.g. `deepgram`)
+ * are deduplicated so the list contains no duplicates. Adding a new
+ * LLM or search provider requires appending to
  * {@link LLM_AND_SEARCH_API_KEY_PROVIDERS} until those domains get
  * their own catalog modules.
  */
-export const API_KEY_PROVIDERS: readonly string[] = [
-  ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
-  ...sttApiKeyProviderNames(),
-  ...catalogApiKeyProviderIds(),
-] as const;
+export const API_KEY_PROVIDERS: readonly string[] = (() => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const name of [
+    ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
+    ...sttApiKeyProviderNames(),
+    ...catalogApiKeyNames(),
+  ]) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      result.push(name);
+    }
+  }
+
+  return result;
+})();
