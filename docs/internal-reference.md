@@ -746,11 +746,11 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 
 **Provider support matrix:**
 
-| Provider        | `conversationStreamingMode` | Streaming adapter | Batch fallback |
-| --------------- | --------------------------- | ----------------- | -------------- |
-| `deepgram`      | `realtime-ws`               | Yes               | Yes            |
-| `google-gemini` | `incremental-batch`         | Yes               | Yes            |
-| `openai-whisper` | `incremental-batch`        | Yes               | Yes            |
+| Provider         | `conversationStreamingMode` | Streaming adapter | Batch fallback |
+| ---------------- | --------------------------- | ----------------- | -------------- |
+| `deepgram`       | `realtime-ws`               | Yes               | Yes            |
+| `google-gemini`  | `realtime-ws`               | Yes               | Yes            |
+| `openai-whisper` | `incremental-batch`         | Yes               | Yes            |
 
 ### Debugging Stream Sessions
 
@@ -801,7 +801,7 @@ The daemon session orchestrator (`stt-stream-session.ts`, logger: `stt-stream-se
 - `"Deepgram realtime connect timeout"` -- WebSocket did not open within 10 seconds.
 - `"Deepgram realtime close grace timeout"` -- provider did not close within 5 seconds after `CloseStream`.
 
-**Google Gemini (`google-gemini-stream`):** This adapter does not have its own logger category (uses default module-level logging). Key indicators are `error` events with `category: "provider-error"` in the session event stream. Poll errors during active streaming are non-fatal (logged as transient); only the final batch request on `stop()` is critical.
+**Google Gemini (`google-gemini-live-stream`):** Live API adapter emitting under the `google-gemini-live-stream` logger category. Key messages: `"Opening Gemini Live session"`, `"Gemini Live session opened"`, `"Stopping Gemini Live session"`, `"Gemini Live session closed normally"`, `"Gemini Live session closed unexpectedly"` with `code`/`reason`, `"Gemini Live inactivity timeout"`, `"Gemini Live connect timeout"`, `"Gemini Live close grace timeout"`. Errors are surfaced as `error` events with category `auth` (close codes 1008/4001), `rate-limit` (1013), `timeout` (inactivity), or `provider-error` (everything else).
 
 ### Log Anchors
 
@@ -846,19 +846,21 @@ Daemon: WS close 1000
 **Successful session (Google Gemini):**
 
 ```
-Client -> Gateway: WSS upgrade with ?provider=google-gemini&mimeType=audio/webm
+Client -> Gateway: WSS upgrade with ?provider=google-gemini&mimeType=audio/pcm
 Gateway -> Daemon: WS upgrade to /v1/stt/stream with service token
-Daemon: resolveStreamingTranscriber() -> GoogleGeminiStreamingTranscriber
+Daemon: resolveStreamingTranscriber() -> GoogleGeminiLiveStreamingTranscriber
+Daemon -> Gemini Live API: ai.live.connect (WebSocket)
+Gemini Live API -> Daemon: onopen
 Daemon -> Client: {"type":"ready","provider":"google-gemini"}
-Client -> Daemon: binary audio frames
-Daemon: (accumulates audio, polls Gemini API every ~1 second)
-Daemon -> Gemini API: POST models.generateContent (full accumulated audio)
-Gemini API -> Daemon: transcript text
+Client -> Daemon: binary PCM audio frames
+Daemon -> Gemini Live API: session.sendRealtimeInput({audio: ...})
+Gemini Live API -> Daemon: serverContent.inputTranscription.text "hello world"
 Daemon -> Client: {"type":"partial","text":"hello world","seq":0}
+Gemini Live API -> Daemon: serverContent.generationComplete (or turnComplete)
+Daemon -> Client: {"type":"final","text":"hello world","seq":1}
 Client -> Daemon: {"type":"stop"}
-Daemon -> Gemini API: POST models.generateContent (final complete audio)
-Gemini API -> Daemon: final transcript text
-Daemon -> Client: {"type":"final","text":"hello world how are you","seq":1}
+Daemon -> Gemini Live API: session.sendRealtimeInput({audioStreamEnd: true})
+Gemini Live API -> Daemon: WS close 1000
 Daemon -> Client: {"type":"closed","seq":2}
 Daemon: WS close 1000
 ```
@@ -900,7 +902,8 @@ Client: Falls back to batch STT on recording stop
 | `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
 | Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
 | Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
-| Slow partials (Google Gemini / OpenAI Whisper) | Expected: incremental-batch polls every ~1 second | This is by design; both providers use incremental-batch mode. Reduce poll interval only for testing via stream options |
+| Slow partials (OpenAI Whisper) | Expected: incremental-batch polls every ~1 second | This is by design for Whisper's incremental-batch mode. Reduce poll interval only for testing via stream options |
+| Partials but no final (Google Gemini) | Gemini Live session closed before turn completed | Check for `"Gemini Live session closed unexpectedly"` or `"Gemini Live inactivity timeout"` in daemon logs |
 | Idle timeout after 60 seconds | Client stopped sending audio without sending `stop` event | Check client-side audio pipeline; ensure `stop` event is sent on recording end |
 | Buffer overflow (gateway) | Upstream daemon connection slow to establish; client sending audio too fast | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time |
 | Empty final transcript | Audio too short, no speech detected, or provider returned empty | Check audio format (mimeType, sampleRate); try with known-good audio |
@@ -912,7 +915,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 **macOS conversation chat capture:**
 
 - [ ] Configure `services.stt.provider` to `deepgram`. Record a conversation message. Verify partial transcripts appear in real time in the chat composer. Verify the final transcript matches spoken audio.
-- [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency). Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear in real time via Gemini Live. Verify the final transcript matches spoken audio.
 - [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency, incremental-batch mode). Verify the final transcript matches spoken audio.
 - [ ] With `deepgram` configured, simulate a network disconnect mid-recording (e.g. disable WiFi). Verify the client falls back to batch STT and produces a final transcript.
 - [ ] With `deepgram` configured, remove the Deepgram API key. Start a recording. Verify the session fails gracefully and batch STT is used.
@@ -921,7 +924,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 **iOS conversation chat capture:**
 
 - [ ] Configure `services.stt.provider` to `deepgram`. Record via the input bar. Verify streaming partials update the text field. Verify the final transcript is committed via `onVoiceResult`.
-- [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
+- [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify real-time partials appear via Gemini Live. Verify the final transcript is committed.
 - [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
 - [ ] Simulate streaming failure (e.g. bad API key). Verify `resolveTranscriptWithServiceFirst()` fires and batch STT produces a result.
 - [ ] Verify auto-stop coordination: when auto-stop fires and streaming is active, verify the streaming final takes precedence. When streaming has closed/failed before auto-stop, verify batch fallback is triggered.

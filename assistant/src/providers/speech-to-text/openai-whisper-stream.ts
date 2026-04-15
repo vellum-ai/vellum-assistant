@@ -25,7 +25,7 @@
  *
  * Implements the {@link StreamingTranscriber} contract from `stt/types.ts`
  * so the runtime session orchestrator can use it interchangeably with the
- * Deepgram realtime-ws adapter and the Google Gemini incremental-batch adapter.
+ * Deepgram realtime-ws and Google Gemini Live API adapters.
  */
 
 import type {
