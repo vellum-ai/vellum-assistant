@@ -51,18 +51,19 @@ jobs:
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.event.workflow_run.id }}"
 
-          # Check that the push-dev-image job in the triggering workflow
-          # actually succeeded (not just the workflow overall, which can
-          # report success even when push-dev-image has continue-on-error).
-          # Job display names include a service suffix, e.g. "Push Dev Image (Assistant)".
-          PUSH_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
-            --jq '[.jobs[] | select(.name | startswith("Push Dev Image")) | .conclusion] | first')
+          # Check that the push-dev-manifest job in the triggering workflow
+          # succeeded. This confirms both platform builds and the manifest
+          # merge completed (not just the workflow overall, which can report
+          # success even when push jobs have continue-on-error).
+          # Job display names include a service suffix, e.g. "Push Dev Manifest (Assistant)".
+          MANIFEST_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            --jq '[.jobs[] | select(.name | startswith("Push Dev Manifest")) | .conclusion] | first')
 
-          if [ "$PUSH_CONCLUSION" != "success" ]; then
-            echo "::warning::push-dev-image job did not succeed (conclusion: ${PUSH_CONCLUSION:-not found}). Skipping registration."
+          if [ "$MANIFEST_CONCLUSION" != "success" ]; then
+            echo "::warning::push-dev-manifest job did not succeed (conclusion: ${MANIFEST_CONCLUSION:-not found}). Skipping registration."
             exit 1
           fi
-          echo "✓ push-dev-image succeeded for ${{ github.event.workflow_run.name }}"
+          echo "✓ push-dev-manifest succeeded for ${{ github.event.workflow_run.name }}"
 
       - name: Generate GitHub App token
         id: app-token
@@ -97,7 +98,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Get the latest release tag to use as the base version
-          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p')
+          # Filter to clean semver tags only (exclude pre-release like v0.6.4-staging.3)
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '1p')
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
           fi
