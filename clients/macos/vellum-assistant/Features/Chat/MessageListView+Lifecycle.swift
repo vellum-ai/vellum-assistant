@@ -35,9 +35,6 @@ extension MessageListView {
         // Handle pending anchor if already set.
         if let id = anchorMessageId,
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
-            // Deep-link anchor found — cancel any restore so it isn't overridden.
-            scrollState.switchRestoreTask?.cancel()
-            scrollState.switchRestoreTask = nil
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
             $scrollPosition.wrappedValue.scrollTo(id: displayId, anchor: .center)
@@ -45,10 +42,6 @@ extension MessageListView {
             anchorMessageId = nil
             scrollState.anchorSetTime = nil
         } else if anchorMessageId != nil {
-            // Anchor pending but not yet found — cancel restore so deep-link
-            // anchors aren't overridden by the bottom-scroll restore.
-            scrollState.switchRestoreTask?.cancel()
-            scrollState.switchRestoreTask = nil
             os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
             if scrollState.anchorSetTime == nil { scrollState.anchorSetTime = Date() }
             // Start the independent timeout if not already running.
@@ -65,25 +58,6 @@ extension MessageListView {
                     scrollState.anchorTimeoutTask = nil
                 }
             }
-        } else if !isConversationSwitch {
-            // First mount (no prior conversationId, no anchor) — also needs
-            // multi-stage scroll since the first conversation load must land
-            // at the bottom, same as a switch.
-            scrollState.switchRestoreTask?.cancel()
-            let scrollBinding = $scrollPosition
-            scrollState.switchRestoreTask = Task { @MainActor in
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                guard !Task.isCancelled else { return }
-                scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-                scrollState.switchRestoreTask = nil
-            }
         }
     }
 
@@ -92,18 +66,7 @@ extension MessageListView {
     func handleSendingChanged() {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
-        if isSending {
-            // Only scroll on genuine user sends, not confirmation resumes.
-            // When the daemon resumes from awaiting_confirmation, isSending
-            // flips true but no new user message was sent — scrolling would
-            // jump the viewport to an older user message.
-            let isConfirmationResume = scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
-            if !isConfirmationResume {
-                if let userMessage = messages.last(where: { $0.role == .user }) {
-                    scrollState.pendingSendScrollMessageId = userMessage.id
-                }
-            }
-        } else {
+        if !isSending {
             // Capture the activity phase at the moment sending stops.
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
             // First-message detection.
@@ -147,38 +110,9 @@ extension MessageListView {
                 return
             }
         }
-        // --- Safety net: detect new user message added before isSending onChange fired ---
-        // MessageSendCoordinator appends the user message and calls flushCoalescedPublish()
-        // before setting isSending = true, so messages.count can change first.
-        // Must run before lastMessageId is updated so we can detect the change.
-        if scrollState.pendingSendScrollMessageId == nil {
-            if let lastUser = paginatedVisibleMessages.last(where: { $0.role == .user }),
-               scrollState.lastMessageId != nil,
-               lastUser.id != scrollState.lastMessageId,
-               paginatedVisibleMessages.last?.id != scrollState.lastMessageId {
-                scrollState.pendingSendScrollMessageId = lastUser.id
-            }
-        }
         // --- Update lastMessageId ---
         if let lastId = paginatedVisibleMessages.last?.id {
             scrollState.lastMessageId = lastId
-        }
-        // --- Scroll to bottom on send ---
-        // After the user message appears and the thinking indicator shows,
-        // scroll to bottom. The thinking indicator's minHeight wrapper
-        // naturally pins the user message to the top of the viewport.
-        // Deferred by one run-loop tick so SwiftUI lays out the new cell
-        // before the scroll fires — otherwise the scroll targets the old
-        // content bottom and the user message appears off-screen.
-        if scrollState.pendingSendScrollMessageId != nil,
-           paginatedVisibleMessages.contains(where: { $0.id == scrollState.pendingSendScrollMessageId }) {
-            let scrollBinding = $scrollPosition
-            scrollState.pendingSendScrollMessageId = nil
-            Task { @MainActor in
-                withAnimation(VAnimation.standard) {
-                    scrollBinding.wrappedValue.scrollTo(edge: .bottom)
-                }
-            }
         }
         // --- Confirmation focus handoff ---
         #if os(macOS)
@@ -218,29 +152,9 @@ extension MessageListView {
         scrollState.anchorTimeoutTask = nil
         scrollState.lastAutoFocusedRequestId = nil
         // Seed lastMessageId so scroll-to-bottom can target it.
+        // With inverted scroll, the latest messages appear at the visual
+        // bottom naturally — no imperative scroll needed.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
-        // Multi-stage scroll-to-bottom: gives LazyVStack time to materialize
-        // bottom cells across multiple layout passes. Targets "scroll-bottom-anchor"
-        // (a real Color.clear view at the absolute content bottom) instead of a
-        // message ID, avoiding height estimation errors from unmaterialized cells.
-        scrollState.switchRestoreTask?.cancel()
-        let scrollBinding = $scrollPosition
-        scrollState.switchRestoreTask = Task { @MainActor in
-            // Stage 0: immediate — catches conversations already laid out
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-            // Stage 1: ~3 frames (50ms) — LazyVStack initial materialization
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-            // Stage 2: slower content (150ms) — final correction
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-
-            scrollState.switchRestoreTask = nil
-        }
     }
 
     func handleAnchorMessageTask() async {

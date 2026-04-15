@@ -191,7 +191,6 @@ final class MessageListScrollStateTests: XCTestCase {
         state.lastContentOffsetY = 2000
         state.lastMessageId = UUID()
         state.currentConversationId = UUID()
-        state.pendingSendScrollMessageId = UUID()
         state.wasPaginationTriggerInRange = true
         state.lastPaginationCompletedAt = Date()
         state.updateScrollToLatest()
@@ -202,7 +201,6 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertEqual(state.currentConversationId, newId)
         XCTAssertNil(state.lastMessageId)
-        XCTAssertNil(state.pendingSendScrollMessageId)
         XCTAssertEqual(state.scrollContentHeight, 0)
         XCTAssertEqual(state.scrollContainerHeight, 0)
         XCTAssertEqual(state.lastContentOffsetY, 0)

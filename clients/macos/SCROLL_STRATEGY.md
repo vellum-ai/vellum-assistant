@@ -26,7 +26,6 @@ An `@Observable @MainActor` class with **no modes, no transitions, no recovery**
 
 - **Geometry:** `scrollContentHeight`, `scrollContainerHeight`, `lastContentOffsetY`, `viewportHeight`
 - **CTA visibility:** `showScrollToLatest` (driven by `distanceFromBottom > 400`)
-- **Send scroll:** `pendingSendScrollMessageId: UUID?` — set when user sends, cleared after scroll fires
 - **Pagination:** `wasPaginationTriggerInRange`, `lastPaginationCompletedAt` (rising-edge + 500ms cooldown)
 - **Deep-link anchor:** `anchorSetTime`, `anchorTimeoutTask`
 - **Scroll indicators:** `scrollIndicatorsHidden` (briefly hidden on conversation switch)
@@ -58,57 +57,19 @@ Both share the same `.if(row.isLatestAssistant ...)` minHeight wrapper — one c
 
 ---
 
-## The Send-Scroll Flow (Critical Path)
+## The Send Flow
 
-This is the most important interaction. When the user sends a message:
+With inverted scroll (`.flipped()`), new content naturally appears at the visual bottom. No imperative scroll-to-bottom is needed when the user sends a message.
 
 ### Step 1: Message appended
 `MessageSendCoordinator` appends the user message to `messages` and calls `flushCoalescedPublish()`. Then sets `isSending = true`.
 
-### Step 2: Detect new message
-`handleMessagesCountChanged()` fires (may fire before or after `handleSendingChanged`).
-
-**Safety net:** If `pendingSendScrollMessageId` is nil and a new user message appeared, set it:
-```swift
-if scrollState.pendingSendScrollMessageId == nil {
-    if let lastUser = paginatedVisibleMessages.last(where: { $0.role == .user }),
-       scrollState.lastMessageId != nil,
-       lastUser.id != scrollState.lastMessageId,
-       paginatedVisibleMessages.last?.id != scrollState.lastMessageId {
-        scrollState.pendingSendScrollMessageId = lastUser.id
-    }
-}
-```
-
-**Also:** `handleSendingChanged()` sets the ID when `isSending` becomes true (unless it's a confirmation resume).
-
-### Step 3: Scroll to bottom (deferred)
-Once the user message is in `paginatedVisibleMessages`:
-```swift
-if scrollState.pendingSendScrollMessageId != nil,
-   paginatedVisibleMessages.contains(where: { $0.id == scrollState.pendingSendScrollMessageId }) {
-    let scrollBinding = $scrollPosition
-    scrollState.pendingSendScrollMessageId = nil
-    Task { @MainActor in
-        withAnimation(VAnimation.standard) {
-            scrollBinding.wrappedValue.scrollTo(edge: .bottom)
-        }
-    }
-}
-```
-
-**Why deferred:** `Task { @MainActor in }` gives SwiftUI one run-loop tick to lay out the new cell in the LazyVStack before the scroll fires. Without this, the scroll targets the old content bottom and the user message appears off-screen.
-
-**Why `.scrollTo(edge: .bottom)`:** The imperative method animates correctly. Value replacement (`ScrollPosition(edge: .bottom)`) doesn't animate.
-
-**Why `VAnimation.standard`:** 0.25s easeInOut. Fast enough to feel responsive, slow enough to be smooth.
-
-### Step 4: MinHeight pins user message to top
-The thinking placeholder (or assistant message) has a minHeight wrapper:
+### Step 2: Content appears at bottom
+The inverted ScrollView adds new content at the visual bottom naturally. The thinking placeholder (or assistant message) has a minHeight wrapper:
 ```swift
 .frame(minHeight: turnMinHeight, alignment: .top)
 ```
-This fills the viewport below the user message, so after scroll-to-bottom the user message naturally sits at the top.
+This fills the viewport below the user message, so the user message naturally sits at the top.
 
 ---
 
