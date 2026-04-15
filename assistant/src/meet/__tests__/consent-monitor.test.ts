@@ -141,6 +141,21 @@ function inboundChat(
   };
 }
 
+function participantChange(
+  meetingId: string,
+  timestamp: string,
+  joined: Array<{ id: string; name: string; isSelf?: boolean }>,
+  left: Array<{ id: string; name: string; isSelf?: boolean }> = [],
+): MeetBotEvent {
+  return {
+    type: "participant.change",
+    meetingId,
+    timestamp,
+    joined,
+    left,
+  };
+}
+
 async function flushPromises(): Promise<void> {
   for (let i = 0; i < 3; i++) await Promise.resolve();
 }
@@ -440,6 +455,271 @@ describe("MeetConsentMonitor timer tick", () => {
     timer.fire();
     await flushPromises();
     expect(llm).toHaveBeenCalledTimes(0);
+
+    monitor.stop();
+  });
+});
+
+describe("MeetConsentMonitor content-watermark tick skip", () => {
+  test("silent meeting after one early chunk: only the first tick fires LLM", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        // Phrase that won't keyword-match — only the tick can escalate.
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Content arrives once before any timer fires.
+    t = 1_000;
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "morning everyone, lets get started",
+        { speakerLabel: "Alice", speakerId: "alice" },
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(0);
+
+    // Tick #1: content advanced since the (null) watermark → fires.
+    t = 20_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Tick #2: silent stretch — content watermark unchanged → skipped.
+    t = 40_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Tick #3: still silent — still skipped.
+    t = 60_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    monitor.stop();
+  });
+
+  test("active meeting with new content every tick: every tick fires LLM", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        // No keyword match — exercise only the tick path.
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Three ticks, each preceded by a fresh transcript chunk ~10s in.
+    for (let tickIndex = 1; tickIndex <= 3; tickIndex++) {
+      t = (tickIndex - 1) * 20_000 + 10_000;
+      dispatcher.dispatch(
+        "m1",
+        transcriptChunk(
+          "m1",
+          new Date(t).toISOString(),
+          `something interesting ${tickIndex}`,
+          { speakerLabel: "Alice", speakerId: "alice" },
+        ),
+      );
+      await flushPromises();
+
+      t = tickIndex * 20_000;
+      timer.fire();
+      await flushPromises();
+
+      expect(llm).toHaveBeenCalledTimes(tickIndex);
+    }
+
+    monitor.stop();
+  });
+
+  test("participant join: next tick fires LLM even if joiner has not spoken", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Seed prior content + tick so the watermark catches up.
+    t = 1_000;
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "kicking things off",
+        { speakerLabel: "Alice", speakerId: "alice" },
+      ),
+    );
+    await flushPromises();
+
+    t = 20_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Next tick with no new content would normally be skipped …
+    t = 40_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // … but a participant joining advances the watermark even though
+    // they haven't said anything yet.
+    t = 50_000;
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:50.000Z", [
+        { id: "bob", name: "Bob" },
+      ]),
+    );
+    await flushPromises();
+
+    t = 60_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(2);
+
+    monitor.stop();
+  });
+
+  test("regression: keyword hit still fires LLM regardless of watermark", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // First keyword hit: fires LLM (1).
+    t = 1_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "actually please leave the call",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Tick after the keyword path runs: keyword path does NOT advance the
+    // watermark, so content is "newer" than the tick watermark → tick fires
+    // a second LLM call. This is the deliberate semantic in the plan
+    // ("keyword path unchanged"); a tick still re-examines the buffer.
+    t = 20_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(2);
+
+    // Now no new content. Next tick is skipped by the watermark check.
+    t = 40_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(2);
+
+    // A second keyword hit (different text so dedupe doesn't swallow it)
+    // ALWAYS fires the LLM regardless of the watermark.
+    t = 45_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:45.000Z",
+        "really, please leave now",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(3);
 
     monitor.stop();
   });
