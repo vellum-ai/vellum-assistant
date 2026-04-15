@@ -48,9 +48,22 @@ extension MainWindowView {
     }
 
     /// All non-schedule/non-background conversations for the collapsed sidebar switcher.
-    /// Flat count regardless of custom group membership.
+    /// Flat count regardless of custom group membership. Excludes auto-analysis
+    /// conversations, which live in the dedicated "Reflections" section.
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation && !$0.isChannelConversation }
+        conversationManager.visibleConversations.filter {
+            !$0.isScheduleConversation
+                && !$0.isBackgroundConversation
+                && !$0.isChannelConversation
+                && !$0.isAutoAnalysisConversation
+        }
+    }
+
+    /// Presentation split between the main conversation sections and the
+    /// "Reflections" section (auto-analysis conversations). Computed once
+    /// per render so both the filtered groups and the reflections list agree.
+    var reflectionsPresentation: ReflectionsSidebarPresentation {
+        ReflectionsSidebarPresentation(conversations: conversationManager.visibleConversations)
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
@@ -315,7 +328,15 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let groupEntries = conversationManager.sidebarGroupEntries
+            // Strip auto-analysis conversations from every main section — they
+            // render separately under the Reflections section below.
+            let groupEntries = conversationManager.sidebarGroupEntries.map { entry in
+                SidebarGroupEntry(
+                    id: entry.id,
+                    group: entry.group,
+                    conversations: entry.conversations.filter { !$0.isAutoAnalysisConversation }
+                )
+            }
             let systemEntries = groupEntries.filter { $0.group.isSystemGroup }
             let customEntries = groupEntries.filter { !$0.group.isSystemGroup }
 
@@ -329,6 +350,25 @@ extension MainWindowView {
                 ForEach(customEntries) { entry in
                     makeSectionView(group: entry.group, conversations: entry.conversations)
                 }
+            }
+
+            // Reflections section — rendered beneath the main conversation
+            // groups when any auto-analysis conversations exist. When the
+            // `auto-analyze` assistant flag is off, the backend never emits
+            // `source == "auto-analysis"`, so this section stays hidden and
+            // the sidebar looks identical to its pre-feature state.
+            let reflections = reflectionsPresentation.reflections
+            if !reflections.isEmpty {
+                SidebarReflectionsSection(
+                    conversations: reflections,
+                    isExpanded: sidebar.expandedSections.contains(ReflectionsSidebarSectionId.id),
+                    showAll: sidebar.showAllInSection.contains(ReflectionsSidebarSectionId.id),
+                    maxCollapsed: 5,
+                    selectedConversationId: conversationManager.activeConversationId,
+                    onToggleExpand: { sidebar.toggleSection(ReflectionsSidebarSectionId.id) },
+                    onToggleShowAll: { sidebar.toggleShowAll(ReflectionsSidebarSectionId.id) },
+                    makeRow: { makeSidebarRow(conversation: $0) }
+                )
             }
 
             // Pagination fallback sentinel: when every section fits within its

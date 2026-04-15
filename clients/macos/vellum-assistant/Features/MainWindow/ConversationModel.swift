@@ -91,6 +91,13 @@ struct ConversationModel: Identifiable, Hashable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
+    /// Whether this conversation was produced by the auto-analysis loop.
+    /// Auto-analysis conversations are rendered in the dedicated "Reflections"
+    /// sidebar section and filtered out of the main conversation list.
+    var isAutoAnalysisConversation: Bool {
+        source == "auto-analysis"
+    }
+
     /// Whether this conversation is automated (heartbeat, schedule, background/task)
     /// and should never show unread indicators. Per Apple HIG, badges and unread
     /// indicators should only reflect content requiring user attention — system-generated

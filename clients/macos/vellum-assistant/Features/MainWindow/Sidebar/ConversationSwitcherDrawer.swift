@@ -20,16 +20,19 @@ struct ConversationSwitcherDrawer: View {
     @State private var expandedSubGroups: Set<String> = []
 
     /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
+    /// Auto-analysis conversations are stripped from every entry here — they render
+    /// separately in the dedicated "Reflections" section at the bottom of the drawer.
     private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
         let raw = conversationManager.groupedConversations
         var entries: [(group: ConversationGroup, conversations: [ConversationModel])] = []
         var extraForAll: [ConversationModel] = []
         for entry in raw {
             guard let group = entry.group else { continue }
+            let filtered = entry.conversations.filter { !$0.isAutoAnalysisConversation }
             if !group.isSystemGroup && !customGroupsEnabled {
-                extraForAll.append(contentsOf: entry.conversations)
+                extraForAll.append(contentsOf: filtered)
             } else {
-                entries.append((group: group, conversations: entry.conversations))
+                entries.append((group: group, conversations: filtered))
             }
         }
         // Merge extra conversations into the system:all entry
@@ -43,6 +46,14 @@ struct ConversationSwitcherDrawer: View {
             }
         }
         return entries
+    }
+
+    /// Auto-analysis conversations collected across every visible group, sorted
+    /// by recency. Rendered in a dedicated "Reflections" drawer section when
+    /// non-empty; hidden otherwise so the drawer matches its pre-feature shape.
+    private var drawerReflections: [ConversationModel] {
+        let all = conversationManager.groupedConversations.flatMap { $0.conversations }
+        return ReflectionsSidebarPresentation(conversations: all).reflections
     }
     /// Measured content height for size-to-fit behavior.
     @State private var contentHeight: CGFloat = 0
@@ -123,6 +134,25 @@ struct ConversationSwitcherDrawer: View {
                             title: entry.group.name,
                             conversations: entry.conversations,
                             isExpanded: isExpanded
+                        )
+                    }
+
+                    // Reflections section — only rendered when auto-analysis
+                    // conversations exist. Treated as a synthetic section with
+                    // the same drawer section affordances (title row, count,
+                    // expand/collapse, show more) as a regular group.
+                    let reflections = drawerReflections
+                    if !reflections.isEmpty {
+                        if !nonEmptyEntries.isEmpty {
+                            VMenuDivider()
+                        }
+                        let sectionId = ReflectionsSidebarSectionId.id
+                        sectionContent(
+                            sectionId: sectionId,
+                            group: ConversationGroup.reflectionsSection,
+                            title: "Reflections",
+                            conversations: reflections,
+                            isExpanded: expandedSections.contains(sectionId)
                         )
                     }
                 }

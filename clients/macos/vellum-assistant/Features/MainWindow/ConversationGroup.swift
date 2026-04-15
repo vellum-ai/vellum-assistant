@@ -20,6 +20,13 @@ struct ConversationGroup: Identifiable, Hashable, Codable, Sendable {
     static let all = ConversationGroup(
         id: "system:all", name: "Recents", sortPosition: 3, isSystemGroup: true
     )
+    /// Synthetic group used by the conversation-switcher drawer to render the
+    /// Reflections section with the same section header / count / expand
+    /// affordances as a real group. Not returned by the daemon; does not
+    /// appear in the main sidebar group list.
+    static let reflectionsSection = ConversationGroup(
+        id: ReflectionsSidebarSectionId.id, name: "Reflections", sortPosition: 4, isSystemGroup: true
+    )
 
     init(id: String, name: String, sortPosition: Double, isSystemGroup: Bool) {
         self.id = id
