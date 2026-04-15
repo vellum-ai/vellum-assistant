@@ -71,3 +71,89 @@ against a live Meet session. The refresh procedure:
    best-guesses. Update the selector constant, re-run the test, and commit
    the combined fixture-plus-selector refresh in a single PR so the diff is
    reviewable as one unit.
+
+## Manual end-to-end verification against a real Meet call
+
+The automated test suite stubs Docker, Deepgram, and the browser — it can't
+catch regressions that only show up against a live Meet UI, a real container
+runtime, or live ASR. Before cutting a release that touches the meet
+subsystem, run this manual verification loop.
+
+### Prerequisites
+
+- Docker Desktop running on the host (the assistant uses the Docker Engine
+  socket at `/var/run/docker.sock`).
+- The `vellum-meet-bot:dev` image built locally:
+  ```bash
+  bash scripts/build-meet-bot-image.sh
+  ```
+- A Deepgram API key configured via the assistant credential store (the
+  session manager looks it up by provider name `"deepgram"`).
+- The `meet` feature flag enabled. Either:
+  - **Local override** — set `meet` to `true` in
+    `~/.vellum/workspace/config.json` under the assistant feature flags
+    block, OR
+  - **LaunchDarkly** — flip the `meet` flag on for your platform user.
+- A throwaway Google Meet URL with at least one other human participant so
+  you can watch the bot behavior live.
+
+### Procedure
+
+1. **Ask the assistant to join.** From any conversation in the Vellum
+   macOS app:
+   ```
+   meet_join https://meet.google.com/xxx-yyyy-zzz
+   ```
+   The assistant should respond with the session descriptor (meetingId,
+   container id, bot base URL).
+2. **Observe the bot join.** Expected behavior within ~30 seconds:
+   - A new participant with the assistant's configured display name
+     appears in the Meet participant list.
+   - The bot posts the consent message in Meet chat (the string from
+     `services.meet.consentMessage` with `{assistantName}` substituted).
+   - Live transcripts of human participants start appearing in the Vellum
+     conversation, each prefixed with `[<SpeakerName>]: <text>`.
+3. **Verify SSE events in the macOS client.** The "In meeting" status panel
+   should reflect live participant and speaker changes as people join,
+   leave, or speak.
+4. **Exercise the auto-leave path.** Ask another participant to type
+   `please leave` (or any of the configured `objectionKeywords`) in Meet
+   chat. Expected: the bot leaves the meeting within ~5 seconds and
+   the macOS status panel transitions out of "in meeting".
+5. **Inspect on-disk artifacts.** After the bot leaves, the workspace
+   directory should contain the meeting's artifact tree:
+   ```bash
+   ls -la ~/.vellum/workspace/meets/<meetingId>/
+   ```
+   Expected files:
+   - `audio.opus` — Opus-encoded audio, non-empty.
+   - `transcript.jsonl` — one JSON line per final transcript chunk.
+   - `segments.jsonl` — one JSON line per DOM-reported speaker span.
+   - `participants.json` — full final participant snapshot.
+   - `meta.json` — summary record written on the `lifecycle:left` event.
+   Open each file and spot-check that it's well-formed and reflects the
+   meeting content (no empty transcripts when people were clearly
+   speaking, no missing speaker names that were visible in the Meet UI).
+6. **Verify graceful daemon shutdown.** Join a meeting, wait for the bot
+   to stabilize, then kill the assistant with `SIGTERM` (the Vellum CLI's
+   stop flow, or `kill <daemon-pid>`). Expected: the bot leaves the
+   meeting cleanly (no leftover participant in the Meet UI) and the
+   container is removed (`docker ps -a | grep vellum-meet-` should be
+   empty) within the 15-second shutdown budget.
+
+### Failure triage
+
+- **Bot never joins** — check the assistant log for
+  `meet-session-manager` and `meet-docker-runner` errors. Most common
+  causes: missing Deepgram key, stale image, Docker socket not reachable
+  from inside the container host.
+- **No transcripts in the conversation** — check for `meet-audio-ingest`
+  warnings in the log; the bot may be failing to connect to the Unix
+  socket or Deepgram may be rejecting the session.
+- **Bot doesn't auto-leave on objection** — check for
+  `meet-consent-monitor` log lines. The LLM call can time out silently
+  if the configured provider is misconfigured; the log will say "LLM
+  call failed — staying in the meeting".
+- **Artifacts missing after leave** — check the storage writer log
+  (`meet-storage-writer`). Common cause: ffmpeg not on the host PATH
+  for audio encoding.

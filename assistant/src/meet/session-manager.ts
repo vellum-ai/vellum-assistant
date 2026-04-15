@@ -71,6 +71,14 @@ export const MEET_BOT_HOST_IP = "127.0.0.1";
 /** Timeout for the best-effort bot `/leave` HTTP call before falling back to stop. */
 export const BOT_LEAVE_HTTP_TIMEOUT_MS = 10_000;
 
+/**
+ * Shared deadline for tearing down every active Meet session during daemon
+ * shutdown. Past this budget any remaining containers are force-stopped
+ * directly and the session records are dropped so the next daemon start
+ * lands on a clean slate.
+ */
+export const MEET_SHUTDOWN_DEADLINE_MS = 15_000;
+
 /** Default daemon HTTP port when `RUNTIME_HTTP_PORT` is not set. */
 const DEFAULT_DAEMON_PORT = 7821;
 
@@ -653,6 +661,150 @@ class MeetSessionManagerImpl {
   getSession(meetingId: string): MeetSession | null {
     const session = this.sessions.get(meetingId);
     return session ? sessionView(session) : null;
+  }
+
+  /**
+   * Tear down every active meeting in parallel with a shared overall deadline.
+   *
+   * Invoked from the daemon's shutdown sequence so live meetings don't leak
+   * containers or audio ingests when the host process exits. The leave path
+   * already handles its own graceful-then-force routine (`bot /leave` →
+   * `runner.stop` → `runner.remove`), so this method just races the set of
+   * `leave(id, reason)` calls against the shared deadline.
+   *
+   * When the deadline expires, any session whose `leave()` hasn't yet
+   * resolved is force-stopped via {@link DockerRunner.stop} + `remove` so
+   * the container doesn't outlive the daemon. Audio ingests for those
+   * sessions are stopped best-effort too. Because `leave()` delete-s the
+   * session from the map early (to guard against re-entry), we snapshot the
+   * container id / audio ingest *before* launching each leave and drive the
+   * straggler cleanup from that snapshot.
+   *
+   * Idempotent — calling with no active sessions is a no-op that resolves
+   * immediately.
+   *
+   * @param reason Free-form reason forwarded to `leave(id, reason)` — e.g.
+   *               `"daemon-shutdown"`. Recorded in `meet.left` events and
+   *               the log stream.
+   * @param totalDeadlineMs Hard upper bound (ms) for the entire shutdown.
+   *                        Default `15_000` matches the daemon-level
+   *                        graceful-shutdown budget.
+   */
+  async shutdownAll(
+    reason: string,
+    totalDeadlineMs = MEET_SHUTDOWN_DEADLINE_MS,
+  ): Promise<void> {
+    // Snapshot what we need for the straggler path BEFORE launching the
+    // leaves, since `leave()` drops sessions from the map early.
+    const snapshot = Array.from(this.sessions.values()).map((session) => ({
+      meetingId: session.meetingId,
+      containerId: session.containerId,
+      audioIngest: session.audioIngest,
+    }));
+    if (snapshot.length === 0) return;
+
+    log.info(
+      { count: snapshot.length, reason, totalDeadlineMs },
+      "MeetSessionManager: shutting down active sessions",
+    );
+
+    // Fire all leaves in parallel. Track which have resolved so we can
+    // identify stragglers after the deadline expires. `leave()` catches
+    // its own teardown errors, but we guard again here in case a refactor
+    // changes that.
+    const resolved = new Set<string>();
+    const leaves = snapshot.map((entry) =>
+      this.leave(entry.meetingId, reason)
+        .catch((err) => {
+          log.warn(
+            { err, meetingId: entry.meetingId, reason },
+            "MeetSessionManager.shutdownAll: leave() rejected — continuing",
+          );
+        })
+        .finally(() => {
+          resolved.add(entry.meetingId);
+        }),
+    );
+    const deadline = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), totalDeadlineMs),
+    );
+    const outcome = await Promise.race([
+      Promise.all(leaves).then(() => "completed" as const),
+      deadline,
+    ]);
+
+    if (outcome === "timeout") {
+      const stragglers = snapshot.filter((s) => !resolved.has(s.meetingId));
+      log.warn(
+        {
+          count: stragglers.length,
+          reason,
+          totalDeadlineMs,
+        },
+        "MeetSessionManager.shutdownAll: deadline exceeded — force-stopping containers",
+      );
+      const runner = this.deps.dockerRunnerFactory();
+      const forced = stragglers.map(async (entry) => {
+        // The active session may or may not still be in the map — `leave()`
+        // might have progressed past the early `sessions.delete` but be
+        // stuck on the bot HTTP or docker remove. Either way, drive the
+        // force path directly from the snapshot and unwind any lingering
+        // in-process state if the session record is still around.
+        const lingering = this.sessions.get(entry.meetingId);
+        if (lingering) {
+          try {
+            lingering.consentMonitor.stop();
+          } catch {
+            /* best-effort */
+          }
+          if (lingering.timeoutHandle) {
+            clearTimeout(lingering.timeoutHandle);
+            lingering.timeoutHandle = null;
+          }
+          for (const unsubscribe of lingering.eventUnsubscribes) {
+            try {
+              unsubscribe();
+            } catch {
+              /* best-effort */
+            }
+          }
+          lingering.eventUnsubscribes = [];
+          unregisterMeetingDispatcher(entry.meetingId);
+          this.sessions.delete(entry.meetingId);
+        }
+
+        try {
+          await runner.stop(entry.containerId);
+        } catch (err) {
+          log.warn(
+            { err, meetingId: entry.meetingId, containerId: entry.containerId },
+            "MeetSessionManager.shutdownAll: runner.stop threw",
+          );
+        }
+        try {
+          await runner.remove(entry.containerId);
+        } catch (err) {
+          log.warn(
+            { err, meetingId: entry.meetingId, containerId: entry.containerId },
+            "MeetSessionManager.shutdownAll: runner.remove threw",
+          );
+        }
+        try {
+          await entry.audioIngest.stop();
+        } catch (err) {
+          log.warn(
+            { err, meetingId: entry.meetingId },
+            "MeetSessionManager.shutdownAll: audioIngest.stop threw",
+          );
+        }
+      });
+      await Promise.allSettled(forced);
+    }
+
+    log.info(
+      { outcome, reason },
+      "MeetSessionManager: active-session shutdown complete",
+    );
   }
 }
 
