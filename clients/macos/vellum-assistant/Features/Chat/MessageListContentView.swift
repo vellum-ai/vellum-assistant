@@ -236,17 +236,45 @@ struct MessageListContentView: View, Equatable {
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            if isLoadingMoreMessages {
+            // ── Coordinate TOP = Visual BOTTOM (near latest messages) ──
+            // In the inverted scroll, the first items in the LazyVStack appear
+            // at the visual bottom. Place current-activity indicators here.
+
+            Color.clear.frame(height: 1)
+                .id("scroll-bottom-anchor")
+                .flipped()
+
+            if state.isStreamingWithoutText && !state.canInlineProcessing {
                 HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
+                    TypingIndicatorView()
                     Spacer()
                 }
-                .padding(.vertical, VSpacing.sm)
-                .id("page-loading-indicator")
+                .frame(width: effectiveBubbleMaxWidth)
+                .id("streaming-without-text-indicator")
+                .transition(.opacity)
                 .flipped()
+            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+                compactingIndicatorRow()
+                    .flipped()
             }
+
+            ForEach(state.orphanSubagents) { subagent in
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                HStack(spacing: 0) {
+                    SubagentEventsReader(
+                        store: subagentDetailStore,
+                        subagent: subagent,
+                        onAbort: { onAbortSubagent?(subagent.id) },
+                        onTap: { onSubagentTap?(subagent.id) }
+                    )
+                    Spacer(minLength: 0)
+                }
+                    .id("subagent-\(subagent.id)")
+                    .transition(.opacity)
+                    .flipped()
+            }
+
+            // ── Messages ──
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
@@ -281,39 +309,21 @@ struct MessageListContentView: View, Equatable {
                 }
             }
 
-            ForEach(state.orphanSubagents) { subagent in
-                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
-                HStack(spacing: 0) {
-                    SubagentEventsReader(
-                        store: subagentDetailStore,
-                        subagent: subagent,
-                        onAbort: { onAbortSubagent?(subagent.id) },
-                        onTap: { onSubagentTap?(subagent.id) }
-                    )
-                    Spacer(minLength: 0)
-                }
-                    .id("subagent-\(subagent.id)")
-                    .transition(.opacity)
-                    .flipped()
-            }
+            // ── Coordinate BOTTOM = Visual TOP (near oldest messages) ──
+            // In the inverted scroll, the last items in the LazyVStack appear
+            // at the visual top. Place the page-loading indicator here.
 
-            if state.isStreamingWithoutText && !state.canInlineProcessing {
+            if isLoadingMoreMessages {
                 HStack {
-                    TypingIndicatorView()
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
                     Spacer()
                 }
-                .frame(width: effectiveBubbleMaxWidth)
-                .id("streaming-without-text-indicator")
-                .transition(.opacity)
+                .padding(.vertical, VSpacing.sm)
+                .id("page-loading-indicator")
                 .flipped()
-            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                compactingIndicatorRow()
-                    .flipped()
             }
-
-            Color.clear.frame(height: 1)
-                .id("scroll-bottom-anchor")
-                .flipped()
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }
