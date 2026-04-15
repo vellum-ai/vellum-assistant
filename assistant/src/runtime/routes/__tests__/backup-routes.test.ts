@@ -85,13 +85,11 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 // -- Trust-cache mock ------------------------------------------------------
-// handleBackupRestore must call `invalidateConfigCache()` + `clearTrustCache()`
-// AFTER a successful `restoreFromSnapshot` (matching the migration importer).
-// `resetDb()` is now called internally by `restoreFromSnapshot` itself (see
-// backup/restore.ts) rather than by the handler, so it's covered by the
-// restore.test.ts suite instead of asserted here.
-// Tests record the call sequence via `recoveryCallOrder` and assert on the
-// relative ordering.
+// After a successful `restoreFromSnapshot`, handleBackupRestore must call
+// `invalidateConfigCache()` and `clearTrustCache()` (matching the migration
+// importer). The SQLite handle reset is owned by `restoreFromSnapshot` and
+// covered in restore.test.ts. Tests here record the call sequence via
+// `recoveryCallOrder` and assert on the relative ordering.
 
 let mockClearTrustCacheCalls = 0;
 const recoveryCallOrder: string[] = [];
@@ -793,9 +791,9 @@ describe("handleBackupRestore", () => {
   test("restore failure leaves caches untouched", async () => {
     // When `restoreFromSnapshot` throws, the handler must NOT invalidate
     // in-process caches — nothing new was written to disk, so the cached
-    // config/trust state still reflects reality. (The SQLite handle reset
-    // is now the responsibility of `restoreFromSnapshot` itself and is
-    // covered by src/backup/__tests__/restore.test.ts.)
+    // config/trust state still reflects reality. The SQLite handle reset is
+    // owned by `restoreFromSnapshot` and covered in
+    // src/backup/__tests__/restore.test.ts.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
