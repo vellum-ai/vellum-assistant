@@ -59,7 +59,6 @@ KNOWN_BROKEN_FILES=(
   "host-shell-tool.test.ts"
   "memory-item-routes.test.ts"
   "provider-adapters.test.ts"
-  "providers-delete.test.ts"
   "qdrant-manager.test.ts"
   "shell-tool-proxy-mode.test.ts"
   "skill-feature-flags-integration.test.ts"

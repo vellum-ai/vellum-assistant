@@ -67,6 +67,7 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   },
   listProviders: () => [],
   registerProvider: () => ({}),
+  updateProvider: () => ({}),
   seedProviders: () => {},
   upsertApp: async () => ({}),
   getApp: () => undefined,
