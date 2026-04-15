@@ -6,25 +6,6 @@
  * verbatim while collapsing passing test lines to summary counts.
  */
 
-// ── Compilation error patterns ─────────────────────────────────────
-// If any of these appear in the combined output, we return it uncompressed
-// because the developer needs the full context to diagnose build failures.
-const COMPILATION_ERROR_PATTERNS = [
-  /error\[E\d+\]/, // Rust compiler errors
-  /SyntaxError/,
-  /TypeError/,
-  /cannot find module/i,
-  /ReferenceError/,
-  /ModuleNotFoundError/,
-  /ImportError/,
-  /CompileError/,
-  /compile error/i,
-];
-
-function hasCompilationErrors(text: string): boolean {
-  return COMPILATION_ERROR_PATTERNS.some((p) => p.test(text));
-}
-
 // ── Format detection ───────────────────────────────────────────────
 
 function detectFormat(
@@ -252,8 +233,10 @@ function compressCargo(stdout: string): string {
 
 function compressGo(stdout: string): string {
   const lines = stdout.split("\n");
+  const preambleLines: string[] = [];
   const failBlocks: string[] = [];
   let inFailBlock = false;
+  let seenFirstMarker = false;
   let passCount = 0;
   const packageSummaries: string[] = [];
 
@@ -262,6 +245,7 @@ function compressGo(stdout: string): string {
 
     // --- FAIL: starts a failure block
     if (/^---\s+FAIL:/.test(line)) {
+      seenFirstMarker = true;
       inFailBlock = true;
       failBlocks.push(line);
       continue;
@@ -269,6 +253,7 @@ function compressGo(stdout: string): string {
 
     // --- PASS: just count
     if (/^---\s+PASS:/.test(line)) {
+      seenFirstMarker = true;
       inFailBlock = false;
       passCount++;
       continue;
@@ -276,6 +261,7 @@ function compressGo(stdout: string): string {
 
     // Package-level FAIL line (e.g., "FAIL github.com/foo/bar 0.123s")
     if (/^FAIL\s+\S+/.test(line)) {
+      seenFirstMarker = true;
       inFailBlock = false;
       packageSummaries.push(line);
       continue;
@@ -283,8 +269,15 @@ function compressGo(stdout: string): string {
 
     // Package-level ok line (e.g., "ok github.com/foo/bar 0.123s")
     if (/^ok\s+\S+/.test(line)) {
+      seenFirstMarker = true;
       inFailBlock = false;
       packageSummaries.push(line);
+      continue;
+    }
+
+    // Lines before any test marker are likely compilation diagnostics
+    if (!seenFirstMarker && line.trim()) {
+      preambleLines.push(line);
       continue;
     }
 
@@ -294,6 +287,11 @@ function compressGo(stdout: string): string {
   }
 
   const output: string[] = [];
+
+  // Compilation diagnostics that appeared before any test marker
+  if (preambleLines.length > 0) {
+    output.push(...preambleLines);
+  }
 
   if (passCount > 0) {
     output.push(`${passCount} passing tests collapsed`);
@@ -385,14 +383,13 @@ export function compressTestOutput(
 ): string {
   const combined = stdout + "\n" + stderr;
 
-  // Compilation errors pass through uncompressed
-  if (hasCompilationErrors(combined)) {
-    return combined.trim();
-  }
-
   const format = detectFormat(stdout);
 
-  // If we can't detect a format, return everything
+  // If we can't detect a known test runner format, return everything
+  // uncompressed. Compilation error patterns (TypeError, SyntaxError, etc.)
+  // are NOT checked when a format IS detected — format-specific compressors
+  // already preserve failure blocks verbatim, and broad patterns like
+  // /TypeError/ would false-positive on normal test failure output.
   if (!format) {
     return combined.trim();
   }

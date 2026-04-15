@@ -268,6 +268,12 @@ describe("compressTestOutput", () => {
       );
     });
 
+    test("compresses away PASS suites in failure output", () => {
+      const result = compressTestOutput(JEST_WITH_FAILURES, "", 1);
+      // PASS lines should be removed (compression actually happened)
+      expect(result).not.toContain("PASS src/utils/math.test.ts");
+    });
+
     test("preserves summary lines", () => {
       const result = compressTestOutput(JEST_WITH_FAILURES, "", 1);
       expect(result).toContain("Test Suites: 2 failed, 3 passed, 5 total");
@@ -331,6 +337,19 @@ describe("compressTestOutput", () => {
       const result = compressTestOutput(GO_WITH_FAILURES, "", 1);
       expect(result).toContain("FAIL\tgithub.com/example/math");
       expect(result).toContain("ok  \tgithub.com/example/util");
+    });
+
+    test("preserves Go compilation diagnostics before test markers", () => {
+      const goCompileOutput = [
+        "# github.com/example/pkg",
+        "./main.go:10:2: undefined: Foo",
+        "./main.go:15:9: cannot use bar (variable of type string) as int value",
+        "FAIL\tgithub.com/example/pkg [build failed]",
+      ].join("\n");
+      const result = compressTestOutput(goCompileOutput, "", 2);
+      expect(result).toContain("undefined: Foo");
+      expect(result).toContain("cannot use bar");
+      expect(result).toContain("FAIL\tgithub.com/example/pkg [build failed]");
     });
   });
 
