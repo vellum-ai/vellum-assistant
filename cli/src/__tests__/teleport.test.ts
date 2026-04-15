@@ -174,9 +174,13 @@ const retireDockerMock = mock(async () => {});
 const sleepContainersMock = mock(async () => {});
 const dockerResourceNamesMock = mock((name: string) => ({
   assistantContainer: `${name}-assistant`,
+  cesContainer: `${name}-credential-executor`,
+  cesSecurityVolume: `${name}-ces-sec`,
   gatewayContainer: `${name}-gateway`,
-  cesContainer: `${name}-ces`,
+  gatewaySecurityVolume: `${name}-gateway-sec`,
   network: `${name}-net`,
+  socketVolume: `${name}-socket`,
+  workspaceVolume: `${name}-workspace`,
 }));
 
 mock.module("../lib/docker.js", () => ({
