@@ -154,17 +154,18 @@ async function synthesizeAndPlay(
         ? (err as Error & { code?: string }).code
         : undefined;
 
-    // Check whether this provider supports falling back to native
-    // Twilio token-based TTS. Providers without a native fallback
-    // (e.g. Deepgram) must not attempt token-based speech — it would
-    // route audio through a path that cannot produce output.
+    // `allowNativeFallback` controls whether the system prompt text
+    // should be sent via native Twilio token-based TTS when synthesis
+    // fails. When false (e.g. Deepgram), the design choice is to
+    // send only an end-of-turn signal — the caller hears nothing for
+    // this prompt — rather than degrading to a mismatched voice.
     // Callers use fire-and-forget (`void speakSystemPrompt(...)`) so
     // throwing here would produce an unhandled promise rejection.
     const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
     if (!catalogEntry.allowNativeFallback) {
       log.error(
         { err, provider: provider.id, errName, errCode },
-        "System prompt TTS synthesis failed — no native fallback available",
+        "System prompt TTS synthesis failed — native fallback disabled for this provider",
       );
       // Send the end-of-turn signal so ConversationRelay transitions from
       // "assistant speaking" to "caller speaking" state. Without this, the
