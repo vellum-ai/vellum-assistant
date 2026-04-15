@@ -12,9 +12,10 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
+    "@vellumai/meet-contracts": "file:../packages/meet-contracts",
     "hono": "4.12.14",
     "playwright": "1.58.2",
-    "zod": "3.25.76"
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@types/bun": "1.3.9",
