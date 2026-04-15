@@ -367,15 +367,16 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
       meetSpeakerName: "Alice",
       meetSpeakerId: "p-alice",
       meetSpeakerLabel: "Speaker 0",
-      meetSpeakerConfidence: "dom-override",
+      meetSpeakerConfidence: "dom-authoritative",
     });
   });
 
-  test("learned mapping reused on subsequent transcripts → confidence 'deepgram'", async () => {
+  test("learned mapping reused on later transcripts (DOM gap) → dom-fallback", async () => {
     const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    // Bootstrap — DOM says Alice, Deepgram says Speaker 0.
+    // Bootstrap — a single DOM-correlated transcript binds label "Speaker 0"
+    // to Alice with agreementCount=1 (below the stable threshold).
     dispatcher.dispatch(
       MEETING_ID,
       speakerChange({
@@ -390,8 +391,9 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
     );
 
     // Later — another Speaker 0 transcript, well outside the correlation
-    // window, with no new DOM event. Resolver should use the learned
-    // mapping and emit `deepgram` confidence.
+    // window, with no new DOM event. Mapping is not stable yet (agreement
+    // count = 1), so the resolver falls back to the last-known DOM
+    // speaker (still Alice) with confidence `dom-fallback`.
     const laterTs = new Date(Date.parse(TIMESTAMP) + 60_000).toISOString();
     dispatcher.dispatch(
       MEETING_ID,
@@ -407,7 +409,7 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
     expect(calls[1]?.metadata).toMatchObject({
       meetSpeakerName: "Alice",
       meetSpeakerId: "p-alice",
-      meetSpeakerConfidence: "deepgram",
+      meetSpeakerConfidence: "dom-fallback",
     });
   });
 
