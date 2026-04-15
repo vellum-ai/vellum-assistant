@@ -3,8 +3,10 @@
  *
  * These tests run against a tempdir workspace, bypass the real ffmpeg by
  * injecting a mock `spawn` that records bytes piped into the spawned
- * child's stdin, and drive the writer through its registered
- * `MeetSessionEventRouter` handler.
+ * child's stdin, and drive the writer by injecting a fake dispatcher
+ * subscription. The writer uses {@link subscribeToMeetingEvents} in
+ * production; tests replace that with an in-memory shim that records
+ * subscribers per meeting and lets the test dispatch events directly.
  */
 
 import { EventEmitter } from "node:events";
@@ -15,10 +17,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MeetBotEvent, Participant } from "@vellumai/meet-contracts";
 
-import {
-  __resetMeetSessionEventRouterForTests,
-  getMeetSessionEventRouter,
-} from "../session-event-router.js";
+import type {
+  MeetEventSubscriber,
+  MeetEventUnsubscribe,
+} from "../event-publisher.js";
 import {
   FSYNC_INTERVAL_MS,
   FSYNC_WRITE_THRESHOLD,
@@ -106,6 +108,47 @@ function makeTestPcmSource(): {
   return state;
 }
 
+/**
+ * In-memory replacement for {@link subscribeToMeetingEvents}. Matches the
+ * dispatcher surface the writer depends on — multiple subscribers per
+ * meeting, independent unsubscribe handles — so tests can drive the writer
+ * without touching the real singleton dispatcher.
+ */
+function makeFakeDispatcher(): {
+  subscribe: (
+    meetingId: string,
+    cb: MeetEventSubscriber,
+  ) => MeetEventUnsubscribe;
+  dispatch: (meetingId: string, event: MeetBotEvent) => void;
+  subscriberCount: (meetingId: string) => number;
+} {
+  const subs = new Map<string, Set<MeetEventSubscriber>>();
+  return {
+    subscribe(meetingId, cb) {
+      let set = subs.get(meetingId);
+      if (!set) {
+        set = new Set();
+        subs.set(meetingId, set);
+      }
+      set.add(cb);
+      return () => {
+        const existing = subs.get(meetingId);
+        if (!existing) return;
+        existing.delete(cb);
+        if (existing.size === 0) subs.delete(meetingId);
+      };
+    },
+    dispatch(meetingId, event) {
+      const set = subs.get(meetingId);
+      if (!set) return;
+      for (const cb of Array.from(set)) cb(event);
+    },
+    subscriberCount(meetingId) {
+      return subs.get(meetingId)?.size ?? 0;
+    },
+  };
+}
+
 function participant(id: string, name: string): Participant {
   return { id, name };
 }
@@ -185,7 +228,6 @@ let workspaceDir: string;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "meet-storage-writer-test-"));
-  __resetMeetSessionEventRouterForTests();
 });
 
 afterEach(() => {
@@ -196,52 +238,87 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("MeetStorageWriter.start / router handler registration", () => {
-  test("start() creates the meeting dir and registers with the router", () => {
+describe("MeetStorageWriter.start / dispatcher subscription", () => {
+  test("start() creates the meeting dir and subscribes on the dispatcher", () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
     expect(existsSync(join(workspaceDir, "meets", "m1"))).toBe(true);
-    expect(getMeetSessionEventRouter().registeredCount()).toBe(1);
+    expect(dispatcher.subscriberCount("m1")).toBe(1);
   });
 
   test("start() is idempotent", () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
     writer.start();
-    expect(getMeetSessionEventRouter().registeredCount()).toBe(1);
+    expect(dispatcher.subscriberCount("m1")).toBe(1);
   });
 
-  test("stop() unregisters from the router", async () => {
+  test("stop() unsubscribes from the dispatcher", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
-    expect(getMeetSessionEventRouter().registeredCount()).toBe(1);
+    expect(dispatcher.subscriberCount("m1")).toBe(1);
     await writer.stop();
-    expect(getMeetSessionEventRouter().registeredCount()).toBe(0);
+    expect(dispatcher.subscriberCount("m1")).toBe(0);
+  });
+
+  test("coexists with other dispatcher subscribers", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const other = mock((_event: MeetBotEvent) => {});
+    const otherUnsub = dispatcher.subscribe("m1", other);
+
+    const writer = new MeetStorageWriter("m1", {
+      getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
+    });
+    writer.start();
+    expect(dispatcher.subscriberCount("m1")).toBe(2);
+
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:00.000Z", "hello world", {
+        isFinal: true,
+      }),
+    );
+
+    // Both subscribers saw the event.
+    expect(other).toHaveBeenCalledTimes(1);
+
+    await writer.stop();
+    // The peer subscriber's slot survives the writer's unsubscribe.
+    expect(dispatcher.subscriberCount("m1")).toBe(1);
+    otherUnsub();
   });
 });
 
 describe("MeetStorageWriter transcript.jsonl", () => {
   test("appends final transcript chunks and ignores interim", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:00.000Z", "hello", {
         isFinal: false,
       }),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "hello world", {
         isFinal: true,
@@ -249,7 +326,7 @@ describe("MeetStorageWriter transcript.jsonl", () => {
         speakerLabel: "Alice",
       }),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:02.000Z", "second final", {
         isFinal: true,
@@ -277,25 +354,26 @@ describe("MeetStorageWriter transcript.jsonl", () => {
 
 describe("MeetStorageWriter segments.jsonl", () => {
   test("closes previous segment at each new speaker.change", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       speakerChange("m1", "2024-01-01T00:00:00.000Z", "s1", "Alice"),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       speakerChange("m1", "2024-01-01T00:00:05.000Z", "s2", "Bob"),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       speakerChange("m1", "2024-01-01T00:00:12.000Z", "s1", "Alice"),
     );
-    router.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:20.000Z"));
+    dispatcher.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:20.000Z"));
 
     await writer.stop();
 
@@ -325,12 +403,14 @@ describe("MeetStorageWriter segments.jsonl", () => {
   });
 
   test("open span on stop() is closed at stop timestamp", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    getMeetSessionEventRouter().dispatch(
+    dispatcher.dispatch(
       "m1",
       speakerChange("m1", "2024-01-01T00:00:00.000Z", "s1", "Alice"),
     );
@@ -349,13 +429,14 @@ describe("MeetStorageWriter segments.jsonl", () => {
 
 describe("MeetStorageWriter participants.json", () => {
   test("overwrites with the latest full list (not a diff)", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       participantChange("m1", "2024-01-01T00:00:00.000Z", [
         participant("a", "Alice"),
@@ -374,7 +455,7 @@ describe("MeetStorageWriter participants.json", () => {
       { id: "b", name: "Bob" },
     ]);
 
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       participantChange(
         "m1",
@@ -402,32 +483,33 @@ describe("MeetStorageWriter participants.json", () => {
 
 describe("MeetStorageWriter meta.json", () => {
   test("lifecycle:left writes meta.json with aggregate counters", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       participantChange("m1", "2024-01-01T00:00:00.000Z", [
         participant("a", "Alice"),
         participant("b", "Bob"),
       ]),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "hello", {
         isFinal: true,
       }),
     );
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:02.000Z", "world!!", {
         isFinal: true,
       }),
     );
-    router.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:30.000Z"));
+    dispatcher.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:30.000Z"));
 
     // meta.json is written on lifecycle:left, not stop()
     const meta = JSON.parse(
@@ -445,11 +527,13 @@ describe("MeetStorageWriter meta.json", () => {
 
 describe("MeetStorageWriter audio pipeline (mocked spawn)", () => {
   test("startAudio spawns ffmpeg with expected args and pipes PCM bytes", async () => {
+    const dispatcher = makeFakeDispatcher();
     const { spawn, lastChild, calls } = makeSpawnMock();
     const pcm = makeTestPcmSource();
 
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
       spawn: spawn as unknown as typeof import("node:child_process").spawn,
     });
     writer.start();
@@ -484,17 +568,19 @@ describe("MeetStorageWriter audio pipeline (mocked spawn)", () => {
   });
 
   test("lifecycle:left closes ffmpeg stdin even without stop()", async () => {
+    const dispatcher = makeFakeDispatcher();
     const { spawn, lastChild } = makeSpawnMock();
     const pcm = makeTestPcmSource();
 
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
       spawn: spawn as unknown as typeof import("node:child_process").spawn,
     });
     writer.start();
     await writer.startAudio(pcm.source);
 
-    getMeetSessionEventRouter().dispatch(
+    dispatcher.dispatch(
       "m1",
       lifecycleLeft("m1", "2024-01-01T00:00:00.000Z"),
     );
@@ -505,11 +591,13 @@ describe("MeetStorageWriter audio pipeline (mocked spawn)", () => {
   });
 
   test("startAudio is a no-op after the first spawn", async () => {
+    const dispatcher = makeFakeDispatcher();
     const { spawn } = makeSpawnMock();
     const pcm = makeTestPcmSource();
 
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
       spawn: spawn as unknown as typeof import("node:child_process").spawn,
     });
     writer.start();
@@ -525,10 +613,12 @@ describe("MeetStorageWriter audio pipeline (mocked spawn)", () => {
 describe("MeetStorageWriter fsync cadence", () => {
   test("fsyncs after FSYNC_WRITE_THRESHOLD writes", async () => {
     // Frozen clock so only the write-count threshold can trigger fsync.
+    const dispatcher = makeFakeDispatcher();
     const now = () => 0;
     const fsyncSyncMock = mock((_fd: number) => {});
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
       now,
       fs: {
         fsyncSync:
@@ -537,9 +627,8 @@ describe("MeetStorageWriter fsync cadence", () => {
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
     for (let i = 0; i < FSYNC_WRITE_THRESHOLD; i++) {
-      router.dispatch(
+      dispatcher.dispatch(
         "m1",
         transcriptChunk(
           "m1",
@@ -560,11 +649,13 @@ describe("MeetStorageWriter fsync cadence", () => {
   });
 
   test("fsyncs when FSYNC_INTERVAL_MS elapses between writes", async () => {
+    const dispatcher = makeFakeDispatcher();
     let t = 0;
     const now = () => t;
     const fsyncSyncMock = mock((_fd: number) => {});
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
       now,
       fs: {
         fsyncSync:
@@ -573,9 +664,8 @@ describe("MeetStorageWriter fsync cadence", () => {
     });
     writer.start();
 
-    const router = getMeetSessionEventRouter();
     // First write establishes the fd; lastFlushAtMs is set to 0.
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:00.000Z", "x", {
         isFinal: true,
@@ -585,7 +675,7 @@ describe("MeetStorageWriter fsync cadence", () => {
 
     // Jump the clock past the interval and write again — must trigger fsync.
     t = FSYNC_INTERVAL_MS + 1;
-    router.dispatch(
+    dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", "2024-01-01T00:00:10.000Z", "y", {
         isFinal: true,
@@ -599,14 +689,16 @@ describe("MeetStorageWriter fsync cadence", () => {
 
 describe("MeetStorageWriter error resilience", () => {
   test("events to an unrelated meetingId never reach this writer", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
 
-    // Dispatch to a different meeting — router simply logs & drops because
-    // m2 has no handler.
-    getMeetSessionEventRouter().dispatch(
+    // Dispatch to a different meeting — the fake dispatcher simply drops it
+    // because m2 has no subscribers.
+    dispatcher.dispatch(
       "m2",
       transcriptChunk("m2", "2024-01-01T00:00:00.000Z", "nope", {
         isFinal: true,
@@ -621,12 +713,14 @@ describe("MeetStorageWriter error resilience", () => {
   });
 
   test("stop() is idempotent", async () => {
+    const dispatcher = makeFakeDispatcher();
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
+      subscribe: dispatcher.subscribe,
     });
     writer.start();
     await writer.stop();
     await writer.stop();
-    expect(getMeetSessionEventRouter().registeredCount()).toBe(0);
+    expect(dispatcher.subscriberCount("m1")).toBe(0);
   });
 });

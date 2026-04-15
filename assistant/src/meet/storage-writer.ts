@@ -24,11 +24,14 @@
  * the underlying fs primitives so the test suite doesn't need ffmpeg
  * installed and can run against a tempdir workspace.
  *
- * Registered as a `MeetSessionEventRouter` handler. Callers are responsible
- * for driving `startAudio` (when a PCM source is available) and `stop` on
- * session teardown — the writer itself cleans up its subscription and the
- * ffmpeg child when `stop` is invoked, and also closes the ffmpeg child on
- * `lifecycle:left`.
+ * Subscribes via {@link subscribeToMeetingEvents} on the meet event
+ * dispatcher (PR 19) — this lets the writer coexist with the conversation
+ * bridge (PR 17), event-hub publisher (PR 19), and consent monitor (PR 22)
+ * as peer subscribers on the same per-meeting event stream. Callers are
+ * responsible for driving `startAudio` (when a PCM source is available)
+ * and `stop` on session teardown — the writer itself tears down its
+ * dispatcher subscription and the ffmpeg child when `stop` is invoked, and
+ * also closes the ffmpeg child on `lifecycle:left`.
  */
 
 import {
@@ -55,7 +58,11 @@ import type {
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { getMeetSessionEventRouter } from "./session-event-router.js";
+import {
+  type MeetEventSubscriber,
+  type MeetEventUnsubscribe,
+  subscribeToMeetingEvents,
+} from "./event-publisher.js";
 
 const log = getLogger("meet-storage-writer");
 
@@ -126,8 +133,15 @@ export interface MeetStorageWriterDeps {
   fs?: Partial<FsPrimitives>;
   /** Override monotonic clock used for flush scheduling (tests). */
   now?: () => number;
-  /** Override the event router lookup (tests). */
-  getRouter?: () => ReturnType<typeof getMeetSessionEventRouter>;
+  /**
+   * Override the dispatcher subscribe function (tests). Defaults to
+   * {@link subscribeToMeetingEvents} on the process-wide meet event
+   * dispatcher so the writer coexists with other per-meeting subscribers.
+   */
+  subscribe?: (
+    meetingId: string,
+    cb: MeetEventSubscriber,
+  ) => MeetEventUnsubscribe;
 }
 
 /**
@@ -186,8 +200,7 @@ export class MeetStorageWriter {
   private ffmpegChild: ChildProcessWithoutNullStreams | null = null;
   private pcmUnsubscribe: (() => void) | null = null;
 
-  private routerHandler: ((event: MeetBotEvent) => void) | null = null;
-  private routerRegistered = false;
+  private eventUnsubscribe: MeetEventUnsubscribe | null = null;
 
   private stopped = false;
 
@@ -201,7 +214,7 @@ export class MeetStorageWriter {
       spawn: deps.spawn ?? nodeSpawn,
       fs: deps.fs ?? {},
       now: deps.now ?? Date.now,
-      getRouter: deps.getRouter ?? getMeetSessionEventRouter,
+      subscribe: deps.subscribe ?? subscribeToMeetingEvents,
     };
     this.fs = { ...DEFAULT_FS, ...(deps.fs ?? {}) };
     this.meetingDir = join(
@@ -212,18 +225,17 @@ export class MeetStorageWriter {
   }
 
   /**
-   * Subscribe to the per-meeting event router. Idempotent. Callers should
-   * invoke this once, immediately after construction, so the writer catches
-   * the very first events of the session.
+   * Subscribe to the per-meeting event dispatcher. Idempotent. Callers
+   * should invoke this once, immediately after construction, so the writer
+   * catches the very first events of the session.
    */
   start(): void {
-    if (this.routerRegistered) return;
+    if (this.eventUnsubscribe) return;
     this.ensureMeetingDir();
     if (!this.startedAt) this.startedAt = new Date().toISOString();
-    const handler = (event: MeetBotEvent) => this.onEvent(event);
-    this.routerHandler = handler;
-    this.deps.getRouter().register(this.meetingId, handler);
-    this.routerRegistered = true;
+    this.eventUnsubscribe = this.deps.subscribe(this.meetingId, (event) =>
+      this.onEvent(event),
+    );
   }
 
   /**
@@ -272,8 +284,8 @@ export class MeetStorageWriter {
   }
 
   /**
-   * Flush buffers, close open segment, unsubscribe from the router, and
-   * close the ffmpeg child. Idempotent: subsequent calls are no-ops.
+   * Flush buffers, close open segment, unsubscribe from the dispatcher,
+   * and close the ffmpeg child. Idempotent: subsequent calls are no-ops.
    */
   async stop(): Promise<void> {
     if (this.stopped) return;
@@ -281,10 +293,16 @@ export class MeetStorageWriter {
 
     this.closeOpenSegmentAt(new Date().toISOString());
 
-    if (this.routerRegistered) {
-      this.deps.getRouter().unregister(this.meetingId);
-      this.routerRegistered = false;
-      this.routerHandler = null;
+    if (this.eventUnsubscribe) {
+      try {
+        this.eventUnsubscribe();
+      } catch (err) {
+        log.warn(
+          { err, meetingId: this.meetingId },
+          "dispatcher unsubscribe threw during stop",
+        );
+      }
+      this.eventUnsubscribe = null;
     }
 
     this.flushAndCloseFd(this.segmentsFd);

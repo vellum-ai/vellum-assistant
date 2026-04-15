@@ -24,9 +24,9 @@
  *   - Start a {@link MeetAudioIngest} before the container spawns so the
  *     bot has a socket to connect to the moment it boots, and tear the
  *     ingest down after the container is removed on leave.
- *
- * Not yet wired in this PR — left as TODOs for their owning PRs:
- *   - PR 22 instantiates the consent monitor and disposes it on leave.
+ *   - Spin up a {@link MeetConsentMonitor} per meeting so objection
+ *     phrases on transcript/chat trigger an auto-leave when
+ *     `services.meet.autoLeaveOnObjection` is enabled.
  *
  * Caller contracts worth noting:
  *   - `{assistantName}` substitution in `CONSENT_MESSAGE` is performed by the
@@ -45,6 +45,10 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
+import {
+  MeetConsentMonitor,
+  type MeetSessionLeaver,
+} from "./consent-monitor.js";
 import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
 import {
   type MeetEventUnsubscribe,
@@ -123,6 +127,13 @@ interface ActiveSession extends MeetSession {
   eventUnsubscribes: MeetEventUnsubscribe[];
   /** True once the bot has emitted a `lifecycle.joined` event. */
   joinedPublished: boolean;
+  /**
+   * Consent monitor for this meeting — watches transcript/chat for
+   * objection phrases and triggers auto-leave when confirmed by the LLM.
+   * Started in `join()` and stopped at the very top of `leave()` so no
+   * late event triggers a self-invoked leave while teardown is running.
+   */
+  consentMonitor: MeetConsentMonitorLike;
 }
 
 /**
@@ -132,6 +143,23 @@ interface ActiveSession extends MeetSession {
 export interface MeetAudioIngestLike {
   start(meetingId: string, socketPath: string, apiKey: string): Promise<void>;
   stop(): Promise<void>;
+}
+
+/**
+ * Thin interface for the consent-monitor surface the session manager
+ * uses. Lets tests swap in a fake without needing the real LLM stack.
+ */
+export interface MeetConsentMonitorLike {
+  start(): void;
+  stop(): void;
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.consentMonitorFactory}. */
+export interface MeetConsentMonitorFactoryArgs {
+  meetingId: string;
+  assistantId: string;
+  sessionManager: MeetSessionLeaver;
+  config: { autoLeaveOnObjection: boolean; objectionKeywords: string[] };
 }
 
 export interface MeetSessionManagerDeps {
@@ -153,6 +181,14 @@ export interface MeetSessionManagerDeps {
    * {@link MeetAudioIngest} with its own defaults.
    */
   audioIngestFactory?: () => MeetAudioIngestLike;
+  /**
+   * Override the consent-monitor factory. Default constructs a
+   * {@link MeetConsentMonitor} with its own defaults. Tests can inject
+   * a fake to observe `start`/`stop` without spinning up the LLM path.
+   */
+  consentMonitorFactory?: (
+    args: MeetConsentMonitorFactoryArgs,
+  ) => MeetConsentMonitorLike;
 }
 
 class MeetSessionManagerImpl {
@@ -169,6 +205,8 @@ class MeetSessionManagerImpl {
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
       audioIngestFactory:
         deps.audioIngestFactory ?? (() => new MeetAudioIngest()),
+      consentMonitorFactory:
+        deps.consentMonitorFactory ?? defaultConsentMonitorFactory,
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -191,6 +229,8 @@ class MeetSessionManagerImpl {
       getWorkspaceDir: deps.getWorkspaceDir ?? this.deps.getWorkspaceDir,
       audioIngestFactory:
         deps.audioIngestFactory ?? this.deps.audioIngestFactory,
+      consentMonitorFactory:
+        deps.consentMonitorFactory ?? this.deps.consentMonitorFactory,
     };
     // Re-install the token resolver in case `_resetForTests` cleared it.
     getMeetSessionEventRouter().setBotApiTokenResolver((meetingId) => {
@@ -209,6 +249,11 @@ class MeetSessionManagerImpl {
         } catch {
           /* best-effort */
         }
+      }
+      try {
+        session.consentMonitor.stop();
+      } catch {
+        /* best-effort */
       }
     }
     this.sessions.clear();
@@ -391,6 +436,19 @@ class MeetSessionManagerImpl {
     // replace each other at the router.
     registerMeetingDispatcher(meetingId);
 
+    // Consent monitor is constructed before the session record so it can
+    // be torn down deterministically from `leave()` — it subscribes on
+    // `start()` below, after the session is in the map.
+    const consentMonitor = this.deps.consentMonitorFactory({
+      meetingId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      sessionManager: this,
+      config: {
+        autoLeaveOnObjection: meet.autoLeaveOnObjection,
+        objectionKeywords: [...meet.objectionKeywords],
+      },
+    });
+
     const startedAt = Date.now();
     const session: ActiveSession = {
       meetingId,
@@ -404,6 +462,7 @@ class MeetSessionManagerImpl {
       audioIngest,
       eventUnsubscribes: [],
       joinedPublished: false,
+      consentMonitor,
     };
     this.sessions.set(meetingId, session);
 
@@ -439,6 +498,10 @@ class MeetSessionManagerImpl {
         }
       }),
     );
+
+    // Now that the other subscribers and the session record are in place,
+    // start the consent monitor so it has a live dispatcher to attach to.
+    consentMonitor.start();
 
     // Max-meeting-minutes hard cap. Using setTimeout keeps this compatible
     // with Bun's fake-timer harness for tests.
@@ -482,6 +545,19 @@ class MeetSessionManagerImpl {
     if (!session) {
       log.debug({ meetingId, reason }, "leave(): no active session — no-op");
       return;
+    }
+
+    // Stop the consent monitor first — any pending LLM call can finish
+    // harmlessly since `decided` is the only write path it has to the
+    // session manager, and we've already committed to leaving. This also
+    // clears the 20s tick timer so it can't fire during teardown.
+    try {
+      session.consentMonitor.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetConsentMonitor.stop threw during leave — continuing teardown",
+      );
     }
 
     // Immediately clear state so we don't re-enter this path via the timeout
@@ -597,6 +673,22 @@ export function _createMeetSessionManagerForTests(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Default {@link MeetConsentMonitor} factory — constructs a monitor wired
+ * to the production LLM path. Swapped out in tests via
+ * {@link MeetSessionManagerDeps.consentMonitorFactory}.
+ */
+function defaultConsentMonitorFactory(
+  args: MeetConsentMonitorFactoryArgs,
+): MeetConsentMonitorLike {
+  return new MeetConsentMonitor({
+    meetingId: args.meetingId,
+    assistantId: args.assistantId,
+    sessionManager: args.sessionManager,
+    config: args.config,
+  });
+}
 
 /** Strip internal fields (`timeoutHandle`) from a session before exposing it. */
 function sessionView(session: ActiveSession): MeetSession {
