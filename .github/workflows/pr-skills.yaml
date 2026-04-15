@@ -124,6 +124,26 @@ jobs:
       - name: Run tests
         run: |
           SKILL_DIR="skills/${{ matrix.skill }}"
+          SKILL_NAME="${{ matrix.skill }}"
+
+          # Skills tested elsewhere (to avoid duplicate / broken coverage):
+          # - meet-join: daemon tests use `mock.module()` which is process-global
+          #   in Bun. A flat `bun test` across all files causes cross-file
+          #   pollution and SyntaxError failures. These tests are covered by
+          #   pr-assistant.yaml's test.sh, which runs each file in its own
+          #   process. Subpackages with their own package.json `test` script
+          #   (bot/, contracts/) still run below.
+          if [ "$SKILL_NAME" = "meet-join" ]; then
+            echo "Skipping flat test run for meet-join — covered by pr-assistant.yaml (per-file isolation)."
+            for sub in bot contracts; do
+              if [ -f "$SKILL_DIR/$sub/package.json" ]; then
+                echo "Running tests for skills/$SKILL_NAME/$sub ..."
+                (cd "$SKILL_DIR/$sub" && bun install && bun test)
+              fi
+            done
+            exit 0
+          fi
+
           # Only run tests if the skill has test files
           if find "$SKILL_DIR" -name '*.test.ts' -o -name '*.test.js' | grep -q .; then
             cd "$SKILL_DIR"
