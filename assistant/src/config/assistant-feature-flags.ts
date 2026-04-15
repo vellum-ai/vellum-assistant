@@ -180,8 +180,12 @@ function loadOverridesFromFile(): Record<string, boolean> {
  * access-controlled by file-system permissions on the shared volume.
  */
 async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
-  const { ipcGetFeatureFlags } = await import("../ipc/gateway-client.js");
-  return ipcGetFeatureFlags();
+  try {
+    const { ipcGetFeatureFlags } = await import("../ipc/gateway-client.js");
+    return await ipcGetFeatureFlags();
+  } catch {
+    return {};
+  }
 }
 
 /**
