@@ -317,15 +317,22 @@ build_bun_binary() {
 }
 
 # ---------------------------------------------------------------------------
-# install_shared_packages — install node_modules for every package under
-# packages/. assistant/, cli/, gateway/, etc. reference these via file: deps
-# that point at TypeScript source, so the packages need their own node_modules
-# for transitive deps (e.g. zod) to resolve during tsc/bun build. Must run
-# before any build_bun_binary invocation, from any build mode.
+# install_shared_packages — install node_modules for every first-party package
+# that the assistant/cli/gateway binaries import from. They reference these via
+# file: deps (or direct relative imports) that point at TypeScript source, so
+# the packages need their own node_modules for transitive deps (e.g. zod) to
+# resolve during tsc/bun build. Must run before any build_bun_binary invocation,
+# from any build mode.
 # ---------------------------------------------------------------------------
 install_shared_packages() {
     command -v bun &>/dev/null || return 0
-    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
+    local repo_root="$SCRIPT_DIR/../.."
+    local pkg_dirs=("$repo_root"/packages/*/)
+    # The daemon imports MeetServiceSchema from skills/meet-join/config-schema.ts
+    # and @vellumai/meet-contracts (file: → skills/meet-join/contracts), so both
+    # need node_modules for `zod` to resolve during the bundle step.
+    pkg_dirs+=("$repo_root/skills/meet-join/" "$repo_root/skills/meet-join/contracts/")
+    for pkg_dir in "${pkg_dirs[@]}"; do
         [ -f "${pkg_dir}package.json" ] || continue
         (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
     done
