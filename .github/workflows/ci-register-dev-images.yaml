@@ -26,46 +26,43 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Skip if newer run is pending
+      - name: Check if this run should proceed
+        id: gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           REPO="${{ github.repository }}"
           THIS_RUN_ID="${{ github.run_id }}"
-          # Check for newer pending or in_progress runs of this workflow
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          SHOULD_SKIP="false"
+
+          # Skip if a newer run is queued or in progress
           NEWER_COUNT=$(gh api "repos/${REPO}/actions/workflows/ci-register-dev-images.yaml/runs?status=queued&per_page=100" \
             --jq "[.workflow_runs[] | select(.id > ${THIS_RUN_ID})] | length")
           NEWER_IN_PROGRESS=$(gh api "repos/${REPO}/actions/workflows/ci-register-dev-images.yaml/runs?status=in_progress&per_page=100" \
             --jq "[.workflow_runs[] | select(.id > ${THIS_RUN_ID})] | length")
           TOTAL_NEWER=$(( ${NEWER_COUNT:-0} + ${NEWER_IN_PROGRESS:-0} ))
           if [ "$TOTAL_NEWER" -gt 0 ]; then
-            echo "Newer registration run(s) pending — skipping this run to avoid redundant work."
-            exit 1
+            echo "Newer registration run(s) pending — skipping this run."
+            SHOULD_SKIP="true"
           fi
-          echo "✓ No newer runs pending — proceeding."
 
-      - name: Verify push-dev-image succeeded for triggered workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          REPO="${{ github.repository }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
-
-          # Check that the push-dev-manifest job in the triggering workflow
-          # succeeded. This confirms both platform builds and the manifest
-          # merge completed (not just the workflow overall, which can report
-          # success even when push jobs have continue-on-error).
-          # Job display names include a service suffix, e.g. "Push Dev Manifest (Assistant)".
-          MANIFEST_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
-            --jq '[.jobs[] | select(.name | startswith("Push Dev Manifest")) | .conclusion] | first')
-
-          if [ "$MANIFEST_CONCLUSION" != "success" ]; then
-            echo "::warning::push-dev-manifest job did not succeed (conclusion: ${MANIFEST_CONCLUSION:-not found}). Skipping registration."
-            exit 1
+          # Verify push-dev-manifest succeeded in the triggering workflow
+          if [ "$SHOULD_SKIP" = "false" ]; then
+            MANIFEST_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+              --jq '[.jobs[] | select(.name | startswith("Push Dev Manifest")) | .conclusion] | first')
+            if [ "$MANIFEST_CONCLUSION" != "success" ]; then
+              echo "::warning::push-dev-manifest did not succeed (conclusion: ${MANIFEST_CONCLUSION:-not found}). Skipping."
+              SHOULD_SKIP="true"
+            else
+              echo "✓ push-dev-manifest succeeded for ${{ github.event.workflow_run.name }}"
+            fi
           fi
-          echo "✓ push-dev-manifest succeeded for ${{ github.event.workflow_run.name }}"
+
+          echo "skip=$SHOULD_SKIP" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App token
+        if: steps.gate.outputs.skip != 'true'
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
@@ -73,6 +70,7 @@ jobs:
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
       - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -81,18 +79,22 @@ jobs:
           fetch-tags: true
 
       - name: Authenticate to GCP
+        if: steps.gate.outputs.skip != 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Configure Docker for GCR
+        if: steps.gate.outputs.skip != 'true'
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
       - name: Set up Docker Buildx
+        if: steps.gate.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Compute dev version
+        if: steps.gate.outputs.skip != 'true'
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,6 +122,7 @@ jobs:
           echo "Dev version: $VERSION (base: $LATEST_TAG, count: $DEV_COUNT)"
 
       - name: Resolve image digests and tag bundle
+        if: steps.gate.outputs.skip != 'true'
         id: images
         env:
           GH_TOKEN: ${{ github.token }}
@@ -194,6 +197,7 @@ jobs:
           echo "ce_digest=$CE_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Compute migration ceilings
+        if: steps.gate.outputs.skip != 'true'
         id: migration-ceilings
         run: |
           # Extract max DB migration version from the registry
@@ -227,6 +231,7 @@ jobs:
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
 
       - name: Register with platform
+        if: steps.gate.outputs.skip != 'true'
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
           VERSION="${{ steps.version.outputs.version }}"
@@ -316,6 +321,7 @@ jobs:
           done
 
       - name: Summary
+        if: steps.gate.outputs.skip != 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           echo "## Dev Images Registered" >> $GITHUB_STEP_SUMMARY
