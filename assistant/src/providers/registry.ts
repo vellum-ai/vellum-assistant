@@ -9,7 +9,7 @@ import {
 } from "./managed-proxy/context.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
-import { OpenAIProvider } from "./openai/client.js";
+import { OpenAIResponsesProvider } from "./openai/client.js";
 import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
@@ -174,7 +174,7 @@ export async function initializeProviders(
     registerProvider(
       "openai",
       new RetryProvider(
-        new OpenAIProvider(openaiCreds.apiKey, model, {
+        new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
           streamTimeoutMs,
           ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),
