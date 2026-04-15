@@ -11,6 +11,28 @@ export const VALID_STT_PROVIDERS = [
 ] as const;
 
 /**
+ * Deepgram-specific provider options under
+ * `services.stt.providers.deepgram`.
+ *
+ * Kept as a standalone schema (rather than inlining into the generic
+ * `SttProvidersSchema` record) so known Deepgram fields carry types and
+ * defaults, while still round-tripping cleanly through the forward-compatible
+ * parent record.
+ */
+export const DeepgramProviderConfigSchema = z
+  .object({
+    // Enables Deepgram's built-in speaker diarization. Adds no measurable
+    // latency; slight cost implications in some tiers.
+    diarize: z.boolean().default(false),
+  })
+  .describe(
+    "Deepgram-specific provider options under services.stt.providers.deepgram",
+  );
+export type DeepgramProviderConfig = z.infer<
+  typeof DeepgramProviderConfigSchema
+>;
+
+/**
  * Sparse provider config map under `services.stt.providers`.
  *
  * This is a forward-compatible record that accepts any provider ID as key
@@ -20,7 +42,10 @@ export const VALID_STT_PROVIDERS = [
  * `services.stt.providers.<id>`.
  *
  * The map only holds entries the user has explicitly configured — it is
- * NOT required to enumerate every known provider.
+ * NOT required to enumerate every known provider. Typed validation for
+ * known providers (e.g. {@link DeepgramProviderConfigSchema}) lives on
+ * those schemas and is applied at the call site — this record is only
+ * responsible for accepting the sparse shape.
  */
 export const SttProvidersSchema = z.record(
   z.string(),
