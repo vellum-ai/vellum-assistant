@@ -426,14 +426,21 @@ export class MeetAudioIngest {
       return;
     }
 
-    // The existing streaming transcribers do not yet surface speaker /
-    // confidence metadata; leave those optional fields unset.
+    // `speakerLabel` is populated by provider adapters that support
+    // diarization (currently Deepgram). Non-diarizing providers leave it
+    // undefined — downstream consumers treat that as "unknown speaker".
+    // Stable `speakerId` and `confidence` remain unset; the speaker
+    // resolver (PR 7) will derive `speakerId` by cross-checking the
+    // label against Meet's DOM-sourced active-speaker signal.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
       timestamp: new Date().toISOString(),
       isFinal: event.type === "final",
       text: event.text,
+      ...(event.speakerLabel !== undefined
+        ? { speakerLabel: event.speakerLabel }
+        : {}),
     };
 
     getMeetSessionEventRouter().dispatch(meetingId, transcript);
@@ -455,17 +462,27 @@ export class MeetAudioIngest {
  * defaults to 48 kHz — passing the rate explicitly keeps all three
  * producing intelligible transcripts).
  *
- * Throws {@link MeetAudioIngestError} when no streaming-capable provider
- * is configured so the session manager can surface a clear join-failure
- * message pointing at `services.stt.provider`.
+ * Requests `diarize: "preferred"` so capable providers (Deepgram) emit
+ * speaker labels that the downstream speaker resolver can cross-check
+ * against Meet's DOM-sourced active-speaker signal. Providers that
+ * don't support diarization (Gemini, Whisper) silently no-op — Meet
+ * still works, the DOM remains the only speaker source.
+ *
+ * Throws {@link MeetAudioIngestError} when the resolver returns `null`.
+ * With `"preferred"` that only happens when the configured STT provider
+ * is entirely unusable (unknown provider, no streaming support, missing
+ * credentials, or no adapter) — never due to a lack of diarization
+ * capability. The error message points the user at
+ * `services.stt.provider`.
  */
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
   const transcriber = await resolveStreamingTranscriber({
     sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+    diarize: "preferred",
   });
   if (!transcriber) {
     throw new MeetAudioIngestError(
-      "No streaming-capable STT provider is configured. " +
+      "The configured STT provider is unusable for Meet transcription. " +
         "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
         "and ensure credentials are present.",
     );
