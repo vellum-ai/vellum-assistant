@@ -1272,7 +1272,13 @@ export function buildCompletionSummary(
           : undefined;
       return cancelLabel ? `User chose: "${cancelLabel}"` : "Cancelled";
     }
-    if (actionId === "confirm") return "Confirmed";
+    if (actionId === "confirm") {
+      const confirmLabel =
+        typeof surfaceData?.confirmLabel === "string"
+          ? surfaceData.confirmLabel
+          : undefined;
+      return confirmLabel ? `User chose: "${confirmLabel}"` : "Confirmed";
+    }
     // Preserve the actual action ID so the LLM knows the user's exact choice
     // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
     return `User selected: ${actionId}`;
@@ -1319,7 +1325,13 @@ export function buildUserFacingLabel(
           : undefined;
       return cancelLabel ?? "Cancelled";
     }
-    if (actionId === "confirm") return "Confirmed";
+    if (actionId === "confirm") {
+      const confirmLabel =
+        typeof surfaceData?.confirmLabel === "string"
+          ? surfaceData.confirmLabel
+          : undefined;
+      return confirmLabel ?? "Confirmed";
+    }
     return `Selected: ${actionId}`;
   }
   if (surfaceType === "form") return "Submitted";

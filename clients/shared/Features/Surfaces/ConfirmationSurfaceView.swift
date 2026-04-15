@@ -21,22 +21,12 @@ public struct ConfirmationSurfaceView: View {
     }
 
     /// The action ID to emit when the user cancels.
-    /// Uses the first server-provided action ID if exactly 2 actions are defined, otherwise defaults to "cancel".
-    private var cancelActionId: String {
-        if actions.count == 2 {
-            return actions[0].id
-        }
-        return "cancel"
-    }
+    /// Always "cancel" — the visible label is controlled by `data.cancelLabel`.
+    private var cancelActionId: String { "cancel" }
 
     /// The action ID to emit when the user confirms.
-    /// Uses the second server-provided action ID if exactly 2 actions are defined, otherwise defaults to "confirm".
-    private var confirmActionId: String {
-        if actions.count == 2 {
-            return actions[1].id
-        }
-        return "confirm"
-    }
+    /// Always "confirm" — the visible label is controlled by `data.confirmLabel`.
+    private var confirmActionId: String { "confirm" }
 
     public var body: some View {
         Group {
