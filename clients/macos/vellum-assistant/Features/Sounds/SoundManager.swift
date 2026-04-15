@@ -24,6 +24,15 @@ final class SoundManager {
     /// synchronous file reads on the main thread).
     @ObservationIgnored private var featureFlagStore: AssistantFeatureFlagStore?
 
+    /// Serial background queue for audio playback. `NSSound.play()` can block the
+    /// calling thread for 2000ms+ during audio subsystem initialization
+    /// (`AudioQueueXPC_Bridge::Start` → XPC sync dispatch → mutex lock). Routing all
+    /// playback through this dedicated queue keeps the main actor responsive.
+    /// See: https://developer.apple.com/documentation/appkit/nssound/play()
+    @ObservationIgnored private static let audioQueue = DispatchQueue(
+        label: "com.vellum.assistant.audio-playback", qos: .userInitiated
+    )
+
     /// Cache of loaded NSSound instances keyed by filename to avoid repeated gateway fetches.
     @ObservationIgnored private var soundCache: [String: NSSound] = [:]
 
@@ -308,6 +317,15 @@ final class SoundManager {
 
     // MARK: - Playback
 
+    /// Dispatches sound playback to the background audio queue to avoid blocking
+    /// the main actor during audio subsystem initialization.
+    private func playOnAudioQueue(_ sound: NSSound, volume: Float) {
+        Self.audioQueue.async {
+            sound.volume = volume
+            sound.play()
+        }
+    }
+
     /// Plays `app_open` as soon as the initial config fetch completes. Callers
     /// fire this during `applicationDidFinishLaunching`, before `start()`'s async
     /// fetch has landed — calling `play(.appOpen)` directly in that window races
@@ -347,8 +365,7 @@ final class SoundManager {
 
         // Use cached sound if available.
         if let cached = soundCache[filename] {
-            cached.volume = config.volume
-            cached.play()
+            playOnAudioQueue(cached, volume: config.volume)
             return
         }
 
@@ -357,8 +374,7 @@ final class SoundManager {
         Task {
             if let sound = await fetchCustomSound(filename: filename) {
                 soundCache[filename] = sound
-                sound.volume = config.volume
-                sound.play()
+                playOnAudioQueue(sound, volume: config.volume)
             } else {
                 log.warning("Failed to load sound file '\(filename)', falling back to default")
                 playDefault()
@@ -369,8 +385,7 @@ final class SoundManager {
     /// Plays the default blip at the current volume.
     private func playDefault() {
         let sound = defaultBlipSound()
-        sound.volume = config.volume
-        sound.play()
+        playOnAudioQueue(sound, volume: config.volume)
     }
 
     /// Preview a specific sound by filename at the current volume, bypassing
@@ -384,16 +399,14 @@ final class SoundManager {
         }
 
         if let cached = soundCache[filename] {
-            cached.volume = config.volume
-            cached.play()
+            playOnAudioQueue(cached, volume: config.volume)
             return
         }
 
         Task {
             if let sound = await fetchCustomSound(filename: filename) {
                 soundCache[filename] = sound
-                sound.volume = config.volume
-                sound.play()
+                playOnAudioQueue(sound, volume: config.volume)
             } else {
                 previewDefaultBlip()
             }
@@ -403,8 +416,7 @@ final class SoundManager {
     /// Preview the default blip at the current volume, bypassing enabled checks.
     func previewDefaultBlip() {
         let blip = NSSound(named: "Tink") ?? NSSound()
-        blip.volume = config.volume
-        blip.play()
+        playOnAudioQueue(blip, volume: config.volume)
     }
 
     /// Returns the default blip sound (macOS system sound "Tink").
