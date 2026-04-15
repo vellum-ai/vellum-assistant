@@ -343,11 +343,17 @@ extension AppDelegate {
         }
 
         if let dot = statusDotLayer {
-            // Position the dot in the bottom-right corner of the button,
-            // matching the previous composited image layout.
-            // NSStatusBarButton's layer is not flipped, so Y=0 is at the bottom.
-            let dotX = iconSize - dotSize / 2 - dotPadding
-            let dotY = dotSize / 2 + dotPadding
+            // The button is wider than the 18×18 icon (macOS adds horizontal
+            // padding). Compute where the image actually sits so the dot stays
+            // anchored to the avatar regardless of button size / scale factor.
+            let btnSize = button.bounds.size
+            let imgOriginX = (btnSize.width - iconSize) / 2
+            let imgOriginY = (btnSize.height - iconSize) / 2
+
+            // CAShapeLayer.position is center-based; Y=0 is at the bottom
+            // (layer is not flipped).
+            let dotX = imgOriginX + iconSize - dotSize / 2 - dotPadding
+            let dotY = imgOriginY + dotSize / 2 + dotPadding
             dot.position = CGPoint(x: dotX, y: dotY)
 
             // Dark outline ring behind the dot for contrast.
