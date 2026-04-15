@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { getAssistantDomain } from "../../config/env.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -7,22 +8,20 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 const log = getCliLogger("domain");
 
 export function registerDomainCommand(program: Command): void {
+  const baseDomain = getAssistantDomain();
   const domain = program
     .command("domain")
     .description(
-      "Provision and manage this assistant's custom subdomain on vellum.me",
+      `Register and manage this assistant's custom subdomain on ${baseDomain}`,
     )
     .option("--json", "Machine-readable compact JSON output");
 
   domain.addHelpText(
     "after",
     `
-Each assistant can register its own subdomain (e.g. becky.vellum.me)
-for email and web presence. The subdomain is provisioned in Mailgun
-with DNS pre-configured via wildcard records.
-
-Domain provisioning is a prerequisite for email registration. Run
-\`assistant domain register\` before \`assistant email register\`.
+Each assistant can register its own subdomain (e.g. becky.${baseDomain})
+for email and web presence. DNS is pre-configured via wildcard
+records — no manual DNS changes needed.
 
 Examples:
   $ assistant domain register becky
@@ -32,27 +31,28 @@ Examples:
 
   domain
     .command("register [subdomain]")
-    .description("Register a custom subdomain on vellum.me for this assistant")
+    .description(
+      `Register a custom subdomain on ${baseDomain} for this assistant`,
+    )
     .addHelpText(
       "after",
       `
 Arguments:
-  subdomain   The subdomain to register (e.g. "becky" → becky.vellum.me).
+  subdomain   The subdomain to register (e.g. "becky" → becky.${baseDomain}).
               If omitted, the platform derives it from the assistant's name.
 
-Provisions a new Mailgun domain at <subdomain>.vellum.me with
-DKIM shared from the root domain. DNS is pre-configured via wildcard
-records — no manual DNS changes needed.
+Registers a subdomain at <subdomain>.${baseDomain}. DNS is pre-configured
+via wildcard records — no manual DNS changes needed.
 
 Examples:
   $ assistant domain register becky
-  ✓ Registered becky.vellum.me
+  ✓ Registered becky.${baseDomain}
 
   $ assistant domain register
-  ✓ Registered my-assistant.vellum.me
+  ✓ Registered my-assistant.${baseDomain}
 
   $ assistant domain register cool-bot --json
-  {"domain":"cool-bot.vellum.me","id":"...","status":"active","verified":true}`,
+  {"domain":"cool-bot.${baseDomain}","id":"...","status":"active","verified":true}`,
     )
     .action(
       async (subdomain: string | undefined, _opts: unknown, cmd: Command) => {
@@ -137,13 +137,13 @@ verification status and DNS health.
 
 Examples:
   $ assistant domain status
-  Domain:   becky.vellum.me
+  Domain:   becky.${baseDomain}
   Status:   active
   Verified: yes
   Created:  2026-04-15
 
   $ assistant domain status --json
-  {"domain":"becky.vellum.me","status":"active","verified":true,...}`,
+  {"domain":"becky.${baseDomain}","status":"active","verified":true,...}`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       try {
