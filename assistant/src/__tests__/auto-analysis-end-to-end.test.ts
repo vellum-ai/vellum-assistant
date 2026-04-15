@@ -121,7 +121,7 @@ mock.module("../runtime/services/analyze-conversation.js", () => ({
   },
 }));
 
-// Stub the deps singleton so the job handler doesn't throw
+// Stub the deps singleton so the job handler doesn't return early due to
 // "Analysis deps not yet initialized" — the stub above doesn't actually
 // touch the deps bundle, so any non-null shape suffices.
 mock.module("../runtime/services/analyze-deps-singleton.js", () => ({
