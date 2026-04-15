@@ -53,5 +53,11 @@ export function compressSearchResults(
   result.push(
     `(${byFile.size} files, ${lines.length - nonMatchLines.length} matches total)`,
   );
+
+  // Preserve stderr (e.g., "binary file matches" warnings) even on success
+  if (stderr.trim()) {
+    result.push("", "--- stderr ---", stderr.trim());
+  }
+
   return result.join("\n");
 }
