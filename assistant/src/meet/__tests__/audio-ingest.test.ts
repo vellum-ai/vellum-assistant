@@ -6,34 +6,28 @@
  * network or filesystem socket is opened.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
+// `resolveStreamingTranscriber` is imported at file scope (before any mock
+// is installed) so the "default transcriber factory" describe below can
+// restore the real export in its `afterAll`. Bun's `mock.module` is
+// process-global and persists until re-mocked; installing it at file
+// scope bleeds into sibling test files that share a Bun process (e.g.
+// `providers/speech-to-text/__tests__/resolve.test.ts`).
+import { resolveStreamingTranscriber as realResolveStreamingTranscriberImport } from "../../providers/speech-to-text/resolve.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-
-// ---------------------------------------------------------------------------
-// Module mocks — must appear before any imports of the modules under test
-// ---------------------------------------------------------------------------
-
-// Intercept `resolveStreamingTranscriber` so we can assert the default
-// `createTranscriber` path passes the expected diarize preference through.
-// Tests that inject their own `createTranscriber` never hit this mock.
-let mockResolveCalls: Array<Record<string, unknown> | undefined> = [];
-let mockResolveResult: StreamingTranscriber | null = null;
-
-mock.module("../../providers/speech-to-text/resolve.js", () => ({
-  resolveStreamingTranscriber: async (options?: Record<string, unknown>) => {
-    mockResolveCalls.push(options);
-    return mockResolveResult;
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Imports under test — after mocks
-// ---------------------------------------------------------------------------
-
 import {
   BOT_CONNECT_TIMEOUT_MS,
   MeetAudioIngest,
@@ -45,6 +39,20 @@ import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
 } from "../session-event-router.js";
+
+// Copy the imported function reference out of its live binding so it can
+// be used as the restoration target in `afterAll`. ES module named imports
+// are live bindings that `mock.module` rebinds in place, so passing
+// `realResolveStreamingTranscriberImport` directly into the `afterAll`
+// re-mock factory would just hand back the stub. Saving the current
+// callable value breaks that live link.
+const realResolveStreamingTranscriberFn = realResolveStreamingTranscriberImport;
+
+// Shared state for the default-transcriber-factory describe below. Declared
+// here so both the `mock.module` factory (installed in that describe's
+// `beforeAll`) and the tests themselves have access.
+let mockResolveCalls: Array<Record<string, unknown> | undefined> = [];
+let mockResolveResult: StreamingTranscriber | null = null;
 
 // ---------------------------------------------------------------------------
 // In-memory fakes
@@ -734,6 +742,29 @@ describe("MeetAudioIngest.stop", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetAudioIngest — default transcriber factory", () => {
+  // Install the module mock only for this describe so it doesn't leak
+  // into sibling test files that share a Bun process (Bun's `mock.module`
+  // is process-global). Restore in `afterAll` by re-mocking with the real
+  // function reference captured at file load time — Bun's `mock.restore()`
+  // doesn't undo `mock.module`, so we have to re-point it at the original
+  // export ourselves.
+  beforeAll(() => {
+    mock.module("../../providers/speech-to-text/resolve.js", () => ({
+      resolveStreamingTranscriber: async (
+        options?: Record<string, unknown>,
+      ) => {
+        mockResolveCalls.push(options);
+        return mockResolveResult;
+      },
+    }));
+  });
+
+  afterAll(() => {
+    mock.module("../../providers/speech-to-text/resolve.js", () => ({
+      resolveStreamingTranscriber: realResolveStreamingTranscriberFn,
+    }));
+  });
+
   test("requests diarize: preferred from the resolver", async () => {
     // The fake resolver returns a minimal StreamingTranscriber so the
     // ingest has something to drive. We don't exercise the streaming path

@@ -357,36 +357,6 @@ class MeetSessionManagerImpl {
     });
   }
 
-  /** Swap dependencies at runtime. Tests only. */
-  _replaceDeps(deps: MeetSessionManagerDeps): void {
-    const insertMessage = deps.insertMessage ?? this.deps.insertMessage;
-    this.deps = {
-      dockerRunnerFactory:
-        deps.dockerRunnerFactory ?? this.deps.dockerRunnerFactory,
-      getProviderKey: deps.getProviderKey ?? this.deps.getProviderKey,
-      botLeaveFetch: deps.botLeaveFetch ?? this.deps.botLeaveFetch,
-      resolveDaemonUrl: deps.resolveDaemonUrl ?? this.deps.resolveDaemonUrl,
-      getWorkspaceDir: deps.getWorkspaceDir ?? this.deps.getWorkspaceDir,
-      audioIngestFactory:
-        deps.audioIngestFactory ?? this.deps.audioIngestFactory,
-      consentMonitorFactory:
-        deps.consentMonitorFactory ?? this.deps.consentMonitorFactory,
-      conversationBridgeFactory:
-        deps.conversationBridgeFactory ?? this.deps.conversationBridgeFactory,
-      storageWriterFactory:
-        deps.storageWriterFactory ?? this.deps.storageWriterFactory,
-      resolveAssistantDisplayName:
-        deps.resolveAssistantDisplayName ??
-        this.deps.resolveAssistantDisplayName,
-      insertMessage,
-    };
-    // Re-install the token resolver in case `_resetForTests` cleared it.
-    getMeetSessionEventRouter().setBotApiTokenResolver((meetingId) => {
-      const session = this.sessions.get(meetingId);
-      return session ? session.botApiToken : null;
-    });
-  }
-
   /** Reset internal state. Tests only. */
   _resetForTests(): void {
     for (const session of this.sessions.values()) {

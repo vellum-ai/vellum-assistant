@@ -12,7 +12,6 @@ import { describe, expect, mock, test } from "bun:test";
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
 import {
-  DEDUPE_WINDOW_MS,
   LLM_CHECK_DEBOUNCE_MS,
   LLM_TICK_INTERVAL_MS,
   MeetConsentMonitor,
@@ -357,8 +356,9 @@ describe("MeetConsentMonitor dedupe", () => {
     expect(monitor._bufferedTranscriptCount()).toBe(1);
 
     // Past both the dedupe and debounce windows, the same text re-enters
-    // the keyword path. We use `LLM_CHECK_DEBOUNCE_MS + 1` (which is also
-    // > DEDUPE_WINDOW_MS) so neither guard short-circuits the second call.
+    // the keyword path. We use `LLM_CHECK_DEBOUNCE_MS + 1` — since
+    // `LLM_CHECK_DEBOUNCE_MS` is defined to exceed the dedupe window,
+    // neither guard short-circuits the second call.
     t = LLM_CHECK_DEBOUNCE_MS + 1;
     dispatcher.dispatch(
       "m1",
