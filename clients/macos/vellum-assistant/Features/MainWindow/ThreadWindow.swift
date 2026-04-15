@@ -255,6 +255,7 @@ private struct ThreadWindowContentView: View {
                alignment: .topLeading)
         .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
         .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGSize.self) { proxy in proxy.size } action: { windowSize = $0 }
         .overlay(alignment: .top) {
             MainWindowZoomIndicator(
