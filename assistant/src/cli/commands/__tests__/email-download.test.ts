@@ -39,6 +39,20 @@ function mockDetailSuccess(msg = SAMPLE_MESSAGE, status = 200): void {
   mockFetch(`/emails/${msg.id}/`, {}, { body: msg, status });
 }
 
+/**
+ * Intercept the gateway feature-flag pre-population fetch that
+ * `buildCliProgram()` triggers. Without this, the call either hits a real
+ * local gateway or counts against `getMockFetchCalls()`, skewing assertions.
+ */
+function mockFeatureFlagsFetch(): void {
+  mockFetch("/v1/feature-flags", { method: "GET" }, { body: { flags: [] }, status: 200 });
+}
+
+/** Filter out the feature-flag pre-population fetch from captured calls. */
+function emailFetchCalls(): { path: string; init: RequestInit }[] {
+  return getMockFetchCalls().filter((c) => !c.path.includes("/v1/feature-flags"));
+}
+
 let savedCesUrl: string | undefined;
 let savedContainerized: string | undefined;
 let tmpOutputPath: string;
@@ -53,6 +67,7 @@ beforeEach(async () => {
 
   _resetBackend();
   resetMockFetch();
+  mockFeatureFlagsFetch();
   _setOverridesForTesting({ "email-channel": true });
   setPlatformAssistantId(ASSISTANT_ID);
   await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
@@ -175,7 +190,7 @@ describe("assistant email download", () => {
 
     await runAssistantCommand("email", "download", MESSAGE_ID);
 
-    const calls = getMockFetchCalls();
+    const calls = emailFetchCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/emails/${MESSAGE_ID}/`,

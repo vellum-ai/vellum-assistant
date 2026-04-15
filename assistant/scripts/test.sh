@@ -50,7 +50,6 @@ KNOWN_BROKEN_FILES=(
   "credentials-cli.test.ts"
   "disconnect.test.ts"
   "email-attachment.test.ts"
-  "email-download.test.ts"
   "email-list.test.ts"
   "email-register.test.ts"
   "email-send.test.ts"
