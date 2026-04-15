@@ -598,9 +598,22 @@ export class AnthropicProvider implements Provider {
       useNativeWebSearch?: boolean;
       streamTimeoutMs?: number;
       baseURL?: string;
+      /**
+       * Authenticate via `Authorization: Bearer <token>` instead of
+       * `x-api-key`. Required for proxies that front the Anthropic Messages
+       * API with their own Bearer scheme (e.g. OpenRouter). When set, the
+       * positional `apiKey` argument is ignored on the wire.
+       */
+      authToken?: string;
     } = {},
   ) {
-    this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
+    this.client = options.authToken
+      ? new Anthropic({
+          apiKey: null,
+          authToken: options.authToken,
+          baseURL: options.baseURL,
+        })
+      : new Anthropic({ apiKey, baseURL: options.baseURL });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;

@@ -1864,3 +1864,84 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
     expect(lastStreamParams!.output_config).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// OpenRouter routing Anthropic models through the Messages API
+// ---------------------------------------------------------------------------
+
+describe("OpenRouterProvider — Anthropic dispatch", () => {
+  beforeEach(() => {
+    lastStreamParams = null;
+    _lastStreamOptions = null;
+    lastConstructorArgs = null;
+  });
+
+  test("anthropic/ models are routed to Anthropic Messages API with Bearer auth", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, "You are helpful.");
+
+    expect(lastConstructorArgs).toMatchObject({
+      apiKey: null,
+      authToken: "or-key",
+      baseURL: "https://openrouter.ai/api/v1/anthropic",
+    });
+    expect(lastStreamParams).toBeTruthy();
+    expect(lastStreamParams!.model).toBe("anthropic/claude-sonnet-4.6");
+  });
+
+  test("custom baseURL is suffixed with /anthropic for Messages API", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "ast-key",
+      "anthropic/claude-opus-4.6",
+      { baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter" },
+    );
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastConstructorArgs).toMatchObject({
+      baseURL:
+        "https://platform.example.com/v1/runtime-proxy/openrouter/anthropic",
+    });
+  });
+
+  test("thinking config flows through to Anthropic Messages API natively", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "adaptive" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "adaptive" });
+    // The OpenAI-compat `reasoning` parameter must NOT be sent on the
+    // native Messages API path.
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
+  test("per-request model override routes based on the overridden model", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    // Default model is non-Anthropic, but the request overrides with an
+    // Anthropic model — dispatch must honour the request-level model.
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { model: "anthropic/claude-haiku-4.5" },
+    });
+
+    expect(lastStreamParams).toBeTruthy();
+    expect(lastStreamParams!.model).toBe("anthropic/claude-haiku-4.5");
+  });
+});

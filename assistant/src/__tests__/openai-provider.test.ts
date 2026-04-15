@@ -1221,7 +1221,7 @@ describe("OpenRouterProvider reasoning", () => {
   test("sends reasoning.enabled=true when thinking config is present", async () => {
     const provider = new OpenRouterProvider(
       "or-key",
-      "anthropic/claude-sonnet-4.6",
+      "x-ai/grok-4",
     );
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "adaptive" } },
@@ -1234,7 +1234,7 @@ describe("OpenRouterProvider reasoning", () => {
   test("sends reasoning.enabled=false when thinking config is absent", async () => {
     const provider = new OpenRouterProvider(
       "or-key",
-      "anthropic/claude-sonnet-4.6",
+      "x-ai/grok-4",
     );
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: {},
@@ -1247,7 +1247,7 @@ describe("OpenRouterProvider reasoning", () => {
   test("sends reasoning.enabled=false when no options are provided", async () => {
     const provider = new OpenRouterProvider(
       "or-key",
-      "anthropic/claude-sonnet-4.6",
+      "x-ai/grok-4",
     );
     await provider.sendMessage([userMsg("hi")]);
 
@@ -1258,7 +1258,7 @@ describe("OpenRouterProvider reasoning", () => {
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {
     const provider = new OpenRouterProvider(
       "or-key",
-      "anthropic/claude-sonnet-4.6",
+      "x-ai/grok-4",
     );
     const retry = new RetryProvider(provider);
 
@@ -1272,7 +1272,7 @@ describe("OpenRouterProvider reasoning", () => {
   test("RetryProvider + OpenRouterProvider disables thinking end-to-end", async () => {
     const provider = new OpenRouterProvider(
       "or-key",
-      "anthropic/claude-sonnet-4.6",
+      "x-ai/grok-4",
     );
     const retry = new RetryProvider(provider);
 
