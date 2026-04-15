@@ -9,6 +9,7 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   loadGuardianToken,
   leaseGuardianToken,
+  computeDeviceId,
 } from "../lib/guardian-token.js";
 import {
   readPlatformToken,
@@ -25,6 +26,10 @@ import {
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
   platformPollImportStatus,
+  ensureSelfHostedLocalRegistration,
+  injectCredentialsIntoAssistant,
+  fetchCurrentUser,
+  fetchOrganizationId,
 } from "../lib/platform-client.js";
 import {
   hatchDocker,
@@ -1104,6 +1109,54 @@ function printImportSummary(result: ImportResponse): void {
   }
 }
 
+/**
+ * After teleporting to a local/docker target, register the assistant with
+ * the platform and inject fresh platform credentials — mirroring the
+ * login flow. Non-fatal: failures are logged as warnings.
+ */
+async function tryInjectPlatformCredentials(
+  entry: AssistantEntry,
+): Promise<void> {
+  const token = readPlatformToken();
+  if (!token) {
+    console.log("  Skipped platform credential injection (not logged in).");
+    return;
+  }
+
+  try {
+    const user = await fetchCurrentUser(token);
+    const orgId = await fetchOrganizationId(token);
+    const clientInstallationId = computeDeviceId();
+    const registration = await ensureSelfHostedLocalRegistration(
+      token,
+      orgId,
+      clientInstallationId,
+      entry.assistantId,
+      "cli",
+    );
+
+    const allInjected = await injectCredentialsIntoAssistant({
+      gatewayUrl: entry.runtimeUrl,
+      bearerToken: entry.bearerToken,
+      assistantApiKey: registration.assistant_api_key,
+      platformAssistantId: registration.assistant.id,
+      platformBaseUrl: getPlatformUrl(),
+      organizationId: orgId,
+      userId: user.id,
+      webhookSecret: registration.webhook_secret,
+    });
+
+    if (allInjected) {
+      console.log("  Platform credentials injected.");
+    } else {
+      console.warn("  Some platform credentials could not be injected.");
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`  Platform credential injection skipped: ${msg}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -1436,6 +1489,13 @@ export async function teleport(): Promise<void> {
   // Import to target
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
   await importToAssistant(toEntry, toCloud, bundleData, false);
+
+  // After successful import, inject fresh platform credentials if the
+  // user is logged in — replaces the source's stale vellum:* credentials
+  // that were filtered during import.
+  if (fromCloud === "vellum") {
+    await tryInjectPlatformCredentials(toEntry);
+  }
 
   // Retire source after successful import
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
