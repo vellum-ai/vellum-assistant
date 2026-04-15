@@ -90,6 +90,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: req.signal,
       });
 
       if (response.status === 424) {
