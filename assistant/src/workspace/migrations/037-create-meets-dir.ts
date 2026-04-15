@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import type { WorkspaceMigration } from "../../../assistant/src/workspace/migrations/types.js";
+import type { WorkspaceMigration } from "./types.js";
 
 /**
  * `.keep` sentinel content. Keeps the directory tracked/visible even when

@@ -1,18 +1,17 @@
 # Meet-join skill — Agent Instructions
 
 All Meet runtime code lives under this directory. The daemon module, tools,
-routes, migrations, config schema, wire-contracts, and Meet-bot container
-image are all consolidated here so the skill can evolve — or be lifted out of
-the repo entirely — without hunting down scattered references across the
-monorepo.
+routes, config schema, wire-contracts, and Meet-bot container image are all
+consolidated here so the skill can evolve — or be lifted out of the repo
+entirely — without hunting down scattered references across the monorepo.
 
 ## The isolation rule
 
 Code outside `skills/meet-join/` must not import from the skill beyond a small,
 explicit allowlist of wiring points: the central tool manifest, HTTP route
-mount, workspace migration registry, config schema, daemon shutdown handler,
-and the daemon-client SSE protocol registry. These are the places where a
-central registry has to know about Meet — everywhere else, Meet is opaque.
+mount, config schema, daemon shutdown handler, and the daemon-client SSE
+protocol registry. These are the places where a central registry has to know
+about Meet — everywhere else, Meet is opaque.
 
 The complete allowlist and enforcement live in
 `assistant/src/__tests__/skill-meet-isolation.test.ts`. A guard test scans the

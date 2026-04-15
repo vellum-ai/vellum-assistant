@@ -39,9 +39,6 @@ const ALLOWLIST = new Set([
   // --- Central HTTP route mount (routes must be mounted on the server) ---
   "assistant/src/runtime/http-server.ts", // mounts meet-internal routes
 
-  // --- Central workspace migration registry (migrations must be registered) ---
-  "assistant/src/workspace/migrations/registry.ts", // registers createMeetsDirMigration
-
   // --- Daemon shutdown (session manager must be stopped on shutdown) ---
   "assistant/src/daemon/shutdown-handlers.ts", // imports MeetSessionManager
 

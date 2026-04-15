@@ -21,7 +21,6 @@
     "../skills/meet-join/daemon/**/*.ts",
     "../skills/meet-join/tools/**/*.ts",
     "../skills/meet-join/routes/**/*.ts",
-    "../skills/meet-join/migrations/**/*.ts",
     "../skills/meet-join/config-schema.ts"
   ],
   "exclude": [

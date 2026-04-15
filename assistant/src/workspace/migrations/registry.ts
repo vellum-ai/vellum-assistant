@@ -1,4 +1,3 @@
-import { createMeetsDirMigration } from "../../../../skills/meet-join/migrations/037-create-meets-dir.js";
 import { avatarRenameMigration } from "./001-avatar-rename.js";
 import { seedDeviceIdMigration } from "./003-seed-device-id.js";
 import { extractCollectUsageDataMigration } from "./004-extract-collect-usage-data.js";
@@ -35,6 +34,7 @@ import { sttServiceExplicitConfigMigration } from "./033-stt-service-explicit-co
 import { removeCallsVoiceTranscriptionProviderMigration } from "./034-remove-calls-voice-transcription-provider.js";
 import { seedSlackChannelPersonaMigration } from "./035-seed-slack-channel-persona.js";
 import { updatePkbIndexBarMigration } from "./036-update-pkb-index-bar.js";
+import { createMeetsDirMigration } from "./037-create-meets-dir.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 

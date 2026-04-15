@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createMeetsDirMigration } from "../../../skills/meet-join/migrations/037-create-meets-dir.js";
+import { createMeetsDirMigration } from "../workspace/migrations/037-create-meets-dir.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
