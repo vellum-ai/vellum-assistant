@@ -24,24 +24,33 @@ export function compressDirectoryListing(
     (l) => /^[dlcbps-][rwxsStT-]{9}/.test(l) || /^total\s+\d+/.test(l),
   );
 
+  let result: string;
+
   if (isLsLa) {
-    return compressLsOutput(lines);
+    result = compressLsOutput(lines);
+  } else {
+    // Check for find-style output: lines that look like file paths.
+    // Covers ./path, /path, and relative paths like src/file.ts.
+    const isFind = lines.every(
+      (l) =>
+        l.startsWith("./") ||
+        l.startsWith("/") ||
+        (/\//.test(l) && !/^\s/.test(l)),
+    );
+    if (isFind) {
+      result = compressFindOutput(lines);
+    } else {
+      // Plain ls (just filenames) — group by extension
+      result = compressPlainLs(lines);
+    }
   }
 
-  // Check for find-style output: lines that look like file paths.
-  // Covers ./path, /path, and relative paths like src/file.ts.
-  const isFind = lines.every(
-    (l) =>
-      l.startsWith("./") ||
-      l.startsWith("/") ||
-      (/\//.test(l) && !/^\s/.test(l)),
-  );
-  if (isFind) {
-    return compressFindOutput(lines);
+  // Preserve stderr (e.g., "Permission denied" warnings) even on success
+  if (stderr.trim()) {
+    result += "\n\n--- stderr ---\n" + stderr.trim();
   }
 
-  // Plain ls (just filenames) — group by extension
-  return compressPlainLs(lines);
+  return result;
 }
 
 function compressLsOutput(lines: string[]): string {

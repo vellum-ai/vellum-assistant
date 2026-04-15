@@ -14,7 +14,3 @@ export interface CompressionResult {
   category: CommandCategory;
   wasCompressed: boolean;
 }
-
-export interface Compressor {
-  compress(stdout: string, stderr: string, exitCode: number | null): string;
-}

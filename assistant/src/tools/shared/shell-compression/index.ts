@@ -1,4 +1,3 @@
-import { getLogger } from "../../../util/logger.js";
 import { compressBuildOutput } from "./compressors/build-lint.js";
 import { compressDirectoryListing } from "./compressors/directory-listing.js";
 import { compressGitDiff } from "./compressors/git-diff.js";
@@ -7,8 +6,6 @@ import { compressSearchResults } from "./compressors/search-results.js";
 import { compressTestOutput } from "./compressors/test-runner.js";
 import { detectCommand } from "./detect-command.js";
 import type { CompressionResult } from "./types.js";
-
-const log = getLogger("shell-compression");
 
 /** Minimum output length before compression is attempted. */
 const MIN_LENGTH = 2000;
@@ -85,16 +82,6 @@ export function compressShellOutput(
       wasCompressed: false,
     };
   }
-
-  log.debug(
-    {
-      category,
-      originalLength,
-      compressedLength,
-      savings: `${((1 - compressedLength / originalLength) * 100).toFixed(1)}%`,
-    },
-    "Shell output compressed",
-  );
 
   return {
     compressed,

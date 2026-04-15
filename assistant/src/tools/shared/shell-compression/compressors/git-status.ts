@@ -58,5 +58,10 @@ export function compressGitStatus(
     }
   }
 
+  // Preserve stderr (e.g., warnings) even on success
+  if (stderr.trim()) {
+    result.push("", "--- stderr ---", stderr.trim());
+  }
+
   return result.join("\n");
 }
