@@ -118,7 +118,7 @@ public final class LocalAssistantBootstrapService {
         } catch let error as LocalBootstrapError {
             throw error
         } catch let error as PlatformAPIError {
-            throw mapPlatformError(error, context: .registration)
+            throw mapPlatformError(error, context: .organizationResolution)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
@@ -358,6 +358,7 @@ public final class LocalAssistantBootstrapService {
     }
 
     private enum ErrorContext: Equatable {
+        case organizationResolution
         case registration
         case provisioning
     }
@@ -371,7 +372,7 @@ public final class LocalAssistantBootstrapService {
                 return .registrationConflict
             default:
                 switch context {
-                case .registration:
+                case .organizationResolution, .registration:
                     return .registrationFailed(platformErr.localizedDescription)
                 case .provisioning:
                     return .provisioningFailed(platformErr.localizedDescription)
@@ -379,7 +380,7 @@ public final class LocalAssistantBootstrapService {
             }
         }
         switch context {
-        case .registration:
+        case .organizationResolution, .registration:
             return .registrationFailed(error.localizedDescription)
         case .provisioning:
             return .provisioningFailed(error.localizedDescription)
