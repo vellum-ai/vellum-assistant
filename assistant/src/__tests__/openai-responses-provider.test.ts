@@ -232,7 +232,7 @@ describe("OpenAIResponsesProvider", () => {
       "Before\n<!-- SYSTEM_PROMPT_CACHE_BOUNDARY -->\nAfter",
     );
 
-    expect(lastStreamParams!.instructions).toBe("Before\n\nAfter");
+    expect(lastStreamParams!.instructions).toBe("Before\nAfter");
   });
 
   // -----------------------------------------------------------------------
