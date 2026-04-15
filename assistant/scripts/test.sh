@@ -54,7 +54,6 @@ EXPERIMENTAL_FILES=(
 KNOWN_BROKEN_FILES=(
   "byo-connection.test.ts"
   "conversation-tool-setup.test.ts"
-  "qdrant-manager.test.ts"
 )
 
 # Collect test files, filtering experimental if needed
