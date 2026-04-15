@@ -214,12 +214,16 @@ export class MeetConsentMonitor {
   private lastContentTimestamp: number | null = null;
 
   /**
-   * Value of {@link lastContentTimestamp} at the moment the tick-driven LLM
-   * check last fired (or `null` before the first tick-driven check). When
-   * a timer tick finds `lastContentTimestamp === lastLlmCheckContentTimestamp`
-   * it means no content-bearing event has arrived since the previous check,
-   * so the tick is skipped. Keyword-triggered LLM calls are unchanged by
-   * this watermark — only the 20s tick path both consults and advances it.
+   * Value of {@link lastContentTimestamp} at the moment the LLM check last
+   * fired (or `null` before the first check). When a timer tick finds
+   * `lastContentTimestamp === lastLlmCheckContentTimestamp` it means no
+   * content-bearing event has arrived since the previous LLM call, so the
+   * tick is skipped. Both trigger paths (tick and keyword) advance this
+   * watermark when they actually fire an LLM call — a keyword-fired call
+   * must also make the next tick a no-op if no new content arrives, since
+   * the keyword-path call already saw the current buffer. The tick path
+   * is still the only path that consults the watermark; keyword-triggered
+   * calls always fire (subject to the debounce).
    */
   private lastLlmCheckContentTimestamp: number | null = null;
 
@@ -241,6 +245,10 @@ export class MeetConsentMonitor {
    * {@link LLM_CHECK_DEBOUNCE_MS} on every potential LLM-firing path
    * (tick AND keyword) — both guards (this debounce and the content
    * watermark) apply independently and either can short-circuit a call.
+   *
+   * On LLM failure the previous value is restored so a failed call does
+   * not burn the debounce window — the monitor's resilience contract is
+   * that it can retry on the very next trigger after a failure.
    */
   private lastLlmCheckAt: number | null = null;
 
@@ -477,10 +485,13 @@ export class MeetConsentMonitor {
    *      triggers. If less than the debounce window has elapsed since the
    *      last LLM call, skip. The watermark below cannot save the keyword
    *      path on its own, so this guard gives keyword-triggered calls a
-   *      coarse rate limit too.
+   *      coarse rate limit too. On LLM failure this clock is restored so
+   *      a failed call does not silently burn the debounce window.
    *   2. **Content watermark** — applies only to tick-driven calls. If
-   *      no content-bearing event has arrived since the last tick-driven
-   *      check, skip even if the debounce window has elapsed.
+   *      no content-bearing event has arrived since the last LLM check,
+   *      skip even if the debounce window has elapsed. Both trigger
+   *      paths advance the watermark when they fire, so a keyword-fired
+   *      call will correctly make the next tick a no-op.
    *
    * The "already decided to leave" guard short-circuits before either,
    * and intentionally does NOT touch {@link lastLlmCheckAt} — we don't
@@ -538,17 +549,23 @@ export class MeetConsentMonitor {
       return;
     }
 
-    // Advance the tick-path watermark to the current content timestamp
-    // before firing. Only the tick path advances the watermark so the
-    // keyword fast-path keeps its existing semantics; the debounce above
-    // is what rate-limits keyword-triggered calls.
-    if (trigger === "tick") {
-      this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
-    }
+    // Advance the content watermark to the current content timestamp
+    // before firing. Every LLM call that actually fires advances the
+    // watermark so the next tick will correctly skip if no new content
+    // has arrived since the call — whether this call was tick-driven or
+    // keyword-driven. (The keyword path still fires whenever it hits,
+    // because the watermark check is tick-only; the debounce above is
+    // what rate-limits keyword-triggered calls.)
+    this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
 
     // Stamp the debounce clock BEFORE the async LLM call begins so a
     // second trigger arriving while this call is in flight is debounced
     // (in addition to being collapsed by the in-flight flag below).
+    // Capture the previous value so we can restore it if the LLM call
+    // throws — a failed call must not burn the debounce window, since
+    // the resilience contract guarantees the monitor can retry on the
+    // next trigger.
+    const prevLlmCheckAt = this.lastLlmCheckAt;
     this.lastLlmCheckAt = now;
 
     const prompt = this.buildPrompt();
@@ -592,6 +609,10 @@ export class MeetConsentMonitor {
         }
       }
     } catch (err) {
+      // Restore the debounce clock on failure so the next trigger is
+      // not silently suppressed for the remainder of the 8s window.
+      // The `prev` value may be `null` (first-ever call) — that's fine.
+      this.lastLlmCheckAt = prevLlmCheckAt;
       log.warn(
         { err, meetingId: this.meetingId, trigger },
         "MeetConsentMonitor: LLM call failed — staying in the meeting",
