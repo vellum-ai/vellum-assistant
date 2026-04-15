@@ -94,14 +94,14 @@ describe("MeetServiceSchema", () => {
     expect(parsed.joinName).toBe("Notes Bot");
   });
 
-  test("rejects empty containerImage", () => {
-    const result = MeetServiceSchema.safeParse({ containerImage: "" });
-    expect(result.success).toBe(false);
+  test("empty containerImage falls back to default", () => {
+    const parsed = MeetServiceSchema.parse({ containerImage: "" });
+    expect(parsed.containerImage).toBe("vellum-meet-bot:dev");
   });
 
-  test("rejects empty dockerNetwork", () => {
-    const result = MeetServiceSchema.safeParse({ dockerNetwork: "" });
-    expect(result.success).toBe(false);
+  test("empty dockerNetwork falls back to default", () => {
+    const parsed = MeetServiceSchema.parse({ dockerNetwork: "" });
+    expect(parsed.dockerNetwork).toBe("bridge");
   });
 
   test("rejects non-string entries in objectionKeywords", () => {
