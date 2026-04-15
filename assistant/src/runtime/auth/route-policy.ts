@@ -462,6 +462,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "schedules/run", scopes: ["settings.write"] },
   { endpoint: "schedules/cancel", scopes: ["settings.write"] },
 
+  // Filing
+  { endpoint: "filing", scopes: ["settings.read"] },
+  { endpoint: "filing:POST", scopes: ["settings.write"] },
+
   // Diagnostics
   { endpoint: "export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },
