@@ -497,10 +497,6 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
-   *
-   * When diarization is enabled, Deepgram attaches a per-word `speaker`
-   * integer; we aggregate these into a single `speakerLabel` via
-   * {@link pickSpeakerLabel}.
    */
   private handleTranscriptFrame(frame: DeepgramStreamResponse): void {
     const alternative = frame.channel?.alternatives?.[0];
