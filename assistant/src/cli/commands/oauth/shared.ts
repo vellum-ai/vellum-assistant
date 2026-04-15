@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { getConfig } from "../../../config/loader.js";
 import {
+  getServiceMode,
   type Services,
   ServicesSchema,
 } from "../../../config/schemas/services.js";
@@ -46,7 +47,7 @@ export function isManagedMode(provider: string): boolean {
   if (!managedKey) return false;
   try {
     const services: Services = getConfig().services;
-    return services[managedKey as keyof Services].mode === "managed";
+    return getServiceMode(services, managedKey as keyof Services) === "managed";
   } catch {
     return false;
   }

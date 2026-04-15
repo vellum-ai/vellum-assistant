@@ -19,11 +19,6 @@ const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
 const ADDRESS = "mybot@vellum.me";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
-const PLATFORM_BASE_URL_CREDENTIAL = credentialKey("vellum", "platform_base_url");
-const PLATFORM_ASSISTANT_ID_CREDENTIAL = credentialKey(
-  "vellum",
-  "platform_assistant_id",
-);
 
 /**
  * Platform API calls made against the configured platform base URL. Filters
@@ -53,28 +48,39 @@ function mockSendSuccess(deliveryId = "del_abc123", status = 202): void {
   );
 }
 
+let savedCesUrl: string | undefined;
+let savedContainerized: string | undefined;
+
 beforeEach(async () => {
   process.exitCode = 0;
+
+  // Force encrypted-store backend so setSecureKeyAsync works in sandbox.
+  // test-preload isolates the encrypted store to a per-file temp dir, so
+  // set/delete calls here do NOT touch the developer's real
+  // ~/.vellum/protected/keys.enc.
+  savedCesUrl = process.env.CES_CREDENTIAL_URL;
+  savedContainerized = process.env.IS_CONTAINERIZED;
+  delete process.env.CES_CREDENTIAL_URL;
+  delete process.env.IS_CONTAINERIZED;
+
   _resetBackend();
-  // Ensure we don't inherit platform credentials from prior test files that
-  // persist to ~/.vellum/protected/keys.enc on disk.
-  await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
-  await deleteSecureKeyAsync(PLATFORM_BASE_URL_CREDENTIAL);
-  await deleteSecureKeyAsync(PLATFORM_ASSISTANT_ID_CREDENTIAL);
   resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
   setPlatformAssistantId(ASSISTANT_ID);
   await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
 });
 
-afterEach(async () => {
+afterEach(() => {
   resetMockFetch();
   _setOverridesForTesting({});
   setPlatformAssistantId(undefined);
-  await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
-  await deleteSecureKeyAsync(PLATFORM_BASE_URL_CREDENTIAL);
-  await deleteSecureKeyAsync(PLATFORM_ASSISTANT_ID_CREDENTIAL);
   _resetBackend();
+
+  if (savedCesUrl !== undefined) process.env.CES_CREDENTIAL_URL = savedCesUrl;
+  else delete process.env.CES_CREDENTIAL_URL;
+  if (savedContainerized !== undefined)
+    process.env.IS_CONTAINERIZED = savedContainerized;
+  else delete process.env.IS_CONTAINERIZED;
 });
 
 describe("assistant email send", () => {

@@ -19,23 +19,14 @@ const vellumRoot = join(testDir, ".vellum");
 const workspaceDir = join(vellumRoot, "workspace");
 const configPath = join(workspaceDir, "config.json");
 
-const savedBaseDataDir = process.env.BASE_DATA_DIR;
 const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 beforeEach(() => {
-  process.env.BASE_DATA_DIR = testDir;
-  // Ensure we do not inherit a VELLUM_WORKSPACE_DIR override from the test runner;
-  // we want config.json to resolve under testDir/.vellum/workspace.
-  delete process.env.VELLUM_WORKSPACE_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   mkdirSync(workspaceDir, { recursive: true });
 });
 
 afterEach(() => {
-  if (savedBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
-  } else {
-    process.env.BASE_DATA_DIR = savedBaseDataDir;
-  }
   if (savedWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {

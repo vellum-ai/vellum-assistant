@@ -19,6 +19,8 @@ import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
+import { meetJoinTool } from "./meet/meet-join-tool.js";
+import { meetLeaveTool } from "./meet/meet-leave-tool.js";
 import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
@@ -91,6 +93,16 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
+  // Meet tools: `meet_join` / `meet_leave` pair with the `meet-join` skill
+  // (see `skills/meet-join/SKILL.md`). They are registered as first-party
+  // tools rather than skill scripts because they command an in-process
+  // lifecycle resource (MeetSessionManager) — per the exception carve-out
+  // in `assistant/src/tools/AGENTS.md`, that in-process state cannot be
+  // managed over a CLI boundary without reintroducing the same surface
+  // via HTTP. The feature flag check inside each tool keeps the surface
+  // silent when `meet` is disabled.
+  meetJoinTool,
+  meetLeaveTool,
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

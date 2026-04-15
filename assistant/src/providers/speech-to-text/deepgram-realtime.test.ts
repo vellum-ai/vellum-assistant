@@ -86,7 +86,11 @@ class MockWebSocket {
 /** Build a Deepgram streaming "Results" JSON frame. */
 function resultsFrame(
   transcript: string,
-  options: { is_final?: boolean; speech_final?: boolean } = {},
+  options: {
+    is_final?: boolean;
+    speech_final?: boolean;
+    words?: { word: string; speaker?: number }[];
+  } = {},
 ): string {
   return JSON.stringify({
     type: "Results",
@@ -96,7 +100,13 @@ function resultsFrame(
     is_final: options.is_final ?? false,
     speech_final: options.speech_final ?? false,
     channel: {
-      alternatives: [{ transcript, confidence: 0.95 }],
+      alternatives: [
+        {
+          transcript,
+          confidence: 0.95,
+          ...(options.words ? { words: options.words } : {}),
+        },
+      ],
     },
   });
 }
@@ -244,7 +254,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("hello wor", { is_final: false }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "partial", text: "hello wor" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello wor",
+      confidence: 0.95,
+    });
   });
 
   test("trims whitespace from partial transcript text", async () => {
@@ -252,7 +266,11 @@ describe("DeepgramRealtimeTranscriber", () => {
 
     mockWs.simulateMessage(resultsFrame("  hello  ", { is_final: false }));
 
-    expect(events[0]).toEqual({ type: "partial", text: "hello" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello",
+      confidence: 0.95,
+    });
   });
 
   test("does not emit partials when interimResults is disabled", async () => {
@@ -275,7 +293,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   test("emits final with empty text for silence segments", async () => {
@@ -284,7 +306,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("", { is_final: true }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.95,
+    });
   });
 
   test("handles missing transcript field gracefully", async () => {
@@ -298,7 +324,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(frame);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.5,
+    });
   });
 
   test("handles missing channel field gracefully", async () => {
@@ -315,6 +345,188 @@ describe("DeepgramRealtimeTranscriber", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  // Diarization: speakerLabel extraction
+  // ─────────────────────────────────────────────────────────────────
+
+  // Fixture A: diarize disabled (default) — baseline shape unchanged.
+  test("omits speakerLabel when diarization is disabled", async () => {
+    const { events } = await startSession();
+
+    mockWs.simulateMessage(resultsFrame("hello world", { is_final: true }));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
+    // `in` check: the key must not exist at all, not just be undefined.
+    expect("speakerLabel" in events[0]).toBe(false);
+  });
+
+  // Fixture B: single-speaker segment with diarize on.
+  test("emits speakerLabel '0' for a single-speaker segment", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    mockWs.simulateMessage(
+      resultsFrame("hello world", {
+        is_final: true,
+        words: [
+          { word: "hello", speaker: 0 },
+          { word: "world", speaker: 0 },
+        ],
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      speakerLabel: "0",
+      confidence: 0.95,
+    });
+  });
+
+  // Fixture C: two speakers with one dominant — mode wins.
+  test("emits speakerLabel for the dominant speaker in a two-speaker segment", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    // Speaker 1 says three words, speaker 0 says one — speaker 1 is the mode.
+    mockWs.simulateMessage(
+      resultsFrame("yes exactly right here", {
+        is_final: true,
+        words: [
+          { word: "yes", speaker: 0 },
+          { word: "exactly", speaker: 1 },
+          { word: "right", speaker: 1 },
+          { word: "here", speaker: 1 },
+        ],
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "yes exactly right here",
+      speakerLabel: "1",
+      confidence: 0.95,
+    });
+  });
+
+  // Fixture D: tied segment — first-word speaker wins.
+  test("breaks ties by picking the first word's speaker", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    // 2 words for each speaker — tie. First word is speaker 2, so 2 wins.
+    mockWs.simulateMessage(
+      resultsFrame("alpha beta gamma delta", {
+        is_final: true,
+        words: [
+          { word: "alpha", speaker: 2 },
+          { word: "beta", speaker: 3 },
+          { word: "gamma", speaker: 2 },
+          { word: "delta", speaker: 3 },
+        ],
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "alpha beta gamma delta",
+      speakerLabel: "2",
+      confidence: 0.95,
+    });
+  });
+
+  // Also verify partials carry the label.
+  test("emits speakerLabel on partial events when diarization is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    mockWs.simulateMessage(
+      resultsFrame("hel", {
+        is_final: false,
+        words: [{ word: "hel", speaker: 0 }],
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hel",
+      speakerLabel: "0",
+      confidence: 0.95,
+    });
+  });
+
+  // Diarize on, but the provider response carries no per-word speakers —
+  // speakerLabel must stay undefined/absent.
+  test("omits speakerLabel when words have no speaker field", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    mockWs.simulateMessage(
+      resultsFrame("no speakers here", {
+        is_final: true,
+        words: [{ word: "no" }, { word: "speakers" }, { word: "here" }],
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "no speakers here",
+      confidence: 0.95,
+    });
+    expect("speakerLabel" in events[0]).toBe(false);
+  });
+
+  test("forwards diarize=true to the Deepgram WebSocket URL", async () => {
+    let capturedUrl: string | undefined;
+    const origWs = (globalThis as Record<string, unknown>).WebSocket;
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(url: string) {
+        capturedUrl = url;
+        return mockWs;
+      }
+    };
+
+    const transcriber = new DeepgramRealtimeTranscriber(TEST_API_KEY, {
+      diarize: true,
+    });
+    const { onEvent } = createEventCollector();
+    const startPromise = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await startPromise;
+
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("diarize")).toBe("true");
+
+    (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  test("omits diarize param when diarization is disabled (default)", async () => {
+    let capturedUrl: string | undefined;
+    const origWs = (globalThis as Record<string, unknown>).WebSocket;
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(url: string) {
+        capturedUrl = url;
+        return mockWs;
+      }
+    };
+
+    const transcriber = new DeepgramRealtimeTranscriber(TEST_API_KEY);
+    const { onEvent } = createEventCollector();
+    const startPromise = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await startPromise;
+
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("diarize")).toBeNull();
+
+    (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // Multi-event sequence
   // ─────────────────────────────────────────────────────────────────
 
@@ -328,9 +540,21 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ type: "partial", text: "hel" });
-    expect(events[1]).toEqual({ type: "partial", text: "hello" });
-    expect(events[2]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hel",
+      confidence: 0.95,
+    });
+    expect(events[1]).toEqual({
+      type: "partial",
+      text: "hello",
+      confidence: 0.95,
+    });
+    expect(events[2]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -694,6 +918,35 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  // Top-level `speaker` on the alternative is a separate Deepgram response
+  // shape that some API versions use when a chunk is dominated by one voice.
+  // The word-level path is covered in the Diarization section above; this
+  // test guarantees we pick up the shorter form as well.
+  test("emits speakerLabel from top-level alternative.speaker when diarize is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [{ transcript: "hi", confidence: 0.9, speaker: 2 }],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      type: string;
+      text: string;
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(event.type).toBe("final");
+    expect(event.text).toBe("hi");
+    expect(event.speakerLabel).toBe("2");
+    expect(event.confidence).toBe(0.9);
   });
 
   // ─────────────────────────────────────────────────────────────────

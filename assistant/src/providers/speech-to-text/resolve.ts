@@ -6,11 +6,15 @@ import type {
   StreamingTranscriber,
   SttProviderId,
 } from "../../stt/types.js";
+import { getLogger } from "../../util/logger.js";
 import {
   getCredentialProvider,
   getProviderEntry,
   supportsBoundary,
+  supportsDiarization,
 } from "./provider-catalog.js";
+
+const log = getLogger("stt-resolver");
 
 // ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
@@ -232,11 +236,30 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
 // ---------------------------------------------------------------------------
 
 /**
+ * Speaker diarization preference for a streaming session.
+ *
+ * - `"off"` (default): never request diarization. Behavior unchanged from
+ *   pre-diarization callers.
+ * - `"preferred"`: enable diarization when the configured provider supports
+ *   it; silently proceed without it on non-capable providers.
+ * - `"required"`: enable diarization on capable providers; return `null` and
+ *   log a warning on non-capable providers. Callers that pass `"required"`
+ *   are expected to surface a clear error to the user.
+ */
+export type DiarizePreference = "preferred" | "required" | "off";
+
+/**
  * Options for resolving a streaming transcriber.
  */
 export interface ResolveStreamingTranscriberOptions {
   /** Audio sample rate in Hz from the client WebSocket connection. */
   sampleRate?: number;
+  /**
+   * Speaker diarization preference. Default: `"off"`.
+   *
+   * See {@link DiarizePreference} for semantics.
+   */
+  diarize?: DiarizePreference;
 }
 
 /**
@@ -253,12 +276,14 @@ export interface ResolveStreamingTranscriberOptions {
  * - The configured provider doesn't support the `daemon-streaming` boundary.
  * - No credentials are configured for the resolved provider.
  * - No streaming adapter exists for the configured provider.
+ * - `diarize` is `"required"` but the configured provider cannot diarize.
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
   const config = getConfig();
   const provider = config.services.stt.provider;
+  const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -273,6 +298,23 @@ export async function resolveStreamingTranscriber(
     return null;
   }
 
+  // Resolve diarization capability against the catalog. For `"required"`
+  // callers, bail early (with a warning) when the configured provider can't
+  // diarize so the caller can surface a clear error to the user.
+  const providerSupportsDiarization = supportsDiarization(
+    provider as SttProviderId,
+  );
+  if (diarizePreference === "required" && !providerSupportsDiarization) {
+    log.warn(
+      { providerId: provider },
+      "diarization is required but configured STT provider does not support it",
+    );
+    return null;
+  }
+  const enableDiarization =
+    (diarizePreference === "preferred" || diarizePreference === "required") &&
+    providerSupportsDiarization;
+
   const apiKey = await getProviderKeyAsync(credentialProviderName);
   if (!apiKey) {
     return null;
@@ -280,6 +322,7 @@ export async function resolveStreamingTranscriber(
 
   return createStreamingTranscriber(apiKey, provider as SttProviderId, {
     sampleRate: options.sampleRate,
+    diarize: enableDiarization,
   });
 }
 
@@ -288,6 +331,13 @@ export async function resolveStreamingTranscriber(
  */
 interface CreateStreamingTranscriberOptions {
   sampleRate?: number;
+  /**
+   * Whether to enable speaker diarization on providers that support it.
+   * Only forwarded to provider adapters that accept a diarize option
+   * (e.g. Deepgram). Silently ignored by adapters without diarization
+   * support.
+   */
+  diarize?: boolean;
 }
 
 /**
@@ -310,16 +360,21 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.diarize ? { diarize: true } : {}),
       });
     }
     case "google-gemini": {
-      const { GoogleGeminiStreamingTranscriber } =
-        await import("./google-gemini-stream.js");
-      return new GoogleGeminiStreamingTranscriber(apiKey, {
+      // Gemini does not support speaker diarization; the diarize option is
+      // silently ignored here.
+      const { GoogleGeminiLiveStreamingTranscriber } =
+        await import("./google-gemini-live-stream.js");
+      return new GoogleGeminiLiveStreamingTranscriber(apiKey, {
         pcmSampleRate: options.sampleRate,
       });
     }
     case "openai-whisper": {
+      // OpenAI Whisper does not support speaker diarization; the diarize
+      // option is silently ignored here.
       const { OpenAIWhisperStreamingTranscriber } =
         await import("./openai-whisper-stream.js");
       return new OpenAIWhisperStreamingTranscriber(apiKey, {

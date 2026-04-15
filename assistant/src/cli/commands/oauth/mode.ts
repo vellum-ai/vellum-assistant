@@ -6,7 +6,10 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../../config/loader.js";
-import type { Services } from "../../../config/schemas/services.js";
+import {
+  getServiceMode,
+  type Services,
+} from "../../../config/schemas/services.js";
 import {
   getProvider,
   listActiveConnectionsByProvider,
@@ -120,7 +123,10 @@ Examples:
 
           // Provider supports managed mode — read current config value
           const services: Services = getConfig().services;
-          const currentMode = services[managedKey as keyof Services].mode;
+          const currentMode = getServiceMode(
+            services,
+            managedKey as keyof Services,
+          );
 
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, {
@@ -189,7 +195,10 @@ Examples:
 
         // Read current mode
         const services: Services = getConfig().services;
-        const currentMode = services[managedKey as keyof Services].mode;
+        const currentMode = getServiceMode(
+          services,
+          managedKey as keyof Services,
+        );
 
         // Same mode — no-op
         if (currentMode === newMode) {

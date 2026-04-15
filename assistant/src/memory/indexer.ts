@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { desc, eq } from "drizzle-orm";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -189,9 +190,9 @@ export async function indexMessageNow(
       // Single pending `graph_extract` row per conversation. If the
       // batch threshold just fired, pull `runAfter` back to now so the
       // job runs immediately; otherwise debounce by the idle timeout.
-      // Using `upsertDebouncedJob` in both paths avoids the previous
-      // bug where the idle call would overwrite a just-enqueued batch
-      // job's `runAfter` and silently debounce it.
+      // Routing both paths through `upsertDebouncedJob` ensures the
+      // row's `runAfter` reflects whichever trigger ran last, so a
+      // batch crossing always takes effect immediately.
       upsertDebouncedJob(
         "graph_extract",
         {
@@ -213,20 +214,27 @@ export async function indexMessageNow(
       });
 
       // Auto-analysis cadence is tracked by its own pending-count
-      // checkpoint so it fires at `analysis.batchSize` (default 30)
-      // rather than piggy-backing on the extraction batch size.
-      // Reading config here is best-effort: if it fails we skip the
-      // batch trigger (the idle-debounced enqueue above still runs).
-      let analysisBatchSize: number | null = null;
+      // checkpoint so it fires at `analysis.batchSize` (default 30).
+      // Gated behind the `auto-analyze` feature flag so the counter
+      // does not accumulate stale counts while the flag is off — if it
+      // did, flipping the flag on would trigger an immediate batch from
+      // messages buffered during the disabled period. Reading config
+      // here is best-effort: if it fails we skip the batch trigger
+      // (the idle-debounced enqueue above still runs).
+      let analysisConfig: ReturnType<typeof getConfig> | null = null;
       try {
-        analysisBatchSize = getConfig().analysis.batchSize;
+        analysisConfig = getConfig();
       } catch (err) {
         log.debug(
           { err, conversationId: input.conversationId },
           "Skipping auto-analysis batch trigger: failed to load config",
         );
       }
-      if (analysisBatchSize != null) {
+      if (
+        analysisConfig != null &&
+        isAssistantFeatureFlagEnabled("auto-analyze", analysisConfig)
+      ) {
+        const analysisBatchSize = analysisConfig.analysis.batchSize;
         const analysisPendingKey = `conversation_analyze:${input.conversationId}:pending_count`;
         const analysisCurrentVal = getMemoryCheckpoint(analysisPendingKey);
         const analysisPendingCount =

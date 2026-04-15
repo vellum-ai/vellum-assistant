@@ -5,6 +5,7 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
+import { MeetSessionManager } from "../meet/session-manager.js";
 import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -48,11 +49,18 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // Force exit if graceful shutdown takes too long.
     // Set this BEFORE awaiting heartbeat stop and triggering daemon-stop hooks
     // so it covers all potentially-blocking async shutdown work.
+    //
+    // 20s budget: 15s reserved for Meet session teardown
+    // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
+    // daemon work (workspace commits, server drain, enrichment, telemetry,
+    // mcp, qdrant, sqlite checkpoint). Without a live Meet session the
+    // rest of the shutdown routinely completes in under a second, so this
+    // bump only changes behavior for the stuck-shutdown path.
     const forceTimer = setTimeout(() => {
       log.warn("Graceful shutdown timed out, forcing exit");
       deps.cleanupPidFile();
       process.exit(1);
-    }, 10_000);
+    }, 20_000);
     forceTimer.unref();
 
     await deps.workspaceHeartbeat.stop();
@@ -63,6 +71,17 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       await deps.hookManager.trigger("daemon-stop", { pid: process.pid });
     } catch {
       // Don't let hook failures block shutdown
+    }
+
+    // Tear down active Meet sessions before stopping the server so the bot
+    // `/leave` HTTP round-trip and the `meet.left` SSE emission both have
+    // live transports. `shutdownAll` races the set of `leave()` calls
+    // against a shared 15s deadline; past that it force-stops any
+    // remaining containers directly so the daemon exit doesn't leak them.
+    try {
+      await MeetSessionManager.shutdownAll("daemon-shutdown");
+    } catch (err) {
+      log.warn({ err }, "Meet session shutdown failed (non-fatal)");
     }
 
     // Commit any uncommitted workspace changes before stopping the server.

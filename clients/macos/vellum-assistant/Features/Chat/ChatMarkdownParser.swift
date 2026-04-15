@@ -304,6 +304,12 @@ struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
     var maxWidth: CGFloat = VSpacing.chatBubbleMaxWidth
+    /// When true, the table is the last still-growing block of a streaming
+    /// message. Bypasses the height cache because partial tables arriving
+    /// row-by-row must not have an intermediate height stamped in as the
+    /// final size for later passes — that would collapse the LazyVStack
+    /// slot and cause neighboring content to overlap.
+    var isStreamingTail: Bool = false
 
     // MARK: - Table Cell AttributedString Cache
 
@@ -387,7 +393,7 @@ struct MarkdownTableView: View {
     var body: some View {
         let usableWidth = maxWidth.isFinite
         let hash = usableWidth ? contentHash : 0
-        let cachedHeight = usableWidth ? Self.heightCache[hash] : nil
+        let cachedHeight = (usableWidth && !isStreamingTail) ? Self.heightCache[hash] : nil
 
         // Default alignment (.center) avoids explicitAlignment(.leading)
         // queries during sizing. Rows are full-width HStacks with
@@ -436,7 +442,7 @@ struct MarkdownTableView: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { newHeight in
-            if usableWidth {
+            if usableWidth && !isStreamingTail {
                 Self.heightCache[hash] = newHeight
             }
         }

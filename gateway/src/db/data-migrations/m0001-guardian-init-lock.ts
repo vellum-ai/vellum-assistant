@@ -15,8 +15,7 @@ import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../logger.js";
-import { getGatewaySecurityDir } from "../../paths.js";
-import { getLegacyRootDir } from "../connection.js";
+import { getGatewaySecurityDir, getLegacyRootDir } from "../../paths.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -29,7 +28,7 @@ export function up(): MigrationResult {
   const newDir = getGatewaySecurityDir();
 
   // If both resolve to the same directory (e.g. GATEWAY_SECURITY_DIR is set
-  // and equals getRootDir()), there is nothing to migrate.
+  // and equals getLegacyRootDir()), there is nothing to migrate.
   if (legacyDir === newDir) {
     log.info("Legacy and new directories are identical — nothing to migrate");
     return "done";

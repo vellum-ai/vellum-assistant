@@ -98,14 +98,28 @@ struct ConversationModel: Identifiable, Hashable {
         source == "auto-analysis"
     }
 
-    /// Whether this conversation is automated (heartbeat, schedule, background/task,
-    /// auto-analysis) and should never show unread indicators. Per Apple HIG, badges
-    /// and unread indicators should only reflect content requiring user attention —
-    /// system-generated messages from automated threads do not qualify. Reflections
-    /// (auto-analysis) are a passive surface users browse on their own; they should
-    /// not drive the dock badge or the Conversations header unread dot.
+    /// Whether this conversation is automated (heartbeat, schedule, background/task)
+    /// and should never show unread indicators anywhere. Per Apple HIG, badges and
+    /// unread indicators should only reflect content requiring user attention —
+    /// system-generated messages from automated threads do not qualify.
+    ///
+    /// Auto-analysis ("reflection") conversations are intentionally NOT suppressed
+    /// here: the Reflections sidebar section surfaces its own collapsed-state
+    /// unread dot driven by `hasUnseenLatestAssistantMessage`. Reflections are
+    /// instead filtered out of global aggregations via
+    /// `shouldSuppressGlobalUnreadAggregations`.
     var shouldSuppressUnreadIndicator: Bool {
-        isScheduleConversation || shouldReturnToBackgroundOnUnpin || isAutoAnalysisConversation
+        isScheduleConversation || shouldReturnToBackgroundOnUnpin
+    }
+
+    /// Whether this conversation should be excluded from *global* unread
+    /// aggregations — the dock badge and the Conversations header unread dot.
+    /// A superset of `shouldSuppressUnreadIndicator` that also excludes
+    /// reflections. Reflections are a passive surface users browse on their
+    /// own; they should not drive app-wide attention UI, but the Reflections
+    /// section's own unread affordance still fires.
+    var shouldSuppressGlobalUnreadAggregations: Bool {
+        shouldSuppressUnreadIndicator || isAutoAnalysisConversation
     }
 
     var isChannelConversation: Bool {

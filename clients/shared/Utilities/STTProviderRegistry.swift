@@ -192,7 +192,7 @@ private let fallbackRegistry = STTProviderRegistry(
             setupMode: .apiKey,
             setupHint: "Enter your Gemini API key to enable Google Gemini transcription.",
             apiKeyProviderName: "gemini",
-            conversationStreamingMode: .incrementalBatch,
+            conversationStreamingMode: .realtimeWs,
             credentialsGuide: STTCredentialsGuide(
                 description: "Visit Google AI Studio, sign in with your Google account, and create an API key.",
                 url: "https://aistudio.google.com/apikey",

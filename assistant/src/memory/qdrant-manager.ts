@@ -269,23 +269,50 @@ export class QdrantManager {
 
   private async waitForReady(): Promise<void> {
     const start = Date.now();
+    // Build a single exited-promise once so each race reuses the same handle.
+    // Reading `proc.exitCode` synchronously inside the poll loop is unreliable
+    // in Bun: while the loop is busy with fetch() + Bun.sleep(), the
+    // subprocess-exit event may not be processed on the event loop, so
+    // `exitCode` stays null even after the process has died. Racing
+    // `proc.exited` directly forces the loop to yield and observe the exit.
+    type ExitedOutcome = { type: "exited"; code: number };
+    const exitedRace: Promise<ExitedOutcome> =
+      this.process != null
+        ? this.process.exited.then((code) => ({ type: "exited", code }))
+        : new Promise<ExitedOutcome>(() => {});
+
+    const throwOnExit = async (code: number): Promise<never> => {
+      await this.stderrDrained;
+      const stderr = this.stderrBuffer.trim();
+      throw new Error(
+        `Qdrant process exited with code ${code} before becoming ready` +
+          (stderr ? `\nstderr:\n${stderr}` : ""),
+      );
+    };
+
     while (Date.now() - start < this.readyzTimeoutMs) {
-      // Fail fast if the managed process exited before becoming ready
-      if (this.process != null && this.process.exitCode != null) {
-        await this.stderrDrained;
-        const stderr = this.stderrBuffer.trim();
-        throw new Error(
-          `Qdrant process exited with code ${this.process.exitCode} before becoming ready` +
-            (stderr ? `\nstderr:\n${stderr}` : ""),
-        );
-      }
-      try {
-        const res = await fetch(`${this.url}/readyz`);
-        if (res.ok) return;
-      } catch {
-        // Not ready yet
-      }
-      await Bun.sleep(this.readyzPollIntervalMs);
+      const fetchOutcome = await Promise.race([
+        exitedRace,
+        fetch(`${this.url}/readyz`).then(
+          (r) => ({ type: "fetch" as const, ok: r.ok }),
+          () => ({ type: "fetch" as const, ok: false }),
+        ),
+      ]);
+      if (fetchOutcome.type === "exited") await throwOnExit(fetchOutcome.code);
+      if (fetchOutcome.type === "fetch" && fetchOutcome.ok) return;
+
+      // Race the poll-interval sleep with process exit so we don't waste time
+      // sleeping after the subprocess has already died.
+      const sleepOutcome = await Promise.race([
+        exitedRace,
+        new Promise<{ type: "timeout" }>((resolve) =>
+          setTimeout(
+            () => resolve({ type: "timeout" }),
+            this.readyzPollIntervalMs,
+          ),
+        ),
+      ]);
+      if (sleepOutcome.type === "exited") await throwOnExit(sleepOutcome.code);
     }
     const stderr = this.stderrBuffer.trim();
     throw new Error(

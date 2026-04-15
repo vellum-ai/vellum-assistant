@@ -885,6 +885,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_ENVIRONMENT",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
@@ -1068,12 +1069,16 @@ export async function startGateway(
           VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
         }
       : {}),
-    // Set BASE_DATA_DIR and GATEWAY_SECURITY_DIR so the gateway loads the
-    // correct credentials and workspace config for this instance (mirrors
-    // the daemon env setup).
+    // Set VELLUM_WORKSPACE_DIR and GATEWAY_SECURITY_DIR so the gateway
+    // loads the correct credentials and workspace config for this instance
+    // (mirrors the daemon env setup).
     ...(resources
       ? {
-          BASE_DATA_DIR: resources.instanceDir,
+          VELLUM_WORKSPACE_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "workspace",
+          ),
           GATEWAY_SECURITY_DIR: join(
             resources.instanceDir,
             ".vellum",

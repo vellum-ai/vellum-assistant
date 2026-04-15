@@ -215,15 +215,19 @@ describe("OAuth2 gateway transport", () => {
     test("falls back to loopback transport when ingress.publicBaseUrl is not configured", async () => {
       mockPublicBaseUrl = "";
 
-      let capturedAuthUrl = "";
+      let resolveOpenUrl!: (url: string) => void;
+      const openUrlPromise = new Promise<string>((resolve) => {
+        resolveOpenUrl = resolve;
+      });
       const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
         openUrl: (url) => {
-          capturedAuthUrl = url;
+          resolveOpenUrl(url);
         },
       });
 
-      // Give the loopback server time to start
-      await new Promise((r) => setTimeout(r, 50));
+      // Wait for the loopback server to bind and build the auth URL.
+      // Awaiting the openUrl callback instead of a fixed timer avoids CI-load flakes.
+      const capturedAuthUrl = await openUrlPromise;
 
       // Auth URL should use a localhost redirect_uri
       expect(capturedAuthUrl).toContain("redirect_uri=");

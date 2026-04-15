@@ -123,6 +123,19 @@ export interface SttProviderEntry {
   readonly conversationStreamingMode: ConversationStreamingMode;
 
   /**
+   * Whether the provider can attribute transcribed speech to distinct
+   * speakers (speaker diarization). When `true`, callers may opt in to
+   * per-utterance speaker labels via the provider's streaming/batch
+   * configuration. When `false`, speaker-label callers must fall back to
+   * single-speaker output.
+   *
+   * Flip this flag in the catalog if a provider gains diarization support;
+   * downstream code reads the capability from here via
+   * {@link supportsDiarization}.
+   */
+  readonly supportsDiarization: boolean;
+
+  /**
    * Telephony routing metadata — describes how this provider is wired
    * into Twilio call setup. This is the single source of truth for
    * strategy selection and Twilio-native mapping details.
@@ -158,6 +171,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
+      supportsDiarization: true,
       telephonyRouting: {
         strategyKind: "conversation-relay-native",
         twilioNativeMapping: {
@@ -177,7 +191,8 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
         "daemon-streaming",
       ]),
       telephonyMode: "batch-only",
-      conversationStreamingMode: "incremental-batch",
+      conversationStreamingMode: "realtime-ws",
+      supportsDiarization: false,
       telephonyRouting: {
         strategyKind: "conversation-relay-native",
         twilioNativeMapping: {
@@ -198,6 +213,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       ]),
       telephonyMode: "batch-only",
       conversationStreamingMode: "incremental-batch",
+      supportsDiarization: false,
       telephonyRouting: {
         strategyKind: "media-stream-custom",
       },
@@ -248,6 +264,17 @@ export function supportsBoundary(
   boundary: SttBoundaryId,
 ): boolean {
   return CATALOG.get(id)?.supportedBoundaries.has(boundary) ?? false;
+}
+
+/**
+ * Check whether a provider supports speaker diarization.
+ *
+ * Returns `false` for unknown provider IDs. Callers use this to decide
+ * whether to request speaker labels from the provider's streaming or
+ * batch configuration.
+ */
+export function supportsDiarization(id: SttProviderId): boolean {
+  return CATALOG.get(id)?.supportsDiarization ?? false;
 }
 
 /**

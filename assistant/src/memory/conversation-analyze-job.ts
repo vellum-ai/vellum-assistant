@@ -16,6 +16,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { analyzeConversation } from "../runtime/services/analyze-conversation.js";
 import { getAnalysisDeps } from "../runtime/services/analyze-deps-singleton.js";
 import { getLogger } from "../util/logger.js";
+import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import type { MemoryJob } from "./jobs-store.js";
 
 const log = getLogger("conversation-analyze-job");
@@ -54,6 +55,19 @@ export async function conversationAnalyzeJob(
     log.warn(
       { jobId: job.id, conversationId, error: result.error },
       "Auto-analysis service rejected source conversation",
+    );
+    return;
+  }
+  if (result.skipped) {
+    // The rolling analysis conversation was still processing a prior run, so
+    // this invocation was a no-op. Schedule a debounced follow-up ourselves
+    // — otherwise, if no later batch/idle/lifecycle trigger arrives (e.g.
+    // the conversation goes quiet after a long in-flight analysis), new
+    // source messages would stay un-analyzed indefinitely.
+    enqueueAutoAnalysisIfEnabled({ conversationId, trigger: "idle" });
+    log.debug(
+      { jobId: job.id, conversationId },
+      "Auto-analysis skipped (rolling conversation busy); requeued follow-up",
     );
   }
 }

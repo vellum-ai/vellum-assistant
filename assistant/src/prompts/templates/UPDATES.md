@@ -10,6 +10,12 @@ _ Format is freeform markdown. Write notes that help the assistant
 _ understand what changed and how it affects behavior, capabilities,
 _ or available tools. Focus on what matters to the user experience.
 
+<!-- vellum-update-release:gemini-live-stt -->
+## Google Gemini speech-to-text now uses the Live API
+
+If your user is configured with `services.stt.provider: "google-gemini"`, transcription now streams over the Gemini Live WebSocket API and emits true partial transcripts in real time, instead of the previous polling approximation that re-uploaded the full audio buffer every second. Same Gemini API key, same setup — only the transport changed. Latency for partials should drop noticeably.
+<!-- /vellum-update-release:gemini-live-stt -->
+
 <!-- vellum-update-release:rm-dangerous-skip-perms -->
 ## `dangerouslySkipPermissions` removed
 

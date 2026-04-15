@@ -791,7 +791,7 @@ final class InputBarVoiceInputTests: XCTestCase {
                       "Deepgram should support conversation streaming")
         UserDefaults.standard.removeObject(forKey: "sttProvider")
 
-        // google-gemini supports incremental-batch streaming
+        // google-gemini supports realtime-ws streaming (Live API)
         UserDefaults.standard.set("google-gemini", forKey: "sttProvider")
         XCTAssertTrue(STTProviderRegistry.isStreamingAvailable,
                       "Google Gemini should support conversation streaming")

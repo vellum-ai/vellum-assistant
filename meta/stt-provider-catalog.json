@@ -22,7 +22,7 @@
       "setupMode": "api-key",
       "setupHint": "Enter your Gemini API key to enable Google Gemini transcription.",
       "apiKeyProviderName": "gemini",
-      "conversationStreamingMode": "incremental-batch",
+      "conversationStreamingMode": "realtime-ws",
       "credentialsGuide": {
         "description": "Visit Google AI Studio, sign in with your Google account, and create an API key.",
         "url": "https://aistudio.google.com/apikey",

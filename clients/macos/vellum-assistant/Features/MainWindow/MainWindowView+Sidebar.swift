@@ -616,18 +616,25 @@ extension MainWindowView {
                     showConversationSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        Text(switcher.badgeText)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(VColor.primaryBase)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-                            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .fill(windowState.isShowingChat && conversationManager.activeConversation != nil
-                                        ? VColor.surfaceActive
-                                        : VColor.surfaceBase)
-                            )
+                        Group {
+                            switch switcher.badge {
+                            case .count(let text):
+                                Text(text)
+                                    .font(.system(size: 11, weight: .semibold))
+                            case .reflectionIcon:
+                                VIconView(.sparkles, size: 12)
+                            }
+                        }
+                        .foregroundStyle(VColor.primaryBase)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .fill(windowState.isShowingChat && conversationManager.activeConversation != nil
+                                    ? VColor.surfaceActive
+                                    : VColor.surfaceBase)
+                        )
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()

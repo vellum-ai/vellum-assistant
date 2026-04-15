@@ -11,6 +11,22 @@ struct CollapsedConversationSwitcherPresentation {
     /// the Reflections section, so hiding the entry point would orphan it.
     var showsSwitcher: Bool { totalRegularConversationCount > 0 || hasReflectionConversations }
 
+    /// What to render inside the switcher badge. Normally a numeric count, but
+    /// falls back to an icon when there are no regular conversations to count
+    /// yet reflections exist — rendering a literal "0" in that case reads as
+    /// a broken or dead affordance.
+    enum Badge: Equatable {
+        case count(String)
+        case reflectionIcon
+    }
+
+    var badge: Badge {
+        if totalRegularConversationCount == 0 && hasReflectionConversations {
+            return .reflectionIcon
+        }
+        return .count(badgeText)
+    }
+
     var badgeText: String {
         if totalRegularConversationCount > 99 { return "99+" }
         return "\(totalRegularConversationCount)"
@@ -24,7 +40,13 @@ struct CollapsedConversationSwitcherPresentation {
     }
 
     var accessibilityValue: String {
-        totalRegularConversationCount == 0 ? "" : "\(totalRegularConversationCount) conversations"
+        if totalRegularConversationCount > 0 {
+            return "\(totalRegularConversationCount) conversations"
+        }
+        if hasReflectionConversations {
+            return "Reflections available"
+        }
+        return ""
     }
 
     init(regularConversations: [ConversationModel], activeConversationId: UUID?, hasReflectionConversations: Bool = false) {

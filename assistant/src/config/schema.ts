@@ -102,6 +102,11 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
+export type { MeetService } from "./schemas/meet.js";
+export {
+  DEFAULT_MEET_OBJECTION_KEYWORDS,
+  MeetServiceSchema,
+} from "./schemas/meet.js";
 export type { MemoryConfig } from "./schemas/memory.js";
 export { MemoryConfigSchema } from "./schemas/memory.js";
 export type {
@@ -166,6 +171,8 @@ export type {
   Services,
   WebSearchService,
 } from "./schemas/services.js";
+// Re-exported under services.* to document that `services.meet` is the
+// canonical config path even though the schema itself lives in `meet.ts`.
 export {
   ImageGenerationServiceSchema,
   InferenceServiceSchema,

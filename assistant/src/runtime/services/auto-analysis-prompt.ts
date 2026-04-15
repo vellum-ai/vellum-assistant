@@ -13,7 +13,7 @@
  * case-insensitively and tolerates whitespace inside the tag (e.g.
  * `< /TRANSCRIPT >`).
  */
-function neutralizeTranscriptSentinel(transcript: string): string {
+export function neutralizeTranscriptSentinel(transcript: string): string {
   return transcript.replace(
     /<\s*\/\s*transcript\s*>/gi,
     "<\u200B/transcript>",

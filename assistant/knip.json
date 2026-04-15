@@ -12,6 +12,7 @@
   "ignoreDependencies": [
     "@vellumai/ces-contracts",
     "@vellumai/credential-storage",
-    "@vellumai/egress-proxy"
+    "@vellumai/egress-proxy",
+    "@vellumai/meet-contracts"
   ]
 }

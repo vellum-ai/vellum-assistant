@@ -240,6 +240,13 @@ export interface SttStreamServerPartialEvent {
   readonly type: "partial";
   /** Interim transcript text. May change with subsequent events. */
   readonly text: string;
+  // Provider-emitted speaker label; undefined when diarization is disabled or unsupported. Consumers cross-check with channel-specific signals (e.g., Meet DOM).
+  readonly speakerLabel?: string;
+  /**
+   * Provider-emitted confidence score in [0, 1]. Undefined when the
+   * provider does not surface confidence on interim chunks.
+   */
+  readonly confidence?: number;
 }
 
 /**
@@ -249,6 +256,13 @@ export interface SttStreamServerFinalEvent {
   readonly type: "final";
   /** Committed transcript text for a completed speech segment. */
   readonly text: string;
+  // Provider-emitted speaker label; undefined when diarization is disabled or unsupported. Consumers cross-check with channel-specific signals (e.g., Meet DOM).
+  readonly speakerLabel?: string;
+  /**
+   * Provider-emitted confidence score in [0, 1]. Undefined when the
+   * provider does not surface confidence on this chunk.
+   */
+  readonly confidence?: number;
 }
 
 /** An error occurred during streaming transcription. */

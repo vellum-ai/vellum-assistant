@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { MeetServiceSchema } from "./meet.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
@@ -111,5 +112,26 @@ export const ServicesSchema = z.object({
   "twitter-oauth": TwitterOAuthServiceSchema.default(
     TwitterOAuthServiceSchema.parse({}),
   ),
+  meet: MeetServiceSchema.default(MeetServiceSchema.parse({})),
 });
 export type Services = z.infer<typeof ServicesSchema>;
+
+/**
+ * Safely read the `mode` of a `services.*` entry.
+ *
+ * Most service entries (OAuth providers, inference, etc.) extend
+ * `BaseServiceSchema` and therefore carry a `mode: "managed" | "your-own"`
+ * field. A few entries (currently `services.meet`) do not — they are
+ * feature-specific configs that don't model a managed-vs-BYO toggle.
+ *
+ * Returns `undefined` when the requested service entry has no `mode` field,
+ * so callers can treat those entries as implicitly "your-own" without the
+ * compiler tripping on a union widened by non-BaseService members.
+ */
+export function getServiceMode(
+  services: Services,
+  key: keyof Services,
+): ServiceMode | undefined {
+  const entry = services[key] as { mode?: ServiceMode };
+  return entry.mode;
+}

@@ -16,7 +16,7 @@ const testDir = join(
 const vellumRoot = join(testDir, ".vellum");
 const protectedDir = join(vellumRoot, "protected");
 
-const savedBaseDataDir = process.env.BASE_DATA_DIR;
+const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
 // ---------------------------------------------------------------------------
 // Mock fetchImpl
@@ -74,7 +74,7 @@ const savedPlatformAssistantId = process.env.PLATFORM_ASSISTANT_ID;
 const savedPlatformInternalApiKey = process.env.PLATFORM_INTERNAL_API_KEY;
 
 beforeEach(() => {
-  process.env.BASE_DATA_DIR = testDir;
+  process.env.GATEWAY_SECURITY_DIR = protectedDir;
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
@@ -86,10 +86,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
+  if (savedGatewaySecurityDir === undefined) {
+    delete process.env.GATEWAY_SECURITY_DIR;
   } else {
-    process.env.BASE_DATA_DIR = savedBaseDataDir;
+    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
   }
   // Restore env vars
   const restoreEnv = (key: string, saved: string | undefined): void => {

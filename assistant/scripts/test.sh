@@ -49,12 +49,15 @@ EXPERIMENTAL_FILES=(
 # triage lands a fix for each.  Each entry should get a follow-up issue before
 # being removed from this list.
 #
+# Entries must be repo-relative paths (e.g.
+# `src/cli/commands/platform/__tests__/connect.test.ts`) — matching by
+# `basename` would silently exclude every copy of ambiguous names like
+# `connect.test.ts` or `status.test.ts`, since those recur under multiple
+# `src/cli/commands/*/__tests__/` directories.
+#
 # To triage an entry: run `bun test <path>` from `assistant/` and fix the
 # underlying code or tests until the file is green, then remove it here.
 KNOWN_BROKEN_FILES=(
-  "byo-connection.test.ts"
-  "conversation-tool-setup.test.ts"
-  "qdrant-manager.test.ts"
 )
 
 # Collect test files, filtering experimental if needed
@@ -78,9 +81,13 @@ while IFS= read -r test_file; do
     continue
   fi
   # Always exclude known-broken files (see comment above the list).
+  # Compare against the full repo-relative path — matching by basename would
+  # silently drop every copy of ambiguous filenames.
+  # The `${arr[@]+...}` guard keeps `set -u` happy when the list is empty
+  # (bash 3.2 on macOS treats `"${empty[@]}"` as unbound).
   skip_broken=0
-  for bf in "${KNOWN_BROKEN_FILES[@]}"; do
-    if [[ "${base_name}" == "${bf}" ]]; then
+  for bf in ${KNOWN_BROKEN_FILES[@]+"${KNOWN_BROKEN_FILES[@]}"}; do
+    if [[ "${test_file}" == "${bf}" ]]; then
       skip_broken=1
       break
     fi
@@ -102,32 +109,38 @@ fi
 # piling up at the end and becoming long poles.
 if [[ -n "${TEST_DURATIONS_FILE}" && -f "${TEST_DURATIONS_FILE}" ]]; then
   sorted_files=()
-  # Build lookup: basename -> duration_ms
+  # Build lookup: repo-relative path -> duration_ms.
+  # Keying by basename would collide on ambiguous names (e.g. `connect.test.ts`
+  # exists under several `src/cli/commands/*/__tests__/` directories) and
+  # mis-schedule them, so stick with the full path that `find` produces.
   declare -A dur_map
-  while IFS=$'\t' read -r ms name; do
-    dur_map["${name}"]="${ms}"
+  while IFS=$'\t' read -r ms path; do
+    [[ -z "${path}" ]] && continue
+    dur_map["${path}"]="${ms}"
   done < "${TEST_DURATIONS_FILE}"
 
   # Partition into known (with durations) and unknown
   known=()
   unknown=()
   for f in "${test_files[@]}"; do
-    base="$(basename "${f}")"
-    if [[ -n "${dur_map["${base}"]:-}" ]]; then
-      known+=("${dur_map["${base}"]}"$'\t'"${f}")
+    if [[ -n "${dur_map["${f}"]:-}" ]]; then
+      known+=("${dur_map["${f}"]}"$'\t'"${f}")
     else
       unknown+=("${f}")
     fi
   done
 
-  # Sort known by duration descending
-  while IFS= read -r line; do
-    sorted_files+=("${line#*$'\t'}")
-  done < <(printf '%s\n' "${known[@]}" | sort -t$'\t' -k1 -rn)
+  # Sort known by duration descending. Guard with `${arr[@]+...}` so bash 3.2
+  # under `set -u` doesn't trip when either partition is empty.
+  if [[ ${#known[@]} -gt 0 ]]; then
+    while IFS= read -r line; do
+      sorted_files+=("${line#*$'\t'}")
+    done < <(printf '%s\n' "${known[@]}" | sort -t$'\t' -k1 -rn)
+  fi
 
   # Append unknown files at the end
-  sorted_files+=("${unknown[@]}")
-  test_files=("${sorted_files[@]}")
+  sorted_files+=(${unknown[@]+"${unknown[@]}"})
+  test_files=(${sorted_files[@]+"${sorted_files[@]}"})
   echo "Sorted tests longest-first using ${TEST_DURATIONS_FILE} (${#known[@]} known, ${#unknown[@]} new)"
 fi
 
@@ -192,8 +205,10 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
 
   base="$(basename "${test_file}")"
 
-  # Record duration for longest-first scheduling in future runs
-  echo -e "${elapsed}\t${base}" >> "${results_dir}/durations"
+  # Record duration for longest-first scheduling in future runs.
+  # Write the repo-relative path (not the basename) so the lookup in future
+  # runs disambiguates files that share a basename across directories.
+  echo -e "${elapsed}\t${test_file}" >> "${results_dir}/durations"
 
   if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
     # timeout killed the process — check if all tests actually passed.

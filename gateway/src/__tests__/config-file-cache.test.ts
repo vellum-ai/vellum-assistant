@@ -13,26 +13,26 @@ import { ConfigFileCache } from "../config-file-cache.js";
 let testBaseDir: string;
 let workspaceDir: string;
 let configPath: string;
-let savedBaseDataDir: string | undefined;
+let savedWorkspaceDir: string | undefined;
 
 function writeConfig(data: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(data));
 }
 
 beforeEach(() => {
-  savedBaseDataDir = process.env.BASE_DATA_DIR;
+  savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   testBaseDir = mkdtempSync(join(tmpdir(), "config-file-cache-test-"));
   workspaceDir = join(testBaseDir, ".vellum", "workspace");
   mkdirSync(workspaceDir, { recursive: true });
   configPath = join(workspaceDir, "config.json");
-  process.env.BASE_DATA_DIR = testBaseDir;
+  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
 });
 
 afterEach(() => {
-  if (savedBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
+  if (savedWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
-    process.env.BASE_DATA_DIR = savedBaseDataDir;
+    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
   }
   rmSync(testBaseDir, { recursive: true, force: true });
 });

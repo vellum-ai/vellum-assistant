@@ -563,6 +563,23 @@ export function serviceDockerRunArgs(opts: {
   } = opts;
   return {
     assistant: () => {
+      // Mount the host Docker socket so the assistant's Meet subsystem can
+      // spawn sibling meet-bot containers on the host Docker engine. This is
+      // additive — pre-existing Docker-mode deployments continue to work and
+      // simply lack Meet support until the user restarts the daemon to pick
+      // up these new run args.
+      //
+      // Platform notes:
+      // - macOS (Docker Desktop): the socket path on the host is always
+      //   `/var/run/docker.sock`; Docker Desktop proxies it transparently.
+      // - Linux (root Docker): `/var/run/docker.sock` is the canonical path.
+      // - Linux (rootless Docker): the socket typically lives at
+      //   `$XDG_RUNTIME_DIR/docker.sock`. Rootless-Docker support is out of
+      //   scope for this phase and will require separate handling.
+      //
+      // We pass `VELLUM_WORKSPACE_VOLUME_NAME` as a hint so the workspace-
+      // volume helper inside the container can reliably find the volume name
+      // without probing Docker for it.
       const args: string[] = [
         "run",
         "--init",
@@ -572,10 +589,32 @@ export function serviceDockerRunArgs(opts: {
         `--network=${res.network}`,
         "-p",
         `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
+        // Published so the Meet subsystem's sibling bot containers can reach
+        // the daemon's internal HTTP API at host.docker.internal:<port>.
+        //
+        // Published on all host interfaces (no `127.0.0.1:` prefix) because on
+        // vanilla Linux Docker, `host.docker.internal:host-gateway` resolves
+        // to the Docker bridge gateway IP (e.g. 172.17.0.1), not loopback.
+        // Packets from sibling containers arrive at the host's bridge
+        // interface, and an iptables DNAT rule keyed on dest=127.0.0.1 would
+        // not match — causing connection refused. Docker Desktop (macOS/
+        // Windows) still works because its VM proxy forwards to the same
+        // published port regardless of the binding address.
+        //
+        // Security tradeoff: the daemon HTTP API is now reachable from the
+        // host's LAN (any device that can hit the host IP on this port).
+        // This matches the gateway port's existing posture and is acceptable
+        // for single-user self-hosted Docker mode per the Phase 1.8 security
+        // note. Managed/multi-tenant deployments are out of scope and would
+        // require a different design.
+        "-p",
+        `${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
         "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
         "-e",
         "IS_CONTAINERIZED=true",
         "-e",
@@ -586,6 +625,8 @@ export function serviceDockerRunArgs(opts: {
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "VELLUM_WORKSPACE_DIR=/workspace",
+        "-e",
+        `VELLUM_WORKSPACE_VOLUME_NAME=${res.workspaceVolume}`,
         "-e",
         "VELLUM_BACKUP_DIR=/workspace/.backups",
         "-e",

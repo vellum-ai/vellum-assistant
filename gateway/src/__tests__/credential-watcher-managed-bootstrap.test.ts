@@ -95,11 +95,11 @@ async function startGateway(): Promise<void> {
     );
   gatewayPort = await getFreePort();
 
-  const { GATEWAY_SECURITY_DIR: _, ...parentEnv } = process.env;
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
-      ...parentEnv,
-      BASE_DATA_DIR: testDir,
+      ...process.env,
+      GATEWAY_SECURITY_DIR: join(testDir, ".vellum", "protected"),
+      VELLUM_WORKSPACE_DIR: join(testDir, ".vellum", "workspace"),
       GATEWAY_PORT: String(gatewayPort),
       CES_CREDENTIAL_URL: `http://127.0.0.1:${cesPort}`,
       CES_SERVICE_TOKEN: TEST_SERVICE_TOKEN,

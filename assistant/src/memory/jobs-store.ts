@@ -90,8 +90,12 @@ export function enqueueMemoryJob(
 
 /**
  * Upsert a debounced job: if a pending job of the same type and conversation
- * already exists, push its `runAfter` forward instead of creating a duplicate.
- * This prevents rapid message indexing from spawning redundant jobs.
+ * already exists, merge the new payload into the existing row and update
+ * `runAfter` instead of creating a duplicate. This prevents rapid message
+ * indexing from spawning redundant jobs while ensuring the latest payload
+ * keys (e.g. `scopeId`) reach the handler — including on upgraded instances
+ * where the existing pending row was enqueued by an older build that did
+ * not write those keys.
  *
  * Pass a `dbOverride` (transaction handle) to make this call atomic with
  * surrounding writes.
@@ -119,12 +123,67 @@ export function upsertDebouncedJob(
     )
     .get();
   if (existing) {
+    let existingPayload: Record<string, unknown> = {};
+    try {
+      existingPayload = JSON.parse(existing.payload) as Record<string, unknown>;
+    } catch {
+      existingPayload = {};
+    }
+    const mergedPayload = { ...existingPayload, ...payload };
+    db.update(memoryJobs)
+      .set({
+        payload: JSON.stringify(mergedPayload),
+        runAfter,
+        updatedAt: Date.now(),
+      })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+  } else {
+    enqueueMemoryJob(type, payload, runAfter, dbOverride);
+  }
+}
+
+/**
+ * Upsert a pending `conversation_analyze` job keyed by both
+ * `conversationId` and `triggerGroup`. Immediate triggers (batch,
+ * compaction) and debounced triggers (idle, lifecycle) live in separate
+ * rows so an idle enqueue cannot push an already-scheduled immediate
+ * row's `runAfter` into the future (and vice versa). Each group still
+ * coalesces within itself: two batch crossings, or two idle triggers,
+ * collapse to a single pending row.
+ */
+export function upsertAutoAnalysisJob(
+  payload: {
+    conversationId: string;
+    triggerGroup: "immediate" | "debounced";
+  },
+  runAfter: number,
+  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+    tx: infer T,
+  ) => unknown
+    ? T
+    : never,
+): void {
+  const db = dbOverride ?? getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "conversation_analyze"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+        sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
+      ),
+    )
+    .get();
+  if (existing) {
     db.update(memoryJobs)
       .set({ runAfter, updatedAt: Date.now() })
       .where(eq(memoryJobs.id, existing.id))
       .run();
   } else {
-    enqueueMemoryJob(type, payload, runAfter, dbOverride);
+    enqueueMemoryJob("conversation_analyze", payload, runAfter, dbOverride);
   }
 }
 
