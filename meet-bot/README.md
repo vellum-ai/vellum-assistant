@@ -74,10 +74,10 @@ against a live Meet session. The refresh procedure:
 
 ## Manual end-to-end verification against a real Meet call
 
-The automated test suite stubs Docker, Deepgram, and the browser — it can't
-catch regressions that only show up against a live Meet UI, a real container
-runtime, or live ASR. Before cutting a release that touches the meet
-subsystem, run this manual verification loop.
+The automated test suite stubs Docker, the configured STT provider, and the
+browser — it can't catch regressions that only show up against a live Meet UI,
+a real container runtime, or live ASR. Before cutting a release that touches
+the meet subsystem, run this manual verification loop.
 
 ### Prerequisites
 
@@ -87,8 +87,10 @@ subsystem, run this manual verification loop.
   ```bash
   bash scripts/build-meet-bot-image.sh
   ```
-- A Deepgram API key configured via the assistant credential store (the
-  session manager looks it up by provider name `"deepgram"`).
+- An STT provider configured in `services.stt.provider` (Deepgram, Google
+  Gemini, or OpenAI Whisper) with its credentials available in the assistant's
+  credential store. The assistant resolves the provider and its credentials at
+  meeting-start time; the bot itself does not see STT credentials.
 - The `meet` feature flag enabled. Either:
   - **Local override** — set `meet` to `true` in
     `~/.vellum/workspace/config.json` under the assistant feature flags
@@ -145,11 +147,11 @@ subsystem, run this manual verification loop.
 
 - **Bot never joins** — check the assistant log for
   `meet-session-manager` and `meet-docker-runner` errors. Most common
-  causes: missing Deepgram key, stale image, Docker socket not reachable
-  from inside the container host.
+  causes: missing STT provider credentials, stale image, Docker socket not
+  reachable from inside the container host.
 - **No transcripts in the conversation** — check for `meet-audio-ingest`
   warnings in the log; the bot may be failing to connect to the Unix
-  socket or Deepgram may be rejecting the session.
+  socket or the STT provider may be rejecting the session.
 - **Bot doesn't auto-leave on objection** — check for
   `meet-consent-monitor` log lines. The LLM call can time out silently
   if the configured provider is misconfigured; the log will say "LLM
