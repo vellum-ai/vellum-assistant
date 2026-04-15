@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
  * import from it beyond the narrow allowlist below, which captures the
  * unavoidable wiring points where central registries must know about Meet
  * (tool manifest, route mount, migration registry, shutdown handler, config
- * schema, feature flag registry).
+ * schema, daemon-client SSE protocol registry).
  *
  * This guard keeps the Meet surface area consolidated so the skill can evolve
  * (or be lifted out of the repo entirely) without hunting down scattered
@@ -29,9 +29,6 @@ import { describe, expect, test } from "bun:test";
  * move into the skill directory itself).
  */
 const ALLOWLIST = new Set([
-  // --- Feature flag registration (central declaration, one entry per flag) ---
-  "meta/feature-flags/feature-flag-registry.json", // `meet` flag declaration
-
   // --- Config schema wiring (central schema must know about MeetService) ---
   "assistant/src/config/schema.ts", // re-exports MeetService type from skill
   "assistant/src/config/schemas/services.ts", // composes MeetServiceSchema into services schema
@@ -47,6 +44,9 @@ const ALLOWLIST = new Set([
 
   // --- Daemon shutdown (session manager must be stopped on shutdown) ---
   "assistant/src/daemon/shutdown-handlers.ts", // imports MeetSessionManager
+
+  // --- Daemon-client SSE protocol registry (one file per domain; stays put) ---
+  "assistant/src/daemon/message-types/meet.ts", // Meet entry in the per-domain wire-protocol index (apps.ts, browser.ts, etc.); re-exported from message-protocol.ts
 
   // --- Container build / packaging ---
   ".dockerignore", // include/exclude rules for the skill directory
