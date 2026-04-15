@@ -15,6 +15,7 @@ public protocol CredentialStorage: Sendable {
 public enum LocalBootstrapError: LocalizedError, Sendable {
     case authenticationRequired
     case registrationFailed(String)
+    case registrationConflict
     case provisioningFailed(String)
     case assistantInjectionFailed
     case multipleOrganizations
@@ -25,6 +26,8 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "Sign in required to register your assistant"
         case .registrationFailed(let message):
             return "Registration failed: \(message)"
+        case .registrationConflict:
+            return "A different assistant is already registered for your account. Retire it to register this one."
         case .provisioningFailed(let message):
             return "API key provisioning failed: \(message)"
         case .assistantInjectionFailed:
@@ -115,7 +118,7 @@ public final class LocalAssistantBootstrapService {
         } catch let error as LocalBootstrapError {
             throw error
         } catch let error as PlatformAPIError {
-            throw mapPlatformError(error, context: .registration)
+            throw mapPlatformError(error, context: .organizationResolution)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
@@ -354,7 +357,8 @@ public final class LocalAssistantBootstrapService {
         return session.data?.user?.id
     }
 
-    private enum ErrorContext {
+    private enum ErrorContext: Equatable {
+        case organizationResolution
         case registration
         case provisioning
     }
@@ -364,9 +368,12 @@ public final class LocalAssistantBootstrapService {
             switch platformErr {
             case .authenticationRequired:
                 return .authenticationRequired
+            case .serverError(statusCode: 400, let detail) where context == .registration
+                    && detail?.contains("Deregister the existing assistant") == true:
+                return .registrationConflict
             default:
                 switch context {
-                case .registration:
+                case .organizationResolution, .registration:
                     return .registrationFailed(platformErr.localizedDescription)
                 case .provisioning:
                     return .provisioningFailed(platformErr.localizedDescription)
@@ -374,7 +381,7 @@ public final class LocalAssistantBootstrapService {
             }
         }
         switch context {
-        case .registration:
+        case .organizationResolution, .registration:
             return .registrationFailed(error.localizedDescription)
         case .provisioning:
             return .provisioningFailed(error.localizedDescription)

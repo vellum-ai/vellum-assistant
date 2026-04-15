@@ -417,6 +417,54 @@ extension AppDelegate {
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+            } catch LocalBootstrapError.registrationConflict {
+                log.warning("Registration conflict — a different assistant is already registered on the platform")
+
+                let shouldRetire = await self.showRegistrationConflictAlert()
+                guard shouldRetire else {
+                    log.info("User cancelled registration conflict resolution")
+                    self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
+                    NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+                    return
+                }
+
+                // Deregister all other local assistants from the platform so
+                // the new registration can proceed.
+                let otherAssistants = LockfileAssistant.loadAll().filter {
+                    !$0.isManaged && $0.assistantId != assistantId
+                }
+                let client = AssistantManagementClient.create()
+                for other in otherAssistants {
+                    log.info("Deregistering conflicting assistant '\(other.assistantId, privacy: .public)' from platform")
+                    await client.deregisterFromPlatformIfNeeded(runtimeAssistantId: other.assistantId)
+                }
+
+                // Retry bootstrap after deregistering the old registration.
+                do {
+                    let credentialStorage = FileCredentialStorage()
+                    let retryService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+                    let platformId = try await retryService.bootstrap(
+                        runtimeAssistantId: assistantId,
+                        clientPlatform: "macos",
+                        assistantVersion: self.connectionManager.assistantVersion
+                    )
+                    log.info("Local assistant registered after conflict resolution: \(platformId, privacy: .public)")
+
+                    self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
+                    NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+                } catch {
+                    log.error("Retry after conflict resolution failed: \(error.localizedDescription)")
+                    self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
+                    NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+                    self.mainWindow?.windowState.showToast(
+                        message: "Failed to register assistant after retiring the previous one.",
+                        style: .error,
+                        copyableDetail: error.localizedDescription
+                    )
+                }
             } catch {
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
@@ -619,6 +667,24 @@ extension AppDelegate {
         }
 
         log.info("syncApiKeysViaGateway: pushed API keys for \(assistantId, privacy: .public)")
+    }
+
+    // MARK: - Registration Conflict Resolution
+
+    /// Shows an alert when the platform rejects registration because a
+    /// different assistant is already registered for this user.
+    ///
+    /// Returns `true` if the user chose to retire the existing registration
+    /// and retry, `false` if they cancelled.
+    @MainActor
+    private func showRegistrationConflictAlert() async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Assistant Already Registered"
+        alert.informativeText = "A different assistant is already registered with your account. Only one locally-hosted assistant is allowed per user.\n\nRetire the existing registration to proceed with registering this assistant."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retire & Re-register")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @objc func performRetire() {
