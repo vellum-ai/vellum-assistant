@@ -7,6 +7,7 @@ import {
   listProviderEntries,
   listProviderIds,
   supportsBoundary,
+  supportsDiarization,
 } from "../provider-catalog.js";
 
 // ---------------------------------------------------------------------------
@@ -211,5 +212,40 @@ describe("STT provider catalog", () => {
 
   test("getCredentialProvider returns undefined for unknown ID", () => {
     expect(getCredentialProvider("nonexistent" as never)).toBeUndefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // Speaker diarization capability
+  // -----------------------------------------------------------------------
+
+  test("supportsDiarization is set as a boolean for every entry", () => {
+    for (const entry of listProviderEntries()) {
+      expect(typeof entry.supportsDiarization).toBe("boolean");
+    }
+  });
+
+  test("deepgram supportsDiarization is true", () => {
+    const entry = getProviderEntry("deepgram");
+    expect(entry?.supportsDiarization).toBe(true);
+  });
+
+  test("google-gemini supportsDiarization is false", () => {
+    const entry = getProviderEntry("google-gemini");
+    expect(entry?.supportsDiarization).toBe(false);
+  });
+
+  test("openai-whisper supportsDiarization is false", () => {
+    const entry = getProviderEntry("openai-whisper");
+    expect(entry?.supportsDiarization).toBe(false);
+  });
+
+  test("supportsDiarization helper returns expected booleans per provider", () => {
+    expect(supportsDiarization("deepgram")).toBe(true);
+    expect(supportsDiarization("google-gemini")).toBe(false);
+    expect(supportsDiarization("openai-whisper")).toBe(false);
+  });
+
+  test("supportsDiarization helper returns false for unknown provider IDs", () => {
+    expect(supportsDiarization("nonexistent" as never)).toBe(false);
   });
 });
