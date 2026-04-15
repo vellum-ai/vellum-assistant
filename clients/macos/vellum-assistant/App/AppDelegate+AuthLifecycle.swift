@@ -424,6 +424,7 @@ extension AppDelegate {
                 guard shouldRetire else {
                     log.info("User cancelled registration conflict resolution")
                     self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                     NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
                     return
                 }
