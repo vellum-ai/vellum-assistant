@@ -230,15 +230,34 @@ extension AppDelegate {
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
     func performInitialBootstrap() async {
-        // Try importing a CLI-persisted guardian token first. During non-local
-        // hatches the CLI calls /v1/guardian/init and saves the result to
-        // ~/.config/vellum/assistants/<id>/guardian-token.json. Importing from
-        // this file avoids a redundant (and often 403-failing) HTTP bootstrap.
-        if let assistantId = LockfileAssistant.loadActiveAssistantId(),
-           GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-            log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
+
+        // Try importing a guardian token that was already written to disk
+        // (e.g. by the CLI during hatch or by AppleContainersLauncher).
+        if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+            log.info("Imported guardian token from file — skipping HTTP bootstrap")
             return
         }
+
+        // The token file doesn't exist yet — the launcher/CLI may still be
+        // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
+        let maxAttempts = 30
+        let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
+        for attempt in 1...maxAttempts {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+
+            if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+                log.info("Imported guardian token from file after \(attempt) poll(s)")
+                return
+            }
+        }
+
+        // Token file never appeared — fall back to HTTP bootstrap via
+        // /v1/guardian/init. This path generates its own random bootstrap
+        // secret which may fail if the runtime already consumed the real one.
+        log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
 
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
@@ -255,7 +274,7 @@ extension AppDelegate {
             )
 
             if success {
-                log.info("Initial actor token bootstrap succeeded")
+                log.info("Initial actor token bootstrap succeeded via HTTP fallback")
                 return
             }
 
