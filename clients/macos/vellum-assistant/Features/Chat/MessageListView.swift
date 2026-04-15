@@ -143,7 +143,6 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
