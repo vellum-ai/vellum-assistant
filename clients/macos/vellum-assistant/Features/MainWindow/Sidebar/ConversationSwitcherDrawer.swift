@@ -28,6 +28,10 @@ struct ConversationSwitcherDrawer: View {
         var extraForAll: [ConversationModel] = []
         for entry in raw {
             guard let group = entry.group else { continue }
+            // system:reflections renders separately as the drawer's Reflections
+            // section; skip it here so the daemon-seeded group never appears as
+            // a regular drawer row.
+            if group.id == ReflectionsSidebarSectionId.id { continue }
             let filtered = entry.conversations.filter { !$0.isAutoAnalysisConversation }
             if !group.isSystemGroup && !customGroupsEnabled {
                 extraForAll.append(contentsOf: filtered)
