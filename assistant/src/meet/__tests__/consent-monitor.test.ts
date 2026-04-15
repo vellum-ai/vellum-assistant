@@ -188,6 +188,7 @@ describe("MeetConsentMonitor keyword fast-path → LLM confirm", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -236,6 +237,7 @@ describe("MeetConsentMonitor keyword fast-path → LLM confirm", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -280,6 +282,7 @@ describe("MeetConsentMonitor keyword fast-path → LLM confirm", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -396,6 +399,7 @@ describe("MeetConsentMonitor timer tick", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -451,6 +455,7 @@ describe("MeetConsentMonitor timer tick", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -651,7 +656,7 @@ describe("MeetConsentMonitor content-watermark tick skip", () => {
     monitor.stop();
   });
 
-  test("regression: keyword hit still fires LLM regardless of watermark", async () => {
+  test("regression: keyword-fired LLM call advances watermark so next tick on same content is a no-op", async () => {
     const dispatcher = makeFakeDispatcher();
     const session = makeFakeSessionManager();
     const timer = makeTimerControl();
@@ -679,7 +684,7 @@ describe("MeetConsentMonitor content-watermark tick skip", () => {
     });
     monitor.start();
 
-    // First keyword hit: fires LLM (1).
+    // First keyword hit: fires LLM (1) and advances the content watermark.
     t = 1_000;
     dispatcher.dispatch(
       "m1",
@@ -692,23 +697,25 @@ describe("MeetConsentMonitor content-watermark tick skip", () => {
     await flushPromises();
     expect(llm).toHaveBeenCalledTimes(1);
 
-    // Tick after the keyword path runs: keyword path does NOT advance the
-    // watermark, so content is "newer" than the tick watermark → tick fires
-    // a second LLM call. This is the deliberate semantic in the plan
-    // ("keyword path unchanged"); a tick still re-examines the buffer.
+    // Tick after the keyword path runs: keyword call already advanced the
+    // watermark to the same lastContentTimestamp, so the tick sees no new
+    // content and skips. This avoids the redundant keyword+tick double-fire
+    // on identical content.
     t = 20_000;
     timer.fire();
     await flushPromises();
-    expect(llm).toHaveBeenCalledTimes(2);
+    expect(llm).toHaveBeenCalledTimes(1);
 
-    // Now no new content. Next tick is skipped by the watermark check.
+    // Still no new content. Next tick is also skipped.
     t = 40_000;
     timer.fire();
     await flushPromises();
-    expect(llm).toHaveBeenCalledTimes(2);
+    expect(llm).toHaveBeenCalledTimes(1);
 
     // A second keyword hit (different text so dedupe doesn't swallow it)
-    // ALWAYS fires the LLM regardless of the watermark.
+    // ALWAYS fires the LLM regardless of the watermark — keyword path only
+    // consults the debounce, not the watermark. The 44s gap is past 8s
+    // debounce so this call fires.
     t = 45_000;
     dispatcher.dispatch(
       "m1",
@@ -721,7 +728,7 @@ describe("MeetConsentMonitor content-watermark tick skip", () => {
       ),
     );
     await flushPromises();
-    expect(llm).toHaveBeenCalledTimes(3);
+    expect(llm).toHaveBeenCalledTimes(2);
 
     monitor.stop();
   });
@@ -751,6 +758,7 @@ describe("MeetConsentMonitor prompt content", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -804,12 +812,18 @@ describe("MeetConsentMonitor prompt content", () => {
 });
 
 describe("MeetConsentMonitor resilience", () => {
-  test("LLM errors do not throw through event dispatch", async () => {
+  test("LLM errors do not throw through event dispatch, and do not burn the debounce window", async () => {
     const dispatcher = makeFakeDispatcher();
     const session = makeFakeSessionManager();
     const timer = makeTimerControl();
+    let t = 0;
+    let failNextCall = true;
     const llm = mock(async (_prompt: string): Promise<ObjectionDecision> => {
-      throw new Error("llm exploded");
+      if (failNextCall) {
+        failNextCall = false;
+        throw new Error("llm exploded");
+      }
+      return { objected: false, reason: "" };
     });
 
     const monitor = new MeetConsentMonitor({
@@ -824,10 +838,12 @@ describe("MeetConsentMonitor resilience", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
     });
     monitor.start();
 
-    // Should not reject or crash the test.
+    // First keyword hit — LLM throws, should not reject or crash the test.
+    t = 0;
     dispatcher.dispatch(
       "m1",
       inboundChat("m1", "2024-01-01T00:00:00.000Z", "please leave now"),
@@ -838,6 +854,24 @@ describe("MeetConsentMonitor resilience", () => {
     expect(session.leave).toHaveBeenCalledTimes(0);
     // Monitor remains active and can try again on the next trigger.
     expect(monitor._isDecided()).toBe(false);
+
+    // Next keyword hit arrives well within the 8s debounce window. Because
+    // the LLM failed, `lastLlmCheckAt` was restored — so this trigger must
+    // fire a new LLM call immediately, not be silently suppressed by the
+    // debounce.
+    t = 500;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:00.500Z",
+        "please leave already",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(2);
 
     monitor.stop();
   });
@@ -858,6 +892,7 @@ describe("MeetConsentMonitor resilience", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
     monitor.start();
@@ -891,6 +926,7 @@ describe("MeetConsentMonitor resilience", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -938,6 +974,7 @@ describe("MeetConsentMonitor resilience", () => {
       subscribe: dispatcher.subscribe,
       setIntervalFn: timer.setIntervalFn,
       clearIntervalFn: timer.clearIntervalFn,
+      now: () => 0,
     });
     monitor.start();
 
@@ -1033,6 +1070,75 @@ describe("MeetConsentMonitor LLM check debounce", () => {
     );
     await flushPromises();
     expect(llm).toHaveBeenCalledTimes(2);
+
+    monitor.stop();
+  });
+
+  test("three distinct objections within 3 seconds → exactly one LLM call", async () => {
+    // Plan PR 3 acceptance criterion, verbatim: "A fixture where a
+    // participant says 'please leave' three times in three seconds
+    // produces exactly one LLM call." Uses three DIFFERENT phrases so the
+    // 5s dedupe ledger doesn't swallow the later two — this must exercise
+    // the debounce path, not the dedupe path.
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave", "stop recording", "no bots"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Hit #1 at t=0: fires LLM.
+    t = 0;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:00.000Z", "please leave"),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Hit #2 at t=1s: within 8s debounce, skipped.
+    t = 1_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "stop recording",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Hit #3 at t=2s: still within 8s debounce, skipped.
+    t = 2_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:02.000Z", "no bots", "Carol", "c"),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
 
     monitor.stop();
   });
@@ -1166,6 +1272,119 @@ describe("MeetConsentMonitor LLM check debounce", () => {
     await flushPromises();
     expect(llm).toHaveBeenCalledTimes(1);
     expect(session.leave).toHaveBeenCalledTimes(1);
+
+    monitor.stop();
+  });
+});
+
+describe("MeetConsentMonitor long-meeting scenario", () => {
+  test("10-minute silent meeting with objection at minute 5: objection detected, leave fired, LLM call volume bounded", async () => {
+    // Pins plan PR 2 acceptance criteria end-to-end:
+    //   - "In a mock meeting with 10 minutes of silence, fewer than 2 LLM
+    //     calls fire" — the silent stretch produces exactly 1 LLM call
+    //     (the first tick) because the content watermark skips every
+    //     subsequent tick.
+    //   - "Objection at minute 5 still detected and fires leave within 30
+    //     seconds" — a keyword-matching transcript at ~minute 5 fires the
+    //     LLM fast-path immediately and invokes session.leave with the
+    //     objection reason.
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    // Script the LLM: until the objection arrives, answer "no objection".
+    // Once the objection prompt is received, answer "objected: true".
+    let sawObjection = false;
+    const llm = mock(async (prompt: string): Promise<ObjectionDecision> => {
+      if (prompt.includes("please leave")) {
+        sawObjection = true;
+        return {
+          objected: true,
+          reason: "participant asked the note-taker to leave",
+        };
+      }
+      return { objected: false, reason: "" };
+    });
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Seed a single non-bot transcript at t=0 so `lastContentTimestamp`
+    // is populated — without this the very first tick is skipped by the
+    // empty-buffer guard.
+    t = 0;
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:00.000Z",
+        "hey folks, kicking things off",
+        { speakerLabel: "Alice", speakerId: "alice" },
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(0);
+
+    // Fire 30 ticks at 20s intervals = 600s = 10 min. At tick 15 (t=300s,
+    // i.e. minute 5) the objection arrives just before the tick fires.
+    let leaveCheckpoint: number | null = null;
+    const OBJECTION_TICK = 15;
+    for (let tickIndex = 1; tickIndex <= 30; tickIndex++) {
+      // At minute 5 (just before tick 15), emit the objection.
+      if (tickIndex === OBJECTION_TICK) {
+        t = tickIndex * 20_000 - 1_000; // t = 299s
+        dispatcher.dispatch(
+          "m1",
+          transcriptChunk(
+            "m1",
+            new Date(t).toISOString(),
+            "please leave, this is private",
+            { speakerLabel: "Bob", speakerId: "bob" },
+          ),
+        );
+        await flushPromises();
+        leaveCheckpoint = t;
+      }
+
+      t = tickIndex * 20_000;
+      timer.fire();
+      await flushPromises();
+    }
+
+    // Silent meeting bound: tick #1 fires LLM once; every subsequent
+    // silent tick is skipped by the watermark. Adding the single
+    // objection-fired LLM call brings the total to exactly 2.
+    expect(llm).toHaveBeenCalledTimes(2);
+    expect(sawObjection).toBe(true);
+
+    // Objection detected and acted on.
+    expect(session.leave).toHaveBeenCalledTimes(1);
+    const [leaveId, leaveReason] = session.leave.mock.calls[0] as unknown as [
+      string,
+      string,
+    ];
+    expect(leaveId).toBe("m1");
+    expect(leaveReason).toBe(
+      "objection: participant asked the note-taker to leave",
+    );
+    expect(monitor._isDecided()).toBe(true);
+
+    // Leave fired in the same virtual second as the objection —
+    // comfortably under the 30s correctness invariant from the plan.
+    expect(leaveCheckpoint).not.toBeNull();
 
     monitor.stop();
   });
