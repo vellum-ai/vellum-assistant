@@ -1,0 +1,438 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import {
+  __resetMeetSessionEventRouterForTests,
+  getMeetSessionEventRouter,
+} from "../session-event-router.js";
+import {
+  _createMeetSessionManagerForTests,
+  BOT_LEAVE_HTTP_TIMEOUT_MS,
+  MEET_BOT_INTERNAL_PORT,
+} from "../session-manager.js";
+
+// ---------------------------------------------------------------------------
+// Shared fixtures
+// ---------------------------------------------------------------------------
+
+interface MockRunner {
+  run: ReturnType<typeof mock>;
+  stop: ReturnType<typeof mock>;
+  remove: ReturnType<typeof mock>;
+  inspect: ReturnType<typeof mock>;
+}
+
+function makeMockRunner(
+  overrides: {
+    runResult?: { containerId: string; boundPorts: Array<{ protocol: "tcp" | "udp"; containerPort: number; hostIp: string; hostPort: number }> };
+    runError?: unknown;
+  } = {},
+): MockRunner {
+  const runResult = overrides.runResult ?? {
+    containerId: "container-123",
+    boundPorts: [
+      {
+        protocol: "tcp" as const,
+        containerPort: MEET_BOT_INTERNAL_PORT,
+        hostIp: "127.0.0.1",
+        hostPort: 49200,
+      },
+    ],
+  };
+
+  return {
+    run: mock(async () => {
+      if (overrides.runError) throw overrides.runError;
+      return runResult;
+    }),
+    stop: mock(async () => {}),
+    remove: mock(async () => {}),
+    inspect: mock(async () => ({ Id: runResult.containerId })),
+  };
+}
+
+let workspaceDir: string;
+
+beforeEach(() => {
+  workspaceDir = mkdtempSync(join(tmpdir(), "session-manager-test-"));
+  __resetMeetSessionEventRouterForTests();
+});
+
+afterEach(() => {
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// join()
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager.join", () => {
+  test("generates BOT_API_TOKEN, creates sockets dir, registers router, spawns container", async () => {
+    const runner = makeMockRunner();
+    const getProviderKey = mock(async (provider: string) => {
+      if (provider === "deepgram") return "deepgram-secret";
+      if (provider === "tts") return "tts-secret";
+      return undefined;
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey,
+      resolveDaemonUrl: () => "http://host.docker.internal:7821",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+    });
+
+    const session = await manager.join({
+      url: "https://meet.google.com/xyz-abc-def",
+      meetingId: "m1",
+      conversationId: "conv-1",
+    });
+
+    // Per-meeting token is 64 hex chars.
+    expect(session.botApiToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(session.containerId).toBe("container-123");
+    expect(session.botBaseUrl).toBe("http://127.0.0.1:49200");
+    expect(session.joinTimeoutMs).toBeGreaterThan(0);
+
+    // Workspace directories created.
+    expect(existsSync(join(workspaceDir, "meets", "m1", "sockets"))).toBe(true);
+    expect(existsSync(join(workspaceDir, "meets", "m1", "out"))).toBe(true);
+
+    // Event router registered a handler for this meeting.
+    expect(getMeetSessionEventRouter().registeredCount()).toBe(1);
+    expect(getMeetSessionEventRouter().resolveBotApiToken("m1")).toBe(
+      session.botApiToken,
+    );
+
+    // Credentials resolved.
+    expect(getProviderKey).toHaveBeenCalledWith("deepgram");
+    expect(getProviderKey).toHaveBeenCalledWith("tts");
+
+    // Runner invoked with the expected env/binds/ports/name/network.
+    expect(runner.run).toHaveBeenCalledTimes(1);
+    const runOpts = runner.run.mock.calls[0][0] as {
+      image: string;
+      env: Record<string, string>;
+      binds: Array<{ hostPath: string; containerPath: string }>;
+      ports: Array<{ hostIp: string; hostPort: number; containerPort: number; protocol: string }>;
+      name: string;
+      network: string;
+    };
+    expect(runOpts.image).toBe("vellum-meet-bot:dev");
+    expect(runOpts.env.MEET_URL).toBe("https://meet.google.com/xyz-abc-def");
+    expect(runOpts.env.MEETING_ID).toBe("m1");
+    expect(runOpts.env.JOIN_NAME).toBe("");
+    expect(runOpts.env.CONSENT_MESSAGE).toContain("{assistantName}");
+    expect(runOpts.env.DAEMON_URL).toBe("http://host.docker.internal:7821");
+    expect(runOpts.env.BOT_API_TOKEN).toBe(session.botApiToken);
+    expect(runOpts.env.DEEPGRAM_API_KEY).toBe("deepgram-secret");
+    expect(runOpts.env.TTS_API_KEY).toBe("tts-secret");
+    expect(runOpts.env.SKIP_PULSE).toBe("0");
+
+    expect(runOpts.binds).toEqual([
+      {
+        hostPath: join(workspaceDir, "meets", "m1", "sockets"),
+        containerPath: "/sockets",
+      },
+      {
+        hostPath: join(workspaceDir, "meets", "m1", "out"),
+        containerPath: "/out",
+      },
+    ]);
+
+    expect(runOpts.ports).toEqual([
+      {
+        hostIp: "127.0.0.1",
+        hostPort: 0,
+        containerPort: MEET_BOT_INTERNAL_PORT,
+        protocol: "tcp",
+      },
+    ]);
+
+    expect(runOpts.name).toBe("vellum-meet-m1");
+    expect(runOpts.network).toBe("bridge");
+
+    // activeSessions and getSession both reflect the new record.
+    expect(manager.activeSessions()).toHaveLength(1);
+    expect(manager.getSession("m1")?.containerId).toBe("container-123");
+
+    await manager.leave("m1", "test-cleanup");
+  });
+
+  test("token resolver returns null when the meeting is not active", async () => {
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+    });
+    // Before any join, the resolver installed in ctor returns null.
+    expect(getMeetSessionEventRouter().resolveBotApiToken("nope")).toBeNull();
+
+    await manager.join({
+      url: "u",
+      meetingId: "m2",
+      conversationId: "c2",
+    });
+    expect(
+      getMeetSessionEventRouter().resolveBotApiToken("m2"),
+    ).not.toBeNull();
+    expect(
+      getMeetSessionEventRouter().resolveBotApiToken("other"),
+    ).toBeNull();
+
+    await manager.leave("m2", "cleanup");
+  });
+
+  test("rejects a second join for the same meeting id", async () => {
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+    });
+    await manager.join({ url: "u", meetingId: "dup", conversationId: "c" });
+    await expect(
+      manager.join({ url: "u", meetingId: "dup", conversationId: "c" }),
+    ).rejects.toThrow(/already exists/);
+    await manager.leave("dup", "cleanup");
+  });
+
+  test("rolls back the container when no host port is bound", async () => {
+    const runner = makeMockRunner({
+      runResult: { containerId: "c-unbound", boundPorts: [] },
+    });
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+    });
+    await expect(
+      manager.join({
+        url: "u",
+        meetingId: "m-noport",
+        conversationId: "c",
+      }),
+    ).rejects.toThrow(/did not publish a host port/);
+    expect(runner.remove).toHaveBeenCalledTimes(1);
+    expect(manager.activeSessions()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// leave()
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager.leave", () => {
+  test("calls bot HTTP first, then removes — skips stop on graceful success", async () => {
+    const runner = makeMockRunner();
+    const botLeaveFetch = mock(async () => {});
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch,
+    });
+
+    const session = await manager.join({
+      url: "u",
+      meetingId: "leave1",
+      conversationId: "c",
+    });
+    await manager.leave("leave1", "user-requested");
+
+    expect(botLeaveFetch).toHaveBeenCalledTimes(1);
+    const [url, token] = botLeaveFetch.mock.calls[0] as unknown as [
+      string,
+      string,
+    ];
+    expect(url).toBe(`${session.botBaseUrl}/leave`);
+    expect(token).toBe(session.botApiToken);
+
+    // Graceful path skips stop.
+    expect(runner.stop).toHaveBeenCalledTimes(0);
+    expect(runner.remove).toHaveBeenCalledTimes(1);
+
+    // Session state cleared.
+    expect(manager.getSession("leave1")).toBeNull();
+    expect(getMeetSessionEventRouter().registeredCount()).toBe(0);
+  });
+
+  test("falls back to stop when bot HTTP fails", async () => {
+    const runner = makeMockRunner();
+    const botLeaveFetch = mock(async () => {
+      throw new Error("bot unreachable");
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "leave2",
+      conversationId: "c",
+    });
+    await manager.leave("leave2", "timeout");
+
+    expect(botLeaveFetch).toHaveBeenCalledTimes(1);
+    expect(runner.stop).toHaveBeenCalledTimes(1);
+    expect(runner.remove).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to stop when bot HTTP times out past 10s", async () => {
+    const runner = makeMockRunner();
+
+    // Simulate a hanging fetch that rejects with AbortError semantics, mirroring
+    // what `AbortSignal.timeout(BOT_LEAVE_HTTP_TIMEOUT_MS)` would throw.
+    const botLeaveFetch = mock(async () => {
+      // The default fetch uses AbortSignal.timeout internally; simulate that
+      // timeout by surfacing an abort-style error. The session manager only
+      // cares that the promise rejects — it does not inspect the error type.
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      throw err;
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "leave-timeout",
+      conversationId: "c",
+    });
+    await manager.leave("leave-timeout", "operator");
+
+    expect(runner.stop).toHaveBeenCalledTimes(1);
+    expect(runner.remove).toHaveBeenCalledTimes(1);
+  });
+
+  test("is a no-op for an unknown meeting id", async () => {
+    const runner = makeMockRunner();
+    const botLeaveFetch = mock(async () => {});
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch,
+    });
+    await manager.leave("never-joined", "who-cares");
+    expect(botLeaveFetch).toHaveBeenCalledTimes(0);
+    expect(runner.stop).toHaveBeenCalledTimes(0);
+    expect(runner.remove).toHaveBeenCalledTimes(0);
+  });
+
+  test("BOT_LEAVE_HTTP_TIMEOUT_MS is exported and sensible", () => {
+    // Guard against accidental tightening that would cause flakes in CI.
+    expect(BOT_LEAVE_HTTP_TIMEOUT_MS).toBeGreaterThanOrEqual(5000);
+    expect(BOT_LEAVE_HTTP_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Max-meeting-minutes hard cap
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager max-minutes timeout", () => {
+  // We do not touch wall-clock sleep here — the max-minutes cap is exercised
+  // by reaching into the timeout handle state directly through a stable
+  // public surface (`joinTimeoutMs`), verifying that the manager registers a
+  // timer that, when fired, triggers the leave flow.
+  //
+  // Bun's `setSystemTime` fake timer support is still evolving; rather than
+  // depend on it we stub the manager's `setTimeout` behavior by triggering
+  // `leave` directly after confirming `joinTimeoutMs` matches the
+  // configuration value, then asserting the side-effects the timer would
+  // have produced.
+
+  test("joinTimeoutMs matches services.meet.maxMeetingMinutes * 60_000", async () => {
+    const runner = makeMockRunner();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+    });
+
+    const session = await manager.join({
+      url: "u",
+      meetingId: "t1",
+      conversationId: "c",
+    });
+
+    // Default config is 240 minutes → 14_400_000 ms.
+    expect(session.joinTimeoutMs).toBe(240 * 60_000);
+
+    await manager.leave("t1", "cleanup");
+  });
+
+  test("timeout firing triggers leave(meetingId, 'timeout')", async () => {
+    const runner = makeMockRunner();
+    const botLeaveFetch = mock(async () => {});
+
+    // Monkey-patch global setTimeout so we can capture and fire the scheduled
+    // callback deterministically without leaning on fake-timer APIs.
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let capturedCb: (() => void) | null = null;
+    const fakeHandle = Symbol("fake-handle");
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+      ((cb: () => void, _ms: number) => {
+        capturedCb = cb;
+        return fakeHandle as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+    (globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
+      ((handle: unknown) => {
+        if (handle === fakeHandle) capturedCb = null;
+      }) as typeof clearTimeout;
+
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "fire-timeout",
+        conversationId: "c",
+      });
+
+      expect(capturedCb).not.toBeNull();
+
+      // Fire the timer — this is what would happen after maxMeetingMinutes.
+      capturedCb!();
+
+      // Give the async leave() a microtask to settle.
+      await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+
+      expect(botLeaveFetch).toHaveBeenCalledTimes(1);
+      expect(runner.remove).toHaveBeenCalledTimes(1);
+      expect(manager.getSession("fire-timeout")).toBeNull();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
+  });
+});
