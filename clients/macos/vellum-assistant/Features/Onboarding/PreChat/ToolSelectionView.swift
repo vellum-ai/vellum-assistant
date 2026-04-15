@@ -57,43 +57,46 @@ struct ToolSelectionView: View {
                 otherExpandedCard
                     .padding(.horizontal, VSpacing.xxl)
                     .padding(.top, VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
             }
         }
     }
 
+    private var footer: some View {
+        VStack(spacing: VSpacing.sm) {
+            VButton(
+                label: selectedTools.isEmpty
+                    ? "Continue"
+                    : "Continue \u{00B7} \(selectedTools.count) selected",
+                style: .primary,
+                isFullWidth: true
+            ) {
+                onContinue()
+            }
+
+            VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
+                onSkip()
+            }
+        }
+        .padding(.horizontal, VSpacing.xxl)
+        .opacity(showFooter ? 1 : 0)
+        .offset(y: showFooter ? 0 : 12)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            if otherExpanded {
-                ScrollView(.vertical, showsIndicators: false) {
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
                     mainContent
-                }
-                .scrollBounceBehavior(.basedOnSize)
-            } else {
-                mainContent
-                Spacer()
-            }
 
-            // Footer
-            VStack(spacing: VSpacing.sm) {
-                VButton(
-                    label: selectedTools.isEmpty
-                        ? "Continue"
-                        : "Continue \u{00B7} \(selectedTools.count) selected",
-                    style: .primary,
-                    isFullWidth: true
-                ) {
-                    onContinue()
+                    footer
+                        .padding(.top, VSpacing.xl)
+                        .padding(.bottom, VSpacing.xxl)
                 }
-
-                VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
-                    onSkip()
-                }
+                .frame(minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, VSpacing.xxl)
-            .padding(EdgeInsets(top: VSpacing.lg, leading: 0, bottom: VSpacing.xxl, trailing: 0))
-            .opacity(showFooter ? 1 : 0)
-            .offset(y: showFooter ? 0 : 12)
+            .scrollBounceBehavior(.basedOnSize)
         }
         .onAppear {
             // Restore otherText from selectedTools if resuming
