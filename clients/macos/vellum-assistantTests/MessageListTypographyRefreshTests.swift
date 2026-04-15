@@ -49,7 +49,6 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             configuredProviders: [],
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
-            containerHeight: 0,
             scrollState: MessageListScrollState()
         )
     }

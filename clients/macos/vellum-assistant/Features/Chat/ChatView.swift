@@ -163,7 +163,7 @@ struct ChatView: View {
         // children (808pt fallback) or when rapid drag updates are batched.
         GeometryReader { proxy in
             ZStack {
-                mainContentStack(containerWidth: proxy.size.width, containerHeight: proxy.size.height)
+                mainContentStack(containerWidth: proxy.size.width)
                     .background(alignment: .bottom) {
                         chatBackground
                     }
@@ -257,7 +257,7 @@ struct ChatView: View {
     // MARK: - Body Subviews (extracted to help the Swift type checker)
 
     @ViewBuilder
-    private func mainContentStack(containerWidth: CGFloat, containerHeight: CGFloat) -> some View {
+    private func mainContentStack(containerWidth: CGFloat) -> some View {
         VStack(spacing: 0) {
             if showSkeleton {
                 ChatLoadingSkeleton()
@@ -325,7 +325,7 @@ struct ChatView: View {
                     .id(conversationId)
                 }
             } else {
-                activeConversationContent(containerWidth: containerWidth, containerHeight: containerHeight)
+                activeConversationContent(containerWidth: containerWidth)
             }
         }
     }
@@ -345,7 +345,7 @@ struct ChatView: View {
     /// individually; it feeds them into the projector and renders the resulting
     /// `TranscriptRenderModel` via `MessageListContentView`.
     @ViewBuilder
-    private func activeConversationContent(containerWidth: CGFloat, containerHeight: CGFloat = 0) -> some View {
+    private func activeConversationContent(containerWidth: CGFloat) -> some View {
         let layoutMetrics = MessageListLayoutMetrics(containerWidth: containerWidth)
         let queuedMessages = viewModel.queuedMessages
         VStack(spacing: 0) {
@@ -402,8 +402,7 @@ struct ChatView: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 isInteractionEnabled: isInteractionEnabled,
-                containerWidth: containerWidth,
-                containerHeight: containerHeight
+                containerWidth: containerWidth
             )
             .animation(nil, value: queuedMessages.isEmpty)
 
