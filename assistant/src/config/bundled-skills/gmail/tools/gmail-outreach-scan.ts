@@ -238,11 +238,30 @@ export async function run(
       .sort((a, b) => b.messageCount - a.messageCount)
       .slice(0, maxSenders);
 
+    // Enrich with prior-reply signal: check if user has ever sent to each sender.
+    // Fire all checks in parallel (each is a lightweight maxResults:1 list call).
+    const priorReplyMap = new Map<string, boolean>();
+    const replyChecks = sorted.map(async (s) => {
+      try {
+        const resp = await listMessages(
+          connection,
+          `from:me to:${s.email}`,
+          1,
+        );
+        priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
+      } catch {
+        // Non-fatal — default to unknown (false)
+        priorReplyMap.set(s.email, false);
+      }
+    });
+    await Promise.all(replyChecks);
+
     const senders = sorted.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
       email: s.email,
       message_count: s.messageCount,
+      has_prior_reply: priorReplyMap.get(s.email) ?? false,
       newest_message_id: s.newestMessageId,
       oldest_date: s.oldestDate,
       newest_date: s.newestDate,
