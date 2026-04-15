@@ -56,8 +56,8 @@ import type {
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
-import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
+import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,

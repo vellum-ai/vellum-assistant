@@ -12,9 +12,9 @@
 
 import { z } from "zod";
 
+import { MeetSessionManager } from "../../../../skills/meet-join/daemon/session-manager.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import { MeetSessionManager } from "../../meet/session-manager.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";

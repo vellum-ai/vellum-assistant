@@ -58,9 +58,9 @@ import type {
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
-import type { AssistantEvent } from "../../runtime/assistant-event.js";
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
+import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
 import { MeetConsentMonitor } from "../consent-monitor.js";
 import {
   type InsertMessageFn,

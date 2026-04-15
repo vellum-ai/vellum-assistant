@@ -3,6 +3,11 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
+export type { MeetService } from "../../../skills/meet-join/config-schema.js";
+export {
+  DEFAULT_MEET_OBJECTION_KEYWORDS,
+  MeetServiceSchema,
+} from "../../../skills/meet-join/config-schema.js";
 export type { PermissionMode } from "../permissions/permission-mode.js";
 export {
   DEFAULT_PERMISSION_MODE,
@@ -102,11 +107,6 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
-export type { MeetService } from "../../../skills/meet-join/config-schema.js";
-export {
-  DEFAULT_MEET_OBJECTION_KEYWORDS,
-  MeetServiceSchema,
-} from "../../../skills/meet-join/config-schema.js";
 export type { MemoryConfig } from "./schemas/memory.js";
 export { MemoryConfigSchema } from "./schemas/memory.js";
 export type {

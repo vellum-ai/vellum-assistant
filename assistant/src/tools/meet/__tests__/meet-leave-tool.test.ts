@@ -27,7 +27,7 @@ const getSessionMock = mock((meetingId: string) => {
   return found ?? null;
 });
 
-mock.module("../../../meet/session-manager.js", () => ({
+mock.module("../../../../../skills/meet-join/daemon/session-manager.js", () => ({
   MeetSessionManager: {
     join: async () => {
       throw new Error("join should not be invoked in leave tests");

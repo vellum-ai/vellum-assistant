@@ -45,9 +45,12 @@ import {
   extractToolUse,
   getConfiguredProvider,
   userMessage,
-} from "../providers/provider-send-message.js";
-import type { Provider, ToolDefinition } from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
+} from "../../../assistant/src/providers/provider-send-message.js";
+import type {
+  Provider,
+  ToolDefinition,
+} from "../../../assistant/src/providers/types.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,

@@ -29,7 +29,7 @@
 
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
-import { getLogger } from "../util/logger.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 
 const log = getLogger("meet-session-event-router");
 

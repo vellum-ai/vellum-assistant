@@ -27,7 +27,7 @@ import type {
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
-import type { AssistantEvent } from "../../runtime/assistant-event.js";
+import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import {
   type InsertMessageFn,
   MeetConversationBridge,

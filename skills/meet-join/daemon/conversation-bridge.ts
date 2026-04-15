@@ -45,11 +45,11 @@
 
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub as defaultAssistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getLogger } from "../util/logger.js";
+import type { ServerMessage } from "../../../assistant/src/daemon/message-protocol.js";
+import { buildAssistantEvent } from "../../../assistant/src/runtime/assistant-event.js";
+import { assistantEventHub as defaultAssistantEventHub } from "../../../assistant/src/runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,

@@ -31,10 +31,10 @@
 
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { getLogger } from "../util/logger.js";
+import type { ServerMessage } from "../../../assistant/src/daemon/message-protocol.js";
+import { buildAssistantEvent } from "../../../assistant/src/runtime/assistant-event.js";
+import { assistantEventHub } from "../../../assistant/src/runtime/assistant-event-hub.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
 
 const log = getLogger("meet-event-publisher");

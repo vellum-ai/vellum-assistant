@@ -153,7 +153,7 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 - **Gateway security volume** (`/gateway-security`): Files private to the gateway container. Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
 - **CES security volume** (`/ces-security`): Credential encryption keys (`keys.enc`, `store.key`). Only the CES container mounts this volume. Set via `CREDENTIAL_SECURITY_DIR=/ces-security`.
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
-- **Docker socket bind-mount** (`/var/run/docker.sock`): Host Docker Engine API, used by the assistant's Meet subsystem to spawn sibling Meet-bot containers. Mounted read-write on the assistant container only. The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as an env-var hint so the workspace-volume helper can find the volume reliably without probing Docker (see `assistant/src/meet/workspace-volume.ts`).
+- **Docker socket bind-mount** (`/var/run/docker.sock`): Host Docker Engine API, used by the assistant's Meet subsystem to spawn sibling Meet-bot containers. Mounted read-write on the assistant container only. The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as an env-var hint so the workspace-volume helper can find the volume reliably without probing Docker (see `skills/meet-join/daemon/workspace-volume.ts`).
 
 ### Meet Sibling-Container Model
 

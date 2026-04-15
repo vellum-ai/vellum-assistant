@@ -41,7 +41,7 @@ const joinMock = mock(
   }),
 );
 
-mock.module("../../../meet/session-manager.js", () => ({
+mock.module("../../../../../skills/meet-join/daemon/session-manager.js", () => ({
   MeetSessionManager: {
     join: joinMock,
     leave: async () => {},

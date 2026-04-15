@@ -65,9 +65,9 @@ import type {
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
-import type { PromptSpeakerMetadata } from "../calls/speaker-identification.js";
-import { SpeakerIdentityTracker } from "../calls/speaker-identification.js";
-import { getLogger } from "../util/logger.js";
+import type { PromptSpeakerMetadata } from "../../../assistant/src/calls/speaker-identification.js";
+import { SpeakerIdentityTracker } from "../../../assistant/src/calls/speaker-identification.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,

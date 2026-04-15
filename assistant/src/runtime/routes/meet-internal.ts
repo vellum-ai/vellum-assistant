@@ -44,7 +44,7 @@ import { z } from "zod";
 import {
   getMeetSessionEventRouter,
   type MeetSessionEventRouter,
-} from "../../meet/session-event-router.js";
+} from "../../../../skills/meet-join/daemon/session-event-router.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 

@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../../runtime/assistant-event.js";
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
+import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
 import { meetEventDispatcher } from "../event-publisher.js";
 import {
   __resetMeetSessionEventRouterForTests,

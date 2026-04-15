@@ -23,11 +23,11 @@ import {
 // process-global and persists until re-mocked; installing it at file
 // scope bleeds into sibling test files that share a Bun process (e.g.
 // `providers/speech-to-text/__tests__/resolve.test.ts`).
-import { resolveStreamingTranscriber as realResolveStreamingTranscriberImport } from "../../providers/speech-to-text/resolve.js";
+import { resolveStreamingTranscriber as realResolveStreamingTranscriberImport } from "../../../../assistant/src/providers/speech-to-text/resolve.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
-} from "../../stt/types.js";
+} from "../../../../assistant/src/stt/types.js";
 import {
   BOT_CONNECT_TIMEOUT_MS,
   MeetAudioIngest,
@@ -749,7 +749,7 @@ describe("MeetAudioIngest — default transcriber factory", () => {
   // doesn't undo `mock.module`, so we have to re-point it at the original
   // export ourselves.
   beforeAll(() => {
-    mock.module("../../providers/speech-to-text/resolve.js", () => ({
+    mock.module("../../../../assistant/src/providers/speech-to-text/resolve.js", () => ({
       resolveStreamingTranscriber: async (
         options?: Record<string, unknown>,
       ) => {
@@ -760,7 +760,7 @@ describe("MeetAudioIngest — default transcriber factory", () => {
   });
 
   afterAll(() => {
-    mock.module("../../providers/speech-to-text/resolve.js", () => ({
+    mock.module("../../../../assistant/src/providers/speech-to-text/resolve.js", () => ({
       resolveStreamingTranscriber: realResolveStreamingTranscriberFn,
     }));
   });

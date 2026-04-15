@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@vellumai/meet-contracts": "file:./contracts",
     "zod": "4.3.6"
   },
   "devDependencies": {

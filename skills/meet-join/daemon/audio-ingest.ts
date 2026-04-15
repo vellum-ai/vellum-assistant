@@ -44,12 +44,12 @@ import {
 
 import type { TranscriptChunkEvent } from "@vellumai/meet-contracts";
 
-import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
+import { resolveStreamingTranscriber } from "../../../assistant/src/providers/speech-to-text/resolve.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
-} from "../stt/types.js";
-import { getLogger } from "../util/logger.js";
+} from "../../../assistant/src/stt/types.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
 
 const log = getLogger("meet-audio-ingest");

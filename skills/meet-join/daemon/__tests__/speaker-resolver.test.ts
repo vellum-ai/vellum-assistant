@@ -27,7 +27,7 @@ import type {
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
-import { SpeakerIdentityTracker } from "../../calls/speaker-identification.js";
+import { SpeakerIdentityTracker } from "../../../../assistant/src/calls/speaker-identification.js";
 import type {
   MeetEventSubscriber,
   MeetEventUnsubscribe,

@@ -32,9 +32,9 @@
 import { request as httpRequest } from "node:http";
 import { posix as posixPath } from "node:path";
 
-import type { DaemonRuntimeMode } from "../runtime/runtime-mode.js";
-import { getDaemonRuntimeMode } from "../runtime/runtime-mode.js";
-import { getLogger } from "../util/logger.js";
+import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
+import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceVolumeName } from "./workspace-volume.js";
 
 const log = getLogger("meet-docker-runner");

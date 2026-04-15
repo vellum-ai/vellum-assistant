@@ -56,13 +56,13 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { getConfig } from "../config/loader.js";
-import { getAssistantName } from "../daemon/identity-helpers.js";
-import { addMessage } from "../memory/conversation-crud.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getProviderKeyAsync } from "../security/secure-keys.js";
-import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getConfig } from "../../../assistant/src/config/loader.js";
+import { getAssistantName } from "../../../assistant/src/daemon/identity-helpers.js";
+import { addMessage } from "../../../assistant/src/memory/conversation-crud.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
+import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
+import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
   MeetConsentMonitor,

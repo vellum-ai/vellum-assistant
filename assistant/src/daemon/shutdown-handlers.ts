@@ -1,11 +1,11 @@
 import * as Sentry from "@sentry/node";
 
+import { MeetSessionManager } from "../../../skills/meet-join/daemon/session-manager.js";
 import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
-import { MeetSessionManager } from "../meet/session-manager.js";
 import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";

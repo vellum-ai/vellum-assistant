@@ -33,7 +33,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import { getLogger } from "../util/logger.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
 
 const log = getLogger("meet-workspace-volume");
 
