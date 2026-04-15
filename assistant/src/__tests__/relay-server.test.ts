@@ -105,6 +105,7 @@ mock.module("../config/loader.js", () => ({
 let mockTtsProviderId: string = "elevenlabs";
 let mockTtsSupportsStreaming: boolean = false;
 let mockTtsSynthesizeStream: Mock<any> | null = null;
+let mockTtsSynthesize: Mock<any> | null = null;
 
 mock.module("../tts/tts-config-resolver.js", () => ({
   resolveTtsConfig: () => ({
@@ -124,10 +125,12 @@ mock.module("../tts/provider-registry.js", () => ({
       supportsStreaming: mockTtsSupportsStreaming,
       supportedFormats: ["mp3"],
     },
-    synthesize: async () => ({
-      audio: Buffer.from("fake-audio"),
-      contentType: "audio/mpeg",
-    }),
+    synthesize: mockTtsSynthesize
+      ? (...args: unknown[]) => mockTtsSynthesize!(...args)
+      : async () => ({
+          audio: Buffer.from("fake-audio"),
+          contentType: "audio/mpeg",
+        }),
     synthesizeStream: mockTtsSynthesizeStream
       ? (...args: unknown[]) => mockTtsSynthesizeStream!(...args)
       : undefined,
@@ -388,6 +391,7 @@ describe("relay-server", () => {
     mockTtsProviderId = "elevenlabs";
     mockTtsSupportsStreaming = false;
     mockTtsSynthesizeStream = null;
+    mockTtsSynthesize = null;
     setVoiceBridgeDeps({
       getOrCreateConversation: async (conversationId) => {
         const session = {
@@ -4530,6 +4534,66 @@ describe("relay-server", () => {
       expect(
         textMessages.some((m) => (m.token ?? "").includes("verification code")),
       ).toBe(true);
+
+      relay.destroy();
+    });
+
+    test("Deepgram TTS provider: synthesis failure does NOT fall back to text (fail-fast policy)", async () => {
+      // Configure Deepgram as the synthesized provider with failing synthesis.
+      // Deepgram uses buffer synthesis (no streaming), so we fail synthesize().
+      mockTtsProviderId = "deepgram";
+      mockTtsSupportsStreaming = false;
+      mockTtsSynthesizeStream = null;
+      mockTtsSynthesize = jest.fn(async () => {
+        const err = new Error("Deepgram TTS returned 503: service unavailable");
+        (err as Error & { code?: string }).code = "DEEPGRAM_TTS_HTTP_ERROR";
+        throw err;
+      });
+
+      ensureConversation("conv-deepgram-fail");
+      const session = createCallSession({
+        conversationId: "conv-deepgram-fail",
+        provider: "twilio",
+        fromNumber: "+15559990088",
+        toNumber: "+15551111111",
+      });
+
+      createPendingVoiceGuardianChallenge("123456");
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "setup",
+          callSid: "CA_deepgram_fail",
+          from: "+15559990088",
+          to: "+15551111111",
+        }),
+      );
+
+      // Allow async synthesis (and error propagation) to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Deepgram failure should NOT have produced text fallback messages
+      // containing the verification prompt content, because Deepgram
+      // synthesis failures propagate rather than falling back to native TTS.
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === "text");
+      const playMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string })
+        .filter((m) => m.type === "play");
+
+      // No play URL should have been sent either (synthesis failed before
+      // first chunk).
+      expect(playMessages.length).toBe(0);
+
+      // Unlike Fish Audio which falls back to text, Deepgram should NOT
+      // have any text tokens containing the verification prompt.
+      const hasVerificationText = textMessages.some((m) =>
+        (m.token ?? "").includes("verification code"),
+      );
+      expect(hasVerificationText).toBe(false);
 
       relay.destroy();
     });

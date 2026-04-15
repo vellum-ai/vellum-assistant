@@ -140,12 +140,33 @@ async function synthesizeAndPlay(
     // "caller speaking" state.
     relay.sendTextToken("", true);
   } catch (err) {
+    // Extract error class and code for diagnosable log entries.
+    const errName = err instanceof Error ? err.name : String(err);
+    const errCode =
+      err instanceof Error && "code" in err
+        ? (err as Error & { code?: string }).code
+        : undefined;
+
+    // Deepgram is a synthesized-only provider with no native Twilio
+    // TTS integration. Silently falling back to token-based speech
+    // would route audio through a path that cannot produce output,
+    // so we fail explicitly and propagate the error.
+    if (provider.id === "deepgram") {
+      log.error(
+        { err, provider: provider.id, errName, errCode },
+        "Deepgram system prompt TTS synthesis failed — no native fallback available",
+      );
+      throw err;
+    }
+
     log.error(
-      { err, provider: provider.id },
+      { err, provider: provider.id, errName, errCode },
       "System prompt TTS synthesis failed — falling back to native TTS",
     );
     // Fallback: send text via native TTS so the caller still hears the message.
     // sendTextToken with last:true includes the end-of-turn signal inherently.
+    // This fallback is only used for providers that have a viable
+    // native-twilio path.
     relay.sendTextToken(text, true);
   } finally {
     handle?.finalize();

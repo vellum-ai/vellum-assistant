@@ -833,13 +833,35 @@ export class CallController {
           "TTS synthesis aborted (barge-in)",
         );
       } else {
+        // Extract error class and code for diagnosable log entries.
+        const errName = err instanceof Error ? err.name : String(err);
+        const errCode =
+          err instanceof Error && "code" in err
+            ? (err as Error & { code?: string }).code
+            : undefined;
+
+        // Deepgram is a synthesized-only provider with no native Twilio
+        // TTS integration. Silently falling back to token-based speech
+        // would route audio through a path that cannot produce output,
+        // so we fail explicitly and let the outer error handler surface
+        // a user-facing recovery message.
+        if (provider.id === "deepgram") {
+          log.error(
+            { err, provider: provider.id, errName, errCode },
+            "Deepgram TTS synthesis failed — no native fallback available",
+          );
+          throw err;
+        }
+
         log.error(
-          { err, provider: provider.id },
-          "TTS synthesis failed — skipping",
+          { err, provider: provider.id, errName, errCode },
+          "TTS synthesis failed — falling back to native token TTS",
         );
         // If synthesis fails before any audio has started, degrade to
         // token-based speech on ConversationRelay so the caller still
-        // hears a response instead of silence.
+        // hears a response instead of silence. This fallback is only
+        // used for providers that have a viable native-twilio path
+        // (e.g. Fish Audio with ConversationRelay text tokens).
         if (!playUrlSent && !this.transport.requiresWavAudio) {
           this.transport.sendTextToken(text, false);
         }

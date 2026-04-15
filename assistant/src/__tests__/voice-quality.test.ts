@@ -70,6 +70,18 @@ function registerTestVoiceSpecs(): void {
   };
   registerTtsProvider(fishAudio);
 
+  const deepgram: TtsProvider = {
+    id: "deepgram",
+    capabilities: {
+      supportsStreaming: false,
+      supportedFormats: ["mp3", "wav", "opus"],
+    },
+    async synthesize() {
+      return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+    },
+  };
+  registerTtsProvider(deepgram);
+
   // Register the ElevenLabs native Twilio voice-spec builder (mirrors
   // the production registration in register-builtins.ts).
   registerNativeTwilioVoiceSpec("elevenlabs", {
@@ -531,5 +543,58 @@ describe("resolveVoiceQualityProfile", () => {
     const profile = resolveVoiceQualityProfile();
     expect(profile.ttsProvider).toBe("ElevenLabs");
     expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
+  });
+
+  // -- Deepgram synthesized-play path ------------------------------------
+
+  test("uses catalog callMode to select synthesized-play path for Deepgram", () => {
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "en-US",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "deepgram",
+          providers: {
+            elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
+            "fish-audio": { referenceId: "" },
+            deepgram: { model: "aura-2-theia-en", format: "mp3" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    // Deepgram is synthesized-play in the catalog, so Twilio gets the
+    // placeholder ttsProvider and an empty voice string.
+    expect(profile.ttsProvider).toBe("Google");
+    expect(profile.voice).toBe("");
+  });
+
+  test("Deepgram preserves language setting on synthesized-play path", () => {
+    mockConfig = {
+      calls: {
+        voice: {
+          language: "fr-FR",
+          transcriptionProvider: "Deepgram",
+        },
+      },
+      services: {
+        tts: {
+          provider: "deepgram",
+          providers: {
+            elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
+            "fish-audio": { referenceId: "" },
+            deepgram: { model: "aura-2-theia-en", format: "mp3" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.language).toBe("fr-FR");
+    expect(profile.ttsProvider).toBe("Google");
+    expect(profile.voice).toBe("");
   });
 });
