@@ -138,14 +138,19 @@ private struct InlineToolCallImageView: View {
                 .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            HStack(spacing: 0) {
-                Image(nsImage: renderImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                Spacer(minLength: 0)
-            }
+            let pointSize = renderImage.size
+            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            let scale = pointSize.width > 0 && pointSize.height > 0
+                ? min(maxDim / pointSize.width, maxDim / pointSize.height, 1.0)
+                : 1.0
+            let fitWidth = pointSize.width * scale
+            let fitHeight = pointSize.height * scale
+            Image(nsImage: renderImage)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: fitWidth, height: fitHeight)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
 }
@@ -381,14 +386,19 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            HStack(spacing: 0) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                Spacer(minLength: 0)
-            }
+            let pointSize = nsImage.size
+            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            let scale = pointSize.width > 0 && pointSize.height > 0
+                ? min(maxDim / pointSize.width, maxDim / pointSize.height, 1.0)
+                : 1.0
+            let fitWidth = pointSize.width * scale
+            let fitHeight = pointSize.height * scale
+            Image(nsImage: nsImage)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: fitWidth, height: fitHeight)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
 
