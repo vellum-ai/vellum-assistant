@@ -105,6 +105,10 @@ struct MessageListView: View {
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
+    /// Filtered viewport height used by the latest-turn spacer layout.
+    /// Only viewport changes feed the content view — scroll offset and content
+    /// height stay out of the layout diff path.
+    @State var viewportHeight: CGFloat = .infinity
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
@@ -156,6 +160,7 @@ struct MessageListView: View {
                 scrollState.cancelAll()
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                viewportHeight = .infinity
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {

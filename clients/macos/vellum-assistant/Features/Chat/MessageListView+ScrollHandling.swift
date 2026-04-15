@@ -34,6 +34,7 @@ extension MessageListView {
         )
         if case .accept(let accepted) = decision {
             scrollState.viewportHeight = accepted
+            viewportHeight = accepted
         }
 
         // --- Distance-based scroll-to-latest CTA ---
