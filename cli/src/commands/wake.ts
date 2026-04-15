@@ -14,6 +14,7 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
+import { computeLocalVersion } from "../lib/local-version.js";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
 
 export async function wake(): Promise<void> {
@@ -152,6 +153,9 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
+    if (!process.env.APP_VERSION) {
+      process.env.APP_VERSION = computeLocalVersion();
+    }
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 

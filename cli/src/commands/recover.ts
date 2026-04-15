@@ -9,6 +9,7 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
+import { computeLocalVersion } from "../lib/local-version.js";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 
@@ -76,6 +77,9 @@ export async function recover(): Promise<void> {
   saveAssistantEntry(entry);
 
   // 8. Start daemon + gateway
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = computeLocalVersion();
+  }
   await startLocalDaemon(false, entry.resources, { signingKey });
   await startGateway(false, entry.resources, { signingKey });
 
