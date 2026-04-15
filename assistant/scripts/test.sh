@@ -60,7 +60,6 @@ KNOWN_BROKEN_FILES=(
   "qdrant-manager.test.ts"
   "shell-tool-proxy-mode.test.ts"
   "skill-feature-flags-integration.test.ts"
-  "status.test.ts"
   "terminal-tools.test.ts"
   "tts-text-sanitizer.test.ts"
 )
