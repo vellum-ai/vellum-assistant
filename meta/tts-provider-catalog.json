@@ -24,6 +24,18 @@
         "url": "https://fish.audio/app/api-keys/",
         "linkLabel": "Open Fish Audio API Keys"
       }
+    },
+    {
+      "id": "deepgram",
+      "displayName": "Deepgram",
+      "subtitle": "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+      "setupMode": "cli",
+      "setupHint": "Run the setup command in your terminal to configure your Deepgram API key.",
+      "credentialsGuide": {
+        "description": "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key.",
+        "url": "https://console.deepgram.com/",
+        "linkLabel": "Open Deepgram Console"
+      }
     }
   ]
 }

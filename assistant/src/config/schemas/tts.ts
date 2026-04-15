@@ -144,12 +144,38 @@ export type TtsFishAudioProviderConfig = z.infer<
   typeof TtsFishAudioProviderConfigSchema
 >;
 
+export const TtsDeepgramProviderConfigSchema = z
+  .object({
+    model: z
+      .string({
+        error: "services.tts.providers.deepgram.model must be a string",
+      })
+      .min(1, "services.tts.providers.deepgram.model must not be empty")
+      .default("aura-asteria-en")
+      .describe("Deepgram TTS model identifier"),
+    format: z
+      .enum(["mp3", "wav", "opus"], {
+        error:
+          "services.tts.providers.deepgram.format must be one of: mp3, wav, opus",
+      })
+      .default("mp3")
+      .describe("Output audio format for call/runtime playback"),
+  })
+  .describe("Deepgram provider configuration under services.tts");
+
+export type TtsDeepgramProviderConfig = z.infer<
+  typeof TtsDeepgramProviderConfigSchema
+>;
+
 export const TtsProvidersSchema = z.object({
   elevenlabs: TtsElevenLabsProviderConfigSchema.default(
     TtsElevenLabsProviderConfigSchema.parse({}),
   ),
   "fish-audio": TtsFishAudioProviderConfigSchema.default(
     TtsFishAudioProviderConfigSchema.parse({}),
+  ),
+  deepgram: TtsDeepgramProviderConfigSchema.default(
+    TtsDeepgramProviderConfigSchema.parse({}),
   ),
 });
 export type TtsProviders = z.infer<typeof TtsProvidersSchema>;

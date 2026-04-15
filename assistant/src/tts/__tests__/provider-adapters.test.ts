@@ -30,6 +30,11 @@ let mockFishAudioConfig = {
   speed: 1.0,
 };
 
+let mockDeepgramConfig = {
+  model: "aura-asteria-en",
+  format: "mp3" as "mp3" | "wav" | "opus",
+};
+
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
@@ -37,6 +42,7 @@ mock.module("../../config/loader.js", () => ({
         providers: {
           elevenlabs: mockElevenLabsConfig,
           "fish-audio": mockFishAudioConfig,
+          deepgram: mockDeepgramConfig,
         },
       },
     },
@@ -46,9 +52,14 @@ mock.module("../../config/loader.js", () => ({
 // -- Secure keys mock ------------------------------------------------------
 
 let mockApiKey: string | null = "test-elevenlabs-api-key";
+let mockDeepgramApiKey: string | null = "test-deepgram-api-key";
 
 mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => mockApiKey,
+  getProviderKeyAsync: async (provider: string) => {
+    if (provider === "deepgram") return mockDeepgramApiKey;
+    return mockApiKey;
+  },
 }));
 
 mock.module("../../security/credential-key.js", () => ({
@@ -86,6 +97,10 @@ import {
   getTtsProvider,
   listTtsProviders,
 } from "../provider-registry.js";
+import {
+  createDeepgramProvider,
+  DeepgramTtsError,
+} from "../providers/deepgram-provider.js";
 import { createElevenLabsProvider } from "../providers/elevenlabs-provider.js";
 import { ElevenLabsTtsError } from "../providers/elevenlabs-provider.js";
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
@@ -106,6 +121,7 @@ let originalFetch: typeof globalThis.fetch;
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   mockApiKey = "test-elevenlabs-api-key";
+  mockDeepgramApiKey = "test-deepgram-api-key";
   mockElevenLabsConfig = {
     voiceId: "test-voice-id",
     voiceModelId: "",
@@ -120,6 +136,10 @@ beforeEach(() => {
     format: "mp3",
     latency: "normal",
     speed: 1.0,
+  };
+  mockDeepgramConfig = {
+    model: "aura-asteria-en",
+    format: "mp3",
   };
   mockSynthesizeWithFishAudio.mockClear();
 });
@@ -541,17 +561,213 @@ describe("Fish Audio TTS provider adapter", () => {
 });
 
 // ===========================================================================
+// Deepgram TTS provider adapter
+// ===========================================================================
+
+describe("Deepgram TTS provider adapter", () => {
+  // -- Interface conformance -----------------------------------------------
+
+  test("has correct provider ID", () => {
+    const provider = createDeepgramProvider();
+    expect(provider.id).toBe("deepgram");
+  });
+
+  test("advertises mp3, wav, opus format support without streaming", () => {
+    const provider = createDeepgramProvider();
+    expect(provider.capabilities.supportsStreaming).toBe(false);
+    expect(provider.capabilities.supportedFormats).toEqual([
+      "mp3",
+      "wav",
+      "opus",
+    ]);
+  });
+
+  // -- Request mapping -----------------------------------------------------
+
+  test("synthesize sends request to Deepgram REST TTS API with correct model", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedUrl = "";
+    let capturedHeaders: Headers | null = null;
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        capturedHeaders = new Headers(init?.headers);
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(makeRequest());
+
+    expect(capturedUrl).toContain("/v1/speak");
+    expect(capturedUrl).toContain("model=aura-asteria-en");
+    expect(capturedUrl).toContain("encoding=mp3");
+    expect(capturedHeaders!.get("Authorization")).toBe(
+      "Token test-deepgram-api-key",
+    );
+    expect(capturedHeaders!.get("Content-Type")).toBe("application/json");
+
+    const body = JSON.parse(capturedBody);
+    expect(body.text).toBe("Hello world");
+  });
+
+  test("uses linear16 encoding when outputFormat is pcm", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm" }),
+    );
+
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("uses configured format when no outputFormat override", async () => {
+    mockDeepgramConfig.format = "wav";
+    const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesize(makeRequest());
+
+    expect(capturedUrl).toContain("encoding=wav");
+    expect(result.contentType).toBe("audio/wav");
+  });
+
+  test("uses configured model", async () => {
+    mockDeepgramConfig.model = "aura-luna-en";
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(makeRequest());
+
+    expect(capturedUrl).toContain("model=aura-luna-en");
+  });
+
+  // -- Content type / format -----------------------------------------------
+
+  test("returns audio/mpeg content type for mp3 format", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    mockFetchReturning(audioPayload);
+
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesize(makeRequest());
+
+    expect(result.contentType).toBe("audio/mpeg");
+    expect(result.audio.byteLength).toBeGreaterThan(0);
+  });
+
+  // -- Required config validation ------------------------------------------
+
+  test("throws DEEPGRAM_TTS_NO_API_KEY when API key is missing", async () => {
+    mockDeepgramApiKey = null;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe("DEEPGRAM_TTS_NO_API_KEY");
+      expect((err as DeepgramTtsError).message).toContain(
+        "API key not configured",
+      );
+    }
+  });
+
+  // -- Error handling ------------------------------------------------------
+
+  test("throws DEEPGRAM_TTS_HTTP_ERROR on non-200 response", async () => {
+    mockFetchError(401, "Unauthorized");
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe("DEEPGRAM_TTS_HTTP_ERROR");
+      expect((err as DeepgramTtsError).statusCode).toBe(401);
+    }
+  });
+
+  test("throws DEEPGRAM_TTS_EMPTY_RESPONSE on empty audio body", async () => {
+    mockFetchReturning(new Uint8Array(0));
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("throws DEEPGRAM_TTS_REQUEST_FAILED on network error", async () => {
+    globalThis.fetch = mock(async () => {
+      throw new Error("Network unreachable");
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_REQUEST_FAILED",
+      );
+      expect((err as DeepgramTtsError).message).toContain(
+        "Network unreachable",
+      );
+    }
+  });
+});
+
+// ===========================================================================
 // Built-in registration
 // ===========================================================================
 
 describe("registerBuiltinTtsProviders", () => {
-  test("registers elevenlabs and fish-audio providers", () => {
+  test("registers elevenlabs, fish-audio, and deepgram providers", () => {
     registerBuiltinTtsProviders();
 
     const providers = listTtsProviders();
     const ids = providers.map((p) => p.id);
     expect(ids).toContain("elevenlabs");
     expect(ids).toContain("fish-audio");
+    expect(ids).toContain("deepgram");
   });
 
   test("providers are discoverable via getTtsProvider after registration", () => {
@@ -562,6 +778,9 @@ describe("registerBuiltinTtsProviders", () => {
 
     const fa = getTtsProvider("fish-audio");
     expect(fa.id).toBe("fish-audio");
+
+    const dg = getTtsProvider("deepgram");
+    expect(dg.id).toBe("deepgram");
   });
 
   test("idempotent — calling twice does not throw", () => {
