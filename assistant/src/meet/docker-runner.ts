@@ -10,11 +10,32 @@
  * on stdio. The HTTP-socket API keeps everything in-process, returns
  * structured JSON, and avoids the PATH/CLI surface entirely. See
  * `cli/src/lib/docker.ts` for the broader service container lifecycle.
+ *
+ * Mode-awareness (Phase 1.8):
+ *   - In bare-metal mode the daemon writes workspace artifacts to host paths
+ *     it can share with bot containers via standard Docker bind mounts.
+ *   - In Docker mode the daemon itself lives in a container whose
+ *     `/workspace` path is not visible to the host Docker engine. Workspace-
+ *     rooted mounts have to be expressed as named-volume mounts against the
+ *     same workspace volume the daemon is using (discovered via
+ *     {@link getWorkspaceVolumeName}). We use Docker's volume `Mounts` API
+ *     with `VolumeOptions.Subpath` so each bot only sees its own meeting
+ *     directory — that requires Docker Engine 25+.
+ *
+ * Networking:
+ *   - We always attach `host.docker.internal:host-gateway` via
+ *     `HostConfig.ExtraHosts` so the bot can reach the daemon HTTP port on
+ *     the host in either mode. On Docker Desktop it's already mapped; on
+ *     Linux the explicit gateway alias is required.
  */
 
 import { request as httpRequest } from "node:http";
+import { posix as posixPath } from "node:path";
 
+import type { DaemonRuntimeMode } from "../runtime/runtime-mode.js";
+import { getDaemonRuntimeMode } from "../runtime/runtime-mode.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceVolumeName } from "./workspace-volume.js";
 
 const log = getLogger("meet-docker-runner");
 
@@ -63,11 +84,36 @@ export interface BindMount {
   readOnly?: boolean;
 }
 
+/**
+ * A workspace-rooted mount request. The runner translates these to either a
+ * host-path bind (bare-metal mode) or a named-volume `Mounts` entry with
+ * `VolumeOptions.Subpath` (Docker mode). Callers should prefer this over
+ * raw `binds` for anything that lives inside the daemon's workspace — the
+ * same logical spec then works in both deployment modes.
+ *
+ * `subpath` is interpreted relative to the workspace root on disk — e.g.
+ * `"meets/<id>/sockets"`. `target` is the absolute path inside the bot
+ * container — e.g. `"/sockets"`.
+ */
+export interface WorkspaceMount {
+  target: string;
+  subpath: string;
+  /** Whether the mount is read-only. Defaults to `false`. */
+  readOnly?: boolean;
+}
+
 /** Options for creating + starting a container. */
 export interface DockerRunOptions {
   image: string;
   env?: Record<string, string>;
+  /** Raw host-path bind mounts. Prefer `workspaceMounts` for workspace-rooted paths. */
   binds?: BindMount[];
+  /**
+   * Workspace-rooted mounts resolved according to the current runtime
+   * mode. In bare-metal mode these become host-path binds; in Docker mode
+   * they become named-volume `Mounts` against the workspace volume.
+   */
+  workspaceMounts?: WorkspaceMount[];
   ports?: PortMapping[];
   name?: string;
   network?: string;
@@ -105,6 +151,28 @@ export interface DockerRunResult {
 export interface DockerRunnerOptions {
   /** Override the unix socket path. Primarily used in tests. */
   socketPath?: string;
+  /**
+   * Override the runtime-mode resolver. Defaults to
+   * {@link getDaemonRuntimeMode}. Tests inject a fixed value to exercise
+   * both bare-metal and Docker branches without touching env vars.
+   */
+  resolveMode?: () => DaemonRuntimeMode;
+  /**
+   * Override the workspace-volume-name resolver. Defaults to
+   * {@link getWorkspaceVolumeName} with no options (production cache
+   * path). Tests inject a fake so they can steer the Docker branch
+   * between "volume found" and "volume null" outcomes without touching
+   * `/proc/self/mountinfo`.
+   */
+  resolveWorkspaceVolumeName?: () => Promise<string | null>;
+  /**
+   * Workspace directory on disk. Required when running in bare-metal mode
+   * with `workspaceMounts` — the runner resolves each `subpath` under this
+   * directory to produce the host-path bind. Defaults to `process.cwd()`
+   * if unset; callers should inject the real workspace dir
+   * (`getWorkspaceDir()` from `util/platform.ts`).
+   */
+  workspaceDir?: string;
 }
 
 /**
@@ -124,19 +192,69 @@ export class DockerApiError extends Error {
   }
 }
 
+/**
+ * Message surfaced when the Docker Engine socket is unreachable from the
+ * daemon in Docker mode. Exported so the session-manager error path and
+ * unit tests can share the exact string.
+ */
+export const DOCKER_SOCKET_UNREACHABLE_MESSAGE =
+  "The daemon cannot reach the Docker Engine at /var/run/docker.sock. In Docker mode the daemon container must have the socket bind-mounted. Upgrade your vellum CLI to a version that supports Meet in Docker mode (see Phase 1.8 docs).";
+
+/**
+ * Message surfaced when Docker mode is active but no named workspace
+ * volume was discoverable. Exported so the session-manager error path and
+ * unit tests can share the exact string.
+ */
+export const DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE =
+  "Meet in Docker mode requires the workspace to be on a named Docker volume. Ensure the vellum CLI launched the daemon with a named volume at /workspace, or set VELLUM_WORKSPACE_VOLUME_NAME.";
+
 export class DockerRunner {
   readonly socketPath: string;
+  private readonly resolveMode: () => DaemonRuntimeMode;
+  private readonly resolveWorkspaceVolumeName: () => Promise<string | null>;
+  private readonly workspaceDir: string;
+  /**
+   * Memoized result of the one-time `/_ping` reachability probe. Resolves
+   * to `true` on success, rejects with a clear prerequisite-missing error
+   * on failure. Shared across concurrent callers so we don't hammer the
+   * socket on the first-spawn path.
+   */
+  private pingPromise: Promise<true> | null = null;
 
   constructor(options: DockerRunnerOptions = {}) {
     this.socketPath = options.socketPath ?? DEFAULT_DOCKER_SOCKET_PATH;
+    this.resolveMode = options.resolveMode ?? getDaemonRuntimeMode;
+    this.resolveWorkspaceVolumeName =
+      options.resolveWorkspaceVolumeName ?? (() => getWorkspaceVolumeName());
+    this.workspaceDir = options.workspaceDir ?? process.cwd();
   }
 
   /**
    * Create + start a container. Returns the containerId and any host-side
    * ports Docker bound after start.
+   *
+   * In Docker mode we first confirm the engine socket is reachable (a
+   * missing bind-mount of `/var/run/docker.sock` is the most common
+   * prerequisite miss) and discover the workspace volume name before
+   * translating `workspaceMounts` into named-volume `Mounts` with
+   * subpaths. In bare-metal mode we skip those steps and bind host paths
+   * directly.
    */
   async run(opts: DockerRunOptions): Promise<DockerRunResult> {
-    const createBody = buildCreateBody(opts);
+    const mode = this.resolveMode();
+
+    // One-time socket reachability probe. In bare-metal mode the daemon
+    // on a developer machine may not have Docker running; the existing
+    // create-path failure already covers that case with a clear error,
+    // so we only hard-gate in Docker mode where a missing bind-mount is
+    // a deployment bug the caller cannot work around.
+    if (mode === "docker") {
+      await this.ensureSocketReachable();
+    }
+
+    const resolvedMounts = await this.resolveMounts(mode, opts.workspaceMounts);
+
+    const createBody = buildCreateBody(opts, resolvedMounts);
     const createPath = opts.name
       ? `/${DOCKER_API_VERSION}/containers/create?name=${encodeURIComponent(opts.name)}`
       : `/${DOCKER_API_VERSION}/containers/create`;
@@ -208,6 +326,134 @@ export class DockerRunner {
   // Internals
   // -------------------------------------------------------------------------
 
+  /**
+   * One-time `GET /_ping` reachability probe. Memoizes the success so the
+   * second and later spawns skip the extra round-trip; memoizes failures
+   * for the same promise too so concurrent first spawns all surface the
+   * same clear prerequisite-missing error.
+   */
+  private ensureSocketReachable(): Promise<true> {
+    if (this.pingPromise === null) {
+      this.pingPromise = this.probePing().catch((err) => {
+        // Clear the cache on failure so subsequent spawns can retry if
+        // the operator bind-mounts the socket and restarts the daemon.
+        // We still reject the current call so fail-fast semantics hold.
+        this.pingPromise = null;
+        throw err;
+      });
+    }
+    return this.pingPromise;
+  }
+
+  private async probePing(): Promise<true> {
+    // `/_ping` returns the literal text `"OK"` (not JSON), so we go
+    // straight to the raw-response helper rather than `request<T>`
+    // which would choke on the non-JSON body.
+    try {
+      await this.requestRaw(
+        "GET",
+        `/${DOCKER_API_VERSION}/_ping`,
+        null,
+      );
+      return true;
+    } catch (err) {
+      log.warn(
+        { err, socketPath: this.socketPath },
+        "Docker Engine socket reachability probe failed",
+      );
+      throw new Error(DOCKER_SOCKET_UNREACHABLE_MESSAGE);
+    }
+  }
+
+  /**
+   * Lower-level request helper used for endpoints that return non-JSON
+   * bodies (e.g. `/_ping` → `"OK"`). Resolves with the raw body string
+   * on 2xx; rejects with {@link DockerApiError} otherwise.
+   */
+  private requestRaw(
+    method: string,
+    path: string,
+    body: unknown,
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const payload =
+        body === null || body === undefined ? null : JSON.stringify(body);
+      const headers: Record<string, string | number> = {
+        Host: UNIX_SOCKET_HOST,
+        Accept: "*/*",
+      };
+      if (payload !== null) {
+        headers["Content-Type"] = "application/json";
+        headers["Content-Length"] = Buffer.byteLength(payload);
+      }
+      const req = httpRequest(
+        { socketPath: this.socketPath, method, path, headers },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () => {
+            const raw = Buffer.concat(chunks).toString("utf8");
+            const status = res.statusCode ?? 0;
+            if (status < 200 || status >= 300) {
+              reject(new DockerApiError(method, path, status, raw));
+              return;
+            }
+            resolve(raw);
+          });
+        },
+      );
+      req.on("error", (err) => reject(err));
+      if (payload !== null) req.write(payload);
+      req.end();
+    });
+  }
+
+  /**
+   * Translate `workspaceMounts` into either host-path binds or
+   * named-volume `Mounts` entries according to the runtime mode.
+   *
+   * Bare-metal: each mount becomes a `BindMount` with
+   * `<workspaceDir>/<subpath>` as the host path. Docker: each mount
+   * becomes a volume mount against the discovered workspace volume with
+   * `VolumeOptions.Subpath = <subpath>`. Subpath requires Docker Engine
+   * 25+. If Engine <25 is observed in the field, the fallback is to
+   * mount the whole workspace volume at `/workspace` inside the bot and
+   * have the bot itself resolve paths under `/workspace/meets/<id>/…`;
+   * that's left as a follow-up because Docker Desktop ships Engine 25+
+   * and the CLI requires it as a prerequisite in `cli/src/lib/docker.ts`.
+   */
+  private async resolveMounts(
+    mode: DaemonRuntimeMode,
+    workspaceMounts: WorkspaceMount[] | undefined,
+  ): Promise<ResolvedMounts> {
+    if (!workspaceMounts || workspaceMounts.length === 0) {
+      return { extraBinds: [], mounts: [] };
+    }
+
+    if (mode === "bare-metal") {
+      const extraBinds = workspaceMounts.map<BindMount>((m) => ({
+        hostPath: resolveWorkspaceSubpath(this.workspaceDir, m.subpath),
+        containerPath: m.target,
+        readOnly: m.readOnly,
+      }));
+      return { extraBinds, mounts: [] };
+    }
+
+    // Docker mode — named-volume subpath mounts.
+    const volumeName = await this.resolveWorkspaceVolumeName();
+    if (volumeName === null) {
+      throw new Error(DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE);
+    }
+    const mounts = workspaceMounts.map((m) => ({
+      Type: "volume" as const,
+      Source: volumeName,
+      Target: m.target,
+      ReadOnly: m.readOnly === true,
+      VolumeOptions: { Subpath: m.subpath },
+    }));
+    return { extraBinds: [], mounts };
+  }
+
   /** Issue a unix-socket HTTP request and decode the JSON body, if any. */
   private request<T>(
     method: string,
@@ -273,16 +519,54 @@ export class DockerRunner {
 // ---------------------------------------------------------------------------
 
 /**
- * Translate the high-level `DockerRunOptions` into the JSON body the Docker
- * Engine's `/containers/create` endpoint expects.
+ * Resolved mount spec produced by {@link DockerRunner.resolveMounts} — either
+ * extra bind mounts to append to `HostConfig.Binds` (bare-metal) or named
+ * volume mounts to pass via `HostConfig.Mounts` (Docker mode).
+ */
+export interface ResolvedMounts {
+  extraBinds: BindMount[];
+  mounts: Array<{
+    Type: "volume";
+    Source: string;
+    Target: string;
+    ReadOnly: boolean;
+    VolumeOptions: { Subpath: string };
+  }>;
+}
+
+/** Always-on hostname alias that lets the bot reach the daemon HTTP port. */
+export const HOST_GATEWAY_ALIAS = "host.docker.internal:host-gateway";
+
+/**
+ * Resolve a workspace-relative `subpath` against the absolute `workspaceDir`
+ * using POSIX join semantics. Leading slashes in `subpath` are tolerated;
+ * POSIX rules are used so the result is portable across test platforms.
+ */
+export function resolveWorkspaceSubpath(
+  workspaceDir: string,
+  subpath: string,
+): string {
+  const trimmed = subpath.replace(/^\/+/, "");
+  return posixPath.join(workspaceDir, trimmed);
+}
+
+/**
+ * Translate the high-level `DockerRunOptions` plus any pre-resolved workspace
+ * mounts into the JSON body the Docker Engine's `/containers/create`
+ * endpoint expects.
+ *
+ * `resolved` is optional so tests (and callers that don't use workspace
+ * mounts) can keep passing just the options bag.
  */
 export function buildCreateBody(
   opts: DockerRunOptions,
+  resolved: ResolvedMounts = { extraBinds: [], mounts: [] },
 ): Record<string, unknown> {
   const env = opts.env
     ? Object.entries(opts.env).map(([k, v]) => `${k}=${v}`)
     : [];
-  const binds = (opts.binds ?? []).map((b) =>
+  const allBinds = [...(opts.binds ?? []), ...resolved.extraBinds];
+  const binds = allBinds.map((b) =>
     b.readOnly
       ? `${b.hostPath}:${b.containerPath}:ro`
       : `${b.hostPath}:${b.containerPath}`,
@@ -312,6 +596,13 @@ export function buildCreateBody(
   const hostConfig: Record<string, unknown> = {
     Binds: binds,
     PortBindings: portBindings,
+    // Always expose `host.docker.internal` so the bot can reach the
+    // daemon's HTTP port on the host in both modes. Docker Desktop
+    // already maps this alias; on Linux hosts the explicit
+    // `host-gateway` value is required. Applied unconditionally because
+    // the resolution is identical either way on modern engines.
+    ExtraHosts: [HOST_GATEWAY_ALIAS],
+    ...(resolved.mounts.length > 0 ? { Mounts: resolved.mounts } : {}),
     ...(opts.network ? { NetworkMode: opts.network } : {}),
     ...(opts.hostConfigExtras ?? {}),
   };

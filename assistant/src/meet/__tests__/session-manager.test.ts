@@ -172,12 +172,19 @@ describe("MeetSessionManager.join", () => {
     expect(getProviderKey).toHaveBeenCalledWith("tts");
     expect(getProviderKey).not.toHaveBeenCalledWith("deepgram");
 
-    // Runner invoked with the expected env/binds/ports/name/network.
+    // Runner invoked with the expected env/workspaceMounts/ports/name/network.
+    // Session-manager passes mode-agnostic workspaceMounts — the runner is
+    // responsible for translating them to binds (bare-metal) or named-volume
+    // Mounts (Docker). See `docker-runner.test.ts` for that resolution.
     expect(runner.run).toHaveBeenCalledTimes(1);
     const runOpts = runner.run.mock.calls[0][0] as {
       image: string;
       env: Record<string, string>;
-      binds: Array<{ hostPath: string; containerPath: string }>;
+      workspaceMounts: Array<{
+        target: string;
+        subpath: string;
+        readOnly?: boolean;
+      }>;
       ports: Array<{
         hostIp: string;
         hostPort: number;
@@ -205,15 +212,9 @@ describe("MeetSessionManager.join", () => {
     expect(runOpts.env.TTS_API_KEY).toBe("tts-secret");
     expect(runOpts.env.SKIP_PULSE).toBe("0");
 
-    expect(runOpts.binds).toEqual([
-      {
-        hostPath: join(workspaceDir, "meets", "m1", "sockets"),
-        containerPath: "/sockets",
-      },
-      {
-        hostPath: join(workspaceDir, "meets", "m1", "out"),
-        containerPath: "/out",
-      },
+    expect(runOpts.workspaceMounts).toEqual([
+      { target: "/sockets", subpath: "meets/m1/sockets" },
+      { target: "/out", subpath: "meets/m1/out" },
     ]);
 
     expect(runOpts.ports).toEqual([

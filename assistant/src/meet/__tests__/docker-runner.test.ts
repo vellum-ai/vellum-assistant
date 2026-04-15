@@ -13,9 +13,13 @@ import {
 
 import {
   buildCreateBody,
+  DOCKER_SOCKET_UNREACHABLE_MESSAGE,
+  DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE,
   DockerApiError,
   DockerRunner,
   extractBoundPorts,
+  HOST_GATEWAY_ALIAS,
+  resolveWorkspaceSubpath,
 } from "../docker-runner.js";
 
 // ---------------------------------------------------------------------------
@@ -332,7 +336,7 @@ describe("DockerRunner.inspect", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildCreateBody", () => {
-  test("serializes env + binds + ports + network", () => {
+  test("serializes env + binds + ports + network and always sets host-gateway", () => {
     const body = buildCreateBody({
       image: "foo:bar",
       env: { A: "1", B: "two" },
@@ -364,6 +368,96 @@ describe("buildCreateBody", () => {
       "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: "0" }],
       "9000/udp": [{ HostIp: "0.0.0.0", HostPort: "9000" }],
     });
+    // host-gateway is always appended so Linux bots can reach the daemon.
+    expect(hc.ExtraHosts).toEqual([HOST_GATEWAY_ALIAS]);
+    // Mounts is omitted entirely when no named-volume mounts resolved.
+    expect(hc.Mounts).toBeUndefined();
+  });
+
+  test("appends extraBinds from resolved workspace mounts (bare-metal mode)", () => {
+    const body = buildCreateBody(
+      {
+        image: "x:y",
+        binds: [{ hostPath: "/explicit", containerPath: "/mnt" }],
+      },
+      {
+        extraBinds: [
+          {
+            hostPath: "/ws/meets/abc/sockets",
+            containerPath: "/sockets",
+          },
+          {
+            hostPath: "/ws/meets/abc/out",
+            containerPath: "/out",
+            readOnly: true,
+          },
+        ],
+        mounts: [],
+      },
+    );
+    const hc = body.HostConfig as Record<string, unknown>;
+    expect(hc.Binds).toEqual([
+      "/explicit:/mnt",
+      "/ws/meets/abc/sockets:/sockets",
+      "/ws/meets/abc/out:/out:ro",
+    ]);
+    // No Mounts field emitted in the bare-metal branch.
+    expect(hc.Mounts).toBeUndefined();
+  });
+
+  test("serializes named-volume mounts via HostConfig.Mounts (Docker mode)", () => {
+    const body = buildCreateBody(
+      { image: "x:y" },
+      {
+        extraBinds: [],
+        mounts: [
+          {
+            Type: "volume",
+            Source: "vellum-work",
+            Target: "/sockets",
+            ReadOnly: false,
+            VolumeOptions: { Subpath: "meets/abc/sockets" },
+          },
+          {
+            Type: "volume",
+            Source: "vellum-work",
+            Target: "/out",
+            ReadOnly: true,
+            VolumeOptions: { Subpath: "meets/abc/out" },
+          },
+        ],
+      },
+    );
+    const hc = body.HostConfig as Record<string, unknown>;
+    expect(hc.Binds).toEqual([]);
+    expect(hc.Mounts).toEqual([
+      {
+        Type: "volume",
+        Source: "vellum-work",
+        Target: "/sockets",
+        ReadOnly: false,
+        VolumeOptions: { Subpath: "meets/abc/sockets" },
+      },
+      {
+        Type: "volume",
+        Source: "vellum-work",
+        Target: "/out",
+        ReadOnly: true,
+        VolumeOptions: { Subpath: "meets/abc/out" },
+      },
+    ]);
+  });
+});
+
+describe("resolveWorkspaceSubpath", () => {
+  test("joins a relative subpath under the workspace dir", () => {
+    expect(resolveWorkspaceSubpath("/ws", "meets/abc/sockets")).toBe(
+      "/ws/meets/abc/sockets",
+    );
+  });
+
+  test("tolerates leading slashes in the subpath", () => {
+    expect(resolveWorkspaceSubpath("/ws", "/meets/abc")).toBe("/ws/meets/abc");
   });
 });
 
@@ -397,5 +491,211 @@ describe("extractBoundPorts", () => {
 
   test("returns empty list when NetworkSettings is absent", () => {
     expect(extractBoundPorts({ Id: "x" })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mode-aware workspace mounts + host-gateway flag (Phase 1.8)
+// ---------------------------------------------------------------------------
+
+describe("DockerRunner workspace-mount mode branching", () => {
+  let mock: MockDocker;
+
+  afterEach(async () => {
+    await mock?.close();
+  });
+
+  test("bare-metal mode translates workspaceMounts to host-path binds and always sets host-gateway", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 201, body: { Id: "bm-1" } });
+    mock.queueResponse({ status: 204, body: null });
+    mock.queueResponse({
+      status: 200,
+      body: { Id: "bm-1", NetworkSettings: { Ports: {} } },
+    });
+
+    const resolveWorkspaceVolumeName = async () => {
+      throw new Error(
+        "resolveWorkspaceVolumeName must not be called in bare-metal mode",
+      );
+    };
+    const runner = new DockerRunner({
+      socketPath: mock.socketPath,
+      resolveMode: () => "bare-metal",
+      resolveWorkspaceVolumeName,
+      workspaceDir: "/ws",
+    });
+
+    await runner.run({
+      image: "vellum-meet-bot:dev",
+      workspaceMounts: [
+        { target: "/sockets", subpath: "meets/m1/sockets" },
+        { target: "/out", subpath: "meets/m1/out" },
+      ],
+    });
+
+    // Bare-metal mode skips the /_ping probe; only create + start + inspect.
+    expect(mock.captured).toHaveLength(3);
+
+    const createBody = JSON.parse(mock.captured[0].body);
+    expect(createBody.HostConfig.Binds).toEqual([
+      "/ws/meets/m1/sockets:/sockets",
+      "/ws/meets/m1/out:/out",
+    ]);
+    expect(createBody.HostConfig.Mounts).toBeUndefined();
+    expect(createBody.HostConfig.ExtraHosts).toEqual([HOST_GATEWAY_ALIAS]);
+  });
+
+  test("Docker mode probes the socket, translates workspaceMounts to named-volume subpath mounts, and sets host-gateway", async () => {
+    mock = await startMockDocker();
+    // /_ping → create → start → inspect
+    mock.queueResponse({ status: 200, body: "OK" });
+    mock.queueResponse({ status: 201, body: { Id: "dk-1" } });
+    mock.queueResponse({ status: 204, body: null });
+    mock.queueResponse({
+      status: 200,
+      body: {
+        Id: "dk-1",
+        NetworkSettings: {
+          Ports: {
+            "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: "49200" }],
+          },
+        },
+      },
+    });
+
+    const runner = new DockerRunner({
+      socketPath: mock.socketPath,
+      resolveMode: () => "docker",
+      resolveWorkspaceVolumeName: async () => "vellum-inst-workspace",
+      // workspaceDir unused in Docker mode.
+      workspaceDir: "/irrelevant",
+    });
+
+    const result = await runner.run({
+      image: "vellum-meet-bot:dev",
+      workspaceMounts: [
+        { target: "/sockets", subpath: "meets/m1/sockets" },
+        { target: "/out", subpath: "meets/m1/out", readOnly: true },
+      ],
+      ports: [
+        {
+          hostIp: "127.0.0.1",
+          hostPort: 0,
+          containerPort: 3000,
+          protocol: "tcp",
+        },
+      ],
+      name: "vellum-meet-m1",
+    });
+
+    expect(result.containerId).toBe("dk-1");
+
+    // /_ping first, then create/start/inspect.
+    expect(mock.captured).toHaveLength(4);
+    expect(mock.captured[0].method).toBe("GET");
+    expect(mock.captured[0].url).toContain("/_ping");
+
+    const createBody = JSON.parse(mock.captured[1].body);
+    expect(createBody.HostConfig.Binds).toEqual([]);
+    expect(createBody.HostConfig.Mounts).toEqual([
+      {
+        Type: "volume",
+        Source: "vellum-inst-workspace",
+        Target: "/sockets",
+        ReadOnly: false,
+        VolumeOptions: { Subpath: "meets/m1/sockets" },
+      },
+      {
+        Type: "volume",
+        Source: "vellum-inst-workspace",
+        Target: "/out",
+        ReadOnly: true,
+        VolumeOptions: { Subpath: "meets/m1/out" },
+      },
+    ]);
+    expect(createBody.HostConfig.ExtraHosts).toEqual([HOST_GATEWAY_ALIAS]);
+  });
+
+  test("Docker mode throws when workspace volume name is null — and never attempts create", async () => {
+    mock = await startMockDocker();
+    // Only /_ping should be consumed before we bail on the volume lookup.
+    mock.queueResponse({ status: 200, body: "OK" });
+
+    const runner = new DockerRunner({
+      socketPath: mock.socketPath,
+      resolveMode: () => "docker",
+      resolveWorkspaceVolumeName: async () => null,
+    });
+
+    await expect(
+      runner.run({
+        image: "vellum-meet-bot:dev",
+        workspaceMounts: [
+          { target: "/sockets", subpath: "meets/m1/sockets" },
+        ],
+      }),
+    ).rejects.toThrow(DOCKER_WORKSPACE_VOLUME_MISSING_MESSAGE);
+
+    // Only the ping round-trip happened; no create was issued.
+    expect(mock.captured).toHaveLength(1);
+    expect(mock.captured[0].url).toContain("/_ping");
+  });
+
+  test("Docker mode surfaces the prerequisite-missing error when the socket is unreachable", async () => {
+    // Use a bogus socket path — no server listening there.
+    const runner = new DockerRunner({
+      socketPath: join(tempDir, "nonexistent.sock"),
+      resolveMode: () => "docker",
+      resolveWorkspaceVolumeName: async () => "vellum-inst-workspace",
+    });
+
+    await expect(
+      runner.run({
+        image: "vellum-meet-bot:dev",
+        workspaceMounts: [
+          { target: "/sockets", subpath: "meets/m1/sockets" },
+        ],
+      }),
+    ).rejects.toThrow(DOCKER_SOCKET_UNREACHABLE_MESSAGE);
+  });
+
+  test("Docker-mode ping success is memoized across run() calls", async () => {
+    mock = await startMockDocker();
+    // First run: /_ping + create + start + inspect (4).
+    mock.queueResponse({ status: 200, body: "OK" });
+    mock.queueResponse({ status: 201, body: { Id: "m-1" } });
+    mock.queueResponse({ status: 204, body: null });
+    mock.queueResponse({
+      status: 200,
+      body: { Id: "m-1", NetworkSettings: { Ports: {} } },
+    });
+    // Second run skips /_ping — create + start + inspect (3).
+    mock.queueResponse({ status: 201, body: { Id: "m-2" } });
+    mock.queueResponse({ status: 204, body: null });
+    mock.queueResponse({
+      status: 200,
+      body: { Id: "m-2", NetworkSettings: { Ports: {} } },
+    });
+
+    const runner = new DockerRunner({
+      socketPath: mock.socketPath,
+      resolveMode: () => "docker",
+      resolveWorkspaceVolumeName: async () => "vol",
+    });
+
+    await runner.run({
+      image: "x:y",
+      workspaceMounts: [{ target: "/sockets", subpath: "meets/m-1/sockets" }],
+    });
+    await runner.run({
+      image: "x:y",
+      workspaceMounts: [{ target: "/sockets", subpath: "meets/m-2/sockets" }],
+    });
+
+    // 4 + 3 = 7. If the ping were not memoized we'd see 8.
+    expect(mock.captured).toHaveLength(7);
+    const pingCalls = mock.captured.filter((c) => c.url.includes("/_ping"));
+    expect(pingCalls).toHaveLength(1);
   });
 });

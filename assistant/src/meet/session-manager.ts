@@ -321,9 +321,11 @@ class MeetSessionManagerImpl {
 
   constructor(deps: MeetSessionManagerDeps = {}) {
     const insertMessage = deps.insertMessage ?? addMessage;
+    const resolveWorkspaceDir = deps.getWorkspaceDir ?? getWorkspaceDir;
     this.deps = {
       dockerRunnerFactory:
-        deps.dockerRunnerFactory ?? (() => new DockerRunner()),
+        deps.dockerRunnerFactory ??
+        (() => new DockerRunner({ workspaceDir: resolveWorkspaceDir() })),
       getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
@@ -503,9 +505,16 @@ class MeetSessionManagerImpl {
       runResult = await runner.run({
         image: meet.containerImage,
         env,
-        binds: [
-          { hostPath: socketsDir, containerPath: "/sockets" },
-          { hostPath: outDir, containerPath: "/out" },
+        // Logical workspace-rooted mounts. DockerRunner resolves each one
+        // to either a host-path bind (bare-metal mode) or a named-volume
+        // subpath mount (Docker mode) based on the daemon's runtime mode.
+        // Session-manager stays mode-agnostic — the only thing we rely on
+        // is that the directories exist under the daemon's view of the
+        // workspace so the audio-ingest socket path lines up with what the
+        // bot sees inside its container.
+        workspaceMounts: [
+          { target: "/sockets", subpath: `meets/${meetingId}/sockets` },
+          { target: "/out", subpath: `meets/${meetingId}/out` },
         ],
         ports: [
           {
