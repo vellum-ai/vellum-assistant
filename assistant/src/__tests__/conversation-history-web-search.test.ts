@@ -753,15 +753,16 @@ describe("web_search_tool_result structural guard", () => {
     // It has a separate isWebSearchToolResultBlock for the other type.
     "providers/anthropic/client.ts",
 
-    // OpenAI-compatible chat-completions transport converts Anthropic-style
-    // messages to OpenAI format. OpenAI API does not support
+    // Chat-completions transport used by OpenAI-compatible providers
+    // (OpenRouter, Fireworks, Ollama). These APIs do not support
     // web_search_tool_result natively; those blocks are handled upstream
     // before reaching the chat-completions provider.
     "providers/openai/chat-completions-provider.ts",
 
-    // OpenAI Responses API transport converts Anthropic-style messages to
-    // Responses API input format. web_search_tool_result blocks are handled
-    // upstream before reaching the responses provider.
+    // OpenAI Responses API transport (used for direct OpenAI inference).
+    // Converts Anthropic-style messages to Responses API input format.
+    // web_search_tool_result blocks are handled upstream before reaching
+    // the responses provider.
     "providers/openai/responses-provider.ts",
 
     // Renders tool_result blocks for client display. web_search_tool_result
