@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolContext } from "../tools/types.js";
 import {
   buildTaskRules,
   clearTaskRunRules,
   getTaskRunRules,
   setTaskRunRules,
 } from "../tasks/ephemeral-permissions.js";
+import type { ToolContext } from "../tools/types.js";
 
 const mockBatchModifyMessages =
   mock<

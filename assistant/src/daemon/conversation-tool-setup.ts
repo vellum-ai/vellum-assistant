@@ -28,9 +28,9 @@ import {
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
-import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
