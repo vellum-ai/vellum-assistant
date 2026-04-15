@@ -70,6 +70,12 @@ struct VoiceSettingsView: View {
         sttRegistry.provider(withId: draftSTTProvider) ?? sttRegistry.providers.first
     }
 
+    /// Whether the currently selected TTS provider uses a shared API key
+    /// (e.g. Deepgram TTS shares the `deepgram` key with Deepgram STT).
+    private var ttsProviderUsesSharedKey: Bool {
+        SettingsStore.ttsKeyIsShared(for: draftTTSProvider)
+    }
+
     private var currentActivator: PTTActivator {
         // Read activationKey to establish SwiftUI dependency tracking —
         // without this, SwiftUI doesn't know the body depends on this
@@ -103,7 +109,7 @@ struct VoiceSettingsView: View {
             // Initialize TTS draft state from persisted values
             draftTTSProvider = ttsProviderRaw
             initialTTSProvider = ttsProviderRaw
-            ttsProviderHasKey = ttsCredentialExists(for: ttsProviderRaw)
+            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: ttsProviderRaw)
 
             // Load the stored voice ID for the current TTS provider so
             // the field reflects the daemon-configured value on page load.
@@ -121,7 +127,7 @@ struct VoiceSettingsView: View {
             // newly selected provider so the field shows its current value.
             ttsApiKeyText = ""
             ttsSaveError = nil
-            ttsProviderHasKey = ttsCredentialExists(for: draftTTSProvider)
+            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: draftTTSProvider)
             let voiceId = storedVoiceId(for: draftTTSProvider)
             ttsVoiceIdText = voiceId
             initialVoiceId = voiceId
@@ -373,6 +379,20 @@ struct VoiceSettingsView: View {
         return providerChanged || hasNewKey || voiceIdChanged
     }
 
+    /// Whether the TTS reset button should be shown for the current provider.
+    ///
+    /// The reset button is only shown when:
+    /// 1. A key already exists for the provider, AND
+    /// 2. The provider owns its key exclusively (not shared with another
+    ///    service like STT).
+    ///
+    /// This prevents accidental clearing of shared credentials — e.g.
+    /// resetting Deepgram TTS must not delete the `deepgram` key that
+    /// STT also depends on.
+    private var ttsResetAllowed: Bool {
+        ttsProviderHasKey && SettingsStore.ttsKeyIsExclusive(for: draftTTSProvider)
+    }
+
     private var ttsProviderCard: some View {
         SettingsCard(title: "Text-to-Speech", subtitle: "Choose a TTS provider for voice conversations and read-aloud. The selected provider is used globally across all speech features.") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -390,34 +410,61 @@ struct VoiceSettingsView: View {
                     )
                 }
 
-                // Unified API key field
-                ttsApiKeyField
+                // Shared-key explanatory note for providers like Deepgram
+                // that reuse an API key configured in another settings card.
+                ttsSharedKeyNote
 
-                // Voice ID / Reference ID field (provider-specific)
+                // API key field — hidden for shared-key providers since
+                // the key is managed through the sibling service card.
+                if !ttsProviderUsesSharedKey {
+                    ttsApiKeyField
+                }
+
+                // Voice ID / Reference ID field (provider-specific) —
+                // hidden for providers like Deepgram that use a built-in
+                // default model and do not expose voice selection.
                 ttsVoiceIdField
 
                 // Credentials guide — contextual help for obtaining an API key
                 ttsCredentialsGuideView
 
-                // Save + Reset actions
+                // Save + Reset actions — reset is gated by ttsResetAllowed
+                // to prevent destructive actions on shared-key providers.
                 ServiceCardActions(
                     hasChanges: ttsHasChanges,
                     isSaving: ttsSaving,
                     onSave: { saveTTS() },
                     savingLabel: "Saving...",
                     onReset: {
-                        clearTTSCredential(for: draftTTSProvider)
+                        store.clearTTSKey(ttsProviderId: draftTTSProvider)
                         ttsProviderHasKey = false
                         ttsApiKeyText = ""
                     },
-                    showReset: ttsProviderHasKey
+                    showReset: ttsResetAllowed
                 )
+            }
+        }
+    }
+
+    // MARK: - TTS Shared Key Note
+
+    @ViewBuilder
+    private var ttsSharedKeyNote: some View {
+        if ttsProviderUsesSharedKey {
+            HStack(alignment: .top, spacing: VSpacing.xs) {
+                VIconView(.info, size: 10)
+                    .foregroundStyle(VColor.contentTertiary)
+                Text("This provider uses the same API key as \(selectedTTSProvider?.displayName ?? "the provider") speech-to-text. Manage the key in the Speech-to-Text section below.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineSpacing(1)
             }
         }
     }
 
     // MARK: - TTS API Key Field
 
+    @ViewBuilder
     private var ttsApiKeyField: some View {
         let placeholder: String = {
             if ttsProviderHasKey {
@@ -425,7 +472,7 @@ struct VoiceSettingsView: View {
             }
             return "Enter your API key"
         }()
-        return VTextField(
+        VTextField(
             "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
             placeholder: placeholder,
             text: $ttsApiKeyText,
@@ -494,21 +541,14 @@ struct VoiceSettingsView: View {
             break
         }
 
-        // Persist API key if entered. Clear the field and update hasKey
-        // optimistically so the UI reflects the save immediately; the
-        // async daemon sync validates the key in the background.
+        // Persist API key if entered and the provider manages its own key
+        // (not shared). Shared-key providers do not show the key field, so
+        // trimmedKey will always be empty for them.
         let trimmedKey = ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
             ttsApiKeyText = ""
             ttsProviderHasKey = true
-            switch draftTTSProvider {
-            case "elevenlabs":
-                store.saveElevenLabsKey(trimmedKey)
-            case "fish-audio":
-                store.saveFishAudioKey(trimmedKey)
-            default:
-                break
-            }
+            store.saveTTSKey(trimmedKey, ttsProviderId: draftTTSProvider)
         }
 
         ttsSaving = false
@@ -528,18 +568,6 @@ struct VoiceSettingsView: View {
             return store.fishAudioReferenceId
         default:
             return ""
-        }
-    }
-
-    /// Checks whether a TTS credential exists for the given provider.
-    private func ttsCredentialExists(for provider: String) -> Bool {
-        switch provider {
-        case "elevenlabs":
-            return APIKeyManager.getCredential(service: "elevenlabs", field: "api_key") != nil
-        case "fish-audio":
-            return APIKeyManager.getCredential(service: "fish-audio", field: "api_key") != nil
-        default:
-            return false
         }
     }
 
@@ -567,18 +595,6 @@ struct VoiceSettingsView: View {
     /// catalog entry, not a new conditional here.
     private var sttResetAllowed: Bool {
         sttProviderHasKey && SettingsStore.sttKeyIsExclusive(for: draftSTTProvider)
-    }
-
-    /// Clears the stored TTS credential for the given provider.
-    private func clearTTSCredential(for provider: String) {
-        switch provider {
-        case "elevenlabs":
-            store.clearElevenLabsKey()
-        case "fish-audio":
-            store.clearFishAudioKey()
-        default:
-            break
-        }
     }
 
     // MARK: - STT Provider Card

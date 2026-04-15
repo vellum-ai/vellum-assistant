@@ -710,4 +710,264 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
             "A non-empty persisted sttProvider must be treated as configured"
         )
     }
+
+    // MARK: - Deepgram TTS Provider Selection
+
+    func testSetTTSProviderDeepgramEmitsExpectedPatch() {
+        store.setTTSProvider("deepgram")
+
+        waitForPatchCount(1)
+
+        let patch = lastTTSPatch()
+        XCTAssertNotNil(patch, "expected a services.tts patch payload for deepgram")
+        XCTAssertEqual(patch?["provider"] as? String, "deepgram")
+    }
+
+    func testSetTTSProviderDeepgramDoesNotEmitSTTPatch() {
+        store.setTTSProvider("deepgram")
+
+        waitForPatchCount(1)
+
+        let sttPatch = lastSTTPatch()
+        XCTAssertNil(sttPatch, "setTTSProvider(deepgram) must not emit an STT patch")
+    }
+
+    func testApplyDaemonConfigSyncsDeepgramTTSProvider() {
+        UserDefaults.standard.removeObject(forKey: "ttsProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "tts": [
+                    "provider": "deepgram"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "ttsProvider"),
+            "deepgram"
+        )
+    }
+
+    func testApplyDaemonConfigSyncsDeepgramTTSWithExistingElevenLabs() {
+        UserDefaults.standard.set("elevenlabs", forKey: "ttsProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "tts": [
+                    "provider": "deepgram"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "ttsProvider"),
+            "deepgram",
+            "Daemon config should overwrite the persisted TTS provider"
+        )
+    }
+
+    func testSequentialTTSProviderPatchesIncludingDeepgram() {
+        store.setTTSProvider("elevenlabs")
+        waitForPatchCount(1)
+
+        store.setTTSProvider("deepgram")
+        waitForPatchCount(2)
+
+        let patch = lastTTSPatch()
+        XCTAssertEqual(
+            patch?["provider"] as? String,
+            "deepgram",
+            "Most recent TTS patch should reflect the deepgram provider"
+        )
+    }
+
+    // MARK: - TTS Key Ownership Semantics
+
+    func testTTSElevenLabsKeyIsExclusive() {
+        // ElevenLabs uses credential mode with its own namespace — always exclusive.
+        XCTAssertTrue(
+            SettingsStore.ttsKeyIsExclusive(for: "elevenlabs"),
+            "ElevenLabs TTS owns its own credential namespace and must be exclusive"
+        )
+    }
+
+    func testTTSElevenLabsKeyIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.ttsKeyIsShared(for: "elevenlabs"),
+            "ElevenLabs TTS must not be classified as shared"
+        )
+    }
+
+    func testTTSFishAudioKeyIsExclusive() {
+        // Fish Audio uses credential mode with its own namespace — always exclusive.
+        XCTAssertTrue(
+            SettingsStore.ttsKeyIsExclusive(for: "fish-audio"),
+            "Fish Audio TTS owns its own credential namespace and must be exclusive"
+        )
+    }
+
+    func testTTSFishAudioKeyIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.ttsKeyIsShared(for: "fish-audio"),
+            "Fish Audio TTS must not be classified as shared"
+        )
+    }
+
+    func testTTSDeepgramKeyIsShared() {
+        // Deepgram TTS uses api-key mode with apiKeyProviderName "deepgram",
+        // which is also used by Deepgram STT — the key is shared.
+        XCTAssertTrue(
+            SettingsStore.ttsKeyIsShared(for: "deepgram"),
+            "Deepgram TTS shares the 'deepgram' key with STT and must be classified as shared"
+        )
+    }
+
+    func testTTSDeepgramKeyIsNotExclusive() {
+        XCTAssertFalse(
+            SettingsStore.ttsKeyIsExclusive(for: "deepgram"),
+            "Deepgram TTS shares the 'deepgram' key with STT and must not be exclusive"
+        )
+    }
+
+    func testTTSDeepgramSharedKeyCannotBeResetThroughTTSFlow() {
+        // The UI checks ttsKeyIsExclusive before allowing the reset action.
+        // For deepgram the guard must prevent the reset because clearing the
+        // "deepgram" key would break STT.
+        let allowReset = SettingsStore.ttsKeyIsExclusive(for: "deepgram")
+        XCTAssertFalse(
+            allowReset,
+            "The TTS reset flow must not be allowed for deepgram (shared key with STT)"
+        )
+    }
+
+    func testTTSUnknownProviderDefaultsToExclusive() {
+        XCTAssertTrue(
+            SettingsStore.ttsKeyIsExclusive(for: "future-tts-provider"),
+            "Unknown TTS providers should default to exclusive"
+        )
+    }
+
+    func testTTSUnknownProviderIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.ttsKeyIsShared(for: "future-tts-provider"),
+            "Unknown TTS providers should not be classified as shared"
+        )
+    }
+
+    // MARK: - TTS Credential Exists (Registry-Driven)
+
+    func testTTSCredentialExistsReturnsFalseForUnknownProvider() {
+        XCTAssertFalse(
+            SettingsStore.ttsCredentialExists(for: "nonexistent-provider"),
+            "Unknown TTS provider must return false for credential existence"
+        )
+    }
+
+    // MARK: - TTS + STT Deepgram Coexistence
+
+    func testApplyDaemonConfigSyncsBothDeepgramTTSAndSTT() {
+        UserDefaults.standard.removeObject(forKey: "ttsProvider")
+        UserDefaults.standard.removeObject(forKey: "sttProvider")
+
+        let config: [String: Any] = [
+            "services": [
+                "tts": [
+                    "provider": "deepgram"
+                ],
+                "stt": [
+                    "provider": "deepgram"
+                ]
+            ]
+        ]
+
+        mockSettingsClient.fetchConfigResponse = config
+        let expectation = XCTestExpectation(description: "config loaded")
+        Task {
+            await store.loadConfigFromDaemon()
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "ttsProvider"),
+            "deepgram",
+            "TTS provider must be synced to deepgram"
+        )
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "sttProvider"),
+            "deepgram",
+            "STT provider must be synced to deepgram"
+        )
+    }
+
+    func testSetTTSProviderDeepgramAndSTTProviderDeepgramEmitSeparatePatches() {
+        store.setTTSProvider("deepgram")
+        waitForPatchCount(1)
+
+        store.setSTTProvider("deepgram")
+        waitForPatchCount(2)
+
+        // Verify the TTS patch
+        let ttsPatch = lastTTSPatch()
+        XCTAssertEqual(ttsPatch?["provider"] as? String, "deepgram")
+
+        // Verify the STT patch
+        let sttPatch = lastSTTPatch()
+        XCTAssertEqual(sttPatch?["provider"] as? String, "deepgram")
+    }
+
+    // MARK: - TTS Provider Registry Consistency
+
+    /// Ensures every TTS provider in the registry has the expected credential
+    /// metadata fields set. This test fails fast when a new provider is added
+    /// with incomplete credential metadata.
+    func testAllTTSRegistryProvidersHaveCredentialMetadata() {
+        let registry = loadTTSProviderRegistry()
+        for provider in registry.providers {
+            switch provider.credentialMode {
+            case .credential:
+                XCTAssertNotNil(
+                    provider.credentialNamespace,
+                    "Credential-mode TTS provider \"\(provider.id)\" must have a credentialNamespace"
+                )
+            case .apiKey:
+                XCTAssertNotNil(
+                    provider.apiKeyProviderName,
+                    "Api-key-mode TTS provider \"\(provider.id)\" must have an apiKeyProviderName"
+                )
+            }
+        }
+    }
+
+    /// Ensures the TTS key ownership classification is consistent with the
+    /// provider's credential mode and metadata.
+    func testAllTTSRegistryProvidersHaveConsistentOwnership() {
+        let registry = loadTTSProviderRegistry()
+        for provider in registry.providers {
+            let isExclusive = SettingsStore.ttsKeyIsExclusive(for: provider.id)
+            let isShared = SettingsStore.ttsKeyIsShared(for: provider.id)
+            XCTAssertNotEqual(
+                isExclusive,
+                isShared,
+                "TTS provider \"\(provider.id)\" must be either exclusive or shared, not both"
+            )
+        }
+    }
 }
