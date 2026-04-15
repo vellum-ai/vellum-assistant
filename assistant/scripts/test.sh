@@ -61,7 +61,6 @@ KNOWN_BROKEN_FILES=(
   "email-send.test.ts"
   "email-status.test.ts"
   "email-unregister.test.ts"
-  "memory-item-routes.test.ts"
   "qdrant-manager.test.ts"
   "skill-feature-flags-integration.test.ts"
   "tts-text-sanitizer.test.ts"

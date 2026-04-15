@@ -868,14 +868,15 @@ describe("Memory Item Routes", () => {
       const res = await handler(ctx);
       expect(res.status).toBe(204);
 
-      // Verify the node is gone
+      // Verify the node is soft-deleted (fidelity='gone')
       const db = getDb();
       const node = db
         .select()
         .from(memoryGraphNodes)
         .where(eq(memoryGraphNodes.id, "i1"))
         .get();
-      expect(node).toBeUndefined();
+      expect(node).toBeDefined();
+      expect(node?.fidelity).toBe("gone");
     });
 
     test("returns 404 for non-existent item", async () => {
