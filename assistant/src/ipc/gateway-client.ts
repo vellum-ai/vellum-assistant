@@ -54,9 +54,13 @@ export async function ipcCall(
 
   return new Promise<unknown>((resolve) => {
     let settled = false;
+    let callTimer: ReturnType<typeof setTimeout> | undefined;
+
     const finish = (value: unknown) => {
       if (settled) return;
       settled = true;
+      clearTimeout(connectTimer);
+      if (callTimer) clearTimeout(callTimer);
       socket.destroy();
       resolve(value);
     };
@@ -81,7 +85,7 @@ export async function ipcCall(
       // Call timeout — if the gateway doesn't respond in time, give up.
       // Keep this timer ref'd (not unref'd) so the process waits for the
       // response or timeout before exiting — the socket itself is unref'd.
-      const callTimer = setTimeout(() => {
+      callTimer = setTimeout(() => {
         finish(undefined);
       }, DEFAULT_CALL_TIMEOUT_MS);
 
@@ -96,7 +100,6 @@ export async function ipcCall(
           try {
             const msg = JSON.parse(line) as IpcResponse;
             if (msg.id === reqId) {
-              clearTimeout(callTimer);
               if (msg.error) {
                 log.warn(
                   { error: msg.error, method },
@@ -116,7 +119,6 @@ export async function ipcCall(
     });
 
     socket.on("error", (err) => {
-      clearTimeout(connectTimer);
       // ENOENT / ECONNREFUSED are expected when gateway hasn't started
       if (
         (err as NodeJS.ErrnoException).code !== "ENOENT" &&
@@ -128,7 +130,6 @@ export async function ipcCall(
     });
 
     socket.on("close", () => {
-      clearTimeout(connectTimer);
       finish(undefined);
     });
   });
