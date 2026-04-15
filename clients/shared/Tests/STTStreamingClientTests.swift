@@ -210,7 +210,7 @@ final class STTStreamingClientTests: XCTestCase {
     func testGoogleGeminiSupportsConversationStreaming() {
         let registry = buildTestRegistry()
         XCTAssertTrue(registry.supportsConversationStreaming(provider: "google-gemini"))
-        XCTAssertEqual(registry.conversationStreamingMode(forProvider: "google-gemini"), .incrementalBatch)
+        XCTAssertEqual(registry.conversationStreamingMode(forProvider: "google-gemini"), .realtimeWs)
     }
 
     func testOpenAIWhisperSupportsConversationStreaming() {
@@ -332,7 +332,7 @@ final class STTStreamingClientTests: XCTestCase {
                     setupMode: .apiKey,
                     setupHint: "test",
                     apiKeyProviderName: "gemini",
-                    conversationStreamingMode: .incrementalBatch,
+                    conversationStreamingMode: .realtimeWs,
                     credentialsGuide: nil
                 ),
             ]
