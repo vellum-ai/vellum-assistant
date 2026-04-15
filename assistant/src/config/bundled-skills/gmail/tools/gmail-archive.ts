@@ -8,6 +8,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { addToBlocklist } from "./gmail-preferences.js";
 import { getSenderMessageIds } from "./scan-result-store.js";
 import { err, ok } from "./shared.js";
 
@@ -166,6 +167,24 @@ export async function run(
         return ok(parts.join(" "));
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    // Record archived sender emails for future sessions
+    const archivedEmails: string[] = [];
+    for (const sid of senderIds) {
+      try {
+        const email = Buffer.from(sid, "base64url").toString("utf-8");
+        if (email.includes("@")) archivedEmails.push(email);
+      } catch {
+        // Skip undecodable sender IDs
+      }
+    }
+    if (archivedEmails.length > 0) {
+      try {
+        addToBlocklist(archivedEmails);
+      } catch {
+        // Non-fatal — preferences are best-effort
       }
     }
   } else if (messageIds?.length) {

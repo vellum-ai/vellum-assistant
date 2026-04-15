@@ -106,7 +106,7 @@ When searching Gmail, the query uses Gmail's search operators:
 
 When a user asks to declutter, clean up, or organize their email - start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning - but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables - the user already indicated they want to keep those.
+**CRITICAL**: Never call `gmail_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, call `gmail_preferences` with `action: "add_safelist"` to persist those senders. Before building the next cleanup table, call `gmail_preferences` with `action: "list"` and exclude safelisted senders from the table — the user already indicated they want to keep those.
 
 ### Workflow
 
@@ -141,6 +141,20 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
 - **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured - don't offer to scan more. Tell the user: "Scanned [N] messages - here are your top senders."
 - **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue - the partial results are useful as-is.
+
+## Cleanup Preferences (Blocklist & Safelist)
+
+The `gmail_preferences` tool persists sender preferences across cleanup sessions:
+
+- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`).
+- **Safelist**: Sender emails the user explicitly deselected (chose to keep). Exclude these senders from future cleanup tables entirely.
+
+### Workflow integration
+
+1. **Before scanning**: Call `gmail_preferences` with `action: "list"`. If blocklisted senders exist, offer to auto-archive them first ("I have N previously archived senders — want me to clean those up first?"). Remove safelisted senders from scan results before presenting the table.
+2. **After archiving**: The blocklist is updated automatically when `gmail_archive` runs with `scan_id` + `sender_ids`.
+3. **After user deselects**: When the user deselects senders from a cleanup table, call `gmail_preferences` with `action: "add_safelist"` and the deselected sender emails.
+4. **User overrides**: If the user asks to stop blocking or stop keeping a sender, use `remove_blocklist` or `remove_safelist` accordingly.
 
 ## Scan ID
 
