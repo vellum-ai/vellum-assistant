@@ -696,7 +696,7 @@ private struct StepDetailRow: View {
                         }
 
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
-                            Text(formatDuration(end.timeIntervalSince(start)))
+                            Text(formatStepDuration(end.timeIntervalSince(start)))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
@@ -930,12 +930,78 @@ private struct StepDetailRow: View {
         return attributed
     }
 
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        seconds < 60
-            ? String(format: "%.1fs", seconds)
-            : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
+}
+
+// MARK: - Format Duration (shared)
+
+/// Formats a time interval as a human-readable duration string.
+/// Shared between StepDetailRow and ThinkingStepRow.
+private func formatStepDuration(_ seconds: TimeInterval) -> String {
+    seconds < 60
+        ? String(format: "%.1fs", seconds)
+        : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
+}
+
+// MARK: - Thinking Step Row
+
+/// Synthetic sub-activity row shown when all tool calls in a progress card have
+/// completed but the assistant is still working (thinking/processing phase).
+/// Explains the time gap between the last tool completion and the card's total
+/// elapsed time.
+private struct ThinkingStepRow: View {
+    /// When thinking started (typically `latestCompletedAt` of the tool group).
+    let startDate: Date
+    /// When thinking ended. Nil while still active.
+    let completedAt: Date?
+    /// Whether the thinking phase is still in progress.
+    let isActive: Bool
+
+    /// Minimum thinking duration (in seconds) required to show this row.
+    /// Prevents visual noise for fast completions where the model responds
+    /// almost immediately after the last tool finishes.
+    private static let minimumDisplayDuration: TimeInterval = 2.0
+
+    /// Whether the row should be rendered at all. Suppressed for very short
+    /// thinking phases that would just add clutter.
+    var shouldDisplay: Bool {
+        if isActive { return true }
+        guard let end = completedAt else { return false }
+        return end.timeIntervalSince(startDate) >= Self.minimumDisplayDuration
     }
 
+    var body: some View {
+        if shouldDisplay {
+            HStack(spacing: VSpacing.sm) {
+                if isActive {
+                    VBusyIndicator(size: 6)
+                        .frame(width: 16)
+                } else {
+                    VIconView(.circleCheck, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                        .frame(width: 16)
+                }
+
+                Text("Thinking")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+
+                Spacer()
+
+                HStack(spacing: VSpacing.xs) {
+                    if isActive {
+                        ElapsedTimeLabel(startDate: startDate)
+                    } else if let end = completedAt {
+                        Text(formatStepDuration(end.timeIntervalSince(startDate)))
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+            }
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
+            .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
+        }
+    }
 }
 
 // MARK: - Processing Dots Label (Isolated TimelineView)
