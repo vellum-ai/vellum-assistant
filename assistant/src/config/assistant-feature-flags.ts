@@ -5,7 +5,7 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. Override values from the gateway HTTP API (or local file fallback)
+ *   1. Override values from the gateway IPC socket (or local file fallback)
  *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
  *      cached locally; only used in local mode — containerized mode gets
  *      remote values via the gateway)
@@ -20,10 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
 import type { AssistantConfig } from "./schema.js";
-
-const log = getLogger("feature-flags");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,7 +110,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Override loading — reads from gateway HTTP API or local file
+// Override loading — reads from gateway IPC socket or local file
 // ---------------------------------------------------------------------------
 
 /**
@@ -175,74 +172,16 @@ function loadOverridesFromFile(): Record<string, boolean> {
 }
 
 /**
- * Fetch override values from the gateway via async HTTP.
+ * Fetch override values from the gateway via IPC (Unix domain socket).
  *
  * Returns the gateway's merged feature flag map (persisted > remote >
- * registry), or an empty record on any failure (network, auth, parse).
+ * registry), or an empty record on any failure (socket not found,
+ * timeout, parse error). No auth needed — the IPC socket is
+ * access-controlled by file-system permissions on the shared volume.
  */
 async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
-  try {
-    // Lazy-import to avoid circular dependency and keep this module
-    // importable from bootstrap code when not in containerized mode.
-    const { getGatewayInternalBaseUrl } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("./env.js") as typeof import("./env.js");
-
-    const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
-    // Build request headers. Auth is best-effort: the gateway
-    // auto-authenticates loopback peers (127.0.0.0/8, ::1) so a valid
-    // JWT is only needed for non-local connections. If the signing key
-    // isn't available (e.g. CLI subprocess without ACTOR_TOKEN_SIGNING_KEY
-    // and no key file on disk), we still proceed — the loopback bypass
-    // will authenticate the request.
-    const headers: Record<string, string> = { Accept: "application/json" };
-    try {
-      const {
-        mintEdgeRelayToken,
-        isSigningKeyInitialized,
-        initAuthSigningKey,
-        resolveSigningKey,
-      } =
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
-
-      if (!isSigningKeyInitialized()) {
-        initAuthSigningKey(resolveSigningKey());
-      }
-      headers["Authorization"] = `Bearer ${mintEdgeRelayToken()}`;
-    } catch (authErr) {
-      // Signing key unavailable — proceed without auth header.
-      // The gateway auto-authenticates loopback peers, so this is
-      // fine for CLI subprocesses running in the same pod/machine.
-      log.warn(
-        { err: authErr },
-        "fetchOverridesFromGateway: signing key unavailable, proceeding without auth",
-      );
-    }
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) return {};
-
-    const parsed = (await response.json()) as {
-      flags?: Array<{ key: string; enabled: boolean }>;
-    };
-    if (!Array.isArray(parsed.flags)) return {};
-
-    const result: Record<string, boolean> = {};
-    for (const entry of parsed.flags) {
-      if (typeof entry.key === "string" && typeof entry.enabled === "boolean") {
-        result[entry.key] = entry.enabled;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
+  const { ipcGetFeatureFlags } = await import("../ipc/gateway-client.js");
+  return ipcGetFeatureFlags();
 }
 
 /**
@@ -386,7 +325,7 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from gateway HTTP API (or local file fallback)
+ *   1. Override from gateway IPC socket (or local file fallback)
  *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
  *      cached locally)
  *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
