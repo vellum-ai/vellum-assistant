@@ -30,7 +30,8 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         settingsStore: SettingsStore,
         ambientAgent: AmbientAgent,
         connectionManager: GatewayConnectionManager,
-        eventStreamClient: EventStreamClient
+        eventStreamClient: EventStreamClient,
+        zoomManager: ZoomManager
     ) {
         if let existing = window {
             existing.makeKeyAndOrderFront(nil)
@@ -44,6 +45,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
             conversationManager: conversationManager,
             settingsStore: settingsStore,
             ambientAgent: ambientAgent,
+            zoomManager: zoomManager,
             onFork: { [weak conversationManager] daemonMessageId in
                 guard let conversationManager else { return }
                 Task { @MainActor in
@@ -175,10 +177,12 @@ private struct ThreadWindowContentView: View {
     var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
     var ambientAgent: AmbientAgent
+    let zoomManager: ZoomManager
     let onFork: (String) -> Void
 
     @State private var anchorMessageId: UUID?
     @State private var highlightedMessageId: UUID?
+    @State private var windowSize: CGSize = CGSize(width: 700, height: 700)
 
     /// Derived title from ConversationManager — updates reactively when
     /// the conversation is renamed, avoiding the stale-title bug.
@@ -246,6 +250,19 @@ private struct ThreadWindowContentView: View {
         }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
         .background(VColor.surfaceBase)
+        .onGeometryChange(for: CGSize.self) { proxy in proxy.size } action: { windowSize = $0 }
+        .overlay(alignment: .top) {
+            MainWindowZoomIndicator(
+                showZoomIndicator: zoomManager.showZoomIndicator,
+                zoomPercentage: zoomManager.zoomPercentage
+            )
+        }
+        .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+        .frame(width: windowSize.width / zoomManager.zoomLevel,
+               height: windowSize.height / zoomManager.zoomLevel,
+               alignment: .topLeading)
+        .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+        .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
     }
 
     private var threadTitleBar: some View {
