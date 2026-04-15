@@ -68,9 +68,9 @@ export const BOT_CONNECT_TIMEOUT_MS = 30_000;
  * `meet-bot/src/media/audio-capture.ts` — duplicated here rather than
  * imported because the daemon does not import from the `meet-bot` package
  * (they ship as separate artifacts). Must be kept in sync with the bot's
- * capture rate; otherwise providers whose adapter default differs
- * (e.g. Gemini defaults to 48 kHz) will decode at the wrong rate and
- * produce garbled transcripts.
+ * capture rate and passed explicitly to each STT adapter so ingest does not
+ * silently rely on any per-provider default; a mismatch would cause the
+ * provider to decode at the wrong rate and produce garbled transcripts.
  */
 const MEET_BOT_SAMPLE_RATE_HZ = 16_000;
 
@@ -450,10 +450,10 @@ export class MeetAudioIngest {
  * credentials centrally).
  *
  * Passes the meet-bot's capture sample rate through to the resolver so
- * provider adapters decode at the correct rate regardless of their
- * per-adapter defaults (Deepgram/Whisper default to 16 kHz but Gemini
- * defaults to 48 kHz — passing the rate explicitly keeps all three
- * producing intelligible transcripts).
+ * Meet's audio ingest does not depend on any adapter's per-provider default.
+ * All three streaming adapters happen to default to 16 kHz today, but being
+ * explicit insulates us from a future adapter changing its default out from
+ * under ingest.
  *
  * Throws {@link MeetAudioIngestError} when no streaming-capable provider
  * is configured so the session manager can surface a clear join-failure
