@@ -3,14 +3,11 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-// Original bar seeded by migration 029 at its initial release.
+// Original bar seeded by earlier versions of migration 029.
 const ORIGINAL_BAR = `**Remember aggressively.** When you learn ANY fact — a preference, a name, a date, a habit, a plan, an opinion — call \`remember\` immediately. Don't filter, don't judge importance. Remembering too much costs nothing. Forgetting something that mattered costs trust.`;
 
-// Bar introduced in PR #25532 (an in-place edit of migration 029). Users who
-// installed while that edit was live had this version seeded. Recognized here
-// so this migration can normalize both populations to NEW_BAR.
-const POST_25532_BAR = `**Remember aggressively.** Capture anything concrete about your user — preferences, names, dates, habits, plans, opinions, health details, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals). Don't judge importance — filing decides that later. Call \`remember\` immediately, multiple times per conversation. Remembering too much costs nothing. Forgetting something that mattered costs trust.`;
-
+// Target bar. Some installations were seeded with this text directly; this
+// migration normalizes the ORIGINAL_BAR population to match.
 const NEW_BAR = `**Remember aggressively.** Capture anything concrete about your user — preferences, names, dates, habits, plans, opinions, health details, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals). Don't judge importance — filing decides that later. Call \`remember\` immediately, multiple times per conversation. Remembering too much costs nothing. Forgetting something that mattered costs trust.`;
 
 export const updatePkbIndexBarMigration: WorkspaceMigration = {
@@ -28,14 +25,12 @@ export const updatePkbIndexBarMigration: WorkspaceMigration = {
 
     const current = readFileSync(indexPath, "utf-8");
 
-    for (const bar of [ORIGINAL_BAR, POST_25532_BAR]) {
-      if (current.includes(bar)) {
-        const updated = current.replace(bar, NEW_BAR);
-        if (updated !== current) {
-          writeFileSync(indexPath, updated, "utf-8");
-        }
-        return;
-      }
+    if (current.includes(NEW_BAR)) return;
+
+    if (current.includes(ORIGINAL_BAR)) {
+      const updated = current.replace(ORIGINAL_BAR, NEW_BAR);
+      writeFileSync(indexPath, updated, "utf-8");
+      return;
     }
     // User-edited or unknown variant — leave alone.
   },
