@@ -174,6 +174,9 @@ struct MessageListView: View {
             .onChange(of: messages.count) {
                 handleMessagesCountChanged()
             }
+            .onChange(of: messagesRevision) {
+                handleMessagesRevisionChanged()
+            }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)

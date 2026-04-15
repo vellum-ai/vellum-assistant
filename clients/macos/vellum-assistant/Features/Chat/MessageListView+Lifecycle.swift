@@ -87,6 +87,16 @@ extension MessageListView {
         }
     }
 
+    func handleMessagesRevisionChanged() {
+        // Queued-turn handoff updates message status without changing count.
+        // Re-check the pin anchor so it advances to the dequeued user message.
+        guard conversationId == scrollState.currentConversationId,
+              isSending,
+              let candidate = latestPinnedTurnAnchorCandidateId(in: messages),
+              candidate != scrollState.pinnedLatestTurnAnchorMessageId else { return }
+        scrollState.pinnedLatestTurnAnchorMessageId = candidate
+    }
+
     func handleMessagesCountChanged() {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
