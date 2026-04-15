@@ -17,6 +17,18 @@ import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
+const ASSISTANT_ID_CREDENTIAL = credentialKey("vellum", "platform_assistant_id");
+
+/**
+ * Return the recorded fetch calls, excluding the feature-flag fetch that
+ * `buildCliProgram()` issues on startup — tests here care about the email
+ * API calls, not that bootstrap fetch.
+ */
+function getEmailApiCalls(): { path: string; init: RequestInit }[] {
+  return getMockFetchCalls().filter(
+    (c) => !c.path.includes("/v1/feature-flags"),
+  );
+}
 
 const SAMPLE_MESSAGES = [
   {
@@ -62,9 +74,20 @@ beforeEach(async () => {
 
   _resetBackend();
   resetMockFetch();
+  // Mock the feature-flag fetch that buildCliProgram() performs on startup so
+  // it doesn't hit a real URL and so tests remain deterministic.
+  mockFetch(
+    "/v1/feature-flags",
+    {},
+    { body: { flags: [{ key: "email-channel", enabled: true }] }, status: 200 },
+  );
   _setOverridesForTesting({ "email-channel": true });
   setPlatformAssistantId(ASSISTANT_ID);
   await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
+  // Ensure the credential store does not contain a stray platform_assistant_id
+  // from dev machine state — the "missing assistant ID" test relies on the
+  // fallback lookup returning empty.
+  await deleteSecureKeyAsync(ASSISTANT_ID_CREDENTIAL);
 });
 
 afterEach(() => {
@@ -99,7 +122,7 @@ describe("assistant email list", () => {
 
     await runAssistantCommand("email", "--json", "list");
 
-    const calls = getMockFetchCalls();
+    const calls = getEmailApiCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0].path).toContain(`/v1/assistants/${ASSISTANT_ID}/emails/`);
     // Default limit=20 should be in query string
@@ -117,7 +140,7 @@ describe("assistant email list", () => {
       "inbound",
     );
 
-    const calls = getMockFetchCalls();
+    const calls = getEmailApiCalls();
     expect(calls[0].path).toContain("direction=inbound");
   });
 
@@ -126,7 +149,7 @@ describe("assistant email list", () => {
 
     await runAssistantCommand("email", "--json", "list", "--limit", "5");
 
-    const calls = getMockFetchCalls();
+    const calls = getEmailApiCalls();
     expect(calls[0].path).toContain("limit=5");
   });
 
@@ -141,7 +164,7 @@ describe("assistant email list", () => {
       "2026-04-01",
     );
 
-    const calls = getMockFetchCalls();
+    const calls = getEmailApiCalls();
     expect(calls[0].path).toContain("since=2026-04-01");
   });
 
