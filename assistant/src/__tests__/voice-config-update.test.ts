@@ -314,6 +314,41 @@ describe("voice_config_update — validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: deepgram tts_provider integration
+// ---------------------------------------------------------------------------
+
+describe("voice_config_update — deepgram", () => {
+  test("accepts deepgram as tts_provider", async () => {
+    writeConfig({});
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "tts_provider", value: "deepgram" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("updated to");
+    const config = readConfig();
+    expect((config.services as any)?.tts?.provider).toBe("deepgram");
+  });
+
+  test("broadcasts deepgram ttsProvider to client", async () => {
+    const messages: any[] = [];
+    const ctx = makeContext({
+      sendToClient: (msg: any) => messages.push(msg),
+    });
+
+    await run({ setting: "tts_provider", value: "deepgram" }, ctx);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].type).toBe("client_settings_update");
+    expect(messages[0].key).toBe("ttsProvider");
+    expect(messages[0].value).toBe("deepgram");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: catalog-driven provider validation
 // ---------------------------------------------------------------------------
 
