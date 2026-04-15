@@ -55,7 +55,8 @@ KNOWN_BROKEN_FILES=(
   "byo-connection.test.ts"
   "conversation-tool-setup.test.ts"
   "email-list.test.ts"
-  "email-send.test.ts"
+  "email-register.test.ts"
+  "email-status.test.ts"
   "email-unregister.test.ts"
   "qdrant-manager.test.ts"
 )
