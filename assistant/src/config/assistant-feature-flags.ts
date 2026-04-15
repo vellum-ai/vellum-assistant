@@ -242,8 +242,15 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * On failure, the cache is left unset so subsequent sync calls fall
  * through to the file-based fallback rather than caching an empty map
  * that masks all overrides for the process lifetime.
+ *
+ * No-ops when the cache is already populated — callers that want to
+ * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
+ * tests preseed flag state via `_setOverridesForTesting()` without the
+ * gateway fetch clobbering their setup or polluting fetch mocks.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
+  if (cachedOverrides != null) return;
+
   const gatewayOverrides = await fetchOverridesFromGateway();
   if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;

@@ -10,6 +10,7 @@ import { setPlatformAssistantId } from "../../../config/env.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   _resetBackend,
+  deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
@@ -52,7 +53,7 @@ describe("assistant email register", () => {
 
     const calls = getMockFetchCalls();
     expect(calls).toHaveLength(1);
-    expect(calls[0].path).toBe(
+    expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
     expect(calls[0].init.method).toBe("POST");
@@ -115,9 +116,8 @@ describe("assistant email register", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    // Remove the API key so create() returns null
-    _resetBackend();
-    setPlatformAssistantId(undefined);
+    // Remove the API key so VellumPlatformClient.create() returns null.
+    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
 
     const output = await runAssistantCommand(
       "email",

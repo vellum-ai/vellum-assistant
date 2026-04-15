@@ -50,7 +50,6 @@ KNOWN_BROKEN_FILES=(
   "email-attachment.test.ts"
   "email-download.test.ts"
   "email-list.test.ts"
-  "email-register.test.ts"
   "email-send.test.ts"
   "email-status.test.ts"
   "email-unregister.test.ts"
