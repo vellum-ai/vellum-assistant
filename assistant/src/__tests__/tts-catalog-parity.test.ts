@@ -150,17 +150,17 @@ describe("TTS catalog parity: daemon vs client", () => {
     const violations: string[] = [];
 
     for (const clientEntry of clientCatalog.providers) {
-      const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
-      if (!daemonEntry) {
-        // Covered by the provider ID parity test above
-        continue;
-      }
-      const expected = deriveCredentialMetadata(daemonEntry);
-      if (clientEntry.credentialMode !== expected.credentialMode) {
-        violations.push(
-          `Provider "${clientEntry.id}": client credentialMode="${clientEntry.credentialMode}" ` +
-            `!= expected "${expected.credentialMode}" (derived from daemon credentialStoreKey)`,
-        );
+      try {
+        const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
+        const expected = deriveCredentialMetadata(daemonEntry);
+        if (clientEntry.credentialMode !== expected.credentialMode) {
+          violations.push(
+            `Provider "${clientEntry.id}": client credentialMode="${clientEntry.credentialMode}" ` +
+              `!= expected "${expected.credentialMode}" (derived from daemon credentialStoreKey)`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by the provider ID parity test above.
       }
     }
 
@@ -184,15 +184,17 @@ describe("TTS catalog parity: daemon vs client", () => {
     for (const clientEntry of clientCatalog.providers) {
       if (clientEntry.credentialMode !== "api-key") continue;
 
-      const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
-      if (!daemonEntry) continue;
-
-      const expected = deriveCredentialMetadata(daemonEntry);
-      if (clientEntry.apiKeyProviderName !== expected.apiKeyProviderName) {
-        violations.push(
-          `Provider "${clientEntry.id}": client apiKeyProviderName="${clientEntry.apiKeyProviderName}" ` +
-            `!= expected "${expected.apiKeyProviderName}" (derived from daemon credentialStoreKey)`,
-        );
+      try {
+        const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
+        const expected = deriveCredentialMetadata(daemonEntry);
+        if (clientEntry.apiKeyProviderName !== expected.apiKeyProviderName) {
+          violations.push(
+            `Provider "${clientEntry.id}": client apiKeyProviderName="${clientEntry.apiKeyProviderName}" ` +
+              `!= expected "${expected.apiKeyProviderName}" (derived from daemon credentialStoreKey)`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by the provider ID parity test above.
       }
     }
 
@@ -216,15 +218,17 @@ describe("TTS catalog parity: daemon vs client", () => {
     for (const clientEntry of clientCatalog.providers) {
       if (clientEntry.credentialMode !== "credential") continue;
 
-      const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
-      if (!daemonEntry) continue;
-
-      const expected = deriveCredentialMetadata(daemonEntry);
-      if (clientEntry.credentialNamespace !== expected.credentialNamespace) {
-        violations.push(
-          `Provider "${clientEntry.id}": client credentialNamespace="${clientEntry.credentialNamespace}" ` +
-            `!= expected "${expected.credentialNamespace}" (derived from daemon credentialStoreKey)`,
-        );
+      try {
+        const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
+        const expected = deriveCredentialMetadata(daemonEntry);
+        if (clientEntry.credentialNamespace !== expected.credentialNamespace) {
+          violations.push(
+            `Provider "${clientEntry.id}": client credentialNamespace="${clientEntry.credentialNamespace}" ` +
+              `!= expected "${expected.credentialNamespace}" (derived from daemon credentialStoreKey)`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by the provider ID parity test above.
       }
     }
 
@@ -250,14 +254,16 @@ describe("TTS catalog parity: daemon vs client", () => {
     const violations: string[] = [];
 
     for (const clientEntry of clientCatalog.providers) {
-      const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
-      if (!daemonEntry) continue;
-
-      if (clientEntry.displayName !== daemonEntry.displayName) {
-        violations.push(
-          `Provider "${clientEntry.id}": client displayName="${clientEntry.displayName}" ` +
-            `!= daemon displayName="${daemonEntry.displayName}"`,
-        );
+      try {
+        const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
+        if (clientEntry.displayName !== daemonEntry.displayName) {
+          violations.push(
+            `Provider "${clientEntry.id}": client displayName="${clientEntry.displayName}" ` +
+              `!= daemon displayName="${daemonEntry.displayName}"`,
+          );
+        }
+      } catch {
+        // Unknown ID — covered by the provider ID parity test above.
       }
     }
 
