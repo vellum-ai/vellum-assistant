@@ -60,7 +60,7 @@ Transcription quality and latency reflect the user's configured `services.stt.pr
 The `meet_send_chat` tool posts a message into the active meeting's chat:
 
 ```
-meet_send_chat(message: "The doc we were looking for is https://example.com/spec")
+meet_send_chat(text: "The doc we were looking for is https://example.com/spec")
 ```
 
 When a single meeting is active, `meetingId` can be omitted. If no meeting is active, the tool fails with a clear error — surface the error back to the user rather than retrying.
@@ -82,7 +82,7 @@ Avoid chat for:
 
 ### Proactive chat opportunities
 
-A background chat-opportunity detector watches the meeting transcript and, when it judges that the moment might warrant a response from the assistant, wakes the agent loop with a hint of the form `opportunity_hint: <reason>`. At that point the assistant can call `meet_send_chat` if appropriate.
+A background chat-opportunity detector watches the meeting transcript and, when it judges that the moment might warrant a response from the assistant, wakes the agent loop with a hint. The hint is delivered as an internal user message prepended with `[opportunity:meet-chat-opportunity] <reason>`. At that point the assistant can call `meet_send_chat` if appropriate.
 
 Key points:
 
