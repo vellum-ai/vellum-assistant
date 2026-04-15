@@ -13,6 +13,7 @@ import type { MeetBotEvent } from "@vellumai/meet-contracts";
 
 import {
   DEDUPE_WINDOW_MS,
+  LLM_CHECK_DEBOUNCE_MS,
   LLM_TICK_INTERVAL_MS,
   MeetConsentMonitor,
   type MeetSessionLeaver,
@@ -355,8 +356,10 @@ describe("MeetConsentMonitor dedupe", () => {
     // One transcript entry recorded (the others were deduped).
     expect(monitor._bufferedTranscriptCount()).toBe(1);
 
-    // Past the dedupe window, the same text re-enters the keyword path.
-    t = DEDUPE_WINDOW_MS + 1;
+    // Past both the dedupe and debounce windows, the same text re-enters
+    // the keyword path. We use `LLM_CHECK_DEBOUNCE_MS + 1` (which is also
+    // > DEDUPE_WINDOW_MS) so neither guard short-circuits the second call.
+    t = LLM_CHECK_DEBOUNCE_MS + 1;
     dispatcher.dispatch(
       "m1",
       transcriptChunk("m1", new Date(t).toISOString(), "please leave the meeting"),
@@ -956,6 +959,214 @@ describe("MeetConsentMonitor resilience", () => {
 
     resolveFirst({ objected: false, reason: "" });
     await flushPromises();
+
+    monitor.stop();
+  });
+});
+
+describe("MeetConsentMonitor LLM check debounce", () => {
+  test("three fast-check hits in rapid succession collapse to a single LLM call", async () => {
+    // Models the worst-case fast-keyword spam scenario: a participant
+    // (or several) saying "please leave" three times in a few seconds. The
+    // debounce should reduce those three keyword hits to one LLM call.
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // First keyword hit at t=0 — fires LLM.
+    t = 0;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:00.000Z", "please leave first"),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Second keyword hit at t=3s — within 8s debounce window, skipped.
+    t = 3_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:03.000Z",
+        "please leave second",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // Third keyword hit at t=9s — past 8s debounce window, fires LLM.
+    t = 9_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:09.000Z",
+        "please leave third",
+        "Carol",
+        "c",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(2);
+
+    monitor.stop();
+  });
+
+  test("timer tick + fast-check hit within 100ms collapse to a single LLM call", async () => {
+    // Either trigger can win the debounce race depending on event order;
+    // whichever lands first locks out the other for the debounce window.
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: false,
+        reason: "",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // Seed a non-keyword chunk so the tick has buffer content to work with
+    // (otherwise the empty-buffer guard would short-circuit the tick).
+    t = 19_900;
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:19.900Z",
+        "we're discussing the roadmap",
+        { speakerLabel: "Alice", speakerId: "alice" },
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(0);
+
+    // Tick fires first at t=20s (LLM call #1).
+    t = 20_000;
+    timer.fire();
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    // 50ms later a keyword-matching chat arrives — within 8s debounce, skipped.
+    t = 20_050;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:20.050Z",
+        "please leave the meeting",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+
+    monitor.stop();
+  });
+
+  test("regression: after objection-decided + leave, additional fast-checks produce no LLM activity", async () => {
+    // The "already decided to leave" guard short-circuits before the
+    // debounce, so a second keyword hit after leave was triggered must
+    // not produce any additional LLM call regardless of how much time
+    // has elapsed.
+    const dispatcher = makeFakeDispatcher();
+    const session = makeFakeSessionManager();
+    const timer = makeTimerControl();
+    let t = 0;
+    const llm = mock(
+      async (_prompt: string): Promise<ObjectionDecision> => ({
+        objected: true,
+        reason: "explicit ask to leave",
+      }),
+    );
+
+    const monitor = new MeetConsentMonitor({
+      meetingId: "m1",
+      assistantId: "self",
+      sessionManager: session,
+      config: {
+        autoLeaveOnObjection: true,
+        objectionKeywords: ["please leave"],
+      },
+      llmAsk: llm,
+      subscribe: dispatcher.subscribe,
+      setIntervalFn: timer.setIntervalFn,
+      clearIntervalFn: timer.clearIntervalFn,
+      now: () => t,
+    });
+    monitor.start();
+
+    // First keyword hit at t=0 — fires LLM, decision is objected=true,
+    // session.leave invoked.
+    t = 0;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:00.000Z", "please leave now"),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(session.leave).toHaveBeenCalledTimes(1);
+    expect(monitor._isDecided()).toBe(true);
+
+    // Second keyword hit well past the debounce window — must NOT fire
+    // an additional LLM call because `decided` short-circuits first.
+    t = LLM_CHECK_DEBOUNCE_MS + 5_000;
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:13.000Z",
+        "please leave again",
+        "Bob",
+        "b",
+      ),
+    );
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(session.leave).toHaveBeenCalledTimes(1);
 
     monitor.stop();
   });

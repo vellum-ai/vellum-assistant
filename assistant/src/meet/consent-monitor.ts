@@ -72,6 +72,19 @@ export const LLM_TICK_INTERVAL_MS = 20_000;
 /** Window used to dedupe identical chunks. */
 export const DEDUPE_WINDOW_MS = 5_000;
 
+/**
+ * Minimum wall-clock interval between consecutive LLM checks regardless of
+ * trigger source (timer tick or fast-keyword hit). Acts as a coarse rate
+ * limiter so e.g. three keyword-matching utterances in quick succession
+ * collapse to a single LLM call. Intentionally not exposed via config —
+ * making this tunable is premature until production data justifies it.
+ *
+ * Worst-case objection latency with this debounce in place:
+ *   8s (debounce window) + 20s (next timer tick) = 28s, comfortably under
+ *   the 30s correctness invariant.
+ */
+export const LLM_CHECK_DEBOUNCE_MS = 8_000;
+
 /** LLM call timeout — keeps the consent path bounded. */
 export const CONSENT_LLM_TIMEOUT_MS = 5_000;
 
@@ -219,6 +232,17 @@ export class MeetConsentMonitor {
    * mis-tags a chunk).
    */
   private botParticipantId: string | null = null;
+
+  /**
+   * Wall-clock timestamp (`this.now()`) of the most recent LLM check
+   * regardless of trigger source. Set on entry to {@link maybeRunLLMCheck}
+   * before the async LLM call begins so concurrent triggers within the
+   * debounce window collapse to a single call. Compared against
+   * {@link LLM_CHECK_DEBOUNCE_MS} on every potential LLM-firing path
+   * (tick AND keyword) — both guards (this debounce and the content
+   * watermark) apply independently and either can short-circuit a call.
+   */
+  private lastLlmCheckAt: number | null = null;
 
   constructor(deps: MeetConsentMonitorDeps) {
     this.meetingId = deps.meetingId;
@@ -447,6 +471,21 @@ export class MeetConsentMonitor {
    * Run one LLM check over the current buffer if one isn't already in
    * flight and the monitor hasn't already decided. Overlapping calls are
    * collapsed — the buffer the in-flight call saw is sufficient context.
+   *
+   * Two independent skip guards apply here:
+   *   1. **Debounce** ({@link LLM_CHECK_DEBOUNCE_MS}) — applies to ALL
+   *      triggers. If less than the debounce window has elapsed since the
+   *      last LLM call, skip. The watermark below cannot save the keyword
+   *      path on its own, so this guard gives keyword-triggered calls a
+   *      coarse rate limit too.
+   *   2. **Content watermark** — applies only to tick-driven calls. If
+   *      no content-bearing event has arrived since the last tick-driven
+   *      check, skip even if the debounce window has elapsed.
+   *
+   * The "already decided to leave" guard short-circuits before either,
+   * and intentionally does NOT touch {@link lastLlmCheckAt} — we don't
+   * want a stop-and-leave flow to reset debounce state for any future
+   * checks (there shouldn't be any, but defense-in-depth).
    */
   private async maybeRunLLMCheck(trigger: string): Promise<void> {
     if (this.decided || this.llmInFlight) return;
@@ -459,9 +498,31 @@ export class MeetConsentMonitor {
       return;
     }
 
+    // Debounce guard: applies to every trigger (tick AND keyword). A
+    // string of "please leave" utterances within an 8s window collapses
+    // to a single LLM call. Independent of the content watermark below —
+    // both guards can skip a call for different reasons.
+    const now = this.now();
+    if (
+      this.lastLlmCheckAt !== null &&
+      now - this.lastLlmCheckAt < LLM_CHECK_DEBOUNCE_MS
+    ) {
+      log.debug(
+        {
+          event: "consent_monitor.check.debounced",
+          meetingId: this.meetingId,
+          trigger,
+          msSinceLastCheck: now - this.lastLlmCheckAt,
+        },
+        "MeetConsentMonitor: LLM check debounced",
+      );
+      return;
+    }
+
     // Content-watermark skip: on a tick, if nothing content-bearing has
     // arrived since the last tick-driven LLM check, skip the call. The
-    // keyword path is intentionally excluded — keyword hits always fire.
+    // keyword path is intentionally excluded — keyword hits always fire
+    // (subject to the debounce above).
     if (
       trigger === "tick" &&
       this.lastContentTimestamp === this.lastLlmCheckContentTimestamp
@@ -479,11 +540,16 @@ export class MeetConsentMonitor {
 
     // Advance the tick-path watermark to the current content timestamp
     // before firing. Only the tick path advances the watermark so the
-    // keyword fast-path keeps its existing semantics (PR 3 will add a
-    // separate debounce for keyword-triggered calls).
+    // keyword fast-path keeps its existing semantics; the debounce above
+    // is what rate-limits keyword-triggered calls.
     if (trigger === "tick") {
       this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
     }
+
+    // Stamp the debounce clock BEFORE the async LLM call begins so a
+    // second trigger arriving while this call is in flight is debounced
+    // (in addition to being collapsed by the in-flight flag below).
+    this.lastLlmCheckAt = now;
 
     const prompt = this.buildPrompt();
     this.llmInFlight = true;
