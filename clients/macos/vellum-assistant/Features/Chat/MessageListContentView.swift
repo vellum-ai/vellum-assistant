@@ -415,13 +415,15 @@ struct LatestTurnSpacerCalculator {
     static func spacerHeight(
         viewportHeight: CGFloat,
         anchorHeight: CGFloat,
-        responseHeight: CGFloat
+        responseHeight: CGFloat,
+        contentInsets: CGFloat = 0
     ) -> CGFloat {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return 0 }
 
         let safeAnchorHeight = anchorHeight.isFinite ? max(0, anchorHeight) : 0
         let safeResponseHeight = responseHeight.isFinite ? max(0, responseHeight) : 0
-        return max(0, viewportHeight - safeAnchorHeight - safeResponseHeight)
+        let safeInsets = contentInsets.isFinite ? max(0, contentInsets) : 0
+        return max(0, viewportHeight - safeAnchorHeight - safeResponseHeight - safeInsets)
     }
 }
 
@@ -479,29 +481,23 @@ private struct PinnedLatestTurnSection: View {
             || !partition.responseItems.isEmpty
     }
 
+    /// Vertical content insets from the outer LazyVStack padding (top + bottom).
+    private static let contentVerticalInsets: CGFloat = VSpacing.md * 2
+
     private var spacerHeight: CGFloat {
         LatestTurnSpacerCalculator.spacerHeight(
             viewportHeight: viewportHeight,
             anchorHeight: anchorHeight,
-            responseHeight: responseHeight
+            responseHeight: responseHeight,
+            contentInsets: Self.contentVerticalInsets
         )
     }
 
     var body: some View {
+        // Two flips (ScrollView + section) cancel out, so source order
+        // equals visual order: anchor at top, response below, spacer
+        // fills remaining viewport, sentinel marks the latest edge.
         VStack(alignment: .leading, spacing: 0) {
-            contentView.latestEdgeSentinel(isFlipped: false)
-
-            Color.clear.frame(height: spacerHeight)
-
-            responseCluster
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { newHeight in
-                    if abs(responseHeight - newHeight) > 0.5 {
-                        responseHeight = newHeight
-                    }
-                }
-
             contentView.transcriptRow(
                 row: anchorRow,
                 isUnanchoredThinking: isUnanchoredThinking,
@@ -516,6 +512,19 @@ private struct PinnedLatestTurnSection: View {
                     anchorHeight = newHeight
                 }
             }
+
+            responseCluster
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    if abs(responseHeight - newHeight) > 0.5 {
+                        responseHeight = newHeight
+                    }
+                }
+
+            Color.clear.frame(height: spacerHeight)
+
+            contentView.latestEdgeSentinel(isFlipped: false)
         }
         .flipped()
     }
@@ -523,13 +532,7 @@ private struct PinnedLatestTurnSection: View {
     @ViewBuilder
     private var responseCluster: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            contentView.latestEdgeActivityRow(isFlipped: false)
-
-            ForEach(contentView.state.orphanSubagents) { subagent in
-                contentView.orphanSubagentRow(subagent, isFlipped: false)
-            }
-
-            ForEach(partition.responseItems.reversed()) { item in
+            ForEach(partition.responseItems) { item in
                 contentView.transcriptItemView(
                     item,
                     rowsByMessageId: rowsByMessageId,
@@ -538,7 +541,13 @@ private struct PinnedLatestTurnSection: View {
                     isFlipped: false
                 )
             }
+
+            ForEach(contentView.state.orphanSubagents) { subagent in
+                contentView.orphanSubagentRow(subagent, isFlipped: false)
+            }
+
+            contentView.latestEdgeActivityRow(isFlipped: false)
         }
-        .padding(.bottom, hasResponseContent ? VSpacing.md : 0)
+        .padding(.top, hasResponseContent ? VSpacing.md : 0)
     }
 }

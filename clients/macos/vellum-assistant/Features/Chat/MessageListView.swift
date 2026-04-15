@@ -138,6 +138,11 @@ struct MessageListView: View {
                     Spacer(minLength: 0)
                 }
                 .frame(width: widths.scrollSurfaceWidth)
+                // In the inverted scroll, short content gravity-pulls to the
+                // visual bottom. Pin it to the pre-flip bottom (= visual top)
+                // so the first message always starts at the top of the viewport.
+                .frame(minHeight: viewportHeight.isFinite ? viewportHeight : nil,
+                       alignment: .bottom)
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
