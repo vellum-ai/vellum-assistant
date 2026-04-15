@@ -411,14 +411,13 @@ struct VoiceSettingsView: View {
                 }
 
                 // Shared-key explanatory note for providers like Deepgram
-                // that reuse an API key configured in another settings card.
+                // that reuse an API key with another service (e.g. STT).
                 ttsSharedKeyNote
 
-                // API key field — hidden for shared-key providers since
-                // the key is managed through the sibling service card.
-                if !ttsProviderUsesSharedKey {
-                    ttsApiKeyField
-                }
+                // API key field — always shown so shared-key providers
+                // (e.g. Deepgram TTS) can be configured even when the
+                // sibling STT provider is set to something else.
+                ttsApiKeyField
 
                 // Voice ID / Reference ID field (provider-specific) —
                 // hidden for providers like Deepgram that use a built-in
@@ -454,7 +453,7 @@ struct VoiceSettingsView: View {
             HStack(alignment: .top, spacing: VSpacing.xs) {
                 VIconView(.info, size: 10)
                     .foregroundStyle(VColor.contentTertiary)
-                Text("This provider uses the same API key as \(selectedTTSProvider?.displayName ?? "the provider") speech-to-text. Manage the key in the Speech-to-Text section below.")
+                Text("This API key is shared with \(selectedTTSProvider?.displayName ?? "the provider") speech-to-text.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .lineSpacing(1)
@@ -541,9 +540,9 @@ struct VoiceSettingsView: View {
             break
         }
 
-        // Persist API key if entered and the provider manages its own key
-        // (not shared). Shared-key providers do not show the key field, so
-        // trimmedKey will always be empty for them.
+        // Persist API key if entered. Shared-key providers (e.g. Deepgram)
+        // route through APIKeyManager which stores the key under the
+        // canonical provider name, so both TTS and STT pick it up.
         let trimmedKey = ttsApiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
             ttsApiKeyText = ""
