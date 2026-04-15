@@ -532,12 +532,21 @@ describe("Native sandbox backend", () => {
       expect(result.sandboxed).toBe(true);
     });
 
-    test("rejects working dir with SBPL metacharacters", () => {
+    test("escapes working dir with SBPL metacharacters", () => {
+      // SBPL metacharacters (", (, ), ;, \) are backslash-escaped inside the
+      // profile string rather than rejected, so wrap() should succeed.
       const backend = new NativeBackend();
-      expect(() => backend.wrap("echo hi", '/tmp/foo"bar')).toThrow(ToolError);
-      expect(() => backend.wrap("echo hi", "/tmp/foo(bar")).toThrow(ToolError);
-      expect(() => backend.wrap("echo hi", "/tmp/foo;bar")).toThrow(ToolError);
-      expect(() => backend.wrap("echo hi", "/tmp/foo\\bar")).toThrow(ToolError);
+      expect(backend.wrap("echo hi", '/tmp/foo"bar').sandboxed).toBe(true);
+      expect(backend.wrap("echo hi", "/tmp/foo(bar").sandboxed).toBe(true);
+      expect(backend.wrap("echo hi", "/tmp/foo;bar").sandboxed).toBe(true);
+      expect(backend.wrap("echo hi", "/tmp/foo\\bar").sandboxed).toBe(true);
+    });
+
+    test("rejects working dir with newline characters", () => {
+      // Newlines/CRs cannot appear in real paths and would break the profile.
+      const backend = new NativeBackend();
+      expect(() => backend.wrap("echo hi", "/tmp/foo\nbar")).toThrow(ToolError);
+      expect(() => backend.wrap("echo hi", "/tmp/foo\rbar")).toThrow(ToolError);
     });
 
     test("accepts working dir with safe special characters", () => {
