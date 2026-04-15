@@ -201,6 +201,7 @@ struct ToolSelectionView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                .accessibilityLabel("Dismiss custom tools")
             }
 
             VTextField(
