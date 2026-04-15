@@ -139,6 +139,16 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   /** Accumulated input transcription for the current turn. */
   private currentTurnText = "";
 
+  /**
+   * Whether we've already emitted a `final` event for the current turn
+   * via a completion signal (`turnComplete` / `generationComplete` /
+   * `inputTranscription.finished`). Reset when a new turn's text begins
+   * accumulating. Used by `flushFinalAndClose` to avoid emitting a
+   * trailing empty final when the provider closes normally after stop()
+   * has already flushed a final for the turn.
+   */
+  private finalEmittedForCurrentTurn = false;
+
   constructor(apiKey: string, options: GoogleGeminiLiveStreamOptions = {}) {
     this.model = options.model ?? DEFAULT_MODEL;
     this.pcmSampleRate = options.pcmSampleRate ?? 16_000;
@@ -168,6 +178,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     this.stopping = false;
     this.lastEmittedPartial = "";
     this.currentTurnText = "";
+    this.finalEmittedForCurrentTurn = false;
 
     log.info({ model: this.model }, "Opening Gemini Live session");
 
@@ -279,7 +290,11 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
       ]);
     } catch (err) {
       this.onEvent = null;
-      this.session = null;
+      // The connectPromise may have already resolved with a session
+      // handle before the timeout fired — if so, the `.then()` above
+      // captured it on `this.session`. Close any such orphaned session
+      // here to prevent leaking a live WebSocket to the provider.
+      this.forceCloseSession();
       throw err;
     }
 
@@ -362,13 +377,23 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     if (!serverContent) return;
 
     // Append any new input transcription text to the current turn buffer.
+    // A new turn begins when we see text while the buffer is empty —
+    // reset the "final already emitted" flag so the next completion
+    // signal can emit again.
     const transcriptionText = serverContent.inputTranscription?.text;
     if (typeof transcriptionText === "string" && transcriptionText.length > 0) {
+      if (this.currentTurnText.length === 0) {
+        this.finalEmittedForCurrentTurn = false;
+      }
       this.currentTurnText += transcriptionText;
     }
 
-    // Detect turn completion.
+    // Detect turn completion. Per the `@google/genai` SDK docs,
+    // `inputTranscription` is independent of the model's response turn,
+    // so we honor `Transcription.finished` as an additional completion
+    // signal alongside `turnComplete` / `generationComplete`.
     const isComplete =
+      serverContent.inputTranscription?.finished === true ||
       serverContent.generationComplete === true ||
       serverContent.turnComplete === true;
 
@@ -376,9 +401,16 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
       const finalText = this.currentTurnText;
       this.currentTurnText = "";
       this.lastEmittedPartial = "";
+      this.finalEmittedForCurrentTurn = true;
       this.emitEvent({ type: "final", text: finalText });
       return;
     }
+
+    // During the stop() grace period we still accumulate text (above)
+    // so any flushed final is complete, but we suppress partials — the
+    // session orchestrator does not want interleaved partials between
+    // stop() and the final emission.
+    if (this.stopping) return;
 
     // Otherwise emit a partial only if text has changed.
     if (
@@ -462,13 +494,24 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Flush any pending transcription as a final event, then close. Used
    * when the provider closes normally after stop() or when the close
    * grace timer fires.
+   *
+   * Avoids emitting a spurious empty-string final when the server
+   * already emitted a completion signal (`turnComplete` / `finished` /
+   * `generationComplete`) for the current turn before closing — that
+   * path already emitted the final and drained the accumulator. The
+   * stream contract callers (e.g. Meet's storage-writer) would write
+   * an empty transcript line on the extra final, so we suppress it.
    */
   private flushFinalAndClose(): void {
     if (this.closed) return;
     const pending = this.currentTurnText;
+    const alreadyEmitted = this.finalEmittedForCurrentTurn;
     this.currentTurnText = "";
     this.lastEmittedPartial = "";
-    this.emitEvent({ type: "final", text: pending });
+    this.finalEmittedForCurrentTurn = false;
+    if (!(alreadyEmitted && pending.length === 0)) {
+      this.emitEvent({ type: "final", text: pending });
+    }
     this.emitClosedAndCleanup();
   }
 
@@ -547,13 +590,18 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   /**
    * Normalize generic PCM MIME types to include the sample-rate hint that
    * Gemini Live requires. Passes non-PCM MIME types through unchanged.
+   *
+   * When the input lacks a `rate=` parameter, we append `;rate=<N>` to
+   * the original string rather than rebuilding from scratch, so
+   * auxiliary parameters (e.g. `encoding=linear16`) and the caller's
+   * original casing are preserved.
    */
   private normalizePcmMimeType(mimeType: string): string {
     const base = mimeType.split(";")[0].trim().toLowerCase();
     if (base !== "audio/pcm") return mimeType;
     // Preserve an explicit rate= parameter if the caller supplied one.
     if (/rate\s*=\s*\d+/i.test(mimeType)) return mimeType;
-    return `audio/pcm;rate=${this.pcmSampleRate}`;
+    return `${mimeType};rate=${this.pcmSampleRate}`;
   }
 
   /**
