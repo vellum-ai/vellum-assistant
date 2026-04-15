@@ -23,7 +23,8 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import type { TtsProvider } from "../tts/types.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
+import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
@@ -833,13 +834,37 @@ export class CallController {
           "TTS synthesis aborted (barge-in)",
         );
       } else {
+        // Extract error class and code for diagnosable log entries.
+        const errName = err instanceof Error ? err.name : String(err);
+        const errCode =
+          err instanceof Error && "code" in err
+            ? (err as Error & { code?: string }).code
+            : undefined;
+
+        // `allowNativeFallback` controls whether the LLM's original
+        // response text should be sent via native Twilio token-based
+        // TTS when synthesis fails. When false (e.g. Deepgram), the
+        // error is re-thrown so the outer catch handler sends a
+        // generic recovery message via native TTS instead — the
+        // caller still hears *something*, but not the LLM's text
+        // rendered in a mismatched voice.
+        const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
+        if (!catalogEntry.allowNativeFallback) {
+          log.error(
+            { err, provider: provider.id, errName, errCode },
+            "TTS synthesis failed — native fallback disabled for this provider",
+          );
+          throw err;
+        }
+
         log.error(
-          { err, provider: provider.id },
-          "TTS synthesis failed — skipping",
+          { err, provider: provider.id, errName, errCode },
+          "TTS synthesis failed — falling back to native token TTS",
         );
         // If synthesis fails before any audio has started, degrade to
         // token-based speech on ConversationRelay so the caller still
-        // hears a response instead of silence.
+        // hears a response instead of silence. This fallback is only
+        // used for providers whose catalog entry allows native fallback.
         if (!playUrlSent && !this.transport.requiresWavAudio) {
           this.transport.sendTextToken(text, false);
         }

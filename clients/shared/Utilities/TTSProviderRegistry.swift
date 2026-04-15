@@ -16,6 +16,20 @@ public enum TTSProviderSetupMode: String, Decodable {
     case cli
 }
 
+/// How the provider's API key is stored and looked up.
+///
+/// - `credential`: Stored as a service/field pair via
+///   `APIKeyManager.setCredential(_:service:field:)`. The `credentialNamespace`
+///   field on the catalog entry supplies the service name; the field is always
+///   `"api_key"`.
+/// - `apiKey`: Stored as a flat provider key via
+///   `APIKeyManager.setKey(_:for:)`. The `apiKeyProviderName` field on the
+///   catalog entry supplies the key name.
+public enum TTSCredentialMode: String, Decodable {
+    case credential
+    case apiKey = "api-key"
+}
+
 /// Guide for obtaining API credentials from a TTS provider.
 ///
 /// Contains a short description of the steps, a URL to the provider's
@@ -32,10 +46,10 @@ public struct TTSCredentialsGuide: Decodable {
 /// A single entry in the client-facing TTS provider catalog.
 ///
 /// This struct captures the subset of provider metadata that client apps
-/// need for display and setup UX — identity, display strings, and hints
-/// about how the provider is configured.
+/// need for display and setup UX — identity, display strings, hints
+/// about how the provider is configured, and credential storage semantics.
 public struct TTSProviderCatalogEntry: Decodable {
-    /// Unique provider identifier (e.g. `"elevenlabs"`, `"fish-audio"`).
+    /// Unique provider identifier (e.g. `"elevenlabs"`, `"fish-audio"`, `"deepgram"`).
     public let id: String
     /// Human-readable name for display in settings UI.
     public let displayName: String
@@ -45,8 +59,77 @@ public struct TTSProviderCatalogEntry: Decodable {
     public let setupMode: TTSProviderSetupMode
     /// Brief help text guiding the user through setup.
     public let setupHint: String
+    /// How the provider's API key is stored — as a credential (service/field
+    /// pair) or as a flat provider key. Defaults to `.credential` for
+    /// backwards compatibility with existing providers.
+    public let credentialMode: TTSCredentialMode
+    /// The credential service name used when `credentialMode` is `.credential`.
+    /// For example, `"elevenlabs"` maps to
+    /// `APIKeyManager.getCredential(service: "elevenlabs", field: "api_key")`.
+    /// `nil` when the provider uses api-key mode.
+    public let credentialNamespace: String?
+    /// The key provider name used when `credentialMode` is `.apiKey`.
+    /// For example, `"deepgram"` maps to `APIKeyManager.getKey(for: "deepgram")`.
+    /// When a TTS provider shares an API key with another service (e.g.
+    /// Deepgram TTS shares the `deepgram` key with Deepgram STT), this
+    /// field names the shared credential.
+    /// `nil` when the provider uses credential mode.
+    public let apiKeyProviderName: String?
+    /// Whether this provider supports user-specified voice selection
+    /// (e.g. a Voice ID or Reference ID field). Providers that use a
+    /// built-in default model and do not expose voice selection should
+    /// set this to `false`. Defaults to `false` when omitted from the
+    /// catalog JSON.
+    public let supportsVoiceSelection: Bool
     /// Guide for obtaining API credentials from this provider.
     public let credentialsGuide: TTSCredentialsGuide?
+
+    // Custom decoder so that `supportsVoiceSelection` defaults to `false`
+    // when absent from the catalog JSON (backward compatibility).
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, subtitle, setupMode, setupHint
+        case credentialMode, credentialNamespace, apiKeyProviderName
+        case supportsVoiceSelection, credentialsGuide
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        subtitle = try c.decode(String.self, forKey: .subtitle)
+        setupMode = try c.decode(TTSProviderSetupMode.self, forKey: .setupMode)
+        setupHint = try c.decode(String.self, forKey: .setupHint)
+        credentialMode = try c.decode(TTSCredentialMode.self, forKey: .credentialMode)
+        credentialNamespace = try c.decodeIfPresent(String.self, forKey: .credentialNamespace)
+        apiKeyProviderName = try c.decodeIfPresent(String.self, forKey: .apiKeyProviderName)
+        supportsVoiceSelection = try c.decodeIfPresent(Bool.self, forKey: .supportsVoiceSelection) ?? false
+        credentialsGuide = try c.decodeIfPresent(TTSCredentialsGuide.self, forKey: .credentialsGuide)
+    }
+
+    /// Memberwise initializer for programmatic construction (e.g. fallback registry).
+    public init(
+        id: String,
+        displayName: String,
+        subtitle: String,
+        setupMode: TTSProviderSetupMode,
+        setupHint: String,
+        credentialMode: TTSCredentialMode,
+        credentialNamespace: String?,
+        apiKeyProviderName: String?,
+        supportsVoiceSelection: Bool = false,
+        credentialsGuide: TTSCredentialsGuide?
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.subtitle = subtitle
+        self.setupMode = setupMode
+        self.setupHint = setupHint
+        self.credentialMode = credentialMode
+        self.credentialNamespace = credentialNamespace
+        self.apiKeyProviderName = apiKeyProviderName
+        self.supportsVoiceSelection = supportsVoiceSelection
+        self.credentialsGuide = credentialsGuide
+    }
 }
 
 /// Top-level schema for `tts-provider-catalog.json`.
@@ -78,6 +161,10 @@ private let fallbackRegistry = TTSProviderRegistry(
             subtitle: "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
             setupMode: .apiKey,
             setupHint: "Enter your ElevenLabs API key to get started.",
+            credentialMode: .credential,
+            credentialNamespace: "elevenlabs",
+            apiKeyProviderName: nil,
+            supportsVoiceSelection: true,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
                 url: "https://elevenlabs.io/app/settings/api-keys",
@@ -90,10 +177,30 @@ private let fallbackRegistry = TTSProviderRegistry(
             subtitle: "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
             setupMode: .cli,
             setupHint: "Run the setup commands in your terminal to configure Fish Audio.",
+            credentialMode: .credential,
+            credentialNamespace: "fish-audio",
+            apiKeyProviderName: nil,
+            supportsVoiceSelection: true,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
                 url: "https://fish.audio/app/api-keys/",
                 linkLabel: "Open Fish Audio API Keys"
+            )
+        ),
+        TTSProviderCatalogEntry(
+            id: "deepgram",
+            displayName: "Deepgram",
+            subtitle: "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+            setupMode: .cli,
+            setupHint: "Run the setup command in your terminal to configure your Deepgram API key.",
+            credentialMode: .apiKey,
+            credentialNamespace: nil,
+            apiKeyProviderName: "deepgram",
+            supportsVoiceSelection: false,
+            credentialsGuide: TTSCredentialsGuide(
+                description: "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
+                url: "https://console.deepgram.com/",
+                linkLabel: "Open Deepgram Console"
             )
         ),
     ]

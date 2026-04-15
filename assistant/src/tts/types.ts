@@ -16,7 +16,11 @@
  * (e.g. `"elevenlabs"`, `"fish-audio"`). New providers simply add a new
  * string to this union — the registry enforces uniqueness at runtime.
  */
-export type TtsProviderId = "elevenlabs" | "fish-audio" | (string & {});
+export type TtsProviderId =
+  | "elevenlabs"
+  | "fish-audio"
+  | "deepgram"
+  | (string & {});
 
 // ---------------------------------------------------------------------------
 // Call-mode discriminator

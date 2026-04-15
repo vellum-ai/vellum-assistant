@@ -16,7 +16,8 @@
 
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
-import type { TtsProvider } from "../tts/types.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
+import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
@@ -69,8 +70,14 @@ export function speakSystemPrompt(
 
 /**
  * Synthesize text via a streaming TTS provider and send the play URL
- * to the relay. Falls back to sendTextToken on synthesis failure so the
- * caller always hears something.
+ * to the relay.
+ *
+ * On synthesis failure the behavior depends on the provider:
+ * - Providers with a native Twilio TTS fallback (e.g. Fish Audio) fall
+ *   back to `sendTextToken(text)` so the caller still hears the message.
+ * - Providers without a native fallback (e.g. Deepgram) log the error
+ *   and send only an empty end-of-turn signal — the caller hears nothing
+ *   but the relay transitions back to listening state.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
@@ -140,12 +147,42 @@ async function synthesizeAndPlay(
     // "caller speaking" state.
     relay.sendTextToken("", true);
   } catch (err) {
+    // Extract error class and code for diagnosable log entries.
+    const errName = err instanceof Error ? err.name : String(err);
+    const errCode =
+      err instanceof Error && "code" in err
+        ? (err as Error & { code?: string }).code
+        : undefined;
+
+    // `allowNativeFallback` controls whether the system prompt text
+    // should be sent via native Twilio token-based TTS when synthesis
+    // fails. When false (e.g. Deepgram), the design choice is to
+    // send only an end-of-turn signal — the caller hears nothing for
+    // this prompt — rather than degrading to a mismatched voice.
+    // Callers use fire-and-forget (`void speakSystemPrompt(...)`) so
+    // throwing here would produce an unhandled promise rejection.
+    const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
+    if (!catalogEntry.allowNativeFallback) {
+      log.error(
+        { err, provider: provider.id, errName, errCode },
+        "System prompt TTS synthesis failed — native fallback disabled for this provider",
+      );
+      // Send the end-of-turn signal so ConversationRelay transitions from
+      // "assistant speaking" to "caller speaking" state. Without this, the
+      // relay hangs waiting for the prompt to complete and the caller
+      // cannot interact.
+      relay.sendTextToken("", true);
+      return;
+    }
+
     log.error(
-      { err, provider: provider.id },
+      { err, provider: provider.id, errName, errCode },
       "System prompt TTS synthesis failed — falling back to native TTS",
     );
     // Fallback: send text via native TTS so the caller still hears the message.
     // sendTextToken with last:true includes the end-of-turn signal inherently.
+    // This fallback is only used for providers whose catalog entry allows
+    // native fallback.
     relay.sendTextToken(text, true);
   } finally {
     handle?.finalize();

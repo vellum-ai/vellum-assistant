@@ -213,12 +213,14 @@ export {
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
 export type {
+  TtsDeepgramProviderConfig,
   TtsElevenLabsProviderConfig,
   TtsFishAudioProviderConfig,
   TtsProviders,
   TtsService,
 } from "./schemas/tts.js";
 export {
+  TtsDeepgramProviderConfigSchema,
   TtsElevenLabsProviderConfigSchema,
   TtsFishAudioProviderConfigSchema,
   TtsProvidersSchema,

@@ -154,3 +154,30 @@ describe("Fish Audio catalog entry", () => {
     expect(apiKeySecret!.displayName).toContain("Fish Audio");
   });
 });
+
+describe("Deepgram catalog entry", () => {
+  const entry = getCatalogProvider("deepgram");
+
+  test("uses synthesized-play call mode", () => {
+    expect(entry.callMode).toBe("synthesized-play");
+  });
+
+  test("does not support streaming", () => {
+    expect(entry.capabilities.supportsStreaming).toBe(false);
+  });
+
+  test("supports mp3, wav, and opus formats", () => {
+    expect(entry.capabilities.supportedFormats).toContain("mp3");
+    expect(entry.capabilities.supportedFormats).toContain("wav");
+    expect(entry.capabilities.supportedFormats).toContain("opus");
+  });
+
+  test("requires a bare API key stored under 'deepgram'", () => {
+    const apiKeySecret = entry.secretRequirements.find(
+      (s) => s.credentialStoreKey === "deepgram",
+    );
+    expect(apiKeySecret).toBeDefined();
+    expect(apiKeySecret!.displayName).toContain("Deepgram");
+    expect(apiKeySecret!.setCommand).toContain("assistant keys set deepgram");
+  });
+});

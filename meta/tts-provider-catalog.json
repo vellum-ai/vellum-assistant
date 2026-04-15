@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "providers": [
     {
       "id": "elevenlabs",
@@ -7,6 +7,9 @@
       "subtitle": "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
       "setupMode": "cli",
       "setupHint": "Run the setup commands in your terminal to configure ElevenLabs credentials.",
+      "credentialMode": "credential",
+      "credentialNamespace": "elevenlabs",
+      "supportsVoiceSelection": true,
       "credentialsGuide": {
         "description": "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
         "url": "https://elevenlabs.io/app/settings/api-keys",
@@ -19,10 +22,28 @@
       "subtitle": "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
       "setupMode": "cli",
       "setupHint": "Run the setup commands in your terminal to configure Fish Audio.",
+      "credentialMode": "credential",
+      "credentialNamespace": "fish-audio",
+      "supportsVoiceSelection": true,
       "credentialsGuide": {
         "description": "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
         "url": "https://fish.audio/app/api-keys/",
         "linkLabel": "Open Fish Audio API Keys"
+      }
+    },
+    {
+      "id": "deepgram",
+      "displayName": "Deepgram",
+      "subtitle": "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+      "setupMode": "cli",
+      "setupHint": "Run the setup command in your terminal to configure your Deepgram API key.",
+      "credentialMode": "api-key",
+      "apiKeyProviderName": "deepgram",
+      "supportsVoiceSelection": false,
+      "credentialsGuide": {
+        "description": "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
+        "url": "https://console.deepgram.com/",
+        "linkLabel": "Open Deepgram Console"
       }
     }
   ]

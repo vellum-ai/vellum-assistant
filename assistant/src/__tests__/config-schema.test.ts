@@ -1009,6 +1009,10 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers["fish-audio"].chunkLength).toBe(200);
     expect(result.services.tts.providers["fish-audio"].format).toBe("mp3");
     expect(result.services.tts.providers["fish-audio"].speed).toBe(1.0);
+    expect(result.services.tts.providers.deepgram.model).toBe(
+      "aura-asteria-en",
+    );
+    expect(result.services.tts.providers.deepgram.format).toBe("mp3");
   });
 
   test("accepts valid services.tts provider override", () => {
@@ -1016,6 +1020,14 @@ describe("AssistantConfigSchema", () => {
       services: { tts: { provider: "fish-audio" } },
     });
     expect(result.services.tts.provider).toBe("fish-audio");
+    expect(result.services.tts.mode).toBe("your-own");
+  });
+
+  test("accepts deepgram as services.tts.provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: { tts: { provider: "deepgram" } },
+    });
+    expect(result.services.tts.provider).toBe("deepgram");
     expect(result.services.tts.mode).toBe("your-own");
   });
 
@@ -1053,6 +1065,20 @@ describe("AssistantConfigSchema", () => {
     expect(result.services.tts.providers["fish-audio"].format).toBe("wav");
     // Defaults preserved
     expect(result.services.tts.providers["fish-audio"].chunkLength).toBe(200);
+  });
+
+  test("accepts valid services.tts.providers.deepgram overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        tts: {
+          providers: {
+            deepgram: { model: "aura-luna-en", format: "opus" },
+          },
+        },
+      },
+    });
+    expect(result.services.tts.providers.deepgram.model).toBe("aura-luna-en");
+    expect(result.services.tts.providers.deepgram.format).toBe("opus");
   });
 
   test("rejects services.tts.mode = managed", () => {

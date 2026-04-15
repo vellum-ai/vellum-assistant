@@ -902,52 +902,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveElevenLabsKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
-        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
-        Task {
-            let result = await APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
-            if result.success {
-                onSuccess?()
-            } else if let error = result.error {
-                log.error("Failed to sync ElevenLabs key to daemon: \(error, privacy: .public)")
-            }
-        }
-    }
-
-    func clearElevenLabsKey() {
-        APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
-        Task {
-            let deleted = await APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
-            if !deleted { addDeletionTombstone(type: "credential", name: "elevenlabs:api_key") }
-        }
-    }
-
-    func saveFishAudioKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
-        removeDeletionTombstone(type: "credential", name: "fish-audio:api_key")
-        Task {
-            let result = await APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
-            if result.success {
-                onSuccess?()
-            } else if let error = result.error {
-                log.error("Failed to sync Fish Audio key to daemon: \(error, privacy: .public)")
-            }
-        }
-    }
-
-    func clearFishAudioKey() {
-        APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
-        Task {
-            let deleted = await APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
-            if !deleted { addDeletionTombstone(type: "credential", name: "fish-audio:api_key") }
-        }
-    }
-
     func clearAPIKeyForProvider(_ provider: String) {
         APIKeyManager.deleteKey(for: provider)
         scheduleRoutingSourceRefresh()
@@ -3114,9 +3068,11 @@ public final class SettingsStore: ObservableObject {
     /// safely have their key cleared through the STT reset flow without
     /// affecting other features.
     ///
-    /// A provider's key is exclusive when its `apiKeyProviderName` matches its
-    /// own `id` (e.g. `deepgram` → `deepgram`). Shared-key providers map to a
-    /// different credential name (e.g. `openai-whisper` → `openai`).
+    /// A provider's key is non-exclusive when either:
+    /// 1. Its `apiKeyProviderName` differs from its `id` (e.g.
+    ///    `openai-whisper` → `openai`), meaning the key is shared within STT.
+    /// 2. A TTS provider also references the same key name (e.g.
+    ///    `deepgram` STT + `deepgram` TTS both use the `deepgram` key).
     ///
     /// This helper is provider-agnostic: adding a new provider only requires a
     /// catalog entry — no new conditionals here or in the UI layer.
@@ -3127,7 +3083,10 @@ public final class SettingsStore: ObservableObject {
             // key cannot collide with a known service.
             return true
         }
-        return entry.apiKeyProviderName == entry.id
+        // First check: different key name means shared within STT scope.
+        guard entry.apiKeyProviderName == entry.id else { return false }
+        // Second check: same key name but might be shared with a TTS provider.
+        return !Self.isApiKeySharedAcrossServices(entry.apiKeyProviderName)
     }
 
     /// Whether the given STT provider's API key is shared with another
@@ -3138,6 +3097,146 @@ public final class SettingsStore: ObservableObject {
     /// that depends on it.
     static func sttKeyIsShared(for sttProviderId: String) -> Bool {
         !sttKeyIsExclusive(for: sttProviderId)
+    }
+
+    // MARK: - TTS Credential Mapping
+
+    /// Checks whether a TTS credential exists for the given provider using
+    /// the registry's credential metadata. Credential-mode providers are
+    /// looked up via `APIKeyManager.getCredential(service:field:)`; api-key
+    /// mode providers via `APIKeyManager.getKey(for:)`.
+    static func ttsCredentialExists(for ttsProviderId: String) -> Bool {
+        let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
+        guard let entry else { return false }
+        switch entry.credentialMode {
+        case .credential:
+            let namespace = entry.credentialNamespace ?? entry.id
+            return APIKeyManager.getCredential(service: namespace, field: "api_key") != nil
+        case .apiKey:
+            let keyProvider = entry.apiKeyProviderName ?? entry.id
+            return APIKeyManager.getKey(for: keyProvider) != nil
+        }
+    }
+
+    /// Saves a TTS API key for the given provider using the registry's
+    /// credential metadata to route to the correct storage mechanism.
+    func saveTTSKey(_ raw: String, ttsProviderId: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
+        guard let entry else {
+            log.warning("Unknown TTS provider \(ttsProviderId, privacy: .public) — cannot save key")
+            return
+        }
+        switch entry.credentialMode {
+        case .credential:
+            let namespace = entry.credentialNamespace ?? entry.id
+            APIKeyManager.setCredential(trimmed, service: namespace, field: "api_key")
+            removeDeletionTombstone(type: "credential", name: "\(namespace):api_key")
+            Task {
+                let result = await APIKeyManager.setCredential(trimmed, service: namespace, field: "api_key")
+                if result.success {
+                    onSuccess?()
+                } else if let error = result.error {
+                    log.error("Failed to sync TTS key for \(ttsProviderId, privacy: .public): \(error, privacy: .public)")
+                }
+            }
+        case .apiKey:
+            let keyProvider = entry.apiKeyProviderName ?? entry.id
+            APIKeyManager.setKey(trimmed, for: keyProvider)
+            removeDeletionTombstone(type: "api_key", name: keyProvider)
+            Task {
+                let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
+                if result.success {
+                    onSuccess?()
+                } else if let error = result.error {
+                    log.error("Failed to sync TTS key for \(ttsProviderId, privacy: .public): \(error, privacy: .public)")
+                }
+            }
+        }
+    }
+
+    /// Clears the stored TTS credential for the given provider using the
+    /// registry's credential metadata to route to the correct storage.
+    func clearTTSKey(ttsProviderId: String) {
+        let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
+        guard let entry else { return }
+        switch entry.credentialMode {
+        case .credential:
+            let namespace = entry.credentialNamespace ?? entry.id
+            APIKeyManager.deleteCredential(service: namespace, field: "api_key")
+            Task {
+                let deleted = await APIKeyManager.deleteCredential(service: namespace, field: "api_key")
+                if !deleted { addDeletionTombstone(type: "credential", name: "\(namespace):api_key") }
+            }
+        case .apiKey:
+            let keyProvider = entry.apiKeyProviderName ?? entry.id
+            APIKeyManager.deleteKey(for: keyProvider)
+            Task {
+                let deleted = await APIKeyManager.deleteKey(for: keyProvider)
+                if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
+            }
+        }
+    }
+
+    /// Whether the given TTS provider owns its API key exclusively — i.e. the
+    /// key is not shared with any other service. Exclusive-key providers can
+    /// safely have their key cleared through the TTS reset flow without
+    /// affecting other features.
+    ///
+    /// Credential-mode providers (ElevenLabs, Fish Audio) are always exclusive
+    /// because their credential namespace is provider-specific. Api-key mode
+    /// providers are exclusive when their `apiKeyProviderName` matches their
+    /// own `id` — shared-key providers map to a different name (e.g. a
+    /// hypothetical provider sharing the `openai` key).
+    ///
+    /// Deepgram TTS uses api-key mode with `apiKeyProviderName: "deepgram"`.
+    /// The key is shared with Deepgram STT, so the TTS card should not offer
+    /// a destructive reset — clearing the key would break STT. The sharing is
+    /// detected because another service (STT) also references the `deepgram`
+    /// key provider name.
+    static func ttsKeyIsExclusive(for ttsProviderId: String) -> Bool {
+        let entry = loadTTSProviderRegistry().provider(withId: ttsProviderId)
+        guard let entry else {
+            // Unknown providers are assumed exclusive — clearing an unknown
+            // key cannot collide with a known service.
+            return true
+        }
+        switch entry.credentialMode {
+        case .credential:
+            // Credential-mode providers use their own namespace — always exclusive.
+            return true
+        case .apiKey:
+            // Api-key mode: check whether the key name is shared across services.
+            // Deepgram TTS shares its key with Deepgram STT, so it is NOT exclusive.
+            let keyProvider = entry.apiKeyProviderName ?? entry.id
+            return !Self.isApiKeySharedAcrossServices(keyProvider)
+        }
+    }
+
+    /// Whether the given TTS provider's API key is shared with another
+    /// service. The inverse of `ttsKeyIsExclusive(for:)`.
+    static func ttsKeyIsShared(for ttsProviderId: String) -> Bool {
+        !ttsKeyIsExclusive(for: ttsProviderId)
+    }
+
+    /// Checks whether a given API key provider name is used by both a TTS and
+    /// an STT provider, indicating a cross-service shared credential.
+    ///
+    /// Checks both registries so the result is symmetric — calling this from
+    /// either `sttKeyIsExclusive` or `ttsKeyIsExclusive` correctly detects
+    /// cross-service sharing (e.g. deepgram STT + deepgram TTS).
+    private static func isApiKeySharedAcrossServices(_ keyProviderName: String) -> Bool {
+        let sttRegistry = loadSTTProviderRegistry()
+        let sttUsesKey = sttRegistry.providers.contains { entry in
+            entry.apiKeyProviderName == keyProviderName
+        }
+        let ttsRegistry = loadTTSProviderRegistry()
+        let ttsUsesKey = ttsRegistry.providers.contains { entry in
+            guard entry.credentialMode == .apiKey else { return false }
+            return (entry.apiKeyProviderName ?? entry.id) == keyProviderName
+        }
+        return sttUsesKey && ttsUsesKey
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
