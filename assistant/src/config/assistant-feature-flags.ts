@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -181,7 +182,6 @@ function loadOverridesFromFile(): Record<string, boolean> {
  */
 async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
   try {
-    const { ipcGetFeatureFlags } = await import("../ipc/gateway-client.js");
     return await ipcGetFeatureFlags();
   } catch {
     return {};

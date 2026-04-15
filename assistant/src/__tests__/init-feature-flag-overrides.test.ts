@@ -1,8 +1,67 @@
 /**
  * Tests for initFeatureFlagOverrides() — the async IPC call that
  * pre-populates the feature flag cache before CLI program construction.
+ *
+ * Mocks `node:net` so the real gateway-client.ts code is exercised
+ * without needing a live gateway socket.
  */
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Fake socket that simulates the gateway IPC protocol.
+// ---------------------------------------------------------------------------
+
+/** Feature flag values the fake gateway will return. */
+let ipcResult: Record<string, boolean> = {};
+
+/** Whether the fake socket should simulate a connection error. */
+let simulateError = false;
+
+class FakeSocket extends EventEmitter {
+  unref() {
+    /* no-op */
+  }
+  destroy() {
+    /* no-op */
+  }
+  write(data: string) {
+    // Parse the incoming IPC request and respond with the configured flags.
+    try {
+      const req = JSON.parse(data.trim());
+      const response = JSON.stringify({
+        id: req.id,
+        result: ipcResult,
+      });
+      // Respond asynchronously (next tick), matching real socket behaviour.
+      queueMicrotask(() => {
+        this.emit("data", Buffer.from(response + "\n"));
+      });
+    } catch {
+      // Malformed request — ignore
+    }
+  }
+}
+
+mock.module("node:net", () => {
+  return {
+    connect(_path: string) {
+      const socket = new FakeSocket();
+      // Simulate async connect / error on next tick
+      queueMicrotask(() => {
+        if (simulateError) {
+          const err = new Error("ENOENT") as NodeJS.ErrnoException;
+          err.code = "ENOENT";
+          socket.emit("error", err);
+          socket.emit("close");
+        } else {
+          socket.emit("connect");
+        }
+      });
+      return socket;
+    },
+  };
+});
 
 import {
   clearFeatureFlagOverridesCache,
@@ -10,25 +69,16 @@ import {
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
 
-// ---------------------------------------------------------------------------
-// Mock the IPC gateway client so no real socket is needed.
-// ---------------------------------------------------------------------------
-
-let ipcResult: Record<string, boolean> = {};
-
-mock.module("../ipc/gateway-client.js", () => ({
-  ipcGetFeatureFlags: () => Promise.resolve(ipcResult),
-  ipcCall: () => Promise.resolve(undefined),
-}));
-
 beforeEach(() => {
   clearFeatureFlagOverridesCache();
   ipcResult = {};
+  simulateError = false;
 });
 
 afterEach(() => {
   clearFeatureFlagOverridesCache();
   ipcResult = {};
+  simulateError = false;
 });
 
 describe("initFeatureFlagOverrides", () => {
@@ -42,8 +92,8 @@ describe("initFeatureFlagOverrides", () => {
     expect(isAssistantFeatureFlagEnabled("bar-enabled", config)).toBe(true);
   });
 
-  it("falls back gracefully when gateway IPC returns empty", async () => {
-    ipcResult = {};
+  it("falls back gracefully when gateway socket is unavailable", async () => {
+    simulateError = true;
 
     // Should not throw
     await initFeatureFlagOverrides();
