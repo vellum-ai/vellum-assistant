@@ -42,7 +42,6 @@ KNOWN_BROKEN_FILES=(
   "backup-routes.test.ts"
   "connect.test.ts"
   "credentials-cli.test.ts"
-  "disconnect.test.ts"
   "email-attachment.test.ts"
   "email-download.test.ts"
   "email-list.test.ts"
