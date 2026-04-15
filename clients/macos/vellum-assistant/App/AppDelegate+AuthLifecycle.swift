@@ -418,6 +418,28 @@ extension AppDelegate {
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
+                // Non-Vellum users are capped at one local assistant. When the
+                // platform rejects this registration with 400, the bootstrap
+                // surfaces the existing assistant so we can prompt the user to
+                // retire it and retry.
+                if let bootstrapError = error as? LocalBootstrapError,
+                   case .existingRegistrationConflict(let existing, let organizationId) = bootstrapError {
+                    let didRetire = await self.presentExistingRegistrationConflict(
+                        existing: existing,
+                        organizationId: organizationId
+                    )
+                    if didRetire {
+                        log.info("Retired conflicting assistant — retrying local bootstrap")
+                        self.ensureLocalAssistantApiKey()
+                        return
+                    }
+                    log.info("User cancelled conflict retire; abandoning local bootstrap")
+                    self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
+                    NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+                    return
+                }
+
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
@@ -428,6 +450,44 @@ extension AppDelegate {
                     copyableDetail: error.localizedDescription
                 )
             }
+        }
+    }
+
+    /// Prompts the user to retire an existing local-assistant registration
+    /// that's blocking this device's registration, then performs the retire.
+    /// Returns true if the user confirmed and the retire succeeded — the
+    /// caller should retry the bootstrap. Returns false if the user cancelled
+    /// or the retire failed (a follow-up alert is shown on failure).
+    @MainActor
+    private func presentExistingRegistrationConflict(
+        existing: PlatformAssistant,
+        organizationId: String
+    ) async -> Bool {
+        let label = existing.name ?? existing.id
+        let alert = NSAlert()
+        alert.messageText = "Another Assistant Is Already Registered"
+        alert.informativeText = "\"\(label)\" is currently registered to your account. Retire it to register this assistant in its place."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retire & Continue")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return false
+        }
+        do {
+            try await AuthService.shared.retireSelfHostedLocalAssistant(
+                platformAssistantId: existing.id,
+                organizationId: organizationId
+            )
+            return true
+        } catch {
+            log.error("Failed to retire conflicting assistant: \(error.localizedDescription)")
+            let failureAlert = NSAlert()
+            failureAlert.messageText = "Could Not Retire Assistant"
+            failureAlert.informativeText = error.localizedDescription
+            failureAlert.alertStyle = .warning
+            failureAlert.addButton(withTitle: "OK")
+            failureAlert.runModal()
+            return false
         }
     }
 

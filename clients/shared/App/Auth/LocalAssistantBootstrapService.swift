@@ -18,6 +18,11 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     case provisioningFailed(String)
     case assistantInjectionFailed
     case multipleOrganizations
+    /// The user already has a different local assistant registered with the
+    /// platform. Carries the existing assistant so the UI can offer to retire
+    /// it and retry. Also carries the organization ID needed for the retire
+    /// call so callers don't have to re-resolve it.
+    case existingRegistrationConflict(existing: PlatformAssistant, organizationId: String)
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +36,9 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "Failed to inject API key into the assistant"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+        case .existingRegistrationConflict(let existing, _):
+            let label = existing.name ?? existing.id
+            return "Another local assistant (\(label)) is already registered to your account."
         }
     }
 }
@@ -131,6 +139,16 @@ public final class LocalAssistantBootstrapService {
                 assistantVersion: assistantVersion
             )
         } catch let error as PlatformAPIError {
+            // Non-Vellum users are capped at one local assistant; the platform
+            // returns 400 when a different runtime tries to register. Resolve
+            // the existing registration so the UI can offer to retire it.
+            if case .serverError(400, _) = error,
+               let existing = try? await firstExistingLocalAssistant(organizationId: organizationId) {
+                throw LocalBootstrapError.existingRegistrationConflict(
+                    existing: existing,
+                    organizationId: organizationId
+                )
+            }
             throw mapPlatformError(error, context: .registration)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
@@ -352,6 +370,15 @@ public final class LocalAssistantBootstrapService {
     private func resolveUserId() async throws -> String? {
         let session = try await authService.getSession()
         return session.data?.user?.id
+    }
+
+    /// Returns the first self-hosted local assistant the caller has registered
+    /// in the given organization, or nil if the list is empty / the request fails.
+    /// Used to resolve the conflicting registration after a 400 from
+    /// ensure-registration.
+    private func firstExistingLocalAssistant(organizationId: String) async throws -> PlatformAssistant? {
+        let assistants = try await authService.listSelfHostedLocalAssistants(organizationId: organizationId)
+        return assistants.first
     }
 
     private enum ErrorContext {
