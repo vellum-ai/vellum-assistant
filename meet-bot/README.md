@@ -33,3 +33,41 @@ To build the container image (requires Docker):
 ```bash
 ./scripts/build-meet-bot-image.sh
 ```
+
+## Refreshing Meet DOM fixtures
+
+The bot interacts with Google Meet through CSS/attribute selectors centralized in
+`src/browser/dom-selectors.ts`. Because Meet's web UI drifts without notice,
+we commit HTML fixtures in `__tests__/fixtures/` and test every selector
+against those fixtures. The shipped fixtures are **plausible approximations**
+of Meet's DOM authored by hand — they exercise the selectors but are not
+literal snapshots.
+
+When Meet's UI changes (failing tests, broken bot behavior in production, or
+just on a scheduled cadence), a human developer should refresh the fixtures
+against a live Meet session. The refresh procedure:
+
+1. **Join a real Google Meet** with at least two participants (one speaking,
+   one sharing screen if the presenter indicator needs verification). Use a
+   throwaway test meeting, not a live customer call.
+2. **Capture outer-HTML** of the relevant DOM regions via Chrome DevTools:
+   - Prejoin: right-click the prejoin panel root → Inspect → copy outer HTML
+     into `__tests__/fixtures/meet-dom-prejoin.html`.
+   - In-meeting: capture the main meeting grid + toolbar + participant panel
+     into `__tests__/fixtures/meet-dom-ingame.html`.
+   - Chat: open the chat panel, send one test message, then capture the
+     panel into `__tests__/fixtures/meet-dom-chat.html`.
+   - Scrub any real names, avatars, message content, and meeting IDs from the
+     captured HTML — the fixtures are committed to the public repo.
+3. **Update `GOOGLE_MEET_SELECTOR_VERSION`** in `src/browser/dom-selectors.ts`
+   to today's ISO date (`YYYY-MM-DD`). This records which Meet revision the
+   selectors are calibrated against.
+4. **Re-run the selector tests**:
+   ```bash
+   bun test __tests__/dom-selectors.test.ts
+   ```
+5. **Fix any selector drift.** Selectors marked `// TODO(meet-dom)` are the
+   most likely to need adjustment — they are the ones we already knew were
+   best-guesses. Update the selector constant, re-run the test, and commit
+   the combined fixture-plus-selector refresh in a single PR so the diff is
+   reviewable as one unit.

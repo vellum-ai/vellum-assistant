@@ -102,6 +102,11 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
+export type { MeetService } from "./schemas/meet.js";
+export {
+  DEFAULT_MEET_OBJECTION_KEYWORDS,
+  MeetServiceSchema,
+} from "./schemas/meet.js";
 export type { MemoryConfig } from "./schemas/memory.js";
 export { MemoryConfigSchema } from "./schemas/memory.js";
 export type {
@@ -138,11 +143,6 @@ export {
   MemorySegmentationConfigSchema,
   QdrantConfigSchema,
 } from "./schemas/memory-storage.js";
-export type { MeetService } from "./schemas/meet.js";
-export {
-  DEFAULT_MEET_OBJECTION_KEYWORDS,
-  MeetServiceSchema,
-} from "./schemas/meet.js";
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
 export type {

@@ -46,6 +46,12 @@ RUN bunx playwright install chromium
 
 COPY src ./src
 
+# The PulseAudio bootstrap script is shelled out to at container start by
+# `src/media/pulse.ts`; ensure the executable bit is set in the image so the
+# runtime `bash` invocation succeeds. The script is NOT run at build time —
+# PulseAudio needs a live container environment (runtime, not image layer).
+RUN chmod +x /app/src/media/pulse-setup.sh
+
 # The placeholder probe lives at src/health.ts and exits 0; real health
 # logic lands in a later PR (see meet-phase-1 plan PR 8).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
