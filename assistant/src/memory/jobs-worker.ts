@@ -7,6 +7,7 @@ import {
   markScheduledCleanupEnqueued,
   resetCleanupScheduleThrottle as resetCleanupScheduleThrottleImpl,
 } from "./cleanup-schedule-state.js";
+import { conversationAnalyzeJob } from "./conversation-analyze-job.js";
 import { maybeRunDbMaintenance } from "./db-maintenance.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
@@ -424,6 +425,9 @@ async function processJob(
       return;
     case "graph_extract":
       await graphExtractJob(job, config);
+      return;
+    case "conversation_analyze":
+      await conversationAnalyzeJob(job, config);
       return;
     case "graph_decay":
       graphDecayJob(job);
