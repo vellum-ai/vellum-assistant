@@ -115,7 +115,6 @@ describe("MeetSessionManager.join", () => {
   test("generates BOT_API_TOKEN, creates sockets dir, registers router, spawns container", async () => {
     const runner = makeMockRunner();
     const getProviderKey = mock(async (provider: string) => {
-      if (provider === "deepgram") return "deepgram-secret";
       if (provider === "tts") return "tts-secret";
       return undefined;
     });
@@ -153,9 +152,11 @@ describe("MeetSessionManager.join", () => {
       session.botApiToken,
     );
 
-    // Credentials resolved.
-    expect(getProviderKey).toHaveBeenCalledWith("deepgram");
+    // TTS credential is still resolved via getProviderKey. STT credentials
+    // are now owned by the audio-ingest's own provider resolver, so the
+    // session manager no longer fetches a Deepgram key.
     expect(getProviderKey).toHaveBeenCalledWith("tts");
+    expect(getProviderKey).not.toHaveBeenCalledWith("deepgram");
 
     // Runner invoked with the expected env/binds/ports/name/network.
     expect(runner.run).toHaveBeenCalledTimes(1);
@@ -502,13 +503,10 @@ describe("MeetSessionManager max-minutes timeout", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetSessionManager audio ingest wiring", () => {
-  test("join starts the audio ingest with the meetingId, socket path, and Deepgram key", async () => {
+  test("join starts the audio ingest with the meetingId and socket path (no API key threaded through)", async () => {
     const runner = makeMockRunner();
     const audioIngestFactory = makeFakeAudioIngestFactory();
-    const getProviderKey = mock(async (provider: string) => {
-      if (provider === "deepgram") return "deepgram-secret";
-      return "";
-    });
+    const getProviderKey = mock(async () => "");
 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
@@ -527,13 +525,16 @@ describe("MeetSessionManager audio ingest wiring", () => {
     const ingest = audioIngestFactory.getLastIngest();
     expect(ingest).not.toBeNull();
     expect(ingest!.start).toHaveBeenCalledTimes(1);
-    const [meetingId, socketPath, apiKey] = ingest!.start.mock
-      .calls[0] as unknown as [string, string, string];
+    const call = ingest!.start.mock.calls[0] as unknown as [string, string];
+    expect(call).toHaveLength(2);
+    const [meetingId, socketPath] = call;
     expect(meetingId).toBe("m-audio");
     expect(socketPath).toBe(
       join(workspaceDir, "meets", "m-audio", "sockets", "audio.sock"),
     );
-    expect(apiKey).toBe("deepgram-secret");
+    // Session manager no longer fetches a Deepgram key — STT resolution
+    // lives inside the audio ingest.
+    expect(getProviderKey).not.toHaveBeenCalledWith("deepgram");
 
     await manager.leave("m-audio", "cleanup");
   });

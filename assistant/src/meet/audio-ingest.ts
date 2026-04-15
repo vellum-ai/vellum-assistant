@@ -4,16 +4,17 @@
  * Flow:
  *   1. The session manager calls {@link MeetAudioIngest.start} **before** the
  *      bot container is spawned. `start()` opens a Unix-domain-socket server
- *      (the bot connects as the client once it boots) and opens a Deepgram
- *      realtime streaming session reusing the existing
- *      {@link DeepgramRealtimeTranscriber}.
+ *      (the bot connects as the client once it boots) and opens a streaming
+ *      STT session via the configured provider (resolved from
+ *      `services.stt.provider`).
  *   2. When the bot connects to the socket, its raw PCM frames are forwarded
- *      byte-for-byte to the Deepgram session.
- *   3. Deepgram's `partial` / `final` transcript events are wrapped in a
- *      {@link TranscriptChunkEvent} and dispatched through
+ *      byte-for-byte to the streaming transcriber.
+ *   3. The transcriber's `partial` / `final` transcript events are wrapped
+ *      in a {@link TranscriptChunkEvent} and dispatched through
  *      {@link MeetSessionEventRouter} keyed by `meetingId`.
- *   4. On session teardown, {@link MeetAudioIngest.stop} closes the Deepgram
- *      session, tears down the socket server, and unlinks the socket file.
+ *   4. On session teardown, {@link MeetAudioIngest.stop} closes the
+ *      streaming session, tears down the socket server, and unlinks the
+ *      socket file.
  *
  * Timeouts:
  *   - If the bot has not connected within {@link BOT_CONNECT_TIMEOUT_MS},
@@ -21,15 +22,17 @@
  *     so we do not leave a zombie container running against a dead ingest.
  *
  * Design notes:
- *   - The existing Deepgram realtime module is consumed **unchanged**. This
- *     means we only surface the information that module emits today —
- *     `speakerLabel` and `confidence` are left unset on the wire because the
- *     existing transcriber normalises Deepgram's frames to plain text plus
- *     is-final. That is intentionally conservative; later PRs can widen the
- *     transcriber's event shape and populate those fields here.
- *   - All external dependencies (Deepgram session, socket listener) are
+ *   - The STT provider is resolved at runtime via
+ *     {@link resolveStreamingTranscriber}, which reads
+ *     `services.stt.provider` and looks up credentials through the provider
+ *     catalog. Meet transcription therefore honors the same provider
+ *     selection as the rest of the assistant.
+ *   - Provider-specific options (e.g. Deepgram's `smartFormatting` /
+ *     `interimResults`) are now owned by the individual provider's config
+ *     schema; this module no longer threads them through.
+ *   - All external dependencies (transcriber factory, socket listener) are
  *     swapped via constructor-level factories so tests can drive the class
- *     without touching real sockets or a real Deepgram account.
+ *     without touching real sockets or a real STT provider account.
  */
 
 import { existsSync, unlinkSync } from "node:fs";
@@ -41,7 +44,7 @@ import {
 
 import type { TranscriptChunkEvent } from "@vellumai/meet-contracts";
 
-import { DeepgramRealtimeTranscriber } from "../providers/speech-to-text/deepgram-realtime.js";
+import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -58,6 +61,53 @@ const log = getLogger("meet-audio-ingest");
  * container.
  */
 export const BOT_CONNECT_TIMEOUT_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// Error class
+// ---------------------------------------------------------------------------
+
+/**
+ * Symbol brand for {@link MeetAudioIngestError}. Declared at module scope
+ * (not nested in the class) so `readonly [MEET_AUDIO_INGEST_ERROR_BRAND]`
+ * can reference it without TDZ issues.
+ */
+const MEET_AUDIO_INGEST_ERROR_BRAND: unique symbol = Symbol.for(
+  "MeetAudioIngestError",
+);
+
+/**
+ * Marker error thrown by {@link MeetAudioIngest} when the ingest cannot
+ * start because no streaming-capable STT provider is configured or the
+ * configured provider lacks credentials.
+ *
+ * The session manager uses {@link MeetAudioIngestError.isMeetAudioIngestError}
+ * to distinguish this from generic ingest errors when composing the
+ * user-facing join-failure message.
+ */
+export class MeetAudioIngestError extends Error {
+  readonly name = "MeetAudioIngestError";
+  /**
+   * Symbol-based brand so structural checks (e.g. across module boundaries
+   * where `instanceof` may mis-report after module reload) can still
+   * reliably identify instances of this error.
+   */
+  readonly [MEET_AUDIO_INGEST_ERROR_BRAND] = true as const;
+
+  constructor(message: string) {
+    super(message);
+  }
+
+  static isMeetAudioIngestError(err: unknown): err is MeetAudioIngestError {
+    if (err instanceof MeetAudioIngestError) return true;
+    return (
+      typeof err === "object" &&
+      err !== null &&
+      (err as { [MEET_AUDIO_INGEST_ERROR_BRAND]?: boolean })[
+        MEET_AUDIO_INGEST_ERROR_BRAND
+      ] === true
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Minimal socket-server abstraction
@@ -104,41 +154,26 @@ export type UnixSocketListenFn = (
 ) => Promise<UnixSocketServer>;
 
 // ---------------------------------------------------------------------------
-// Deepgram factory
+// Streaming transcriber factory
 // ---------------------------------------------------------------------------
 
 /**
- * Options forwarded to the Deepgram factory. Mirrors the option surface of
- * {@link DeepgramRealtimeTranscriber} so tests can assert on what the
- * ingest configured.
- */
-export interface DeepgramIngestOptions {
-  /** Deepgram API key used to authenticate the streaming session. */
-  apiKey: string;
-  /** Whether to request smart-formatting (punctuation, numerals). */
-  smartFormatting: boolean;
-  /** Whether to request interim (partial) transcript events. */
-  interimResults: boolean;
-}
-
-/**
- * Factory signature for constructing the Deepgram streaming session.
+ * Factory signature for constructing the streaming STT session.
  *
  * Returning a {@link StreamingTranscriber} keeps the audio-ingest code
- * decoupled from the concrete Deepgram class — tests pass an in-memory
- * fake that conforms to the same contract.
+ * decoupled from any specific provider — production wiring uses the
+ * configured provider via {@link resolveStreamingTranscriber}; tests pass
+ * an in-memory fake that conforms to the same contract.
  */
-export type DeepgramSessionFactory = (
-  options: DeepgramIngestOptions,
-) => StreamingTranscriber;
+export type StreamingTranscriberFactory = () => Promise<StreamingTranscriber>;
 
 // ---------------------------------------------------------------------------
 // MeetAudioIngest
 // ---------------------------------------------------------------------------
 
 export interface MeetAudioIngestDeps {
-  /** Override for the Deepgram session factory (tests). */
-  createDeepgramSession?: DeepgramSessionFactory;
+  /** Override for the streaming-transcriber factory (tests). */
+  createTranscriber?: StreamingTranscriberFactory;
   /** Override for the Unix-socket listener factory (tests). */
   listen?: UnixSocketListenFn;
   /** Override the bot-connect timeout (tests). */
@@ -151,7 +186,7 @@ export interface MeetAudioIngestDeps {
  * an ingest across meetings.
  */
 export class MeetAudioIngest {
-  private readonly createDeepgramSession: DeepgramSessionFactory;
+  private readonly createTranscriber: StreamingTranscriberFactory;
   private readonly listen: UnixSocketListenFn;
   private readonly botConnectTimeoutMs: number;
 
@@ -164,29 +199,27 @@ export class MeetAudioIngest {
   private stopped = false;
 
   constructor(deps: MeetAudioIngestDeps = {}) {
-    this.createDeepgramSession =
-      deps.createDeepgramSession ?? defaultCreateDeepgramSession;
+    this.createTranscriber =
+      deps.createTranscriber ?? defaultCreateTranscriber;
     this.listen = deps.listen ?? defaultListen;
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
   }
 
   /**
-   * Open the Unix-socket server the bot will connect to, start a Deepgram
-   * realtime session, and wire PCM frames into it.
+   * Open the Unix-socket server the bot will connect to, start a streaming
+   * STT session, and wire PCM frames into it.
    *
    * The promise resolves once:
    *   - the socket server is listening, AND
-   *   - the Deepgram streaming session has connected.
+   *   - the streaming session has connected.
    *
    * It rejects if either step fails or if the bot has not connected within
-   * {@link BOT_CONNECT_TIMEOUT_MS} of `start()` being called.
+   * {@link BOT_CONNECT_TIMEOUT_MS} of `start()` being called. Rejections
+   * due to missing provider configuration surface as
+   * {@link MeetAudioIngestError}.
    */
-  async start(
-    meetingId: string,
-    socketPath: string,
-    apiKey: string,
-  ): Promise<void> {
+  async start(meetingId: string, socketPath: string): Promise<void> {
     if (this.meetingId) {
       throw new Error(
         `MeetAudioIngest: start() called twice (meetingId=${this.meetingId})`,
@@ -208,14 +241,17 @@ export class MeetAudioIngest {
       }
     }
 
-    // Open the Deepgram streaming session first. We want the socket server
-    // to be able to pump audio into an already-connected Deepgram session
-    // as soon as the bot connects.
-    const transcriber = this.createDeepgramSession({
-      apiKey,
-      smartFormatting: true,
-      interimResults: true,
-    });
+    // Open the streaming STT session first. We want the socket server
+    // to be able to pump audio into an already-connected session as
+    // soon as the bot connects.
+    let transcriber: StreamingTranscriber;
+    try {
+      transcriber = await this.createTranscriber();
+    } catch (err) {
+      this.meetingId = null;
+      this.socketPath = null;
+      throw err;
+    }
     this.transcriber = transcriber;
 
     try {
@@ -235,7 +271,7 @@ export class MeetAudioIngest {
     try {
       server = await this.listen(socketPath);
     } catch (err) {
-      // Deepgram is already up — tear it down before propagating the error.
+      // Streaming session is already up — tear it down before propagating.
       try {
         transcriber.stop();
       } catch {
@@ -296,7 +332,7 @@ export class MeetAudioIngest {
   /**
    * Tear down the ingest:
    *   1. Stop forwarding audio.
-   *   2. Close the Deepgram session (provider may flush remaining finals).
+   *   2. Close the streaming session (provider may flush remaining finals).
    *   3. Close the socket server.
    *   4. Unlink the socket file.
    *
@@ -317,9 +353,9 @@ export class MeetAudioIngest {
       }
     }
 
-    // Close the Deepgram session. The transcriber signals `closed` via its
-    // event callback — we don't need to await that signal here because the
-    // ingress is shutting down regardless.
+    // Close the streaming session. The transcriber signals `closed` via
+    // its event callback — we don't need to await that signal here because
+    // the ingress is shutting down regardless.
     const transcriber = this.transcriber;
     this.transcriber = null;
     if (transcriber) {
@@ -376,8 +412,8 @@ export class MeetAudioIngest {
       const transcriber = this.transcriber;
       if (!transcriber) return;
       try {
-        // Deepgram's live endpoint accepts raw PCM bytes. The mimeType is
-        // informational for other providers; pass a sensible default.
+        // The streaming endpoint accepts raw PCM bytes. The mimeType is
+        // informational for provider adapters; pass a sensible default.
         transcriber.sendAudio(chunk, "audio/pcm");
       } catch (err) {
         log.warn(
@@ -397,7 +433,7 @@ export class MeetAudioIngest {
   }
 
   /**
-   * Translate a Deepgram streaming event into a TranscriptChunkEvent and
+   * Translate a streaming STT event into a TranscriptChunkEvent and
    * dispatch it through the session router. Errors, closes, and other
    * non-transcript events are ignored — the session manager owns the
    * provider's lifecycle, not the ingest.
@@ -412,7 +448,7 @@ export class MeetAudioIngest {
       return;
     }
 
-    // The existing Deepgram transcriber does not yet surface speaker /
+    // The existing streaming transcribers do not yet surface speaker /
     // confidence metadata; leave those optional fields unset.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
@@ -427,26 +463,28 @@ export class MeetAudioIngest {
 }
 
 // ---------------------------------------------------------------------------
-// Defaults — real Deepgram + real node:net socket server
+// Defaults — resolve the configured STT provider + real node:net socket
 // ---------------------------------------------------------------------------
 
 /**
- * Default Deepgram factory — constructs the production
- * {@link DeepgramRealtimeTranscriber} with the options mirrored from the
- * existing provider module (smart formatting + interim results on).
+ * Default streaming-transcriber factory — resolves the provider via the
+ * assistant's STT catalog (reads `services.stt.provider` and looks up
+ * credentials centrally).
  *
- * Phase 1 does **not** require diarization; the existing transcriber does
- * not expose a `diarize` knob, and the plan is explicit that the module is
- * consumed unchanged. A later PR can widen the transcriber's option
- * surface when we need speaker labels.
+ * Throws {@link MeetAudioIngestError} when no streaming-capable provider
+ * is configured so the session manager can surface a clear join-failure
+ * message pointing at `services.stt.provider`.
  */
-function defaultCreateDeepgramSession(
-  options: DeepgramIngestOptions,
-): StreamingTranscriber {
-  return new DeepgramRealtimeTranscriber(options.apiKey, {
-    smartFormatting: options.smartFormatting,
-    interimResults: options.interimResults,
-  });
+async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
+  const transcriber = await resolveStreamingTranscriber();
+  if (!transcriber) {
+    throw new MeetAudioIngestError(
+      "No streaming-capable STT provider is configured. " +
+        "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
+        "and ensure credentials are present.",
+    );
+  }
+  return transcriber;
 }
 
 /**
