@@ -15,6 +15,20 @@
     "jsx": "react-jsx",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist", "drizzle"]
+  "include": [
+    "src/**/*",
+    "src/**/*.tsx",
+    "../skills/meet-join/daemon/**/*.ts",
+    "../skills/meet-join/tools/**/*.ts",
+    "../skills/meet-join/routes/**/*.ts",
+    "../skills/meet-join/migrations/**/*.ts",
+    "../skills/meet-join/config-schema.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "drizzle",
+    "../skills/meet-join/bot",
+    "../skills/meet-join/contracts"
+  ]
 }
