@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_MEET_OBJECTION_KEYWORDS, MeetServiceSchema } from "../meet.js";
+import {
+  DEFAULT_MEET_OBJECTION_KEYWORDS,
+  MeetServiceSchema,
+} from "../config-schema.js";
 
 describe("MeetServiceSchema", () => {
   test("empty object parses to the documented defaults (feature off by default)", () => {

@@ -102,11 +102,11 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
-export type { MeetService } from "./schemas/meet.js";
+export type { MeetService } from "../../../skills/meet-join/config-schema.js";
 export {
   DEFAULT_MEET_OBJECTION_KEYWORDS,
   MeetServiceSchema,
-} from "./schemas/meet.js";
+} from "../../../skills/meet-join/config-schema.js";
 export type { MemoryConfig } from "./schemas/memory.js";
 export { MemoryConfigSchema } from "./schemas/memory.js";
 export type {

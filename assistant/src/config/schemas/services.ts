@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { MeetServiceSchema } from "./meet.js";
+import { MeetServiceSchema } from "../../../../skills/meet-join/config-schema.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
