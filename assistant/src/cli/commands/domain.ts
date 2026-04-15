@@ -19,12 +19,11 @@ export function registerDomainCommand(program: Command): void {
   domain.addHelpText(
     "after",
     `
-Each assistant can register its own subdomain (e.g. becky.${baseDomain})
-for email and web presence. DNS is pre-configured via wildcard
-records — no manual DNS changes needed.
+Each assistant can register its own subdomain (e.g. velly.${baseDomain})
+for email and web presence. DNS managed by the Vellum platform.
 
 Examples:
-  $ assistant domain register becky
+  $ assistant domain register velly
   $ assistant domain register --json
   $ assistant domain status`,
   );
@@ -38,21 +37,21 @@ Examples:
       "after",
       `
 Arguments:
-  subdomain   The subdomain to register (e.g. "becky" → becky.${baseDomain}).
+  subdomain   The subdomain to register (e.g. "velly" → velly.${baseDomain}).
               If omitted, the platform derives it from the assistant's name.
 
-Registers a subdomain at <subdomain>.${baseDomain}. DNS is pre-configured
-via wildcard records — no manual DNS changes needed.
+Registers a subdomain at <subdomain>.${baseDomain}. DNS managed by the
+Vellum platform — no manual DNS changes needed.
 
 Examples:
-  $ assistant domain register becky
-  ✓ Registered becky.${baseDomain}
+  $ assistant domain register velly
+  ✓ Registered velly.${baseDomain}
 
   $ assistant domain register
   ✓ Registered my-assistant.${baseDomain}
 
-  $ assistant domain register cool-bot --json
-  {"domain":"cool-bot.${baseDomain}","id":"...","status":"active","verified":true}`,
+  $ assistant domain register velly --json
+  {"domain":"velly.${baseDomain}","id":"...","status":"active","verified":true}`,
     )
     .action(
       async (subdomain: string | undefined, _opts: unknown, cmd: Command) => {
@@ -137,13 +136,13 @@ verification status and DNS health.
 
 Examples:
   $ assistant domain status
-  Domain:   becky.${baseDomain}
+  Domain:   velly.${baseDomain}
   Status:   active
   Verified: yes
   Created:  2026-04-15
 
   $ assistant domain status --json
-  {"domain":"becky.${baseDomain}","status":"active","verified":true,...}`,
+  {"domain":"velly.${baseDomain}","status":"active","verified":true,...}`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       try {
