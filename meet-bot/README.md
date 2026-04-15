@@ -93,7 +93,7 @@ the meet subsystem, run this manual verification loop.
   meeting-start time; the bot itself does not see STT credentials.
 - The `meet` feature flag enabled. Either:
   - **Local override** — set `meet` to `true` in
-    `~/.vellum/workspace/config.json` under the assistant feature flags
+    `$VELLUM_WORKSPACE_DIR/config.json` under the assistant feature flags
     block, OR
   - **LaunchDarkly** — flip the `meet` flag on for your platform user.
 - A throwaway Google Meet URL with at least one other human participant so
@@ -125,7 +125,7 @@ the meet subsystem, run this manual verification loop.
 5. **Inspect on-disk artifacts.** After the bot leaves, the workspace
    directory should contain the meeting's artifact tree:
    ```bash
-   ls -la ~/.vellum/workspace/meets/<meetingId>/
+   ls -la $VELLUM_WORKSPACE_DIR/meets/<meetingId>/
    ```
    Expected files:
    - `audio.opus` — Opus-encoded audio, non-empty.
