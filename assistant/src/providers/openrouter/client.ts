@@ -1,4 +1,5 @@
 import { OpenAIProvider } from "../openai/client.js";
+import type { SendMessageOptions } from "../types.js";
 
 export interface OpenRouterProviderOptions {
   apiKey?: string;
@@ -19,7 +20,19 @@ export class OpenRouterProvider extends OpenAIProvider {
       providerName: "openrouter",
       providerLabel: "OpenRouter",
       streamTimeoutMs: options.streamTimeoutMs,
-      extraCreateParams: { reasoning: { enabled: true } },
     });
+  }
+
+  // OpenRouter's unified `reasoning` parameter controls extended thinking
+  // across upstream providers (e.g. it maps to Anthropic's `thinking`
+  // parameter for Claude models). Mirror the assistant's `thinking.enabled`
+  // config — loop.ts only sets `config.thinking` when enabled — so users can
+  // turn thinking off on Anthropic models served via OpenRouter.
+  protected override buildExtraCreateParams(
+    options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    const config = options?.config as Record<string, unknown> | undefined;
+    const thinkingEnabled = config?.thinking !== undefined;
+    return { reasoning: { enabled: thinkingEnabled } };
   }
 }

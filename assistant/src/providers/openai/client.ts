@@ -138,7 +138,7 @@ export class OpenAIProvider implements Provider {
           messages: openaiMessages,
           stream: true as const,
           stream_options: { include_usage: true },
-          ...this.extraCreateParams,
+          ...this.buildExtraCreateParams(options),
         };
 
       if (maxTokens) {
@@ -321,6 +321,12 @@ export class OpenAIProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  protected buildExtraCreateParams(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    return this.extraCreateParams;
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */

@@ -1182,6 +1182,106 @@ describe("effort config passthrough", () => {
     expect(config.thinking).toBeUndefined();
     expect(config.effort).toBe("high");
   });
+
+  test("thinking is preserved for openrouter provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("openrouter", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        thinking: { type: "adaptive" },
+      },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenRouter reasoning ↔ thinking.enabled config
+// ---------------------------------------------------------------------------
+
+describe("OpenRouterProvider reasoning", () => {
+  function userMsg(text: string): Message {
+    return { role: "user", content: [{ type: "text", text }] };
+  }
+
+  beforeEach(() => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+    lastCreateParams = null;
+    lastCreateOptions = null;
+    lastConstructorOptions = null;
+    shouldThrow = null;
+  });
+
+  test("sends reasoning.enabled=true when thinking config is present", async () => {
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "adaptive" } },
+    });
+
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning).toEqual({ enabled: true });
+  });
+
+  test("sends reasoning.enabled=false when thinking config is absent", async () => {
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {},
+    });
+
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+  });
+
+  test("sends reasoning.enabled=false when no options are provided", async () => {
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+  });
+
+  test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    const retry = new RetryProvider(provider);
+
+    // thinking enabled at loop-level → config.thinking set
+    await retry.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "adaptive" } },
+    });
+    expect(lastCreateParams!.reasoning).toEqual({ enabled: true });
+  });
+
+  test("RetryProvider + OpenRouterProvider disables thinking end-to-end", async () => {
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    const retry = new RetryProvider(provider);
+
+    // thinking disabled at loop-level → config.thinking omitted
+    await retry.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {},
+    });
+    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+  });
 });
 
 // ---------------------------------------------------------------------------
