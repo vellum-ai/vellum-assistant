@@ -426,18 +426,31 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         )
     }
 
-    func testExclusiveKeyProviderIsExclusive() {
-        // deepgram maps to "deepgram" — its own credential, not shared.
-        XCTAssertTrue(
+    func testDeepgramSTTKeyIsNotExclusive() {
+        // deepgram STT maps to "deepgram" — but deepgram TTS also uses the
+        // same "deepgram" key, so it is shared across services.
+        XCTAssertFalse(
             SettingsStore.sttKeyIsExclusive(for: "deepgram"),
-            "deepgram owns its own key and must be classified as exclusive"
+            "deepgram STT shares the 'deepgram' key with TTS and must not be exclusive"
         )
     }
 
-    func testExclusiveKeyProviderIsNotShared() {
-        XCTAssertFalse(
+    func testDeepgramSTTKeyIsShared() {
+        // deepgram STT shares the "deepgram" key with deepgram TTS.
+        XCTAssertTrue(
             SettingsStore.sttKeyIsShared(for: "deepgram"),
-            "deepgram owns its own key and must not be classified as shared"
+            "deepgram STT shares the 'deepgram' key with TTS and must be classified as shared"
+        )
+    }
+
+    func testDeepgramSTTSharedKeyCannotBeResetThroughSTTFlow() {
+        // The UI checks sttKeyIsExclusive before allowing the reset action.
+        // For deepgram the guard must prevent the reset because clearing the
+        // "deepgram" key would break TTS.
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "deepgram")
+        XCTAssertFalse(
+            allowReset,
+            "The STT reset flow must not be allowed for deepgram (shared key with TTS)"
         )
     }
 
@@ -505,18 +518,25 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
     }
 
     /// Ensures the ownership classification for every registered provider
-    /// is consistent with the catalog's `apiKeyProviderName` field.
+    /// is consistent: a provider is exclusive only when its key name matches
+    /// its id AND no TTS provider shares the same key.
     func testAllRegistryProvidersHaveConsistentOwnership() {
-        let registry = loadSTTProviderRegistry()
-        for provider in registry.providers {
+        let sttRegistry = loadSTTProviderRegistry()
+        let ttsRegistry = loadTTSProviderRegistry()
+        for provider in sttRegistry.providers {
             let isExclusive = SettingsStore.sttKeyIsExclusive(for: provider.id)
-            let expectedExclusive = (provider.apiKeyProviderName == provider.id)
+            let nameMatchesId = (provider.apiKeyProviderName == provider.id)
+            let ttsSharesKey = ttsRegistry.providers.contains { ttsEntry in
+                guard ttsEntry.credentialMode == .apiKey else { return false }
+                return (ttsEntry.apiKeyProviderName ?? ttsEntry.id) == provider.apiKeyProviderName
+            }
+            let expectedExclusive = nameMatchesId && !ttsSharesKey
             XCTAssertEqual(
                 isExclusive,
                 expectedExclusive,
                 "Ownership mismatch for \"\(provider.id)\": sttKeyIsExclusive returned "
-                + "\(isExclusive) but apiKeyProviderName=\"\(provider.apiKeyProviderName)\" "
-                + "implies exclusive=\(expectedExclusive)"
+                + "\(isExclusive) but expected \(expectedExclusive) "
+                + "(apiKeyProviderName=\"\(provider.apiKeyProviderName)\", ttsSharesKey=\(ttsSharesKey))"
             )
         }
     }

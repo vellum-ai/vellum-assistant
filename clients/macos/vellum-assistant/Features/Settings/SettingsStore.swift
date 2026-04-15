@@ -3068,9 +3068,11 @@ public final class SettingsStore: ObservableObject {
     /// safely have their key cleared through the STT reset flow without
     /// affecting other features.
     ///
-    /// A provider's key is exclusive when its `apiKeyProviderName` matches its
-    /// own `id` (e.g. `deepgram` → `deepgram`). Shared-key providers map to a
-    /// different credential name (e.g. `openai-whisper` → `openai`).
+    /// A provider's key is non-exclusive when either:
+    /// 1. Its `apiKeyProviderName` differs from its `id` (e.g.
+    ///    `openai-whisper` → `openai`), meaning the key is shared within STT.
+    /// 2. A TTS provider also references the same key name (e.g.
+    ///    `deepgram` STT + `deepgram` TTS both use the `deepgram` key).
     ///
     /// This helper is provider-agnostic: adding a new provider only requires a
     /// catalog entry — no new conditionals here or in the UI layer.
@@ -3081,7 +3083,10 @@ public final class SettingsStore: ObservableObject {
             // key cannot collide with a known service.
             return true
         }
-        return entry.apiKeyProviderName == entry.id
+        // First check: different key name means shared within STT scope.
+        guard entry.apiKeyProviderName == entry.id else { return false }
+        // Second check: same key name but might be shared with a TTS provider.
+        return !Self.isApiKeySharedAcrossServices(entry.apiKeyProviderName)
     }
 
     /// Whether the given STT provider's API key is shared with another
@@ -3217,12 +3222,21 @@ public final class SettingsStore: ObservableObject {
 
     /// Checks whether a given API key provider name is used by both a TTS and
     /// an STT provider, indicating a cross-service shared credential.
+    ///
+    /// Checks both registries so the result is symmetric — calling this from
+    /// either `sttKeyIsExclusive` or `ttsKeyIsExclusive` correctly detects
+    /// cross-service sharing (e.g. deepgram STT + deepgram TTS).
     private static func isApiKeySharedAcrossServices(_ keyProviderName: String) -> Bool {
         let sttRegistry = loadSTTProviderRegistry()
         let sttUsesKey = sttRegistry.providers.contains { entry in
             entry.apiKeyProviderName == keyProviderName
         }
-        return sttUsesKey
+        let ttsRegistry = loadTTSProviderRegistry()
+        let ttsUsesKey = ttsRegistry.providers.contains { entry in
+            guard entry.credentialMode == .apiKey else { return false }
+            return (entry.apiKeyProviderName ?? entry.id) == keyProviderName
+        }
+        return sttUsesKey && ttsUsesKey
     }
 
     /// Schedules a delayed refresh of provider routing sources, giving the
