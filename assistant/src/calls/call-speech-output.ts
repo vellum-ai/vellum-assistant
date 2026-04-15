@@ -150,13 +150,15 @@ async function synthesizeAndPlay(
     // Deepgram is a synthesized-only provider with no native Twilio
     // TTS integration. Silently falling back to token-based speech
     // would route audio through a path that cannot produce output,
-    // so we fail explicitly and propagate the error.
+    // so we log the error and return without sending any fallback.
+    // Callers use fire-and-forget (`void speakSystemPrompt(...)`) so
+    // throwing here would produce an unhandled promise rejection.
     if (provider.id === "deepgram") {
       log.error(
         { err, provider: provider.id, errName, errCode },
         "Deepgram system prompt TTS synthesis failed — no native fallback available",
       );
-      throw err;
+      return;
     }
 
     log.error(
