@@ -1,4 +1,4 @@
-import { OpenAIProvider } from "../openai/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 
 export interface OpenRouterProviderOptions {
   apiKey?: string;
@@ -8,7 +8,7 @@ export interface OpenRouterProviderOptions {
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-export class OpenRouterProvider extends OpenAIProvider {
+export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   constructor(
     apiKey: string,
     model: string,

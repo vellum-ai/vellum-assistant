@@ -1,4 +1,4 @@
-import { OpenAIProvider } from "../openai/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 
 export interface FireworksProviderOptions {
   apiKey?: string;
@@ -8,7 +8,7 @@ export interface FireworksProviderOptions {
 
 const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
 
-export class FireworksProvider extends OpenAIProvider {
+export class FireworksProvider extends OpenAIChatCompletionsProvider {
   constructor(
     apiKey: string,
     model: string,
