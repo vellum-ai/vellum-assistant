@@ -41,7 +41,6 @@ EXPERIMENTAL_FILES=(
 KNOWN_BROKEN_FILES=(
   "backup-routes.test.ts"
   "connect.test.ts"
-  "credentials-cli.test.ts"
   "email-attachment.test.ts"
   "email-download.test.ts"
   "email-list.test.ts"

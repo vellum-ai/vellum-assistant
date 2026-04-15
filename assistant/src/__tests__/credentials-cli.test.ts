@@ -20,40 +20,64 @@ function nextUUID(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mock secure-keys
+// Mock daemon-credential-client
+//
+// The credentials CLI routes secret read/write through the daemon HTTP API
+// (see src/cli/lib/daemon-credential-client.ts). Mocking the daemon client
+// directly is the cleanest way to isolate the CLI from the real daemon or a
+// running daemon on localhost (which would otherwise be reached via the HTTP
+// healthz fallback in daemon-credential-client).
 // ---------------------------------------------------------------------------
 
-mock.module("../security/secure-keys.js", () => ({
-  setSecureKeyAsync: async (
-    account: string,
+function normalizeCredentialAccount(
+  type: string,
+  name: string,
+): string {
+  if (type !== "credential") return name;
+  if (name.startsWith("credential/")) return name;
+  const colonIdx = name.lastIndexOf(":");
+  if (colonIdx > 0 && colonIdx < name.length - 1) {
+    return `credential/${name.slice(0, colonIdx)}/${name.slice(colonIdx + 1)}`;
+  }
+  return name;
+}
+
+mock.module("../cli/lib/daemon-credential-client.js", () => ({
+  setSecureKeyViaDaemon: async (
+    type: string,
+    name: string,
     value: string,
   ): Promise<boolean> => {
-    secureKeyStore.set(account, value);
+    secureKeyStore.set(normalizeCredentialAccount(type, name), value);
     return true;
   },
-  deleteSecureKeyAsync: async (
-    account: string,
+  deleteSecureKeyViaDaemon: async (
+    type: string,
+    name: string,
   ): Promise<"deleted" | "not-found" | "error"> => {
-    if (secureKeyStore.has(account)) {
-      secureKeyStore.delete(account);
+    const key = normalizeCredentialAccount(type, name);
+    if (secureKeyStore.has(key)) {
+      secureKeyStore.delete(key);
       return "deleted";
     }
     return "not-found";
   },
-  listSecureKeysAsync: async () => ({
-    accounts: [...secureKeyStore.keys()],
-    unreachable: false,
-  }),
-  getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
+  getSecureKeyViaDaemon: async (
+    account: string,
+  ): Promise<string | undefined> => {
     return secureKeyStore.get(account);
   },
-  getSecureKeyResultAsync: async (
+  getSecureKeyResultViaDaemon: async (
     account: string,
   ): Promise<{ value: string | undefined; unreachable: boolean }> => ({
     value: secureKeyStore.get(account),
     unreachable: mockBrokerUnreachable,
   }),
-  _resetBackend: (): void => {},
+  getProviderKeyViaDaemon: async (
+    provider: string,
+  ): Promise<string | undefined> => {
+    return secureKeyStore.get(provider);
+  },
 }));
 
 // ---------------------------------------------------------------------------
