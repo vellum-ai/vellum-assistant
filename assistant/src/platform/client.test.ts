@@ -23,6 +23,16 @@ mock.module("../config/env.js", () => ({
   getPlatformAssistantId: () => mockAssistantId,
 }));
 
+// Stub the credential-store fallback so tests stay hermetic and do not
+// read real values from the host credential backend.
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => null,
+}));
+
+mock.module("../security/credential-key.js", () => ({
+  credentialKey: (namespace: string, key: string) => `${namespace}:${key}`,
+}));
+
 // ---------------------------------------------------------------------------
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
