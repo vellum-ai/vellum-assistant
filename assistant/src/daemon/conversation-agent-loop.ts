@@ -39,6 +39,7 @@ import {
 } from "../instrument.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
+import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -551,6 +552,13 @@ export async function runAgentLoopImpl(
         compacted.summaryText,
         ctx.contextCompactedMessageCount,
       );
+      // Fire auto-analysis on compaction so the reflective agent can
+      // crystallize anything worth remembering before the context window
+      // narrows further.
+      enqueueAutoAnalysisOnCompaction(
+        ctx.conversationId,
+        ctx.trustContext?.trustClass,
+      );
       onEvent({
         type: "context_compacted",
         previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
@@ -939,6 +947,11 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
           );
+          // Fire auto-analysis on compaction — see forceCompact() for rationale.
+          enqueueAutoAnalysisOnCompaction(
+            ctx.conversationId,
+            ctx.trustContext?.trustClass,
+          );
           onEvent({
             type: "context_compacted",
             previousEstimatedInputTokens:
@@ -1142,6 +1155,11 @@ export async function runAgentLoopImpl(
           ctx.conversationId,
           midLoopCompact.summaryText,
           ctx.contextCompactedMessageCount,
+        );
+        // Fire auto-analysis on compaction — see forceCompact() for rationale.
+        enqueueAutoAnalysisOnCompaction(
+          ctx.conversationId,
+          ctx.trustContext?.trustClass,
         );
         onEvent({
           type: "context_compacted",
@@ -1361,6 +1379,11 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
           );
+          // Fire auto-analysis on compaction — see forceCompact() for rationale.
+          enqueueAutoAnalysisOnCompaction(
+            ctx.conversationId,
+            ctx.trustContext?.trustClass,
+          );
           onEvent({
             type: "context_compacted",
             previousEstimatedInputTokens:
@@ -1485,6 +1508,11 @@ export async function runAgentLoopImpl(
                 emergencyCompact.summaryText,
                 ctx.contextCompactedMessageCount,
               );
+              // Fire auto-analysis on compaction — see forceCompact() for rationale.
+              enqueueAutoAnalysisOnCompaction(
+                ctx.conversationId,
+                ctx.trustContext?.trustClass,
+              );
               onEvent({
                 type: "context_compacted",
                 previousEstimatedInputTokens:
@@ -1604,6 +1632,11 @@ export async function runAgentLoopImpl(
               ctx.conversationId,
               emergencyCompact.summaryText,
               ctx.contextCompactedMessageCount,
+            );
+            // Fire auto-analysis on compaction — see forceCompact() for rationale.
+            enqueueAutoAnalysisOnCompaction(
+              ctx.conversationId,
+              ctx.trustContext?.trustClass,
             );
             onEvent({
               type: "context_compacted",

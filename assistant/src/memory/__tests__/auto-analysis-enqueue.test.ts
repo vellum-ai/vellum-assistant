@@ -69,7 +69,15 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
-import { enqueueAutoAnalysisIfEnabled } from "../auto-analysis-enqueue.js";
+mock.module("../../runtime/actor-trust-resolver.js", () => ({
+  isUntrustedTrustClass: (trustClass: string | undefined) =>
+    trustClass === "unknown" || trustClass === "untrusted",
+}));
+
+import {
+  enqueueAutoAnalysisIfEnabled,
+  enqueueAutoAnalysisOnCompaction,
+} from "../auto-analysis-enqueue.js";
 
 describe("enqueueAutoAnalysisIfEnabled", () => {
   beforeEach(() => {
@@ -225,5 +233,90 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before + 1_000);
     expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after + 1_000);
+  });
+
+  test("flag on, trigger = 'compaction', normal source — fires immediately like 'batch'", () => {
+    const before = Date.now();
+
+    enqueueAutoAnalysisIfEnabled({
+      conversationId: "c1",
+      trigger: "compaction",
+    });
+
+    const after = Date.now();
+
+    expect(debouncedCalls).toHaveLength(1);
+    expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
+    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    // "compaction" fires immediately (runAfter ≈ now) so the reflective
+    // agent runs before the narrowed context window pushes more detail out.
+    expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
+    expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
+    expect(enqueueCalls).toHaveLength(0);
+  });
+});
+
+describe("enqueueAutoAnalysisOnCompaction", () => {
+  beforeEach(() => {
+    flagEnabled = true;
+    isAuto = false;
+    conversationType = "standard";
+    getConfigThrows = false;
+    configValue = { analysis: { idleTimeoutMs: 600_000 } };
+    enqueueCalls.length = 0;
+    debouncedCalls.length = 0;
+  });
+
+  test("guardian trust class — enqueues compaction-triggered job immediately", () => {
+    const before = Date.now();
+
+    enqueueAutoAnalysisOnCompaction("c1", "guardian");
+
+    const after = Date.now();
+
+    expect(debouncedCalls).toHaveLength(1);
+    expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
+    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
+    expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
+  });
+
+  test("undefined trust class (treated as guardian for internal call paths) — enqueues", () => {
+    enqueueAutoAnalysisOnCompaction("c1", undefined);
+
+    expect(debouncedCalls).toHaveLength(1);
+  });
+
+  test("unknown trust class — skips (mirrors memory-extraction trust boundary)", () => {
+    enqueueAutoAnalysisOnCompaction("c1", "unknown");
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
+  });
+
+  test("trusted_contact trust class — enqueues (not untrusted)", () => {
+    // trusted_contact is not in the untrusted set per
+    // isUntrustedTrustClass, so compaction-triggered analysis still fires.
+    enqueueAutoAnalysisOnCompaction("c1", "trusted_contact");
+
+    expect(debouncedCalls).toHaveLength(1);
+  });
+
+  test("guardian trust but flag off — helper still gates via enqueueAutoAnalysisIfEnabled", () => {
+    flagEnabled = false;
+
+    enqueueAutoAnalysisOnCompaction("c1", "guardian");
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
+  });
+
+  test("guardian trust but source is auto-analysis — helper skips via recursion guard", () => {
+    isAuto = true;
+
+    enqueueAutoAnalysisOnCompaction("c1", "guardian");
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
   });
 });

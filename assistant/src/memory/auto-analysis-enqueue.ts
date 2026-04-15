@@ -1,5 +1,9 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import {
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getConversationType } from "./conversation-crud.js";
@@ -16,8 +20,16 @@ const log = getLogger("auto-analysis-enqueue");
  *     debounced analysis pass.
  *   - `"lifecycle"`: a conversation lifecycle transition (e.g. resume,
  *     close) should trigger a debounced analysis pass.
+ *   - `"compaction"`: context was just compacted — some recent turns are
+ *     now hidden behind a summary, so crystallize anything worth
+ *     remembering before the window narrows further. Fires immediately
+ *     (`runAfter = now`) like `"batch"`.
  */
-export type AutoAnalysisTrigger = "batch" | "idle" | "lifecycle";
+export type AutoAnalysisTrigger =
+  | "batch"
+  | "idle"
+  | "lifecycle"
+  | "compaction";
 
 /**
  * Conditionally enqueue a `conversation_analyze` job for the given
@@ -72,8 +84,8 @@ export function enqueueAutoAnalysisIfEnabled(args: {
   }
 
   const idleTimeoutMs = config.analysis?.idleTimeoutMs ?? 600_000;
-  const runAfter =
-    trigger === "batch" ? Date.now() : Date.now() + idleTimeoutMs;
+  const runImmediately = trigger === "batch" || trigger === "compaction";
+  const runAfter = runImmediately ? Date.now() : Date.now() + idleTimeoutMs;
 
   try {
     upsertDebouncedJob(
@@ -86,5 +98,30 @@ export function enqueueAutoAnalysisIfEnabled(args: {
       { err, conversationId, trigger },
       "Failed to enqueue auto-analysis job",
     );
+  }
+}
+
+/**
+ * Fire an auto-analysis enqueue from a compaction site. Wraps
+ * `enqueueAutoAnalysisIfEnabled` with the trust-class gate and
+ * best-effort error handling used at every compaction call site, so
+ * the six compaction paths (forceCompact, preflight, overflow reducer,
+ * mid-loop, and two emergency paths) stay in sync.
+ *
+ * Trust gate mirrors the memory-extraction trust boundary applied in
+ * `disposeConversation` — we don't trigger analysis (which runs with
+ * guardian trust + full tools) for conversations with an untrusted actor.
+ */
+export function enqueueAutoAnalysisOnCompaction(
+  conversationId: string,
+  trustClass: TrustClass | undefined,
+): void {
+  if (isUntrustedTrustClass(trustClass)) {
+    return;
+  }
+  try {
+    enqueueAutoAnalysisIfEnabled({ conversationId, trigger: "compaction" });
+  } catch {
+    // Best-effort — never block compaction on enqueue failures.
   }
 }
