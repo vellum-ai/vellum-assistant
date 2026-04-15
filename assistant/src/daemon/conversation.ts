@@ -44,6 +44,7 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   updateConversationContextWindow,
@@ -1179,6 +1180,13 @@ export class Conversation {
         this.conversationId,
         result.summaryText,
         this.contextCompactedMessageCount,
+      );
+      // Fire auto-analysis on compaction so the reflective agent can
+      // crystallize anything worth remembering before the context window
+      // narrows further.
+      enqueueAutoAnalysisOnCompaction(
+        this.conversationId,
+        this.trustContext?.trustClass,
       );
     }
     return result;
