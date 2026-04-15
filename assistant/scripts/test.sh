@@ -61,7 +61,6 @@ KNOWN_BROKEN_FILES=(
   "email-unregister.test.ts"
   "qdrant-manager.test.ts"
   "skill-feature-flags-integration.test.ts"
-  "tts-text-sanitizer.test.ts"
 )
 
 # Collect test files, filtering experimental if needed
