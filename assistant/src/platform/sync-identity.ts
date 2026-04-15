@@ -67,25 +67,14 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
     if (name === lastSyncedName) return;
 
     const client = await VellumPlatformClient.create();
-    if (!client) {
+    if (!client || !client.platformAssistantId) {
       clearRequestedIfLatest(requestSeq);
       return;
     }
 
-    const assistantId = client.platformAssistantId;
-    if (!assistantId) {
-      clearRequestedIfLatest(requestSeq);
-      return;
-    }
-
-    const resp = await client.fetch(
-      `/v1/assistants/${encodeURIComponent(assistantId)}/`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-        signal: AbortSignal.timeout(15_000),
-      },
+    const resp = await client.assistant.patch(
+      { name },
+      { signal: AbortSignal.timeout(15_000) },
     );
 
     if (resp.ok) {
@@ -95,6 +84,7 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
       if (requestSeq === seq) {
         lastSyncedName = name;
       }
+      const assistantId = client.platformAssistantId;
       log.info({ name, assistantId }, "Synced assistant name to platform");
     } else {
       clearRequestedIfLatest(requestSeq);

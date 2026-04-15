@@ -1,4 +1,9 @@
-import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -7,11 +12,32 @@ import type { Command } from "commander";
 
 import { getAssistantDomain } from "../../config/env.js";
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
+import type { AssistantSubClient } from "../../platform/client.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
 const log = getCliLogger("email");
+
+/**
+ * Resolve and validate the platform client in one step.
+ *
+ * Throws clear errors for missing credentials or assistant ID so every
+ * subcommand doesn't need its own boilerplate guards.
+ */
+async function requireClient(): Promise<{
+  client: VellumPlatformClient;
+  assistant: AssistantSubClient;
+}> {
+  const client = await VellumPlatformClient.create();
+  if (!client) {
+    throw new Error(
+      "Platform credentials not configured. Run: assistant platform connect",
+    );
+  }
+  // Accessing .assistant calls requireAssistantId() internally.
+  return { client, assistant: client.assistant };
+}
 
 export function registerEmailCommand(program: Command): void {
   const domain = getAssistantDomain();
@@ -61,26 +87,8 @@ Examples:
     )
     .action(async (username: string, _opts: unknown, cmd: Command) => {
       try {
-        const client = await VellumPlatformClient.create();
-        if (!client) {
-          throw new Error(
-            "Platform credentials not configured. Run: assistant platform connect",
-          );
-        }
-        if (!client.platformAssistantId) {
-          throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-          );
-        }
-
-        const response = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username }),
-          },
-        );
+        const { assistant } = await requireClient();
+        const response = await assistant.emailAddresses.create(username);
 
         if (!response.ok) {
           const body = (await response.json().catch(() => ({}))) as Record<
@@ -144,21 +152,8 @@ Examples:
     )
     .action(async (_opts: { confirm?: boolean }, cmd: Command) => {
       try {
-        const client = await VellumPlatformClient.create();
-        if (!client) {
-          throw new Error(
-            "Platform credentials not configured. Run: assistant platform connect",
-          );
-        }
-        if (!client.platformAssistantId) {
-          throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-          );
-        }
-
-        const listResponse = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-        );
+        const { assistant } = await requireClient();
+        const listResponse = await assistant.emailAddresses.list();
 
         if (!listResponse.ok) {
           throw new Error(
@@ -193,10 +188,7 @@ Examples:
           }
         }
 
-        const deleteResponse = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/email-addresses/${target.id}/`,
-          { method: "DELETE" },
-        );
+        const deleteResponse = await assistant.emailAddresses.delete(target.id);
 
         if (!deleteResponse.ok) {
           const body = (await deleteResponse
@@ -242,22 +234,9 @@ Examples:
     )
     .action(async (_opts: unknown, cmd: Command) => {
       try {
-        const client = await VellumPlatformClient.create();
-        if (!client) {
-          throw new Error(
-            "Platform credentials not configured. Run: assistant platform connect",
-          );
-        }
-        if (!client.platformAssistantId) {
-          throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-          );
-        }
+        const { assistant } = await requireClient();
 
-        // 1. List addresses to find the registered one
-        const listResponse = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-        );
+        const listResponse = await assistant.emailAddresses.list();
 
         if (!listResponse.ok) {
           throw new Error(
@@ -278,9 +257,8 @@ Examples:
 
         const target = addresses[0];
 
-        // 2. Fetch status/usage for this address
-        const statusResponse = await client.fetch(
-          `/v1/assistants/${client.platformAssistantId}/email-addresses/${target.id}/status/`,
+        const statusResponse = await assistant.emailAddresses.getStatus(
+          target.id,
         );
 
         if (!statusResponse.ok) {
@@ -355,17 +333,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          const client = await VellumPlatformClient.create();
-          if (!client) {
-            throw new Error(
-              "Platform credentials not configured. Run: assistant platform connect",
-            );
-          }
-          if (!client.platformAssistantId) {
-            throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-            );
-          }
+          const { assistant } = await requireClient();
 
           const params = new URLSearchParams();
           if (opts.direction && opts.direction !== "all") {
@@ -378,9 +346,7 @@ Examples:
             params.set("since", opts.since);
           }
 
-          const qs = params.toString();
-          const path = `/v1/assistants/${client.platformAssistantId}/emails/${qs ? `?${qs}` : ""}`;
-          const response = await client.fetch(path);
+          const response = await assistant.emails.list(params);
 
           if (!response.ok) {
             const body = (await response.json().catch(() => ({}))) as Record<
@@ -479,21 +445,8 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          const client = await VellumPlatformClient.create();
-          if (!client) {
-            throw new Error(
-              "Platform credentials not configured. Run: assistant platform connect",
-            );
-          }
-          if (!client.platformAssistantId) {
-            throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-            );
-          }
-
-          const response = await client.fetch(
-            `/v1/assistants/${client.platformAssistantId}/emails/${messageId}/`,
-          );
+          const { assistant } = await requireClient();
+          const response = await assistant.emails.get(messageId);
 
           if (!response.ok) {
             const body = (await response.json().catch(() => ({}))) as Record<
@@ -609,22 +562,10 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          const client = await VellumPlatformClient.create();
-          if (!client) {
-            throw new Error(
-              "Platform credentials not configured. Run: assistant platform connect",
-            );
-          }
-          if (!client.platformAssistantId) {
-            throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-            );
-          }
+          const { client, assistant } = await requireClient();
 
           // 1. Resolve the assistant's registered email address (the "from").
-          const listResponse = await client.fetch(
-            `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
-          );
+          const listResponse = await assistant.emailAddresses.list();
 
           if (!listResponse.ok) {
             throw new Error(
@@ -664,7 +605,6 @@ Examples:
           if (opts.html) {
             html = readFileSync(opts.html, "utf-8");
           } else {
-            // Auto-generate HTML from the text body (markdown → email HTML).
             html = markdownToEmailHtml(text);
           }
 
@@ -677,7 +617,7 @@ Examples:
           if (opts.subject) payload.subject = opts.subject;
           if (html) payload.html = html;
 
-          // 5. Send via runtime proxy
+          // 5. Send via runtime proxy (not assistant-scoped — uses root client)
           const response = await client.fetch("/v1/runtime-proxy/email/send/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -715,233 +655,229 @@ Examples:
       },
     );
 
-email
-  .command("attachment <message-id> [attachment-id]")
-  .description("Download email attachments")
-  .option("--all", "Download all attachments for the message")
-  .option(
-    "-o, --output <dir>",
-    "Output directory (default: current directory)",
-    ".",
-  )
-  .option("--list", "List attachments without downloading")
-  .addHelpText(
-    "after",
-    `
+  email
+    .command("attachment <message-id> [attachment-id]")
+    .description("Download email attachments")
+    .option("--all", "Download all attachments for the message")
+    .option(
+      "-o, --output <dir>",
+      "Output directory (default: current directory)",
+      ".",
+    )
+    .option("--list", "List attachments without downloading")
+    .addHelpText(
+      "after",
+      `
 Arguments:
-message-id      Email message ID (from \`assistant email list --json\`)
-attachment-id   Attachment ID (optional — required unless --all or --list)
+  message-id      Email message ID (from \`assistant email list --json\`)
+  attachment-id   Attachment ID (optional — required unless --all or --list)
 
 Download one or all attachments from a specific email message. Use
 --list to see available attachments without downloading.
 
 Examples:
-$ assistant email attachment msg_abc1 --list
-$ assistant email attachment msg_abc1 att_xyz1
-$ assistant email attachment msg_abc1 att_xyz1 -o ./downloads/
-$ assistant email attachment msg_abc1 --all
-$ assistant email attachment msg_abc1 --all -o ./attachments/
-$ assistant email attachment msg_abc1 --list --json`,
-  )
-  .action(
-    async (
-      messageId: string,
-      attachmentId: string | undefined,
-      opts: {
-        all?: boolean;
-        output?: string;
-        list?: boolean;
-      },
-      cmd: Command,
-    ) => {
-      try {
-        const client = await VellumPlatformClient.create();
-        if (!client) {
-          throw new Error(
-            "Platform credentials not configured. Run: assistant platform connect",
-          );
-        }
-        if (!client.platformAssistantId) {
-          throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
-          );
-        }
+  $ assistant email attachment msg_abc1 --list
+  $ assistant email attachment msg_abc1 att_xyz1
+  $ assistant email attachment msg_abc1 att_xyz1 -o ./downloads/
+  $ assistant email attachment msg_abc1 --all
+  $ assistant email attachment msg_abc1 --all -o ./attachments/
+  $ assistant email attachment msg_abc1 --list --json`,
+    )
+    .action(
+      async (
+        messageId: string,
+        attachmentId: string | undefined,
+        opts: {
+          all?: boolean;
+          output?: string;
+          list?: boolean;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const { assistant } = await requireClient();
 
-        const assistantId = client.platformAssistantId;
-        const basePath = `/v1/assistants/${assistantId}/emails/${messageId}/attachments`;
+          if (opts.list) {
+            const response = await assistant.emails.listAttachments(messageId);
+            if (!response.ok) {
+              const body = (await response.json().catch(() => ({}))) as Record<
+                string,
+                unknown
+              >;
+              const detail = body.detail ?? `HTTP ${response.status}`;
+              throw new Error(String(detail));
+            }
 
-        if (opts.list) {
-          // List mode — show attachment metadata without downloading
-          const response = await client.fetch(`${basePath}/`);
-          if (!response.ok) {
-            const body = (await response
-              .json()
-              .catch(() => ({}))) as Record<string, unknown>;
-            const detail = body.detail ?? `HTTP ${response.status}`;
-            throw new Error(String(detail));
-          }
+            const data = (await response.json()) as {
+              results: AttachmentMeta[];
+            };
 
-          const data = (await response.json()) as {
-            results: AttachmentMeta[];
-          };
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, data);
-          } else {
-            const attachments = data.results ?? [];
-            if (attachments.length === 0) {
-              log.info("No attachments for this message.");
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, data);
             } else {
-              for (const att of attachments) {
-                log.info(
-                  `  ${att.id}  ${att.filename}  (${att.content_type}, ${formatBytes(att.size_bytes)})`,
-                );
+              const attachments = data.results ?? [];
+              if (attachments.length === 0) {
+                log.info("No attachments for this message.");
+              } else {
+                for (const att of attachments) {
+                  log.info(
+                    `  ${att.id}  ${att.filename}  (${att.content_type}, ${formatBytes(att.size_bytes)})`,
+                  );
+                }
+                log.info(`\n${attachments.length} attachment(s)`);
               }
-              log.info(`\n${attachments.length} attachment(s)`);
             }
-          }
-          return;
-        }
-
-        if (!opts.all && !attachmentId) {
-          throw new Error(
-            "Specify an attachment ID, or use --all to download all attachments. Use --list to see available attachments.",
-          );
-        }
-
-        // Ensure output directory exists
-        const outDir = opts.output ?? ".";
-        mkdirSync(outDir, { recursive: true });
-
-        if (opts.all) {
-          // Download all attachments
-          const listResponse = await client.fetch(`${basePath}/`);
-          if (!listResponse.ok) {
-            const body = (await listResponse
-              .json()
-              .catch(() => ({}))) as Record<string, unknown>;
-            const detail = body.detail ?? `HTTP ${listResponse.status}`;
-            throw new Error(String(detail));
+            return;
           }
 
-          const listData = (await listResponse.json()) as {
-            results: AttachmentMeta[];
-          };
-
-          const attachments = listData.results ?? [];
-          if (attachments.length === 0) {
-            throw new Error("No attachments for this message.");
-          }
-
-          const downloaded: { filename: string; size_bytes: number }[] = [];
-          for (const att of attachments) {
-            const dest = join(outDir, safeFilename(att.filename));
-            await downloadAttachment(client, basePath, att.id, dest);
-            downloaded.push({
-              filename: att.filename,
-              size_bytes: att.size_bytes,
-            });
-          }
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, {
-              downloaded: downloaded.length,
-              directory: outDir,
-              files: downloaded,
-            });
-          } else {
-            log.info(
-              `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
-            );
-            for (const f of downloaded) {
-              log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
-            }
-          }
-        } else {
-          // Download single attachment — first get metadata for the filename
-          const metaResponse = await client.fetch(
-            `${basePath}/${attachmentId}/`,
-          );
-          if (!metaResponse.ok) {
-            const body = (await metaResponse
-              .json()
-              .catch(() => ({}))) as Record<string, unknown>;
-            const detail = body.detail ?? `HTTP ${metaResponse.status}`;
-            throw new Error(String(detail));
-          }
-
-          const meta = (await metaResponse.json()) as AttachmentMeta;
-          const dest = join(outDir, safeFilename(meta.filename));
-          await downloadAttachment(client, basePath, meta.id, dest);
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, {
-              filename: meta.filename,
-              size_bytes: meta.size_bytes,
-              saved: dest,
-            });
-          } else {
-            log.info(
-              `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
+          if (!opts.all && !attachmentId) {
+            throw new Error(
+              "Specify an attachment ID, or use --all to download all attachments. Use --list to see available attachments.",
             );
           }
+
+          const outDir = opts.output ?? ".";
+          mkdirSync(outDir, { recursive: true });
+
+          if (opts.all) {
+            const listResponse =
+              await assistant.emails.listAttachments(messageId);
+            if (!listResponse.ok) {
+              const body = (await listResponse
+                .json()
+                .catch(() => ({}))) as Record<string, unknown>;
+              const detail = body.detail ?? `HTTP ${listResponse.status}`;
+              throw new Error(String(detail));
+            }
+
+            const listData = (await listResponse.json()) as {
+              results: AttachmentMeta[];
+            };
+
+            const attachments = listData.results ?? [];
+            if (attachments.length === 0) {
+              throw new Error("No attachments for this message.");
+            }
+
+            const downloaded: { filename: string; size_bytes: number }[] = [];
+            for (const att of attachments) {
+              const dest = join(outDir, safeFilename(att.filename));
+              await downloadAttachmentFromApi(
+                assistant,
+                messageId,
+                att.id,
+                dest,
+              );
+              downloaded.push({
+                filename: att.filename,
+                size_bytes: att.size_bytes,
+              });
+            }
+
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                downloaded: downloaded.length,
+                directory: outDir,
+                files: downloaded,
+              });
+            } else {
+              log.info(
+                `✓ Downloaded ${downloaded.length} attachment(s) to ${outDir}`,
+              );
+              for (const f of downloaded) {
+                log.info(`  - ${f.filename} (${formatBytes(f.size_bytes)})`);
+              }
+            }
+          } else {
+            const metaResponse = await assistant.emails.getAttachment(
+              messageId,
+              attachmentId!,
+            );
+            if (!metaResponse.ok) {
+              const body = (await metaResponse
+                .json()
+                .catch(() => ({}))) as Record<string, unknown>;
+              const detail = body.detail ?? `HTTP ${metaResponse.status}`;
+              throw new Error(String(detail));
+            }
+
+            const meta = (await metaResponse.json()) as AttachmentMeta;
+            const dest = join(outDir, safeFilename(meta.filename));
+            await downloadAttachmentFromApi(
+              assistant,
+              messageId,
+              meta.id,
+              dest,
+            );
+
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                filename: meta.filename,
+                size_bytes: meta.size_bytes,
+                saved: dest,
+              });
+            } else {
+              log.info(
+                `✓ Downloaded ${meta.filename} (${formatBytes(meta.size_bytes)})`,
+              );
+            }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { error: message });
+          } else {
+            log.error(`Error: ${message}`);
+          }
+          process.exitCode = 1;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { error: message });
-        } else {
-          log.error(`Error: ${message}`);
-        }
-        process.exitCode = 1;
-      }
-    },
-  );
+      },
+    );
 }
 
 interface AttachmentMeta {
-id: string;
-filename: string;
-content_type: string;
-size_bytes: number;
-content_id: string;
-created_at: string;
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  content_id: string;
+  created_at: string;
 }
 
 function formatBytes(bytes: number): string {
-if (bytes < 1024) return `${bytes} B`;
-if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function safeFilename(name: string): string {
-// Strip path separators and null bytes — keep the basename only
-return basename(name).replace(/[\x00/\\]/g, "_") || "attachment";
+  return basename(name).replace(/[\x00/\\]/g, "_") || "attachment";
 }
 
-async function downloadAttachment(
-client: VellumPlatformClient,
-basePath: string,
-attachmentId: string,
-dest: string,
+async function downloadAttachmentFromApi(
+  assistant: AssistantSubClient,
+  messageId: string,
+  attachmentId: string,
+  dest: string,
 ): Promise<void> {
-const response = await client.fetch(
-  `${basePath}/${attachmentId}/download/`,
-);
+  const response = await assistant.emails.downloadAttachment(
+    messageId,
+    attachmentId,
+  );
 
-if (!response.ok) {
-  const body = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  const detail = body.detail ?? `HTTP ${response.status}`;
-  throw new Error(`Failed to download attachment: ${detail}`);
-}
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = body.detail ?? `HTTP ${response.status}`;
+    throw new Error(`Failed to download attachment: ${detail}`);
+  }
 
-if (!response.body) {
-  throw new Error("Empty response body from download endpoint.");
-}
+  if (!response.body) {
+    throw new Error("Empty response body from download endpoint.");
+  }
 
-const fileStream = createWriteStream(dest);
-await pipeline(response.body as unknown as Readable, fileStream);
+  const fileStream = createWriteStream(dest);
+  await pipeline(response.body as unknown as Readable, fileStream);
 }
