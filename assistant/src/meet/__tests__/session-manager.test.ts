@@ -15,7 +15,10 @@ import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
   MEET_BOT_INTERNAL_PORT,
+  MEET_JOIN_NAME_FALLBACK,
   type MeetAudioIngestLike,
+  type MeetConversationBridgeLike,
+  type MeetStorageWriterLike,
 } from "../session-manager.js";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +78,9 @@ function makeMockRunner(
 interface FakeAudioIngest extends MeetAudioIngestLike {
   start: ReturnType<typeof mock>;
   stop: ReturnType<typeof mock>;
+  subscribePcm: ReturnType<typeof mock>;
+  /** Test helper: push a PCM chunk to every subscriber. */
+  pushPcm: (bytes: Uint8Array) => void;
 }
 
 function makeFakeAudioIngestFactory(): {
@@ -84,9 +90,17 @@ function makeFakeAudioIngestFactory(): {
   let lastIngest: FakeAudioIngest | null = null;
   return {
     factory: () => {
+      const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
         start: mock(async () => {}),
         stop: mock(async () => {}),
+        subscribePcm: mock((cb: (bytes: Uint8Array) => void) => {
+          subscribers.add(cb);
+          return () => subscribers.delete(cb);
+        }),
+        pushPcm: (bytes) => {
+          for (const cb of subscribers) cb(bytes);
+        },
       };
       lastIngest = ingest;
       return ingest;
@@ -176,8 +190,16 @@ describe("MeetSessionManager.join", () => {
     expect(runOpts.image).toBe("vellum-meet-bot:dev");
     expect(runOpts.env.MEET_URL).toBe("https://meet.google.com/xyz-abc-def");
     expect(runOpts.env.MEETING_ID).toBe("m1");
-    expect(runOpts.env.JOIN_NAME).toBe("");
-    expect(runOpts.env.CONSENT_MESSAGE).toContain("{assistantName}");
+    // `services.meet.joinName` is null by default → session manager falls
+    // back to the assistant display name, then to MEET_JOIN_NAME_FALLBACK.
+    // In this test, `resolveAssistantDisplayName` is not overridden, so
+    // the real `getAssistantName()` returns null (no IDENTITY.md) and we
+    // land on the hard fallback.
+    expect(runOpts.env.JOIN_NAME).toBe("AI Assistant");
+    // `{assistantName}` is substituted in the session manager using the
+    // same effective name that `JOIN_NAME` resolves to.
+    expect(runOpts.env.CONSENT_MESSAGE).toContain("AI Assistant");
+    expect(runOpts.env.CONSENT_MESSAGE).not.toContain("{assistantName}");
     expect(runOpts.env.DAEMON_URL).toBe("http://host.docker.internal:7821");
     expect(runOpts.env.BOT_API_TOKEN).toBe(session.botApiToken);
     expect(runOpts.env.TTS_API_KEY).toBe("tts-secret");
@@ -821,5 +843,358 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
     } finally {
       dispose();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JOIN_NAME fallback (Gap E)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager JOIN_NAME resolution", () => {
+  function runOpts(runner: MockRunner) {
+    return runner.run.mock.calls[0][0] as {
+      env: Record<string, string>;
+    };
+  }
+
+  test("falls back to resolveAssistantDisplayName when services.meet.joinName is null", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveAssistantDisplayName: () => "Atlas",
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-joinname-1",
+      conversationId: "c",
+    });
+
+    const env = runOpts(runner).env;
+    expect(env.JOIN_NAME).toBe("Atlas");
+    expect(env.CONSENT_MESSAGE).toContain("Atlas");
+    expect(env.CONSENT_MESSAGE).not.toContain("{assistantName}");
+
+    await manager.leave("m-joinname-1", "cleanup");
+  });
+
+  test("falls back to MEET_JOIN_NAME_FALLBACK when neither source resolves", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveAssistantDisplayName: () => null,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-joinname-2",
+      conversationId: "c",
+    });
+
+    const env = runOpts(runner).env;
+    expect(env.JOIN_NAME).toBe(MEET_JOIN_NAME_FALLBACK);
+    expect(env.JOIN_NAME.length).toBeGreaterThan(0);
+    // Substituted consent message uses the same effective name.
+    expect(env.CONSENT_MESSAGE).toContain(MEET_JOIN_NAME_FALLBACK);
+
+    await manager.leave("m-joinname-2", "cleanup");
+  });
+
+  test("caller-supplied consentMessage is still substituted in-manager", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveAssistantDisplayName: () => "Nova",
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-joinname-3",
+      conversationId: "c",
+      // Caller passes a raw template — session manager substitutes it.
+      consentMessage: "Hi, I'm {assistantName}!",
+    });
+
+    const env = runOpts(runner).env;
+    expect(env.CONSENT_MESSAGE).toBe("Hi, I'm Nova!");
+
+    await manager.leave("m-joinname-3", "cleanup");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dispatcher register-before-ingest race (Gap G) + leave synthesized
+// lifecycle:left (Gap I)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager dispatcher sequencing", () => {
+  test("registerMeetingDispatcher runs BEFORE audioIngest.start", async () => {
+    const runner = makeMockRunner();
+    const callOrder: string[] = [];
+
+    const audioIngestFactory = {
+      factory: () => {
+        const subscribers = new Set<(bytes: Uint8Array) => void>();
+        const ingest: MeetAudioIngestLike = {
+          start: async (meetingId: string) => {
+            // By the time audio ingest starts, the router handler must be
+            // installed so transcripts fired during STT startup can reach
+            // the dispatcher rather than falling through the unregistered
+            // meeting drop path.
+            callOrder.push(
+              `ingest.start registeredCount=${getMeetSessionEventRouter().registeredCount()} meetingId=${meetingId}`,
+            );
+          },
+          stop: async () => {
+            callOrder.push("ingest.stop");
+          },
+          subscribePcm: (cb) => {
+            subscribers.add(cb);
+            return () => subscribers.delete(cb);
+          },
+        };
+        return ingest;
+      },
+    };
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-race",
+      conversationId: "c",
+    });
+
+    expect(callOrder).toHaveLength(1);
+    expect(callOrder[0]).toBe(
+      "ingest.start registeredCount=1 meetingId=m-race",
+    );
+
+    await manager.leave("m-race", "cleanup");
+  });
+
+  test("leave dispatches lifecycle:left BEFORE unregistering the dispatcher", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    // Storage writer stub that records lifecycle:left visibility during
+    // stop(). The session manager's leave() should dispatch the synthesized
+    // event before calling writer.stop(), so this stub's internal state
+    // reflects the order.
+    const writerEvents: string[] = [];
+    const writerStart = mock(() => {});
+    const writerStartAudio = mock(async (_source: unknown) => {});
+    const writerStop = mock(async () => {
+      writerEvents.push("stop");
+    });
+    const storageWriterFactory = (_args: {
+      meetingId: string;
+    }): MeetStorageWriterLike => ({
+      start: writerStart,
+      startAudio: writerStartAudio,
+      stop: writerStop,
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      storageWriterFactory,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-left",
+      conversationId: "c",
+    });
+
+    // Subscribe a probe to the dispatcher so we can observe whether the
+    // synthesized lifecycle:left fires while the subscription is still
+    // live.
+    const observed: string[] = [];
+    meetEventDispatcher.subscribe("m-left", (event) => {
+      if (event.type === "lifecycle") {
+        observed.push(`lifecycle:${event.state}`);
+      }
+    });
+
+    await manager.leave("m-left", "user-requested");
+
+    expect(observed).toEqual(["lifecycle:left"]);
+    // The writer was stopped after the synthesized event fired.
+    expect(writerStop).toHaveBeenCalledTimes(1);
+    expect(writerEvents).toEqual(["stop"]);
+    // Dispatcher was fully torn down after leave.
+    expect(getMeetSessionEventRouter().registeredCount()).toBe(0);
+    expect(meetEventDispatcher.subscriberCount("m-left")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conversation bridge + storage writer wiring (Gaps A + B)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager bridge + writer wiring", () => {
+  test("join() constructs and subscribes a MeetConversationBridge", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    const bridgeSubscribe = mock(() => {});
+    const bridgeUnsubscribe = mock(() => {});
+    const factoryArgsSeen: Array<{
+      meetingId: string;
+      conversationId: string;
+    }> = [];
+    const conversationBridgeFactory = (args: {
+      meetingId: string;
+      conversationId: string;
+    }): MeetConversationBridgeLike => {
+      factoryArgsSeen.push(args);
+      return {
+        subscribe: bridgeSubscribe,
+        unsubscribe: bridgeUnsubscribe,
+      };
+    };
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      conversationBridgeFactory,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-bridge",
+      conversationId: "conv-abc",
+    });
+
+    expect(factoryArgsSeen).toHaveLength(1);
+    expect(factoryArgsSeen[0]).toEqual({
+      meetingId: "m-bridge",
+      conversationId: "conv-abc",
+    });
+    expect(bridgeSubscribe).toHaveBeenCalledTimes(1);
+
+    await manager.leave("m-bridge", "cleanup");
+    expect(bridgeUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test("join() constructs and starts a MeetStorageWriter and wires PCM tee", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    const writerStart = mock(() => {});
+    const writerStartAudio = mock(async (_source: unknown) => {});
+    const writerStop = mock(async () => {});
+    const factoryArgsSeen: Array<{ meetingId: string }> = [];
+    const storageWriterFactory = (args: {
+      meetingId: string;
+    }): MeetStorageWriterLike => {
+      factoryArgsSeen.push(args);
+      return {
+        start: writerStart,
+        startAudio: writerStartAudio,
+        stop: writerStop,
+      };
+    };
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      storageWriterFactory,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-writer",
+      conversationId: "c",
+    });
+
+    expect(factoryArgsSeen).toHaveLength(1);
+    expect(factoryArgsSeen[0]).toEqual({ meetingId: "m-writer" });
+    expect(writerStart).toHaveBeenCalledTimes(1);
+    expect(writerStartAudio).toHaveBeenCalledTimes(1);
+
+    // The PcmSource passed to startAudio should route to the audio-ingest
+    // tee — verify that subscribing on the source calls subscribePcm.
+    const ingest = audioIngestFactory.getLastIngest()!;
+    const sourceArg = writerStartAudio.mock.calls[0][0] as {
+      subscribe: (cb: (bytes: Uint8Array) => void) => () => void;
+    };
+    const received: Uint8Array[] = [];
+    const unsubscribe = sourceArg.subscribe((b) => received.push(b));
+    expect(ingest.subscribePcm).toHaveBeenCalledTimes(1);
+
+    ingest.pushPcm(new Uint8Array([1, 2, 3]));
+    expect(received).toHaveLength(1);
+    expect(Array.from(received[0])).toEqual([1, 2, 3]);
+
+    unsubscribe();
+    ingest.pushPcm(new Uint8Array([9]));
+    expect(received).toHaveLength(1);
+
+    await manager.leave("m-writer", "cleanup");
+    expect(writerStop).toHaveBeenCalledTimes(1);
+  });
+
+  test("storage writer startAudio failure does not fail the join", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    const storageWriterFactory = (): MeetStorageWriterLike => ({
+      start: () => {},
+      startAudio: async () => {
+        throw new Error("ffmpeg missing");
+      },
+      stop: async () => {},
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      storageWriterFactory,
+    });
+
+    // join must not throw even though startAudio rejects.
+    await manager.join({
+      url: "u",
+      meetingId: "m-writer-fail",
+      conversationId: "c",
+    });
+    expect(manager.getSession("m-writer-fail")).not.toBeNull();
+
+    await manager.leave("m-writer-fail", "cleanup");
   });
 });

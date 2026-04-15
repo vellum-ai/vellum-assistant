@@ -180,6 +180,9 @@ export interface MeetAudioIngestDeps {
   botConnectTimeoutMs?: number;
 }
 
+/** Callback invoked for each PCM chunk received from the bot. */
+export type PcmSubscriber = (bytes: Uint8Array) => void;
+
 /**
  * Per-meeting audio ingress bridge. Instances are 1:1 with a meet-bot
  * container and are owned by the session manager — callers must not reuse
@@ -198,12 +201,36 @@ export class MeetAudioIngest {
   private meetingId: string | null = null;
   private stopped = false;
 
+  /**
+   * Callbacks subscribed to the raw PCM stream. Each inbound chunk from the
+   * bot is forwarded to the streaming transcriber AND to every subscriber
+   * here so multiple consumers (e.g. the storage writer's ffmpeg pipe) can
+   * observe the same bytes without competing for the socket.
+   */
+  private readonly pcmSubscribers = new Set<PcmSubscriber>();
+
   constructor(deps: MeetAudioIngestDeps = {}) {
     this.createTranscriber =
       deps.createTranscriber ?? defaultCreateTranscriber;
     this.listen = deps.listen ?? defaultListen;
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
+  }
+
+  /**
+   * Register a callback to receive every raw PCM chunk as it arrives from
+   * the bot. Subscribers are invoked synchronously for each chunk in
+   * addition to the transcriber forward. A subscriber that throws is
+   * logged and removed so one misbehaving consumer cannot break peers.
+   *
+   * Returns an unsubscribe function. Safe to call before `start()` — the
+   * subscriber picks up the very next chunk once the socket is wired.
+   */
+  subscribePcm(cb: PcmSubscriber): () => void {
+    this.pcmSubscribers.add(cb);
+    return () => {
+      this.pcmSubscribers.delete(cb);
+    };
   }
 
   /**
@@ -392,6 +419,11 @@ export class MeetAudioIngest {
       }
     }
 
+    // Drop any lingering PCM subscribers so they can't keep a reference to
+    // the ingest alive past stop. Subscribers that unsubscribed on their
+    // own (e.g. the storage writer on `stop()`) are already gone.
+    this.pcmSubscribers.clear();
+
     log.info(
       { meetingId: this.meetingId },
       "MeetAudioIngest: stopped",
@@ -401,7 +433,9 @@ export class MeetAudioIngest {
   // ── Internals ──────────────────────────────────────────────────────
 
   /**
-   * Forward inbound bytes to the transcriber and log connection lifecycle.
+   * Forward inbound bytes to the transcriber and fan them out to every PCM
+   * subscriber. Subscribers that throw are logged and evicted so one
+   * misbehaving consumer cannot break peers.
    */
   private wireConnection(
     conn: UnixSocketConnection,
@@ -410,16 +444,33 @@ export class MeetAudioIngest {
     conn.onData((chunk) => {
       if (this.stopped) return;
       const transcriber = this.transcriber;
-      if (!transcriber) return;
-      try {
-        // The streaming endpoint accepts raw PCM bytes. The mimeType is
-        // informational for provider adapters; pass a sensible default.
-        transcriber.sendAudio(chunk, "audio/pcm");
-      } catch (err) {
-        log.warn(
-          { err, meetingId },
-          "MeetAudioIngest: transcriber.sendAudio threw",
-        );
+      if (transcriber) {
+        try {
+          // The streaming endpoint accepts raw PCM bytes. The mimeType is
+          // informational for provider adapters; pass a sensible default.
+          transcriber.sendAudio(chunk, "audio/pcm");
+        } catch (err) {
+          log.warn(
+            { err, meetingId },
+            "MeetAudioIngest: transcriber.sendAudio threw",
+          );
+        }
+      }
+      // Fan the raw bytes out to every PCM subscriber. Snapshot the set so
+      // a callback removing itself mid-iteration doesn't skip a neighbor.
+      // Subscribers that throw are logged and removed on the spot.
+      if (this.pcmSubscribers.size > 0) {
+        for (const subscriber of Array.from(this.pcmSubscribers)) {
+          try {
+            subscriber(chunk);
+          } catch (err) {
+            log.warn(
+              { err, meetingId },
+              "MeetAudioIngest: PCM subscriber threw — removing",
+            );
+            this.pcmSubscribers.delete(subscriber);
+          }
+        }
       }
     });
 
