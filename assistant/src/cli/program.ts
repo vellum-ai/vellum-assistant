@@ -78,9 +78,7 @@ Examples:
   registerDoctorCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
-  const emailEnabled = isEmailEnabled(getConfigReadOnly());
-  log.info(`buildCliProgram: isEmailEnabled=${emailEnabled}`);
-  if (emailEnabled) {
+  if (isEmailEnabled(getConfigReadOnly())) {
     registerEmailCommand(program);
   }
   registerContactsCommand(program);
