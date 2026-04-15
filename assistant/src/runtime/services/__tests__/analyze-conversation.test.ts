@@ -103,6 +103,7 @@ function makeConversation() {
     processing: false,
     abortController: null as AbortController | null,
     currentRequestId: null as string | null,
+    loadedHistoryTrustClass: undefined as string | undefined,
     runAgentLoop: mock(() => Promise.resolve()),
   };
 }
@@ -329,6 +330,34 @@ describe("analyzeConversation", () => {
       expect.any(String),
       { provenanceTrustClass: "guardian" },
     );
+  });
+
+  test("auto: invalidates loadedHistoryTrustClass before ensureActorScopedHistory on reuse so stale ctx.messages is reloaded", async () => {
+    // Simulate a reused rolling conversation whose prior run already cached
+    // a guardian-class history load. Without explicit invalidation,
+    // ensureActorScopedHistory would short-circuit and runAgentLoopImpl
+    // would execute against ctx.messages missing the newly-enqueued prompt.
+    mockFindAnalysisConversationFor.mockImplementation(() => ({
+      id: "analysis-existing",
+    }));
+    const conversation = makeConversation();
+    conversation.loadedHistoryTrustClass = "guardian";
+    let trustClassWhenEnsured: string | undefined = "sentinel";
+    conversation.ensureActorScopedHistory.mockImplementation(() => {
+      trustClassWhenEnsured = conversation.loadedHistoryTrustClass;
+      return Promise.resolve();
+    });
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+
+    expect("error" in result).toBe(false);
+    // The invalidation must land before ensureActorScopedHistory runs so
+    // the reload inside it pulls the freshly-persisted user prompt.
+    expect(trustClassWhenEnsured).toBeUndefined();
+    expect(conversation.ensureActorScopedHistory).toHaveBeenCalledTimes(1);
   });
 
   test("auto: sets trustClass to guardian", async () => {

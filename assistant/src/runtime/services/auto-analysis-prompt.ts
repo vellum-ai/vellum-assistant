@@ -5,9 +5,6 @@
  * conversation reaches a natural pause. The prompt treats the transcript as
  * observed data (not instructions) to defend against prompt injection from
  * arbitrary transcript content.
- *
- * No callers yet — will be wired in by a later PR of the auto-analyze-loop
- * plan from the auto-mode branch of the analyze service.
  */
 
 /**

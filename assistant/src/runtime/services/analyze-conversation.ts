@@ -256,6 +256,15 @@ export async function analyzeConversation(
     trustClass,
     sourceChannel: "vellum",
   });
+  // Force a reload so the just-persisted user prompt lands in
+  // `ctx.messages`. On a freshly created conversation this is a no-op
+  // beyond the reload `ensureActorScopedHistory` would already perform
+  // (trustClass transitioned from undefined). On a reused rolling
+  // analysis conversation the cached `loadedHistoryTrustClass` already
+  // matches `trustClass`, so without this invalidation the ensure call
+  // short-circuits and `runAgentLoopImpl` would run on stale in-memory
+  // history missing the newly-enqueued prompt.
+  analysisConversation.loadedHistoryTrustClass = undefined;
   await analysisConversation.ensureActorScopedHistory();
   if (stripTools) {
     // Manual analysis runs over attacker-influenced transcript content, so
