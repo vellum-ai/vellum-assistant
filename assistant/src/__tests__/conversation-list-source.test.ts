@@ -13,14 +13,14 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-mock.module("../../config/env.js", () => ({
+mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -32,7 +32,7 @@ mock.module("../../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-mock.module("../../config/loader.js", () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
     model: "test",
@@ -43,9 +43,9 @@ mock.module("../../config/loader.js", () => ({
   }),
 }));
 
-import { createConversation } from "../../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../../memory/db.js";
-import { RuntimeHttpServer } from "../http-server.js";
+import { createConversation } from "../memory/conversation-crud.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
 
