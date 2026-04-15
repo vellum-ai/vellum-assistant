@@ -2750,7 +2750,9 @@ paths:
     post:
       operationId: conversations_by_id_archive_post
       summary: Archive a conversation
-      description: Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but preserved for search and recall.
+      description:
+        Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but
+        preserved for search and recall.
       tags:
         - conversations
       responses:
@@ -2891,6 +2893,22 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/unarchive:
+    post:
+      operationId: conversations_by_id_unarchive_post
+      summary: Unarchive a conversation
+      description: Restore an archived conversation back to the default sidebar.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/undo:
     post:
       operationId: conversations_by_id_undo_post
@@ -2916,22 +2934,6 @@ paths:
                   - removedCount
                   - conversationId
                 additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/conversations/{id}/unarchive:
-    post:
-      operationId: conversations_by_id_unarchive_post
-      summary: Unarchive a conversation
-      description: Restore an archived conversation back to the default sidebar.
-      tags:
-        - conversations
-      responses:
-        "200":
-          description: Successful response
       parameters:
         - name: id
           in: path
