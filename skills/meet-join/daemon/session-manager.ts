@@ -59,11 +59,29 @@ import { join } from "node:path";
 import { getConfig } from "../../../assistant/src/config/loader.js";
 import { getAssistantName } from "../../../assistant/src/daemon/identity-helpers.js";
 import { addMessage } from "../../../assistant/src/memory/conversation-crud.js";
+import {
+  createTimeout,
+  extractToolUse,
+  getConfiguredProvider,
+  userMessage,
+} from "../../../assistant/src/providers/provider-send-message.js";
+import type {
+  Provider,
+  ToolDefinition,
+} from "../../../assistant/src/providers/types.js";
+import { wakeAgentForOpportunity } from "../../../assistant/src/runtime/agent-wake.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
 import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
+import {
+  type ChatOpportunityDecision,
+  type ChatOpportunityDetectorStats,
+  type ChatOpportunityLLMAsk,
+  MeetChatOpportunityDetector,
+  type ProactiveChatConfig,
+} from "./chat-opportunity-detector.js";
 import {
   MeetConsentMonitor,
   type MeetSessionLeaver,
@@ -109,6 +127,12 @@ export const MEET_SHUTDOWN_DEADLINE_MS = 15_000;
 
 /** Default daemon HTTP port when `RUNTIME_HTTP_PORT` is not set. */
 const DEFAULT_DAEMON_PORT = 7821;
+
+/** Tier 2 chat-opportunity LLM timeout — bounds the proactive-chat path. */
+export const CHAT_OPPORTUNITY_LLM_TIMEOUT_MS = 5_000;
+
+/** Tier 2 chat-opportunity LLM max tokens for the structured response. */
+export const CHAT_OPPORTUNITY_LLM_MAX_TOKENS = 256;
 
 /**
  * Fallback display name forwarded to the bot container when neither
@@ -245,6 +269,15 @@ interface ActiveSession extends MeetSession {
    * `meta.json` is flushed before the dispatcher is unregistered.
    */
   storageWriter: MeetStorageWriterLike;
+  /**
+   * Chat-opportunity detector — watches transcript and inbound chat for
+   * proactive-response opportunities and fires
+   * {@link wakeAgentForOpportunity} when Tier 1 + Tier 2 both confirm.
+   * Constructed in `join()` only when
+   * `services.meet.proactiveChat.enabled === true`; `null` otherwise.
+   * Disposed in `leave()` before the dispatcher is unregistered.
+   */
+  chatOpportunityDetector: MeetChatOpportunityDetectorLike | null;
 }
 
 /**
@@ -269,6 +302,20 @@ export interface MeetAudioIngestLike {
 export interface MeetConsentMonitorLike {
   start(): void;
   stop(): void;
+}
+
+/**
+ * Thin interface for the chat-opportunity detector surface the session
+ * manager uses. Lets tests swap in a fake without needing the real LLM
+ * stack or dispatcher subscription. Mirrors
+ * {@link MeetChatOpportunityDetector} — `start` subscribes, `dispose`
+ * unsubscribes, `getStats` exposes the running counters that `leave()`
+ * emits as a per-meeting summary log line.
+ */
+export interface MeetChatOpportunityDetectorLike {
+  start(): void;
+  dispose(): void;
+  getStats(): ChatOpportunityDetectorStats;
 }
 
 /**
@@ -309,6 +356,19 @@ export interface MeetConversationBridgeFactoryArgs {
 /** Arguments passed to {@link MeetSessionManagerDeps.storageWriterFactory}. */
 export interface MeetStorageWriterFactoryArgs {
   meetingId: string;
+}
+
+/**
+ * Arguments passed to
+ * {@link MeetSessionManagerDeps.chatOpportunityDetectorFactory}.
+ */
+export interface MeetChatOpportunityDetectorFactoryArgs {
+  meetingId: string;
+  conversationId: string;
+  assistantDisplayName: string;
+  config: ProactiveChatConfig;
+  callDetectorLLM: ChatOpportunityLLMAsk;
+  onOpportunity: (hint: string) => void;
 }
 
 export interface MeetSessionManagerDeps {
@@ -378,6 +438,32 @@ export interface MeetSessionManagerDeps {
    * conversation CRUD module.
    */
   insertMessage?: InsertMessageFn;
+  /**
+   * Override the chat-opportunity-detector factory. Default constructs a
+   * {@link MeetChatOpportunityDetector} with a Tier 2 LLM callback that
+   * routes through the repo-wide provider abstraction at
+   * `modelIntent: "latency-optimized"`. Tests can inject a fake to
+   * observe start/dispose/stats without spinning up the LLM path.
+   *
+   * Only consulted when `services.meet.proactiveChat.enabled === true`.
+   */
+  chatOpportunityDetectorFactory?: (
+    args: MeetChatOpportunityDetectorFactoryArgs,
+  ) => MeetChatOpportunityDetectorLike;
+  /**
+   * Override the function the session manager calls to wake the agent
+   * loop when the detector fires an opportunity. Default routes through
+   * the runtime-level {@link wakeAgentForOpportunity} using the
+   * process-wide default resolver installed by the daemon startup.
+   *
+   * Tests can inject a spy to observe the wake payload without touching
+   * the real conversation registry.
+   */
+  wakeAgent?: (opts: {
+    conversationId: string;
+    hint: string;
+    source: string;
+  }) => Promise<void>;
 }
 
 class MeetSessionManagerImpl {
@@ -414,6 +500,10 @@ class MeetSessionManagerImpl {
       resolveAssistantDisplayName:
         deps.resolveAssistantDisplayName ?? getAssistantName,
       insertMessage,
+      chatOpportunityDetectorFactory:
+        deps.chatOpportunityDetectorFactory ??
+        defaultChatOpportunityDetectorFactory,
+      wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -448,6 +538,11 @@ class MeetSessionManagerImpl {
       }
       try {
         void session.storageWriter.stop();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        session.chatOpportunityDetector?.dispose();
       } catch {
         /* best-effort */
       }
@@ -690,6 +785,46 @@ class MeetSessionManagerImpl {
     // `<workspace>/meets/<meetingId>/`.
     const storageWriter = this.deps.storageWriterFactory({ meetingId });
 
+    // Chat-opportunity detector — proactively watches transcript/chat for
+    // moments where the assistant chiming in via meeting chat would help,
+    // and wakes the agent loop on positive Tier 2 verdicts. Constructed
+    // only when `services.meet.proactiveChat.enabled === true`; keeping
+    // the detector null when disabled means zero lifecycle overhead and
+    // no event-handler cost on the dispatcher path.
+    const proactiveChatConfig = meet.proactiveChat;
+    const chatOpportunityDetector: MeetChatOpportunityDetectorLike | null =
+      proactiveChatConfig.enabled
+        ? this.deps.chatOpportunityDetectorFactory({
+            meetingId,
+            conversationId,
+            assistantDisplayName: effectiveJoinName,
+            config: {
+              enabled: proactiveChatConfig.enabled,
+              detectorKeywords: [...proactiveChatConfig.detectorKeywords],
+              tier2DebounceMs: proactiveChatConfig.tier2DebounceMs,
+              escalationCooldownSec:
+                proactiveChatConfig.escalationCooldownSec,
+              tier2MaxTranscriptSec:
+                proactiveChatConfig.tier2MaxTranscriptSec,
+            },
+            callDetectorLLM: defaultCallDetectorLLM,
+            onOpportunity: (hint: string) => {
+              void this.deps
+                .wakeAgent({
+                  conversationId,
+                  hint,
+                  source: "meet-chat-opportunity",
+                })
+                .catch((err) => {
+                  log.warn(
+                    { err, meetingId, conversationId },
+                    "MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity",
+                  );
+                });
+            },
+          })
+        : null;
+
     const startedAt = Date.now();
     const session: ActiveSession = {
       meetingId,
@@ -706,6 +841,7 @@ class MeetSessionManagerImpl {
       consentMonitor,
       conversationBridge,
       storageWriter,
+      chatOpportunityDetector,
     };
     this.sessions.set(meetingId, session);
 
@@ -767,6 +903,10 @@ class MeetSessionManagerImpl {
     // start the consent monitor so it has a live dispatcher to attach to.
     consentMonitor.start();
 
+    // Chat-opportunity detector subscribes to the same dispatcher. Skipped
+    // entirely when `proactiveChat.enabled === false` (detector is null).
+    chatOpportunityDetector?.start();
+
     // Max-meeting-minutes hard cap. Using setTimeout keeps this compatible
     // with Bun's fake-timer harness for tests.
     session.timeoutHandle = setTimeout(() => {
@@ -821,6 +961,18 @@ class MeetSessionManagerImpl {
       log.warn(
         { err, meetingId },
         "MeetConsentMonitor.stop threw during leave — continuing teardown",
+      );
+    }
+
+    // Dispose the chat-opportunity detector alongside the consent monitor
+    // so no late transcript/chat event fires an agent wake during
+    // teardown. Safe when the detector is null (proactive chat disabled).
+    try {
+      session.chatOpportunityDetector?.dispose();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetChatOpportunityDetector.dispose threw during leave — continuing teardown",
       );
     }
 
@@ -936,6 +1088,15 @@ class MeetSessionManagerImpl {
       );
     }
 
+    // Per-meeting proactive-chat summary. Emitted unconditionally on
+    // leave when a detector was constructed, even if `enabled` was later
+    // flipped off at config-watcher time — the stats snapshot is cheap
+    // and the log line is useful telemetry for tuning the Tier 1 + Tier 2
+    // gating. When the detector was never constructed the field is
+    // absent.
+    const chatStats: ChatOpportunityDetectorStats | undefined =
+      session.chatOpportunityDetector?.getStats();
+
     void publishMeetEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       meetingId,
@@ -944,7 +1105,13 @@ class MeetSessionManagerImpl {
     );
 
     log.info(
-      { meetingId, containerId: session.containerId, reason, gracefulOk },
+      {
+        meetingId,
+        containerId: session.containerId,
+        reason,
+        gracefulOk,
+        chatOpportunityStats: chatStats,
+      },
       "Meet session left",
     );
   }
@@ -1094,6 +1261,11 @@ class MeetSessionManagerImpl {
             /* best-effort */
           }
           try {
+            lingering.chatOpportunityDetector?.dispose();
+          } catch {
+            /* best-effort */
+          }
+          try {
             lingering.conversationBridge.unsubscribe();
           } catch {
             /* best-effort */
@@ -1186,6 +1358,123 @@ function defaultConsentMonitorFactory(
     sessionManager: args.sessionManager,
     config: args.config,
   });
+}
+
+/**
+ * Default {@link MeetChatOpportunityDetector} factory. The Tier 2 LLM
+ * callback is injected from module scope (see
+ * {@link defaultCallDetectorLLM}) rather than baked into the detector
+ * itself so tests can swap the whole factory when they want to avoid
+ * the provider stack entirely.
+ */
+function defaultChatOpportunityDetectorFactory(
+  args: MeetChatOpportunityDetectorFactoryArgs,
+): MeetChatOpportunityDetectorLike {
+  return new MeetChatOpportunityDetector({
+    meetingId: args.meetingId,
+    assistantDisplayName: args.assistantDisplayName,
+    config: args.config,
+    callDetectorLLM: args.callDetectorLLM,
+    onOpportunity: args.onOpportunity,
+  });
+}
+
+/**
+ * Tool schema used to force structured JSON output from the Tier 2 LLM.
+ * Mirrors the consent-monitor's `report_objection` tool pattern — the
+ * same provider abstraction works for both, we just differ on the
+ * schema.
+ */
+const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
+  name: "report_chat_opportunity",
+  description:
+    "Report whether the AI assistant chiming in via meeting chat would be appropriate and helpful here.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      shouldRespond: {
+        type: "boolean",
+        description:
+          "True if the AI assistant should post a helpful chat response now; false otherwise.",
+      },
+      reason: {
+        type: "string",
+        description:
+          "Brief rationale for the decision. For positive verdicts, a one-line description of what the assistant should address; for negative verdicts, why intervention is inappropriate.",
+      },
+    },
+    required: ["shouldRespond", "reason"],
+  },
+};
+
+/**
+ * Default Tier 2 chat-opportunity LLM callback. Routes through the
+ * repo-wide provider abstraction at
+ * `modelIntent: "latency-optimized"` — keeping the proactive-chat path
+ * on the same latency tier the consent monitor uses so both background
+ * loops share tuning. Times out at
+ * {@link CHAT_OPPORTUNITY_LLM_TIMEOUT_MS} and extracts the tool-use
+ * input as the structured verdict.
+ *
+ * On missing provider or malformed output we fall back to a conservative
+ * `shouldRespond: false` verdict — never interrupt a meeting because of
+ * missing infrastructure.
+ */
+async function defaultCallDetectorLLM(
+  prompt: string,
+): Promise<ChatOpportunityDecision> {
+  const provider: Provider | null = await getConfiguredProvider();
+  if (!provider) {
+    return { shouldRespond: false, reason: "" };
+  }
+
+  const { signal, cleanup } = createTimeout(CHAT_OPPORTUNITY_LLM_TIMEOUT_MS);
+  try {
+    const response = await provider.sendMessage(
+      [userMessage(prompt)],
+      [CHAT_OPPORTUNITY_TOOL],
+      "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
+      {
+        config: {
+          modelIntent: "latency-optimized",
+          max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
+          tool_choice: {
+            type: "tool" as const,
+            name: CHAT_OPPORTUNITY_TOOL.name,
+          },
+        },
+        signal,
+      },
+    );
+    const tool = extractToolUse(response);
+    if (!tool) return { shouldRespond: false, reason: "" };
+    const input = tool.input as { shouldRespond?: unknown; reason?: unknown };
+    return {
+      shouldRespond: input.shouldRespond === true,
+      reason: typeof input.reason === "string" ? input.reason : "",
+    };
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * Default wake-agent invocation used by the chat-opportunity detector's
+ * `onOpportunity` callback. Delegates to the runtime-level
+ * {@link wakeAgentForOpportunity}, which resolves the target
+ * conversation via the process-wide default resolver installed at
+ * daemon startup (see `server.ts`).
+ *
+ * Accepts and discards the wake result so the detector's callback
+ * signature stays `void`. Errors bubble to the detector's own
+ * `onOpportunity` error-handling path, which logs and drops.
+ */
+async function defaultWakeAgent(opts: {
+  conversationId: string;
+  hint: string;
+  source: string;
+}): Promise<void> {
+  await wakeAgentForOpportunity(opts);
 }
 
 /**

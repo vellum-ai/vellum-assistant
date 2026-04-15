@@ -1,11 +1,16 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { invalidateConfigCache } from "../../../../assistant/src/config/loader.js";
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
+import type {
+  ChatOpportunityDecision,
+  ChatOpportunityDetectorStats,
+} from "../chat-opportunity-detector.js";
 import { meetEventDispatcher } from "../event-publisher.js";
 import {
   __resetMeetSessionEventRouterForTests,
@@ -14,6 +19,8 @@ import {
 import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
+  type MeetChatOpportunityDetectorFactoryArgs,
+  type MeetChatOpportunityDetectorLike,
   MEET_BOT_INTERNAL_PORT,
   MEET_JOIN_NAME_FALLBACK,
   type MeetAudioIngestLike,
@@ -1197,5 +1204,358 @@ describe("MeetSessionManager bridge + writer wiring", () => {
     expect(manager.getSession("m-writer-fail")).not.toBeNull();
 
     await manager.leave("m-writer-fail", "cleanup");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proactive chat-opportunity detector wiring (PR 7)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager proactive chat-opportunity detector wiring", () => {
+  /**
+   * Make a fake detector and the factory that produced it so tests can
+   * assert on construction arguments (assistantDisplayName, config,
+   * callDetectorLLM, onOpportunity) and lifecycle (start, dispose) without
+   * standing up the real regex + LLM stack.
+   */
+  interface FakeDetector extends MeetChatOpportunityDetectorLike {
+    start: ReturnType<typeof mock>;
+    dispose: ReturnType<typeof mock>;
+    getStats: ReturnType<typeof mock>;
+    /** Test helper — simulates a Tier 2 positive verdict firing the callback. */
+    fireOpportunity: (hint: string) => void;
+  }
+
+  function makeFakeDetectorFactory(
+    stats: ChatOpportunityDetectorStats = {
+      tier1Hits: 2,
+      tier2Calls: 1,
+      tier2PositiveCount: 1,
+      escalationsFired: 1,
+      escalationsSuppressed: 0,
+    },
+  ): {
+    factory: (args: MeetChatOpportunityDetectorFactoryArgs) => FakeDetector;
+    lastDetector: () => FakeDetector | null;
+    lastArgs: () => MeetChatOpportunityDetectorFactoryArgs | null;
+  } {
+    let detector: FakeDetector | null = null;
+    let args: MeetChatOpportunityDetectorFactoryArgs | null = null;
+    return {
+      factory: (factoryArgs) => {
+        args = factoryArgs;
+        let capturedOnOpportunity = factoryArgs.onOpportunity;
+        const fake: FakeDetector = {
+          start: mock(() => {}),
+          dispose: mock(() => {}),
+          getStats: mock(() => ({ ...stats })),
+          fireOpportunity: (hint: string) => capturedOnOpportunity(hint),
+        };
+        detector = fake;
+        return fake;
+      },
+      lastDetector: () => detector,
+      lastArgs: () => args,
+    };
+  }
+
+  /**
+   * Writes a `config.json` to the test workspace and invalidates the
+   * config cache so `getConfig()` picks up the override. Paired with
+   * an `afterEach` that tears the file down and invalidates again —
+   * the rest of the file relies on schema defaults, so leaving an
+   * override in place would poison subsequent tests.
+   */
+  function overrideProactiveChatConfig(
+    workspace: string,
+    enabled: boolean,
+  ): void {
+    const configPath = join(workspace, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          services: {
+            meet: {
+              proactiveChat: {
+                enabled,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    invalidateConfigCache();
+  }
+
+  afterEach(() => {
+    // Reset any config override so other describe blocks see schema defaults.
+    invalidateConfigCache();
+  });
+
+  test("join constructs detector with effectiveJoinName, proactiveChat config, and wake callback", async () => {
+    // VELLUM_WORKSPACE_DIR is set by test-preload to a distinct path
+    // from `workspaceDir`, so we point config writes at the preload
+    // path (which `getConfig()` reads) while the manager uses
+    // `workspaceDir` for its per-meeting directory staging. The two
+    // don't have to match — session manager reads `services.meet.*`
+    // via `getConfig()` (preload dir) and uses `deps.getWorkspaceDir`
+    // for disk layout (test-local override).
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    overrideProactiveChatConfig(preloadWorkspace, true);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const detectorFactory = makeFakeDetectorFactory();
+    const wakeAgent = mock(async () => {});
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent,
+      resolveAssistantDisplayName: () => "Atlas",
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-proactive-on",
+      conversationId: "conv-pchat-1",
+    });
+
+    const args = detectorFactory.lastArgs();
+    expect(args).not.toBeNull();
+    // assistantDisplayName flows from the same effectiveJoinName source
+    // as services.meet.joinName / JOIN_NAME — critical for the detector's
+    // name-mention regex to match what the bot actually announces.
+    expect(args!.assistantDisplayName).toBe("Atlas");
+    expect(args!.meetingId).toBe("m-proactive-on");
+    expect(args!.conversationId).toBe("conv-pchat-1");
+    expect(args!.config.enabled).toBe(true);
+    // detectorKeywords array is carried over unchanged (spreading to a
+    // fresh array — verify by shape, not identity).
+    expect(Array.isArray(args!.config.detectorKeywords)).toBe(true);
+    expect(args!.config.detectorKeywords.length).toBeGreaterThan(0);
+
+    const detector = detectorFactory.lastDetector()!;
+    expect(detector.start).toHaveBeenCalledTimes(1);
+
+    // Fire an opportunity — manager should invoke wakeAgent with the
+    // configured source and the hint passed through verbatim.
+    detector.fireOpportunity("question directed at assistant");
+    // wakeAgent is called via `void this.deps.wakeAgent(...)` — allow
+    // the microtask to settle before asserting.
+    await Promise.resolve();
+
+    expect(wakeAgent).toHaveBeenCalledTimes(1);
+    const calls = wakeAgent.mock.calls as unknown as Array<
+      [{ conversationId: string; hint: string; source: string }]
+    >;
+    expect(calls[0]![0]).toEqual({
+      conversationId: "conv-pchat-1",
+      hint: "question directed at assistant",
+      source: "meet-chat-opportunity",
+    });
+
+    await manager.leave("m-proactive-on", "cleanup");
+    // Detector disposed on leave.
+    expect(detector.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("proactiveChat.enabled=false skips detector construction entirely", async () => {
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    overrideProactiveChatConfig(preloadWorkspace, false);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const detectorFactory = makeFakeDetectorFactory();
+    const wakeAgent = mock(async () => {});
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-proactive-off",
+      conversationId: "c",
+    });
+
+    // Factory was never invoked.
+    expect(detectorFactory.lastDetector()).toBeNull();
+    expect(detectorFactory.lastArgs()).toBeNull();
+    // No wakes possible when no detector exists.
+    expect(wakeAgent).toHaveBeenCalledTimes(0);
+
+    await manager.leave("m-proactive-off", "cleanup");
+  });
+
+  test("leave disposes the detector and leave still works when detector is null", async () => {
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+
+    // First case — detector present, dispose on leave.
+    overrideProactiveChatConfig(preloadWorkspace, true);
+    const detectorFactoryOn = makeFakeDetectorFactory();
+    const managerOn = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactoryOn.factory,
+      wakeAgent: async () => {},
+    });
+    await managerOn.join({
+      url: "u",
+      meetingId: "m-dispose-on",
+      conversationId: "c",
+    });
+    await managerOn.leave("m-dispose-on", "cleanup");
+    expect(detectorFactoryOn.lastDetector()!.dispose).toHaveBeenCalledTimes(1);
+
+    // Second case — detector absent (enabled=false), leave must not throw
+    // on the `detector?.dispose()` / `detector?.getStats()` paths.
+    overrideProactiveChatConfig(preloadWorkspace, false);
+    const detectorFactoryOff = makeFakeDetectorFactory();
+    const managerOff = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactoryOff.factory,
+      wakeAgent: async () => {},
+    });
+    await managerOff.join({
+      url: "u",
+      meetingId: "m-dispose-off",
+      conversationId: "c",
+    });
+    await managerOff.leave("m-dispose-off", "cleanup");
+    // Factory never called; no detector to dispose.
+    expect(detectorFactoryOff.lastDetector()).toBeNull();
+  });
+
+  test("wakeAgent rejection is swallowed so the detector callback can't throw", async () => {
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    overrideProactiveChatConfig(preloadWorkspace, true);
+
+    const detectorFactory = makeFakeDetectorFactory();
+    const wakeAgent = mock(async () => {
+      throw new Error("wake exploded");
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-wake-throws",
+      conversationId: "c",
+    });
+
+    const detector = detectorFactory.lastDetector()!;
+    // Calling fireOpportunity synchronously must not raise — the manager
+    // wraps the async wake in `.catch()` so the detector's callback
+    // surface stays `void`.
+    expect(() => detector.fireOpportunity("x")).not.toThrow();
+    // Let the rejection propagate to its handler.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(wakeAgent).toHaveBeenCalledTimes(1);
+
+    await manager.leave("m-wake-throws", "cleanup");
+  });
+
+  test("leave logs a per-meeting chatOpportunity summary pulled from detector.getStats()", async () => {
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    overrideProactiveChatConfig(preloadWorkspace, true);
+
+    const detectorFactory = makeFakeDetectorFactory({
+      tier1Hits: 7,
+      tier2Calls: 3,
+      tier2PositiveCount: 2,
+      escalationsFired: 1,
+      escalationsSuppressed: 1,
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent: async () => {},
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-summary",
+      conversationId: "c",
+    });
+    await manager.leave("m-summary", "cleanup");
+
+    const detector = detectorFactory.lastDetector()!;
+    // `leave()` calls `getStats()` to materialize the summary log line
+    // before emitting `meet.left`.
+    expect(detector.getStats).toHaveBeenCalledTimes(1);
+  });
+
+  test("default detector LLM callback returns a ChatOpportunityDecision shape", async () => {
+    // Smoke-test that the decision shape propagates unchanged through the
+    // factory's `callDetectorLLM` hook. Constructing the real detector
+    // here would pull in the provider stack, so we just verify the
+    // factory receives a callable that can return the right shape.
+    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    overrideProactiveChatConfig(preloadWorkspace, true);
+
+    const detectorFactory = makeFakeDetectorFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent: async () => {},
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-llm-shape",
+      conversationId: "c",
+    });
+
+    const args = detectorFactory.lastArgs()!;
+    expect(typeof args.callDetectorLLM).toBe("function");
+    // Confirm the declared return type is `Promise<ChatOpportunityDecision>`
+    // by exercising the type — this asserts nothing at runtime but guards
+    // against accidental drift in the injected callback's signature.
+    const _typeGuard: (
+      p: string,
+    ) => Promise<ChatOpportunityDecision> = args.callDetectorLLM;
+    expect(typeof _typeGuard).toBe("function");
+
+    await manager.leave("m-llm-shape", "cleanup");
   });
 });
