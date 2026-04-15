@@ -10,22 +10,27 @@
  *
  * Nothing here touches a real Docker daemon, a real Meet URL, a real
  * Deepgram account, or a real LLM provider. The `DockerRunner`, audio
- * ingest, and consent LLM are all replaced with fakes. What we *do*
- * exercise for real:
+ * ingest, and consent LLM are all replaced with fakes. ffmpeg is mocked
+ * too — the test captures PCM bytes that would otherwise be piped into an
+ * Opus encoder. What we *do* exercise for real:
  *
  *   - Router → dispatcher fan-out via `registerMeetingDispatcher` and
  *     `subscribeEventHubPublisher`.
  *   - `assistantEventHub` delivery of `meet.*` messages (captured via
  *     {@link captureHub}).
- *   - The real storage writer against a tempdir workspace (no ffmpeg —
- *     audio is skipped, but segments/transcript/participants/meta files
- *     are written through the real fs primitives).
- *   - The real conversation bridge feeding a recording `insertMessage`
- *     shim so we can assert message order, roles, content, and metadata.
+ *   - The real storage writer against a tempdir workspace, constructed
+ *     inside `MeetSessionManager.join()` — segments/transcript/participants
+ *     files are written through the real fs primitives, and `audio.opus`
+ *     is staged with a mocked ffmpeg child so we can assert PCM delivery
+ *     without a real encoder binary.
+ *   - The real conversation bridge (constructed by the manager with a
+ *     recording `insertMessage` adapter) so we can assert message order,
+ *     roles, content, and metadata.
  *   - The real consent monitor — scripted LLM verdict — driving a real
  *     `sessionManager.leave()` which in turn drives the real teardown
  *     path (dispatcher unsubscribes, audio ingest stop, router
- *     unregistration, `meet.left` publication).
+ *     unregistration, synthesized `lifecycle:left` dispatch so meta.json
+ *     lands, `meet.left` publication).
  *
  * The scripted event stream follows the plan's acceptance spec:
  *
@@ -36,9 +41,10 @@
  *   5. `TranscriptChunkEvent` (final, Alice) → conversation insert + transcript.jsonl append.
  *   6. `SpeakerChangeEvent` to Bob → segments.jsonl entry.
  *   7. `InboundChatEvent` "please leave" → consent monitor fires → LLM objects → leave.
- *   8. `lifecycle:left`   → meta.json written + `meet.left` on hub.
+ *   8. leave() synthesizes `lifecycle:left` → meta.json written + `meet.left` on hub.
  */
 
+import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,6 +117,9 @@ function makeInsertRecorder(): { fn: InsertMessageFn; calls: InsertCall[] } {
 interface FakeAudioIngest extends MeetAudioIngestLike {
   start: ReturnType<typeof mock>;
   stop: ReturnType<typeof mock>;
+  subscribePcm: ReturnType<typeof mock>;
+  /** Test helper: push a PCM chunk to every subscriber. */
+  pushPcm: (bytes: Uint8Array) => void;
 }
 
 function makeFakeAudioIngestFactory(): {
@@ -120,9 +129,17 @@ function makeFakeAudioIngestFactory(): {
   let last: FakeAudioIngest | null = null;
   return {
     factory: () => {
+      const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
         start: mock(async () => {}),
         stop: mock(async () => {}),
+        subscribePcm: mock((cb: (bytes: Uint8Array) => void) => {
+          subscribers.add(cb);
+          return () => subscribers.delete(cb);
+        }),
+        pushPcm: (bytes) => {
+          for (const cb of subscribers) cb(bytes);
+        },
       };
       last = ingest;
       return ingest;
@@ -147,6 +164,59 @@ function makeMockRunner() {
     stop: mock(async () => {}),
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: "container-e2e-1" })),
+  };
+}
+
+/**
+ * Mock ffmpeg child process. The real storage writer spawns ffmpeg and
+ * pipes s16le PCM into its stdin; in the test we capture those bytes via
+ * this EventEmitter-backed stub so we can assert PCM flowed through the
+ * subscribePcm tee + PcmSource bridge.
+ */
+interface MockFfmpegChild extends EventEmitter {
+  stdin: {
+    write: (chunk: Buffer) => boolean;
+    end: () => void;
+    chunks: Buffer[];
+    ended: boolean;
+  };
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+}
+
+function makeMockFfmpegChild(): MockFfmpegChild {
+  const emitter = new EventEmitter() as MockFfmpegChild;
+  const chunks: Buffer[] = [];
+  emitter.stdin = {
+    chunks,
+    ended: false,
+    write(chunk: Buffer): boolean {
+      chunks.push(chunk);
+      return true;
+    },
+    end(): void {
+      this.ended = true;
+    },
+  };
+  emitter.stdout = new EventEmitter();
+  emitter.stderr = new EventEmitter();
+  return emitter;
+}
+
+function makeSpawnMock(): {
+  spawn: ReturnType<typeof mock>;
+  lastChild: () => MockFfmpegChild | null;
+} {
+  let child: MockFfmpegChild | null = null;
+  const spawn = mock(() => {
+    child = makeMockFfmpegChild();
+    return child as unknown as ReturnType<
+      typeof import("node:child_process").spawn
+    >;
+  });
+  return {
+    spawn,
+    lastChild: () => child,
   };
 }
 
@@ -284,16 +354,27 @@ describe("Meet pipeline end-to-end", () => {
     //    converge on one dispatcher keyed by meetingId.
     const runner = makeMockRunner();
     const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { spawn, lastChild } = makeSpawnMock();
 
     const consentLlm = mock(async () => ({
       objected: true,
       reason: "participant asked the bot to leave",
     }));
 
+    // Recording insert shim captures every addMessage call the production
+    // `MeetConversationBridge` makes, so we can assert message ordering,
+    // roles, and metadata without touching the real database.
+    const insert = makeInsertRecorder();
+
     // Build the session manager with the minimum surface area swapped out.
-    // `consentMonitorFactory` yields a real {@link MeetConsentMonitor} with a
-    // scripted LLM verdict so the keyword fast-path → slow-path flow runs
-    // end-to-end. Session leaver is `this` (the manager itself).
+    //   - `consentMonitorFactory` yields a real {@link MeetConsentMonitor}
+    //     with a scripted LLM verdict so the keyword fast-path → slow-path
+    //     flow runs end-to-end.
+    //   - `conversationBridgeFactory` yields a real
+    //     {@link MeetConversationBridge} wired to the recording insert shim
+    //     so we exercise the actual dispatch path.
+    //   - `storageWriterFactory` yields a real {@link MeetStorageWriter}
+    //     pointed at the tempdir workspace with a mocked ffmpeg spawn.
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async (provider) => {
@@ -316,40 +397,33 @@ describe("Meet pipeline end-to-end", () => {
           llmAsk: consentLlm,
           subscribe: subscribeToMeetingEvents,
         }),
+      conversationBridgeFactory: ({ meetingId, conversationId }) =>
+        new MeetConversationBridge({
+          meetingId,
+          conversationId,
+          insertMessage: insert.fn,
+        }),
+      storageWriterFactory: ({ meetingId }) =>
+        new MeetStorageWriter(meetingId, {
+          getWorkspaceDir: () => workspaceDir,
+          spawn: spawn as unknown as typeof import("node:child_process").spawn,
+        }),
     });
 
     // Capture every `meet.*` event emitted by the pipeline on the daemon
     // assistant id — that's what the session manager publishes to.
     const hub = captureHub(DAEMON_INTERNAL_ASSISTANT_ID);
 
-    // Pre-register the bridge + storage writer on the meetingId. Both
-    // subscribe via the process-level dispatcher (not passed a shim), so
-    // they coexist with the session manager's own subscribers.
-    const insert = makeInsertRecorder();
-    const bridge = new MeetConversationBridge({
-      meetingId: MEETING_ID,
-      conversationId: CONVERSATION_ID,
-      insertMessage: insert.fn,
-    });
-    const storage = new MeetStorageWriter(MEETING_ID, {
-      getWorkspaceDir: () => workspaceDir,
-    });
-
     try {
       // ── 1/2: `join()` publishes `meet.joining`. Then, once we dispatch
       //    `lifecycle:joined`, the session manager's lifecycle subscriber
-      //    publishes `meet.joined`.
+      //    publishes `meet.joined`. `join()` also constructs + subscribes
+      //    the bridge and the writer — no pre-registration needed.
       await manager.join({
         url: "https://meet.google.com/xyz-abc-def",
         meetingId: MEETING_ID,
         conversationId: CONVERSATION_ID,
       });
-
-      // Wire the bridge + storage writer AFTER `join()` so the session
-      // manager's router registration and event-hub publisher are already
-      // in place when these subscribers attach.
-      bridge.subscribe();
-      storage.start();
 
       // At this point `meet.joining` should already be in the hub buffer.
       await flush();
@@ -510,9 +584,20 @@ describe("Meet pipeline end-to-end", () => {
         speakerName: "Alice",
       });
 
+      // ── 6b: push some PCM bytes through the audio-ingest tee so the
+      //    storage writer's PcmSource → ffmpeg stdin bridge actually moves
+      //    bytes. Nothing in the bot-event stream drives this — production
+      //    code gets bytes straight off the Unix socket, the test fake
+      //    exposes `pushPcm(...)` instead.
+      const ingest = audioIngestFactory.getLastIngest()!;
+      ingest.pushPcm(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+      ingest.pushPcm(new Uint8Array([0x05, 0x06]));
+
       // ── 7: inbound chat with objection phrase → consent monitor fires the
       //    scripted LLM which returns `objected: true`, which invokes
       //    `manager.leave("objection: ...")`. The leave path:
+      //       - synthesizes lifecycle:left so the writer flushes meta.json,
+      //       - stops the bridge + writer,
       //       - unregisters the router handler (dispatch becomes a no-op),
       //       - stops the consent monitor + audio ingest,
       //       - hits the mock bot `/leave`,
@@ -543,11 +628,10 @@ describe("Meet pipeline end-to-end", () => {
       expect(consentLlm).toHaveBeenCalledTimes(1);
       expect(Date.now() - leaveStart).toBeLessThan(leaveDeadline);
 
-      // ── 8: `meet.left` on hub. `lifecycle:left` is a post-leave event —
-      //    the manager has already torn down the router by the time a
-      //    late lifecycle event would arrive, so it would be dropped by
-      //    the router's unknown-meeting path. That's fine — the session
-      //    manager published `meet.left` on the leave path itself.
+      // ── 8: `meet.left` on hub; the manager synthesized `lifecycle:left`
+      //    during leave() BEFORE tearing down the dispatcher so the
+      //    writer's meta.json flush ran while its subscription was still
+      //    live.
       expect(
         hub.received.find((e) => e.message.type === "meet.left"),
       ).toBeDefined();
@@ -566,30 +650,44 @@ describe("Meet pipeline end-to-end", () => {
         "meet.left",
       ]);
 
-      // Now drive lifecycle:left onto a freshly-constructed storage writer
-      // scope — the session manager tore down the router, so we close the
-      // storage writer directly so meta.json is flushed the same way the
-      // real `lifecycle:left` event would have. The writer also handles
-      // `lifecycle:left` on the dispatcher, but that path is already
-      // torn down post-leave.
-      await storage.stop();
-      await bridge.unsubscribe();
-
       // Audio ingest was stopped during leave.
-      const ingest = audioIngestFactory.getLastIngest();
-      expect(ingest?.stop).toHaveBeenCalledTimes(1);
+      expect(ingest.stop).toHaveBeenCalledTimes(1);
       // Bot /leave endpoint was hit, container was removed.
       expect(runner.remove).toHaveBeenCalledTimes(1);
+
+      // ffmpeg received the PCM bytes we pushed through the tee.
+      const ffmpegChild = lastChild();
+      expect(ffmpegChild).not.toBeNull();
+      const forwardedPcm = Buffer.concat(ffmpegChild!.stdin.chunks);
+      expect(Array.from(forwardedPcm)).toEqual([
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+      ]);
+      // ffmpeg stdin was closed on leave (either via synthesized
+      // lifecycle:left or writer.stop()).
+      expect(ffmpegChild!.stdin.ended).toBe(true);
     } finally {
       hub.dispose();
     }
 
     // ── Final artifact inspection — every on-disk file the plan calls out
-    //    exists and carries the expected shape.
+    //    exists and carries the expected shape. `audio.opus` is staged by
+    //    ffmpeg; with the mock spawn, the file does not exist on disk, but
+    //    the ffmpeg argv was asserted above via the chunks + stdin end.
     const meetingDir = join(workspaceDir, "meets", MEETING_ID);
     expect(existsSync(join(meetingDir, "participants.json"))).toBe(true);
     expect(existsSync(join(meetingDir, "transcript.jsonl"))).toBe(true);
     expect(existsSync(join(meetingDir, "segments.jsonl"))).toBe(true);
+    // meta.json is written when `lifecycle:left` reaches the writer. The
+    // session manager synthesizes this event on leave() BEFORE tearing
+    // the dispatcher down, so meta.json must be present.
+    expect(existsSync(join(meetingDir, "meta.json"))).toBe(true);
+
+    const meta = JSON.parse(
+      readFileSync(join(meetingDir, "meta.json"), "utf8"),
+    );
+    expect(meta.meetingId).toBe(MEETING_ID);
+    expect(typeof meta.startedAt).toBe("string");
+    expect(typeof meta.endedAt).toBe("string");
 
     const transcriptLines = readJsonlLines(
       join(meetingDir, "transcript.jsonl"),

@@ -105,9 +105,7 @@ export interface GoogleGeminiLiveStreamOptions {
  * Implements the daemon {@link StreamingTranscriber} contract on top of
  * Gemini's bidirectional Live API with server-side input transcription.
  */
-export class GoogleGeminiLiveStreamingTranscriber
-  implements StreamingTranscriber
-{
+export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "google-gemini" as const;
   readonly boundaryId = "daemon-streaming" as const;
 
@@ -215,9 +213,7 @@ export class GoogleGeminiLiveStreamingTranscriber
         onerror: (ev: ErrorEvent): void => {
           if (!openFired && !this.session) {
             finishOpen(
-              new Error(
-                `Gemini Live connect error: ${this.describeError(ev)}`,
-              ),
+              new Error(`Gemini Live connect error: ${this.describeError(ev)}`),
             );
             return;
           }
@@ -328,10 +324,7 @@ export class GoogleGeminiLiveStreamingTranscriber
       session.sendRealtimeInput({ audioStreamEnd: true });
     } catch (err) {
       // If the send fails, force-close immediately.
-      log.warn(
-        { error: err },
-        "Failed to send audioStreamEnd; forcing close",
-      );
+      log.warn({ error: err }, "Failed to send audioStreamEnd; forcing close");
       this.flushFinalAndClose();
       return;
     }
@@ -582,4 +575,3 @@ export class GoogleGeminiLiveStreamingTranscriber
     return "Gemini Live session error";
   }
 }
-

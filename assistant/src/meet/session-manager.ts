@@ -32,12 +32,24 @@
  *   - Spin up a {@link MeetConsentMonitor} per meeting so objection
  *     phrases on transcript/chat trigger an auto-leave when
  *     `services.meet.autoLeaveOnObjection` is enabled.
+ *   - Wire a {@link MeetConversationBridge} so transcripts, chat, and
+ *     participant events become conversation messages in the target
+ *     conversation.
+ *   - Wire a {@link MeetStorageWriter} and connect it to the audio
+ *     ingest's PCM fan-out so `audio.opus`, `transcript.jsonl`,
+ *     `segments.jsonl`, `participants.json`, and `meta.json` are
+ *     materialized under `<workspace>/meets/<meetingId>/`.
  *
  * Caller contracts worth noting:
- *   - `{assistantName}` substitution in `CONSENT_MESSAGE` is performed by the
- *     `meet_join` tool (PR 23) before invoking `join()`. The tool passes the
- *     substituted string via `input.consentMessage`. When that field is
- *     omitted, the raw template from config is forwarded verbatim.
+ *   - `{assistantName}` substitution in `CONSENT_MESSAGE` is performed by
+ *     the `meet_join` tool (PR 23) before invoking `join()`. Direct callers
+ *     that skip the tool are still protected: `join()` performs the same
+ *     substitution against the resolved assistant display name before
+ *     forwarding to the bot container.
+ *   - `JOIN_NAME` is resolved in-manager as
+ *     `services.meet.joinName ?? getAssistantName() ?? MEET_JOIN_NAME_FALLBACK`
+ *     so the bot always receives a non-empty value and never silently
+ *     downgrades to screenshot-only mode.
  */
 
 import { randomBytes } from "node:crypto";
@@ -45,6 +57,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -54,8 +68,13 @@ import {
   MeetConsentMonitor,
   type MeetSessionLeaver,
 } from "./consent-monitor.js";
+import {
+  type InsertMessageFn,
+  MeetConversationBridge,
+} from "./conversation-bridge.js";
 import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
 import {
+  meetEventDispatcher,
   type MeetEventUnsubscribe,
   publishMeetEvent,
   registerMeetingDispatcher,
@@ -64,6 +83,7 @@ import {
   unregisterMeetingDispatcher,
 } from "./event-publisher.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
+import { MeetStorageWriter, type PcmSource } from "./storage-writer.js";
 
 const log = getLogger("meet-session-manager");
 
@@ -86,6 +106,16 @@ export const MEET_SHUTDOWN_DEADLINE_MS = 15_000;
 
 /** Default daemon HTTP port when `RUNTIME_HTTP_PORT` is not set. */
 const DEFAULT_DAEMON_PORT = 7821;
+
+/**
+ * Fallback display name forwarded to the bot container when neither
+ * `services.meet.joinName` nor `getAssistantName()` resolve a value. The
+ * bot's `needsFullWiring` predicate requires a non-empty `JOIN_NAME`, so
+ * this fallback keeps the full-join path reachable even on first boot
+ * before `IDENTITY.md` has been written. Matches the tool-side fallback
+ * in `assistant/src/tools/meet/meet-join-tool.ts`.
+ */
+export const MEET_JOIN_NAME_FALLBACK = "AI Assistant";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -147,15 +177,36 @@ interface ActiveSession extends MeetSession {
    * late event triggers a self-invoked leave while teardown is running.
    */
   consentMonitor: MeetConsentMonitorLike;
+  /**
+   * Conversation bridge — transforms bot events (transcripts, chat,
+   * participant changes) into conversation messages. Subscribed in
+   * `join()` and torn down in `leave()` before the dispatcher is
+   * unregistered.
+   */
+  conversationBridge: MeetConversationBridgeLike;
+  /**
+   * Storage writer — persists `transcript.jsonl`, `segments.jsonl`,
+   * `participants.json`, `meta.json`, and (via ffmpeg) `audio.opus` under
+   * `<workspace>/meets/<meetingId>/`. Started in `join()` and stopped in
+   * `leave()` after a synthesized `lifecycle:left` event is dispatched so
+   * `meta.json` is flushed before the dispatcher is unregistered.
+   */
+  storageWriter: MeetStorageWriterLike;
 }
 
 /**
  * Thin interface for the audio-ingest surface the session manager uses.
  * Lets tests swap in a fake without needing the real STT/socket stack.
+ *
+ * `subscribePcm` provides the fan-out tap the storage writer consumes: each
+ * PCM chunk arriving from the bot is delivered to every subscriber in
+ * addition to being forwarded to the streaming STT session. Returning an
+ * unsubscribe lets callers drop their tap without disturbing peers.
  */
 export interface MeetAudioIngestLike {
   start(meetingId: string, socketPath: string): Promise<void>;
   stop(): Promise<void>;
+  subscribePcm(cb: (bytes: Uint8Array) => void): () => void;
 }
 
 /**
@@ -167,12 +218,44 @@ export interface MeetConsentMonitorLike {
   stop(): void;
 }
 
+/**
+ * Thin interface for the conversation bridge surface the session manager
+ * uses. Lets tests swap in a fake without needing the real dispatcher
+ * subscription + resolver stack.
+ */
+export interface MeetConversationBridgeLike {
+  subscribe(): void;
+  unsubscribe(): void;
+}
+
+/**
+ * Thin interface for the storage writer surface the session manager uses.
+ * The session manager drives `start()` / `startAudio(source)` / `stop()`
+ * and the writer owns its own dispatcher subscription internally.
+ */
+export interface MeetStorageWriterLike {
+  start(): void;
+  startAudio(source: PcmSource): Promise<void>;
+  stop(): Promise<void>;
+}
+
 /** Arguments passed to {@link MeetSessionManagerDeps.consentMonitorFactory}. */
 export interface MeetConsentMonitorFactoryArgs {
   meetingId: string;
   assistantId: string;
   sessionManager: MeetSessionLeaver;
   config: { autoLeaveOnObjection: boolean; objectionKeywords: string[] };
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.conversationBridgeFactory}. */
+export interface MeetConversationBridgeFactoryArgs {
+  meetingId: string;
+  conversationId: string;
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.storageWriterFactory}. */
+export interface MeetStorageWriterFactoryArgs {
+  meetingId: string;
 }
 
 export interface MeetSessionManagerDeps {
@@ -202,6 +285,34 @@ export interface MeetSessionManagerDeps {
   consentMonitorFactory?: (
     args: MeetConsentMonitorFactoryArgs,
   ) => MeetConsentMonitorLike;
+  /**
+   * Override the conversation-bridge factory. Default constructs a
+   * {@link MeetConversationBridge} wired to the production `addMessage`.
+   * Tests can inject a fake (e.g. recording `insertMessage`) without
+   * touching the real DB.
+   */
+  conversationBridgeFactory?: (
+    args: MeetConversationBridgeFactoryArgs,
+  ) => MeetConversationBridgeLike;
+  /**
+   * Override the storage-writer factory. Default constructs a
+   * {@link MeetStorageWriter} pointed at the workspace meets directory.
+   */
+  storageWriterFactory?: (
+    args: MeetStorageWriterFactoryArgs,
+  ) => MeetStorageWriterLike;
+  /**
+   * Override the assistant-display-name resolver used as the `JOIN_NAME`
+   * fallback when `services.meet.joinName` is null. Default reads
+   * IDENTITY.md via {@link getAssistantName}.
+   */
+  resolveAssistantDisplayName?: () => string | null;
+  /**
+   * Override the `insertMessage` function passed to the default
+   * conversation-bridge factory. Default wraps `addMessage` from the
+   * conversation CRUD module.
+   */
+  insertMessage?: InsertMessageFn;
 }
 
 class MeetSessionManagerImpl {
@@ -209,6 +320,7 @@ class MeetSessionManagerImpl {
   private deps: Required<MeetSessionManagerDeps>;
 
   constructor(deps: MeetSessionManagerDeps = {}) {
+    const insertMessage = deps.insertMessage ?? addMessage;
     this.deps = {
       dockerRunnerFactory:
         deps.dockerRunnerFactory ?? (() => new DockerRunner()),
@@ -220,6 +332,20 @@ class MeetSessionManagerImpl {
         deps.audioIngestFactory ?? (() => new MeetAudioIngest()),
       consentMonitorFactory:
         deps.consentMonitorFactory ?? defaultConsentMonitorFactory,
+      conversationBridgeFactory:
+        deps.conversationBridgeFactory ??
+        ((args) =>
+          new MeetConversationBridge({
+            meetingId: args.meetingId,
+            conversationId: args.conversationId,
+            insertMessage,
+          })),
+      storageWriterFactory:
+        deps.storageWriterFactory ??
+        ((args) => new MeetStorageWriter(args.meetingId)),
+      resolveAssistantDisplayName:
+        deps.resolveAssistantDisplayName ?? getAssistantName,
+      insertMessage,
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -233,6 +359,7 @@ class MeetSessionManagerImpl {
 
   /** Swap dependencies at runtime. Tests only. */
   _replaceDeps(deps: MeetSessionManagerDeps): void {
+    const insertMessage = deps.insertMessage ?? this.deps.insertMessage;
     this.deps = {
       dockerRunnerFactory:
         deps.dockerRunnerFactory ?? this.deps.dockerRunnerFactory,
@@ -244,6 +371,14 @@ class MeetSessionManagerImpl {
         deps.audioIngestFactory ?? this.deps.audioIngestFactory,
       consentMonitorFactory:
         deps.consentMonitorFactory ?? this.deps.consentMonitorFactory,
+      conversationBridgeFactory:
+        deps.conversationBridgeFactory ?? this.deps.conversationBridgeFactory,
+      storageWriterFactory:
+        deps.storageWriterFactory ?? this.deps.storageWriterFactory,
+      resolveAssistantDisplayName:
+        deps.resolveAssistantDisplayName ??
+        this.deps.resolveAssistantDisplayName,
+      insertMessage,
     };
     // Re-install the token resolver in case `_resetForTests` cleared it.
     getMeetSessionEventRouter().setBotApiTokenResolver((meetingId) => {
@@ -265,6 +400,16 @@ class MeetSessionManagerImpl {
       }
       try {
         session.consentMonitor.stop();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        session.conversationBridge.unsubscribe();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        void session.storageWriter.stop();
       } catch {
         /* best-effort */
       }
@@ -313,6 +458,37 @@ class MeetSessionManagerImpl {
 
     const daemonUrl = this.deps.resolveDaemonUrl();
 
+    // Resolve the effective bot display name. Priority:
+    //   1. `services.meet.joinName` when set.
+    //   2. The assistant display name from IDENTITY.md.
+    //   3. {@link MEET_JOIN_NAME_FALLBACK} — guarantees a non-empty string
+    //      so the bot's `needsFullWiring` predicate never silently downgrades
+    //      the container to screenshot-only mode.
+    // The same value is used for `JOIN_NAME` AND for `{assistantName}`
+    // substitution in the consent message — the bot needs both.
+    const effectiveJoinName =
+      meet.joinName ??
+      this.deps.resolveAssistantDisplayName() ??
+      MEET_JOIN_NAME_FALLBACK;
+
+    // `{assistantName}` substitution is owned by the `meet_join` tool
+    // (PR 23), which resolves the assistant name from IDENTITY.md and
+    // passes a substituted string via `input.consentMessage`. Callers that
+    // bypass the tool (direct API users, tests) pass the raw template —
+    // substitute here so the bot receives a human-readable greeting
+    // regardless of entry point.
+    const resolvedConsentMessage = substituteAssistantName(
+      consentMessage ?? meet.consentMessage,
+      effectiveJoinName,
+    );
+
+    // Register the dispatcher BEFORE the audio-ingest starts so transcripts
+    // fired by Deepgram the instant the streaming session opens cannot race
+    // ahead of the router handler and end up in the "dropping event for
+    // unregistered meeting" path. The ingest opens the STT session as part
+    // of `start()`, which may begin emitting partials immediately.
+    registerMeetingDispatcher(meetingId);
+
     // Audio ingest + container spawn are started concurrently:
     //   1. The ingest opens its Unix-socket server and a streaming STT
     //      session (provider resolved from `services.stt.provider` via
@@ -334,16 +510,13 @@ class MeetSessionManagerImpl {
     const env: Record<string, string> = {
       MEET_URL: url,
       MEETING_ID: meetingId,
-      // `joinName` is null → bot falls back to the assistant display name at
-      // runtime (PR 23 substitutes it). Forward an empty string so the bot
-      // can distinguish "not set" from an explicit value.
-      JOIN_NAME: meet.joinName ?? "",
-      // `{assistantName}` substitution is owned by the `meet_join` tool
-      // (PR 23). The tool resolves the assistant name from IDENTITY.md and
-      // passes a substituted string via `input.consentMessage`. If no
-      // override is provided (e.g. direct callers bypassing the tool), the
-      // raw config template is forwarded as-is.
-      CONSENT_MESSAGE: consentMessage ?? meet.consentMessage,
+      // `JOIN_NAME` must be non-empty for the bot to take the full-wiring
+      // branch (see `meet-bot/src/main.ts:needsFullWiring`). Priority is:
+      // services.meet.joinName → assistant display name → fallback.
+      JOIN_NAME: effectiveJoinName,
+      // Consent message with `{assistantName}` substituted using the same
+      // effective display name the bot announces itself as.
+      CONSENT_MESSAGE: resolvedConsentMessage,
       DAEMON_URL: daemonUrl,
       BOT_API_TOKEN: botApiToken,
       // STT credentials live on the daemon, not the bot — bot connects via Unix socket.
@@ -386,6 +559,7 @@ class MeetSessionManagerImpl {
       // rejections from surfacing in the caller's context.
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
+      unregisterMeetingDispatcher(meetingId);
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         meetingId,
@@ -404,6 +578,7 @@ class MeetSessionManagerImpl {
       await runner.remove(runResult.containerId).catch(() => {});
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
+      unregisterMeetingDispatcher(meetingId);
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
@@ -433,6 +608,7 @@ class MeetSessionManagerImpl {
       await runner.stop(runResult.containerId).catch(() => {});
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
+      unregisterMeetingDispatcher(meetingId);
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         meetingId,
@@ -444,13 +620,6 @@ class MeetSessionManagerImpl {
 
     const botBaseUrl = `http://${MEET_BOT_HOST_IP}:${boundPort.hostPort}`;
     const joinTimeoutMs = meet.maxMeetingMinutes * 60_000;
-
-    // Install the single router handler for this meeting. It fans incoming
-    // bot events out via `meetEventDispatcher` so multiple subscribers
-    // (this publisher, PR 17's bridge, PR 18's storage writer, PR 22's
-    // consent monitor) can observe the same stream without racing to
-    // replace each other at the router.
-    registerMeetingDispatcher(meetingId);
 
     // Consent monitor is constructed before the session record so it can
     // be torn down deterministically from `leave()` — it subscribes on
@@ -464,6 +633,17 @@ class MeetSessionManagerImpl {
         objectionKeywords: [...meet.objectionKeywords],
       },
     });
+
+    // Conversation bridge routes transcript / chat / participant events
+    // into the target conversation.
+    const conversationBridge = this.deps.conversationBridgeFactory({
+      meetingId,
+      conversationId,
+    });
+
+    // Storage writer persists on-disk artifacts under
+    // `<workspace>/meets/<meetingId>/`.
+    const storageWriter = this.deps.storageWriterFactory({ meetingId });
 
     const startedAt = Date.now();
     const session: ActiveSession = {
@@ -479,6 +659,8 @@ class MeetSessionManagerImpl {
       eventUnsubscribes: [],
       joinedPublished: false,
       consentMonitor,
+      conversationBridge,
+      storageWriter,
     };
     this.sessions.set(meetingId, session);
 
@@ -514,6 +696,27 @@ class MeetSessionManagerImpl {
         }
       }),
     );
+
+    // Subscribe the conversation bridge + start the storage writer now
+    // that the session record is in place. The writer subscribes to the
+    // dispatcher via its own `start()`; it reads live PCM off the audio
+    // ingest's tee once the source adapter is wired in.
+    conversationBridge.subscribe();
+    storageWriter.start();
+    const pcmSource: PcmSource = {
+      subscribe: (cb) => audioIngest.subscribePcm(cb),
+    };
+    try {
+      await storageWriter.startAudio(pcmSource);
+    } catch (err) {
+      // A failure to spawn ffmpeg is non-fatal: the rest of the session
+      // (transcripts, chat, participant events) remains functional. Log
+      // and continue so a missing ffmpeg binary doesn't fail the join.
+      log.warn(
+        { err, meetingId },
+        "MeetStorageWriter.startAudio failed — continuing without audio capture",
+      );
+    }
 
     // Now that the other subscribers and the session record are in place,
     // start the consent monitor so it has a live dispatcher to attach to.
@@ -583,6 +786,50 @@ class MeetSessionManagerImpl {
       session.timeoutHandle = null;
     }
     this.sessions.delete(meetingId);
+
+    // Synthesize a `lifecycle:left` event BEFORE tearing the dispatcher
+    // down so the storage writer's `meta.json` flush runs while its
+    // subscription is still live. The bot's own terminal `lifecycle:left`
+    // event races against `/leave` and may arrive after we've already
+    // unregistered the dispatcher, which would leave `meta.json`
+    // unwritten. Dispatching here (then tearing down below) guarantees at
+    // least one delivery.
+    try {
+      meetEventDispatcher.dispatch(meetingId, {
+        type: "lifecycle",
+        meetingId,
+        timestamp: new Date().toISOString(),
+        state: "left",
+        detail: reason,
+      });
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "Meet synthesized lifecycle:left dispatch threw during leave",
+      );
+    }
+
+    // Stop the conversation bridge + storage writer before dropping the
+    // dispatcher so their own teardown paths see a live dispatcher (for
+    // the bridge, this just removes its subscription; for the writer, its
+    // internal unsubscribe runs synchronously so ordering doesn't matter
+    // beyond the synthesized `lifecycle:left` above).
+    try {
+      session.conversationBridge.unsubscribe();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetConversationBridge.unsubscribe threw during leave",
+      );
+    }
+    try {
+      await session.storageWriter.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetStorageWriter.stop threw during leave",
+      );
+    }
 
     // Tear down dispatcher subscribers BEFORE unregistering the router so no
     // in-flight event slips through to a subscriber whose consumer is gone.
@@ -765,6 +1012,16 @@ class MeetSessionManagerImpl {
           } catch {
             /* best-effort */
           }
+          try {
+            lingering.conversationBridge.unsubscribe();
+          } catch {
+            /* best-effort */
+          }
+          try {
+            await lingering.storageWriter.stop();
+          } catch {
+            /* best-effort */
+          }
           if (lingering.timeoutHandle) {
             clearTimeout(lingering.timeoutHandle);
             lingering.timeoutHandle = null;
@@ -848,6 +1105,21 @@ function defaultConsentMonitorFactory(
     sessionManager: args.sessionManager,
     config: args.config,
   });
+}
+
+/**
+ * Substitute `{assistantName}` in a consent-message template. Safe against
+ * empty templates and against names that happen to contain regex-magic
+ * characters — uses a plain split/join rather than a RegExp. Mirrors the
+ * helper in `meet-join-tool.ts` so direct callers of
+ * {@link MeetSessionManager.join} (bypassing the tool) still get a
+ * substituted greeting.
+ */
+export function substituteAssistantName(
+  template: string,
+  assistantName: string,
+): string {
+  return template.split("{assistantName}").join(assistantName);
 }
 
 /** Strip internal fields (`timeoutHandle`) from a session before exposing it. */

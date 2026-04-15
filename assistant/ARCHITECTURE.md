@@ -333,10 +333,10 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 **Control-plane endpoints** (`/v1/integrations/slack/channel/config`):
 
-| Endpoint                                | Method | Description                                                                                                                                          |
-| --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                  |
-| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                |
+| Endpoint                                | Method | Description                                                                                                                                                                                                                                                                     |
+| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                                                            |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                                                          |
 | `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. Surgical user-token-only deletion is exposed internally via `clearSlackUserToken` (used by the credential vault) but is not reachable through this HTTP endpoint. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
@@ -345,10 +345,10 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 Both tokens are stored in the secure key store (CES credential store with encrypted file fallback):
 
-| Secure key                            | Content                                                                                                                                               |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `credential/slack_channel/bot_token`  | Slack bot token (used for `chat.postMessage` and `auth.test`)                                                                                         |
-| `credential/slack_channel/app_token`  | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`)                                                                            |
+| Secure key                            | Content                                                                                                                                        |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `credential/slack_channel/bot_token`  | Slack bot token (used for `chat.postMessage` and `auth.test`)                                                                                  |
+| `credential/slack_channel/app_token`  | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`)                                                                     |
 | `credential/slack_channel/user_token` | Optional. Slack user OAuth token (`xoxp-...`). Enables reading channels and DMs the bot isn't a member of (for triage). Never used for writes. |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
@@ -595,13 +595,13 @@ Audio-to-text conversion occurs in five distinct runtime boundaries, each with i
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                                                       | Provider (current)                             | Adapter module                                                                                                                               | Caller                                                                                               |
-| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                         | `src/calls/twilio-routes.ts`                                                                         |
-| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                        | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| Boundary                     | Runtime                                                                       | Provider (current)                             | Adapter module                                                                                                                                    | Caller                                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                              | `src/calls/twilio-routes.ts`                                                                         |
+| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                             | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
 | **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
-| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                 | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                           | Fallback when STT service is unconfigured or fails                                                   |
+| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                      | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                                | Fallback when STT service is unconfigured or fails                                                   |
 
 **Telephony boundary (hybrid routing):**
 
@@ -646,9 +646,9 @@ Real-time conversation chat message capture on macOS and iOS uses a WebSocket-ba
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
-| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                     |
-| ----------------- | ----------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                  |
+| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                             |
+| ----------------- | ----------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                          |
 | **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-live-2.5-flash-preview`. |
 
 **Provider-specific behavior differences:**
@@ -693,20 +693,20 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 
 **Key source files:**
 
-| File                                                   | Purpose                                                                                                                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/stt/types.ts`                                     | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
-| `src/stt/stt-stream-session.ts`                        | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
-| `src/providers/speech-to-text/deepgram-realtime.ts`    | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
-| `src/providers/speech-to-text/google-gemini-live-stream.ts` | Google Gemini realtime-ws adapter: bidirectional Live API session, `serverContent.inputTranscription` normalization                              |
-| `src/providers/speech-to-text/provider-catalog.ts`     | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
-| `src/providers/speech-to-text/resolve.ts`              | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
-| `src/runtime/http-server.ts`                           | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
-| `gateway/src/http/routes/stt-stream-websocket.ts`      | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
-| `clients/shared/Network/STTStreamingClient.swift`      | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
-| `clients/shared/Utilities/STTProviderRegistry.swift`   | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
-| `clients/macos/.../VoiceInputManager.swift`            | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
-| `clients/ios/Views/InputBarView.swift`                 | iOS integration: `handleStreamingEvent()`, auto-stop coordination, batch fallback                                                                     |
+| File                                                        | Purpose                                                                                                                                               |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/stt/types.ts`                                          | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
+| `src/stt/stt-stream-session.ts`                             | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
+| `src/providers/speech-to-text/deepgram-realtime.ts`         | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
+| `src/providers/speech-to-text/google-gemini-live-stream.ts` | Google Gemini realtime-ws adapter: bidirectional Live API session, `serverContent.inputTranscription` normalization                                   |
+| `src/providers/speech-to-text/provider-catalog.ts`          | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
+| `src/providers/speech-to-text/resolve.ts`                   | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
+| `src/runtime/http-server.ts`                                | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
+| `gateway/src/http/routes/stt-stream-websocket.ts`           | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
+| `clients/shared/Network/STTStreamingClient.swift`           | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
+| `clients/shared/Utilities/STTProviderRegistry.swift`        | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
+| `clients/macos/.../VoiceInputManager.swift`                 | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
+| `clients/ios/Views/InputBarView.swift`                      | iOS integration: `handleStreamingEvent()`, auto-stop coordination, batch fallback                                                                     |
 
 **Client service-first boundary:**
 

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  DEFAULT_MEET_OBJECTION_KEYWORDS,
-  MeetServiceSchema,
-} from "../meet.js";
+import { DEFAULT_MEET_OBJECTION_KEYWORDS, MeetServiceSchema } from "../meet.js";
 
 describe("MeetServiceSchema", () => {
   test("empty object parses to the documented defaults (feature off by default)", () => {
@@ -38,7 +35,8 @@ describe("MeetServiceSchema", () => {
       enabled: true,
       containerImage: "registry.example.com/meet-bot:1.0.0",
       joinName: "Notes Bot",
-      consentMessage: "Hi — I'll be taking notes. Say the word and I'll step out.",
+      consentMessage:
+        "Hi — I'll be taking notes. Say the word and I'll step out.",
       autoLeaveOnObjection: false,
       objectionKeywords: ["leave please", "go away bot"],
       dockerNetwork: "vellum-meet",

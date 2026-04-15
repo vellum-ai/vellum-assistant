@@ -24,9 +24,7 @@ let mockResolveCalls: Array<Record<string, unknown> | undefined> = [];
 let mockResolveResult: StreamingTranscriber | null = null;
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
-  resolveStreamingTranscriber: async (
-    options?: Record<string, unknown>,
-  ) => {
+  resolveStreamingTranscriber: async (options?: Record<string, unknown>) => {
     mockResolveCalls.push(options);
     return mockResolveResult;
   },
@@ -571,6 +569,106 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
 // ---------------------------------------------------------------------------
 // stop()
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// PCM fan-out (subscribePcm)
+// ---------------------------------------------------------------------------
+
+describe("MeetAudioIngest PCM tee", () => {
+  test("fans each PCM chunk to every subscriber in addition to the transcriber", async () => {
+    const setup = newIngestSetup();
+    const startPromise = setup.ingest.start("m-tee", "/tmp/tee.sock");
+    await flushMicrotasks();
+    const conn = setup.server.connectBot();
+    await startPromise;
+
+    const a: Uint8Array[] = [];
+    const b: Uint8Array[] = [];
+    const unsubA = setup.ingest.subscribePcm((c) => a.push(c));
+    const unsubB = setup.ingest.subscribePcm((c) => b.push(c));
+
+    const pcm1 = Buffer.from([0x11, 0x22]);
+    const pcm2 = Buffer.from([0x33]);
+    conn.emitData(pcm1);
+    conn.emitData(pcm2);
+
+    // Transcriber still receives every chunk.
+    expect(setup.session.audioChunks).toHaveLength(2);
+    // Both subscribers see both chunks in order.
+    expect(a.map((c) => Array.from(c))).toEqual([[0x11, 0x22], [0x33]]);
+    expect(b.map((c) => Array.from(c))).toEqual([[0x11, 0x22], [0x33]]);
+
+    unsubA();
+    conn.emitData(Buffer.from([0x44]));
+    expect(a).toHaveLength(2); // Did not receive the third chunk.
+    expect(b).toHaveLength(3);
+
+    unsubB();
+    await setup.ingest.stop();
+  });
+
+  test("a throwing subscriber is logged + removed and does not break peers", async () => {
+    const setup = newIngestSetup();
+    const startPromise = setup.ingest.start("m-throw", "/tmp/throw.sock");
+    await flushMicrotasks();
+    const conn = setup.server.connectBot();
+    await startPromise;
+
+    let thrown = 0;
+    const throwing = () => {
+      thrown += 1;
+      throw new Error("subscriber boom");
+    };
+    const good: Uint8Array[] = [];
+    setup.ingest.subscribePcm(throwing);
+    setup.ingest.subscribePcm((c) => good.push(c));
+
+    conn.emitData(Buffer.from([0x01]));
+    conn.emitData(Buffer.from([0x02]));
+
+    // Throwing subscriber fires once, then gets evicted — second chunk
+    // still reaches the good subscriber.
+    expect(thrown).toBe(1);
+    expect(good).toHaveLength(2);
+
+    await setup.ingest.stop();
+  });
+
+  test("subscribe before start still receives chunks after bot connects", async () => {
+    const setup = newIngestSetup();
+    const received: Uint8Array[] = [];
+    const unsub = setup.ingest.subscribePcm((c) => received.push(c));
+
+    const startPromise = setup.ingest.start("m-early", "/tmp/early.sock");
+    await flushMicrotasks();
+    const conn = setup.server.connectBot();
+    await startPromise;
+
+    conn.emitData(Buffer.from([0xab]));
+    expect(received).toHaveLength(1);
+
+    unsub();
+    await setup.ingest.stop();
+  });
+
+  test("stop() drops all subscribers", async () => {
+    const setup = newIngestSetup();
+    const startPromise = setup.ingest.start("m-stop-subs", "/tmp/stops.sock");
+    await flushMicrotasks();
+    const conn = setup.server.connectBot();
+    await startPromise;
+
+    const received: Uint8Array[] = [];
+    setup.ingest.subscribePcm((c) => received.push(c));
+
+    await setup.ingest.stop();
+    // After stop the socket is destroyed; sending data would be a no-op
+    // in production, but we can still verify that the ingest's subscriber
+    // set was cleared.
+    conn.emitData(Buffer.from([0xff]));
+    expect(received).toHaveLength(0);
+  });
+});
 
 describe("MeetAudioIngest.stop", () => {
   test("destroys connection, stops transcriber, closes server", async () => {

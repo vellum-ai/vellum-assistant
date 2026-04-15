@@ -69,7 +69,7 @@ export const MeetServiceSchema = z
       .default(null)
       .transform(normalizeJoinName)
       .describe(
-        'Display name the bot uses when joining a meeting. When null (the default) the assistant\'s display name is used at runtime. Empty or whitespace-only strings are normalized to null.',
+        "Display name the bot uses when joining a meeting. When null (the default) the assistant's display name is used at runtime. Empty or whitespace-only strings are normalized to null.",
       ),
     consentMessage: z
       .string({ error: "services.meet.consentMessage must be a string" })
