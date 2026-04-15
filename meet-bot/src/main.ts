@@ -134,7 +134,7 @@ export interface BotDeps {
   startParticipantScraper: (
     page: Page,
     onEvent: (event: ParticipantChangeEvent) => void,
-    opts: { meetingId: string },
+    opts: { meetingId: string; selfName: string },
   ) => ParticipantScraperHandle;
   startSpeakerScraper: (
     page: Page,
@@ -533,7 +533,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
     subsystems.participantScraper = deps.startParticipantScraper(
       subsystems.session.page,
       (event) => enqueue(event),
-      { meetingId },
+      { meetingId, selfName: joinName },
     );
     subsystems.speakerScraper = deps.startSpeakerScraper(
       subsystems.session.page,

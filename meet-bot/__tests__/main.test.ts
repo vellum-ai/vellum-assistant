@@ -170,6 +170,7 @@ function makeDeps(
       calls.push({
         kind: "scraper.participant.start",
         meetingId: scraperOpts.meetingId,
+        selfName: scraperOpts.selfName,
       });
       return {
         stop: () => {
@@ -395,6 +396,11 @@ describe("runBot — boot sequence", () => {
     expect(speakerCall?.meetingId).toBe("m-1");
     expect(chatCall?.meetingId).toBe("m-1");
     expect(chatCall?.selfName).toBe("Vellum Bot");
+    // The participant scraper also receives the bot's display name so it
+    // can flag the bot's own row with `isSelf: true`, letting the consent
+    // monitor identify `botParticipantId` and filter self-content from
+    // the watermark.
+    expect(participantCall?.selfName).toBe("Vellum Bot");
   });
 
   test("passes socketDir/audio.sock into audio capture", async () => {
