@@ -200,6 +200,7 @@ const dockerResourceNamesMock = mock((name: string) => ({
   assistantContainer: `${name}-assistant`,
   cesContainer: `${name}-credential-executor`,
   cesSecurityVolume: `${name}-ces-sec`,
+  dockerdDataVolume: `${name}-dockerd-data`,
   gatewayContainer: `${name}-gateway`,
   gatewaySecurityVolume: `${name}-gateway-sec`,
   network: `${name}-net`,
