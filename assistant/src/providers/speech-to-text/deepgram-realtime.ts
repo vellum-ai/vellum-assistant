@@ -92,11 +92,11 @@ export interface DeepgramRealtimeOptions {
   /**
    * Enable Deepgram's built-in speaker diarization. Default: false.
    *
-   * NOTE: Accepted and stored today but NOT yet forwarded to the Deepgram
-   * WebSocket. Runtime wiring lands in the adapter PR that emits
-   * `speakerLabel` on streaming events (meet-phase-1-6 PR 4). This option
-   * is plumbed here first so the config schema and constructor surface are
-   * available for downstream callers without changing transcriber behavior.
+   * When true, `diarize=true` is appended to the Deepgram WebSocket URL,
+   * which causes Deepgram to include a `speaker` integer on each word in
+   * the response. The adapter aggregates per-segment speakers (mode, with
+   * first-word tiebreaker) into a `speakerLabel` emitted on partial/final
+   * events.
    */
   diarize?: boolean;
 }
@@ -105,10 +105,21 @@ export interface DeepgramRealtimeOptions {
 // Deepgram streaming response types (subset relevant to transcript events)
 // ---------------------------------------------------------------------------
 
+/**
+ * A single word within a Deepgram streaming alternative. When diarization is
+ * enabled, each word carries a `speaker` integer identifying the detected
+ * speaker turn.
+ */
+interface DeepgramStreamWord {
+  word?: string;
+  speaker?: number;
+}
+
 /** A single transcript alternative within a Deepgram streaming response. */
 interface DeepgramStreamAlternative {
   transcript?: string;
   confidence?: number;
+  words?: DeepgramStreamWord[];
 }
 
 /** A channel within a Deepgram streaming response. */
@@ -169,6 +180,56 @@ interface WsLike {
 const WS_OPEN = 1;
 
 // ---------------------------------------------------------------------------
+// Speaker-label aggregation
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick a representative speaker label from a Deepgram alternative's `words`
+ * array.
+ *
+ * Deepgram tags each word with a `speaker` integer when diarization is on.
+ * A single transcript segment can span multiple speakers if the endpointer
+ * didn't cleanly break between turns, so we aggregate:
+ *
+ * 1. Count occurrences of each `speaker` value across the words.
+ * 2. Pick the most common (mode).
+ * 3. On tie, pick the speaker of the first word in the segment.
+ * 4. If no word carries a `speaker` (diarization disabled or response variant),
+ *    return `undefined`.
+ *
+ * The returned label is `String(speaker)` to match the `speakerLabel` contract
+ * on {@link SttStreamServerPartialEvent} / {@link SttStreamServerFinalEvent}.
+ */
+function pickSpeakerLabel(
+  words: DeepgramStreamWord[] | undefined,
+): string | undefined {
+  if (!words || words.length === 0) return undefined;
+
+  const counts = new Map<number, number>();
+  let firstSpeaker: number | undefined;
+
+  for (const word of words) {
+    if (typeof word?.speaker !== "number") continue;
+    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
+    counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
+  }
+
+  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+
+  // Find the max count; on ties, prefer the first-word speaker.
+  let bestSpeaker = firstSpeaker;
+  let bestCount = counts.get(firstSpeaker) ?? 0;
+  for (const [speaker, count] of counts) {
+    if (count > bestCount) {
+      bestSpeaker = speaker;
+      bestCount = count;
+    }
+  }
+
+  return String(bestSpeaker);
+}
+
+// ---------------------------------------------------------------------------
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
@@ -193,9 +254,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly inactivityTimeoutMs: number;
   private readonly sampleRate: number;
   /**
-   * Whether speaker diarization is requested. Stored here but not yet
-   * forwarded to the Deepgram WebSocket — see the comment on
-   * {@link DeepgramRealtimeOptions.diarize}.
+   * Whether speaker diarization is requested. When true, `diarize=true` is
+   * forwarded to the Deepgram WebSocket and per-word `speaker` values are
+   * aggregated into a `speakerLabel` on each emitted transcript event.
    */
   private readonly diarize: boolean;
 
@@ -459,19 +520,34 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
+   *
+   * When diarization is enabled, Deepgram attaches a per-word `speaker`
+   * integer; we aggregate these into a single `speakerLabel` via
+   * {@link pickSpeakerLabel}.
    */
   private handleTranscriptFrame(frame: DeepgramStreamResponse): void {
-    const transcript = frame.channel?.alternatives?.[0]?.transcript;
+    const alternative = frame.channel?.alternatives?.[0];
+    const transcript = alternative?.transcript;
 
     // Extract text, defaulting to empty string for silence segments.
     const text = typeof transcript === "string" ? transcript.trim() : "";
 
+    const speakerLabel = pickSpeakerLabel(alternative?.words);
+
     if (frame.is_final) {
       // Committed transcript — emit as final.
-      this.emitEvent({ type: "final", text });
+      this.emitEvent(
+        speakerLabel !== undefined
+          ? { type: "final", text, speakerLabel }
+          : { type: "final", text },
+      );
     } else if (this.interimResults) {
       // Interim transcript — emit as partial.
-      this.emitEvent({ type: "partial", text });
+      this.emitEvent(
+        speakerLabel !== undefined
+          ? { type: "partial", text, speakerLabel }
+          : { type: "partial", text },
+      );
     }
   }
 
@@ -638,6 +714,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     }
     if (this.utteranceEndMs !== undefined) {
       params.set("utterance_end_ms", String(this.utteranceEndMs));
+    }
+    if (this.diarize) {
+      params.set("diarize", "true");
     }
 
     // Enable punctuation for cleaner transcript output.

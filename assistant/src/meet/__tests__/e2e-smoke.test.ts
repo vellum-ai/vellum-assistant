@@ -45,12 +45,7 @@
  */
 
 import { EventEmitter } from "node:events";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -383,7 +378,7 @@ describe("Meet pipeline end-to-end", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async (provider) => {
-        if (provider === "deepgram") return "deepgram-secret";
+        if (provider === "tts") return "tts-secret";
         return "";
       },
       getWorkspaceDir: () => workspaceDir,
@@ -645,8 +640,15 @@ describe("Meet pipeline end-to-end", () => {
       // observed and `meet.left` came last among the lifecycle transitions.
       const lifecycleKinds = hub.received
         .map((e) => e.message.type)
-        .filter((t) => t === "meet.joining" || t === "meet.joined" || t === "meet.left");
-      expect(lifecycleKinds).toEqual(["meet.joining", "meet.joined", "meet.left"]);
+        .filter(
+          (t) =>
+            t === "meet.joining" || t === "meet.joined" || t === "meet.left",
+        );
+      expect(lifecycleKinds).toEqual([
+        "meet.joining",
+        "meet.joined",
+        "meet.left",
+      ]);
 
       // Audio ingest was stopped during leave.
       expect(ingest.stop).toHaveBeenCalledTimes(1);
@@ -687,7 +689,9 @@ describe("Meet pipeline end-to-end", () => {
     expect(typeof meta.startedAt).toBe("string");
     expect(typeof meta.endedAt).toBe("string");
 
-    const transcriptLines = readJsonlLines(join(meetingDir, "transcript.jsonl"));
+    const transcriptLines = readJsonlLines(
+      join(meetingDir, "transcript.jsonl"),
+    );
     expect(transcriptLines.length).toBeGreaterThanOrEqual(1);
     expect(transcriptLines[0]).toMatchObject({
       timestamp: "2025-01-01T00:00:01.050Z",

@@ -62,50 +62,35 @@ const log = getLogger("meet-audio-ingest");
  */
 export const BOT_CONNECT_TIMEOUT_MS = 30_000;
 
+/**
+ * Sample rate (Hz) of the PCM frames the meet-bot captures and forwards over
+ * the audio socket. Mirrors `DEFAULT_RATE_HZ` in
+ * `meet-bot/src/media/audio-capture.ts` — duplicated here rather than
+ * imported because the daemon does not import from the `meet-bot` package
+ * (they ship as separate artifacts). Must be kept in sync with the bot's
+ * capture rate and passed explicitly to each STT adapter so ingest does not
+ * silently rely on any per-provider default; a mismatch would cause the
+ * provider to decode at the wrong rate and produce garbled transcripts.
+ */
+const MEET_BOT_SAMPLE_RATE_HZ = 16_000;
+
 // ---------------------------------------------------------------------------
 // Error class
 // ---------------------------------------------------------------------------
-
-/**
- * Symbol brand for {@link MeetAudioIngestError}. Declared at module scope
- * (not nested in the class) so `readonly [MEET_AUDIO_INGEST_ERROR_BRAND]`
- * can reference it without TDZ issues.
- */
-const MEET_AUDIO_INGEST_ERROR_BRAND: unique symbol = Symbol.for(
-  "MeetAudioIngestError",
-);
 
 /**
  * Marker error thrown by {@link MeetAudioIngest} when the ingest cannot
  * start because no streaming-capable STT provider is configured or the
  * configured provider lacks credentials.
  *
- * The session manager uses {@link MeetAudioIngestError.isMeetAudioIngestError}
- * to distinguish this from generic ingest errors when composing the
- * user-facing join-failure message.
+ * Exported as a named subclass so callers that need to distinguish this
+ * from generic ingest errors can use `instanceof MeetAudioIngestError`.
  */
 export class MeetAudioIngestError extends Error {
   readonly name = "MeetAudioIngestError";
-  /**
-   * Symbol-based brand so structural checks (e.g. across module boundaries
-   * where `instanceof` may mis-report after module reload) can still
-   * reliably identify instances of this error.
-   */
-  readonly [MEET_AUDIO_INGEST_ERROR_BRAND] = true as const;
 
   constructor(message: string) {
     super(message);
-  }
-
-  static isMeetAudioIngestError(err: unknown): err is MeetAudioIngestError {
-    if (err instanceof MeetAudioIngestError) return true;
-    return (
-      typeof err === "object" &&
-      err !== null &&
-      (err as { [MEET_AUDIO_INGEST_ERROR_BRAND]?: boolean })[
-        MEET_AUDIO_INGEST_ERROR_BRAND
-      ] === true
-    );
   }
 }
 
@@ -210,8 +195,7 @@ export class MeetAudioIngest {
   private readonly pcmSubscribers = new Set<PcmSubscriber>();
 
   constructor(deps: MeetAudioIngestDeps = {}) {
-    this.createTranscriber =
-      deps.createTranscriber ?? defaultCreateTranscriber;
+    this.createTranscriber = deps.createTranscriber ?? defaultCreateTranscriber;
     this.listen = deps.listen ?? defaultListen;
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
@@ -424,10 +408,7 @@ export class MeetAudioIngest {
     // own (e.g. the storage writer on `stop()`) are already gone.
     this.pcmSubscribers.clear();
 
-    log.info(
-      { meetingId: this.meetingId },
-      "MeetAudioIngest: stopped",
-    );
+    log.info({ meetingId: this.meetingId }, "MeetAudioIngest: stopped");
   }
 
   // ── Internals ──────────────────────────────────────────────────────
@@ -437,10 +418,7 @@ export class MeetAudioIngest {
    * subscriber. Subscribers that throw are logged and evicted so one
    * misbehaving consumer cannot break peers.
    */
-  private wireConnection(
-    conn: UnixSocketConnection,
-    meetingId: string,
-  ): void {
+  private wireConnection(conn: UnixSocketConnection, meetingId: string): void {
     conn.onData((chunk) => {
       if (this.stopped) return;
       const transcriber = this.transcriber;
@@ -499,14 +477,21 @@ export class MeetAudioIngest {
       return;
     }
 
-    // The existing streaming transcribers do not yet surface speaker /
-    // confidence metadata; leave those optional fields unset.
+    // `speakerLabel` is populated by provider adapters that support
+    // diarization (currently Deepgram). Non-diarizing providers leave it
+    // undefined — downstream consumers treat that as "unknown speaker".
+    // Stable `speakerId` and `confidence` remain unset; the speaker
+    // resolver (PR 7) will derive `speakerId` by cross-checking the
+    // label against Meet's DOM-sourced active-speaker signal.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
       timestamp: new Date().toISOString(),
       isFinal: event.type === "final",
       text: event.text,
+      ...(event.speakerLabel !== undefined
+        ? { speakerLabel: event.speakerLabel }
+        : {}),
     };
 
     getMeetSessionEventRouter().dispatch(meetingId, transcript);
@@ -522,15 +507,33 @@ export class MeetAudioIngest {
  * assistant's STT catalog (reads `services.stt.provider` and looks up
  * credentials centrally).
  *
- * Throws {@link MeetAudioIngestError} when no streaming-capable provider
- * is configured so the session manager can surface a clear join-failure
- * message pointing at `services.stt.provider`.
+ * Passes the meet-bot's capture sample rate through to the resolver so
+ * Meet's audio ingest does not depend on any adapter's per-provider default.
+ * All three streaming adapters happen to default to 16 kHz today, but being
+ * explicit insulates us from a future adapter changing its default out from
+ * under ingest.
+ *
+ * Requests `diarize: "preferred"` so capable providers (Deepgram) emit
+ * speaker labels that the downstream speaker resolver can cross-check
+ * against Meet's DOM-sourced active-speaker signal. Providers that
+ * don't support diarization (Gemini, Whisper) silently no-op — Meet
+ * still works, the DOM remains the only speaker source.
+ *
+ * Throws {@link MeetAudioIngestError} when the resolver returns `null`.
+ * With `"preferred"` that only happens when the configured STT provider
+ * is entirely unusable (unknown provider, no streaming support, missing
+ * credentials, or no adapter) — never due to a lack of diarization
+ * capability. The error message points the user at
+ * `services.stt.provider`.
  */
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
-  const transcriber = await resolveStreamingTranscriber();
+  const transcriber = await resolveStreamingTranscriber({
+    sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+    diarize: "preferred",
+  });
   if (!transcriber) {
     throw new MeetAudioIngestError(
-      "No streaming-capable STT provider is configured. " +
+      "The configured STT provider is unusable for Meet transcription. " +
         "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
         "and ensure credentials are present.",
     );
@@ -546,9 +549,7 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
 function defaultListen(socketPath: string): Promise<UnixSocketServer> {
   return new Promise<UnixSocketServer>((resolve, reject) => {
     let settled = false;
-    const connectionListeners: Array<
-      (conn: UnixSocketConnection) => void
-    > = [];
+    const connectionListeners: Array<(conn: UnixSocketConnection) => void> = [];
     const errorListeners: Array<(err: Error) => void> = [];
 
     const netServer: NetServer = netCreateServer((socket) => {

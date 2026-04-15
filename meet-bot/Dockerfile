@@ -7,10 +7,25 @@
 # The real Meet-join + audio-capture logic lands in later PRs of the
 # meet-phase-1 plan; this image just needs to build cleanly and boot
 # `bun src/main.ts` to completion so CI can smoke-test the structure.
+#
+# Build context: the REPO ROOT (not `meet-bot/`). The meet-bot package
+# depends on the sibling workspace package `packages/meet-contracts` via
+# `file:../packages/meet-contracts` in its package.json. For `bun install`
+# to resolve that relative path inside the image, the sibling package has
+# to be copied in alongside meet-bot under the same parent directory. We
+# therefore set WORKDIR to `/app/meet-bot`, copy `meet-bot/*` into it, and
+# copy `packages/meet-contracts` to `/app/packages/meet-contracts` so the
+# relative `../packages/meet-contracts` reference resolves.
+#
+# Related files:
+#   - `scripts/build-meet-bot-image.sh` sets the context to `.` (repo root).
+#   - `meet-bot/Dockerfile.dockerignore` narrows the context back down. It
+#     is named `Dockerfile.dockerignore` (not `.dockerignore`) so it takes
+#     precedence over the existing repo-root `.dockerignore`, which targets
+#     different images. See:
+#     https://docs.docker.com/build/concepts/context/#dockerignore-files
 
 FROM oven/bun:1-debian
-
-WORKDIR /app
 
 # System dependencies. Keep this list grouped and sorted so future PRs can
 # add/remove packages cleanly.
@@ -34,9 +49,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+WORKDIR /app/meet-bot
+
+# Copy the sibling workspace package BEFORE meet-bot/package.json's install
+# so the `file:../packages/meet-contracts` dep in package.json resolves.
+COPY packages/meet-contracts /app/packages/meet-contracts
+
 # Install JS dependencies first so Docker can cache the layer when only
 # source files change.
-COPY package.json ./
+COPY meet-bot/package.json meet-bot/tsconfig.json ./
 RUN bun install
 
 # Pull Playwright's Chromium build. This is kept separate from apt's
@@ -44,13 +65,13 @@ RUN bun install
 # the `playwright` package version pinned in package.json.
 RUN bunx playwright install chromium
 
-COPY src ./src
+COPY meet-bot/src ./src
 
 # The PulseAudio bootstrap script is shelled out to at container start by
 # `src/media/pulse.ts`; ensure the executable bit is set in the image so the
 # runtime `bash` invocation succeeds. The script is NOT run at build time —
 # PulseAudio needs a live container environment (runtime, not image layer).
-RUN chmod +x /app/src/media/pulse-setup.sh
+RUN chmod +x /app/meet-bot/src/media/pulse-setup.sh
 
 # The placeholder probe lives at src/health.ts and exits 0; real health
 # logic lands in a later PR (see meet-phase-1 plan PR 8).

@@ -6,11 +6,34 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // -- Logger mock ----------------------------------------------------------
 
+/**
+ * Captured log messages from the resolver. Tests can assert that
+ * `resolveStreamingTranscriber` logs a warning when `diarize: "required"`
+ * is passed with a non-capable provider.
+ */
+const loggerWarnings: Array<{ data: unknown; message: string }> = [];
+
 mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
+  getLogger: () => ({
+    warn: (data: unknown, message: string) => {
+      loggerWarnings.push({ data, message });
+    },
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: () => ({
+      warn: (data: unknown, message: string) => {
+        loggerWarnings.push({ data, message });
+      },
+      info: () => {},
+      debug: () => {},
+      error: () => {},
+      trace: () => {},
+      fatal: () => {},
     }),
+  }),
 }));
 
 // -- Config mock ----------------------------------------------------------
@@ -37,6 +60,47 @@ mock.module("../../../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join("/"),
 }));
 
+// -- Streaming adapter mocks ----------------------------------------------
+
+/**
+ * Captured constructor calls for each streaming adapter. Tests assert on
+ * these arrays to verify the resolver plumbs options (sampleRate, diarize)
+ * correctly to each provider.
+ */
+const deepgramCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+const geminiCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+const whisperCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+
+mock.module("../deepgram-realtime.js", () => ({
+  DeepgramRealtimeTranscriber: class {
+    readonly providerId = "deepgram" as const;
+    readonly boundaryId = "daemon-streaming" as const;
+    constructor(apiKey: string, options: unknown) {
+      deepgramCtorCalls.push({ apiKey, options });
+    }
+  },
+}));
+
+mock.module("../google-gemini-live-stream.js", () => ({
+  GoogleGeminiLiveStreamingTranscriber: class {
+    readonly providerId = "google-gemini" as const;
+    readonly boundaryId = "daemon-streaming" as const;
+    constructor(apiKey: string, options: unknown) {
+      geminiCtorCalls.push({ apiKey, options });
+    }
+  },
+}));
+
+mock.module("../openai-whisper-stream.js", () => ({
+  OpenAIWhisperStreamingTranscriber: class {
+    readonly providerId = "openai-whisper" as const;
+    readonly boundaryId = "daemon-streaming" as const;
+    constructor(apiKey: string, options: unknown) {
+      whisperCtorCalls.push({ apiKey, options });
+    }
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Subject import (after mocks)
 // ---------------------------------------------------------------------------
@@ -44,6 +108,7 @@ mock.module("../../../security/credential-key.js", () => ({
 import {
   resolveBatchTranscriber,
   resolveConversationStreamingSttCapability,
+  resolveStreamingTranscriber,
   resolveTelephonySttCapability,
 } from "../resolve.js";
 
@@ -630,5 +695,129 @@ describe("resolveConversationStreamingSttCapability", () => {
     if (result.status === "supported") {
       expect(result.providerId).toBe("deepgram");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — resolveStreamingTranscriber (diarize preference)
+// ---------------------------------------------------------------------------
+
+describe("resolveStreamingTranscriber diarize preference", () => {
+  beforeEach(() => {
+    mockConfig = buildConfig({});
+    mockProviderKeys = {};
+    deepgramCtorCalls.length = 0;
+    geminiCtorCalls.length = 0;
+    whisperCtorCalls.length = 0;
+    loggerWarnings.length = 0;
+  });
+
+  test("default (no diarize option) constructs Deepgram without the diarize flag", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber();
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options).not.toHaveProperty("diarize");
+  });
+
+  test("diarize: 'off' constructs Deepgram without the diarize flag", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({ diarize: "off" });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options).not.toHaveProperty("diarize");
+  });
+
+  test("diarize: 'preferred' with Deepgram constructs the transcriber with diarize: true", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "preferred",
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.diarize).toBe(true);
+  });
+
+  test("diarize: 'preferred' with Gemini silently skips diarization (no error, no diarize arg)", async () => {
+    mockProviderKeys["gemini"] = "gemini-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "preferred",
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(geminiCtorCalls).toHaveLength(1);
+    const options = geminiCtorCalls[0]!.options as Record<string, unknown>;
+    // Gemini never receives a diarize option — the resolver silently skips.
+    expect(options).not.toHaveProperty("diarize");
+    // No warning is logged for the silent-skip path.
+    expect(loggerWarnings).toHaveLength(0);
+  });
+
+  test("diarize: 'required' with Gemini returns null and logs a warning identifying the provider", async () => {
+    mockProviderKeys["gemini"] = "gemini-key";
+    mockConfig = buildConfig({ provider: "google-gemini" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "required",
+    });
+
+    expect(transcriber).toBeNull();
+    // No provider constructor was invoked.
+    expect(geminiCtorCalls).toHaveLength(0);
+    expect(deepgramCtorCalls).toHaveLength(0);
+    expect(whisperCtorCalls).toHaveLength(0);
+    // A warning was logged that identifies the configured provider so
+    // operators can debug mis-configured diarization requirements.
+    expect(loggerWarnings).toHaveLength(1);
+    const warning = loggerWarnings[0]!;
+    expect(warning.message).toContain("diarization");
+    expect((warning.data as { providerId?: unknown }).providerId).toBe(
+      "google-gemini",
+    );
+  });
+
+  test("diarize: 'required' with Deepgram constructs the transcriber with diarize: true", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "required",
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.diarize).toBe(true);
+    // No warning logged on the happy path.
+    expect(loggerWarnings).toHaveLength(0);
+  });
+
+  test("sampleRate is still forwarded when diarize is enabled", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    await resolveStreamingTranscriber({
+      diarize: "preferred",
+      sampleRate: 48000,
+    });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.sampleRate).toBe(48000);
+    expect(options.diarize).toBe(true);
   });
 });

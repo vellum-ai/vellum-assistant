@@ -6,13 +6,34 @@ import { z } from "zod";
  * captured transcript text, the bot should auto-leave if
  * `autoLeaveOnObjection` is enabled.
  */
+// False positives here only trigger an extra LLM confirmation — bias toward coverage.
 export const DEFAULT_MEET_OBJECTION_KEYWORDS: readonly string[] = [
+  // existing
   "please leave",
   "stop recording",
   "no bots",
   "no recording",
   "I don't consent",
   "can the bot leave",
+  // new — polite requests
+  "can you leave",
+  "could you leave",
+  "would you mind leaving",
+  "please exit",
+  "step out",
+  // new — direct objections
+  "no AI",
+  "turn off the bot",
+  "turn off the AI",
+  "remove the bot",
+  "kick the bot",
+  "mute the bot",
+  "stop listening",
+  "stop transcribing",
+  // new — discomfort signaling
+  "not comfortable",
+  "don't record",
+  "don't want this recorded",
 ];
 
 /**
@@ -48,7 +69,7 @@ export const MeetServiceSchema = z
       .default(null)
       .transform(normalizeJoinName)
       .describe(
-        'Display name the bot uses when joining a meeting. When null (the default) the assistant\'s display name is used at runtime. Empty or whitespace-only strings are normalized to null.',
+        "Display name the bot uses when joining a meeting. When null (the default) the assistant's display name is used at runtime. Empty or whitespace-only strings are normalized to null.",
       ),
     consentMessage: z
       .string({ error: "services.meet.consentMessage must be a string" })
