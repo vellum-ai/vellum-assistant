@@ -207,6 +207,7 @@ export interface ImportCommitSuccessResponse {
     succeeded: number;
     failed: number;
     failedAccounts: string[];
+    skippedPlatform?: number;
   };
 }
 
