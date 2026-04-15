@@ -116,6 +116,9 @@ final class MessageListScrollState {
 
     /// Handles rising-edge detection for the pagination sentinel with a 500ms cooldown.
     /// Returns `true` when pagination should fire.
+    ///
+    /// With inverted scroll, callers pass `-distanceFromBottom` so values near
+    /// zero mean the user is close to the visual top (oldest messages).
     func handlePaginationSentinel(sentinelMinY: CGFloat) -> Bool {
         let triggerBand: CGFloat = 200
         let isInRange = sentinelMinY > -triggerBand
