@@ -65,8 +65,8 @@ export const BOT_CONNECT_TIMEOUT_MS = 30_000;
 /**
  * Sample rate (Hz) of the PCM frames the meet-bot captures and forwards over
  * the audio socket. Mirrors `DEFAULT_RATE_HZ` in
- * `meet-bot/src/media/audio-capture.ts` — duplicated here rather than
- * imported because the daemon does not import from the `meet-bot` package
+ * `skills/meet-join/bot/src/media/audio-capture.ts` — duplicated here rather
+ * than imported because the daemon does not import from the bot package
  * (they ship as separate artifacts). Must be kept in sync with the bot's
  * capture rate and passed explicitly to each STT adapter so ingest does not
  * silently rely on any per-provider default; a mismatch would cause the

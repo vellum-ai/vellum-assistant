@@ -5,7 +5,7 @@
     "": {
       "name": "@vellumai/meet-bot",
       "dependencies": {
-        "@vellumai/meet-contracts": "file:../skills/meet-join/contracts",
+        "@vellumai/meet-contracts": "file:../contracts",
         "hono": "4.12.14",
         "playwright": "1.58.2",
         "zod": "4.3.6",
@@ -51,7 +51,7 @@
 
     "@types/ws": ["@types/ws@8.5.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-bd/YFLW+URhBzMXurx7lWByOu+xzU9+kb3RboOteXYDfW+tr+JZa99OyNmPINEGB/ahzKrEuc8rcv4gnpJmxTw=="],
 
-    "@vellumai/meet-contracts": ["@vellumai/meet-contracts@file:../skills/meet-join/contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
+    "@vellumai/meet-contracts": ["@vellumai/meet-contracts@file:../contracts", { "dependencies": { "zod": "4.3.6" }, "devDependencies": { "@types/bun": "1.2.4", "typescript": "5.7.3" } }],
 
     "bidi-js": ["bidi-js@1.0.3", "", { "dependencies": { "require-from-string": "^2.0.2" } }, "sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw=="],
 

@@ -483,7 +483,7 @@ class MeetSessionManagerImpl {
       MEET_URL: url,
       MEETING_ID: meetingId,
       // `JOIN_NAME` must be non-empty for the bot to take the full-wiring
-      // branch (see `meet-bot/src/main.ts:needsFullWiring`). Priority is:
+      // branch (see `skills/meet-join/bot/src/main.ts:needsFullWiring`). Priority is:
       // services.meet.joinName → assistant display name → fallback.
       JOIN_NAME: effectiveJoinName,
       // Consent message with `{assistantName}` substituted using the same
