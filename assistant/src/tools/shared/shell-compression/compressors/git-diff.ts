@@ -1,11 +1,19 @@
 const LOCK_FILE_PATTERNS = [
-  /\block\b/i,
-  /-lock\./,
+  // Explicit lock manifest names
   /^package-lock\.json$/,
   /^yarn\.lock$/,
   /^Cargo\.lock$/,
   /^Gemfile\.lock$/,
   /^pnpm-lock\.yaml$/,
+  /^composer\.lock$/,
+  /^poetry\.lock$/,
+  /^Pipfile\.lock$/,
+  /^mix\.lock$/,
+  /^flake\.lock$/,
+  /^bun\.lock$/,
+  // Catch-all: files ending in .lock or containing -lock. in name
+  /\.lock$/i,
+  /-lock\./,
 ];
 
 const MAX_FILE_DIFF_CHARS = 5000;

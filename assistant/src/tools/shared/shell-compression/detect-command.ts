@@ -37,6 +37,24 @@ interface DetectResult {
   commandName: string;
 }
 
+/**
+ * Extract the command prefix (executable + subcommand) from a stripped
+ * command string. Removes quoted arguments and flags so that patterns
+ * only match the actual executable, not argument content.
+ *
+ * Example: `echo "pytest" -v` -> `echo`
+ *          `cargo test --release` -> `cargo test`
+ *          `npm run build` -> `npm run build`
+ */
+function extractCommandPrefix(cmd: string): string {
+  // Remove quoted strings (single, double, backtick) so we don't match
+  // patterns inside arguments like echo "pytest"
+  const noQuotes = cmd.replace(/["'`](?:[^"'`\\]|\\.)*["'`]/g, "");
+  // Take up to the first 4 words (covers `python -m pytest`, `npm run build`)
+  const words = noQuotes.trim().split(/\s+/).slice(0, 4);
+  return words.join(" ");
+}
+
 const CATEGORIES: Array<{ category: CommandCategory; pattern: RegExp }> = [
   // Test runners — highest priority
   {
@@ -90,9 +108,12 @@ export function detectCommand(command: string): DetectResult {
   const pipeIndex = cleaned.indexOf("|");
   const headSegment = pipeIndex >= 0 ? cleaned.slice(0, pipeIndex) : cleaned;
   const stripped = stripPrefixes(headSegment);
+  // Extract just the command prefix (executable + subcommand) to avoid
+  // matching patterns inside quoted arguments (e.g., echo "pytest").
+  const cmdPrefix = extractCommandPrefix(stripped);
 
   for (const { category, pattern } of CATEGORIES) {
-    const match = stripped.match(pattern);
+    const match = cmdPrefix.match(pattern);
     if (match) {
       return { category, commandName: match[0].trim() };
     }
