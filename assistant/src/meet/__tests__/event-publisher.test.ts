@@ -137,12 +137,12 @@ describe("publishMeetEvent", () => {
       );
       expect(Number.isNaN(Date.parse(event.emittedAt))).toBe(false);
       expect(event.message.type).toBe("meet.joining");
-      expect(
-        (event.message as { meetingId: string }).meetingId,
-      ).toBe("m-pub-1");
-      expect(
-        (event.message as { url: string }).url,
-      ).toBe("https://meet.google.com/abc-def-ghi");
+      expect((event.message as { meetingId: string }).meetingId).toBe(
+        "m-pub-1",
+      );
+      expect((event.message as { url: string }).url).toBe(
+        "https://meet.google.com/abc-def-ghi",
+      );
     } finally {
       dispose();
     }
@@ -158,12 +158,9 @@ describe("publishMeetEvent", () => {
     );
     try {
       await expect(
-        publishMeetEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
-          "m-pub-2",
-          "meet.left",
-          { reason: "user-requested" },
-        ),
+        publishMeetEvent(DAEMON_INTERNAL_ASSISTANT_ID, "m-pub-2", "meet.left", {
+          reason: "user-requested",
+        }),
       ).resolves.toBeUndefined();
     } finally {
       sub.dispose();
@@ -419,10 +416,7 @@ describe("subscribeEventHubPublisher", () => {
         "m-l",
         makeLifecycle("m-l", "joined"),
       );
-      getMeetSessionEventRouter().dispatch(
-        "m-l",
-        makeLifecycle("m-l", "left"),
-      );
+      getMeetSessionEventRouter().dispatch("m-l", makeLifecycle("m-l", "left"));
       await Promise.resolve();
       await Promise.resolve();
 

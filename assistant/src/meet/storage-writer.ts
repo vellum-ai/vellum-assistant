@@ -253,10 +253,7 @@ export class MeetStorageWriter {
       );
     });
     child.on("exit", (code, signal) => {
-      log.info(
-        { meetingId: this.meetingId, code, signal },
-        "ffmpeg exited",
-      );
+      log.info({ meetingId: this.meetingId, code, signal }, "ffmpeg exited");
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       // ffmpeg writes progress to stderr; keep at debug so prod logs stay
@@ -366,7 +363,8 @@ export class MeetStorageWriter {
       text: event.text,
     };
     if (event.speakerId !== undefined) line.speakerId = event.speakerId;
-    if (event.speakerLabel !== undefined) line.speakerLabel = event.speakerLabel;
+    if (event.speakerLabel !== undefined)
+      line.speakerLabel = event.speakerLabel;
     if (event.confidence !== undefined) line.confidence = event.confidence;
     this.appendJsonl("transcript", line);
     this.totalTranscriptChars += event.text.length;
@@ -420,7 +418,8 @@ export class MeetStorageWriter {
     kind: "segments" | "transcript",
     line: Record<string, unknown>,
   ): void {
-    const filename = kind === "segments" ? "segments.jsonl" : "transcript.jsonl";
+    const filename =
+      kind === "segments" ? "segments.jsonl" : "transcript.jsonl";
     const state =
       kind === "segments"
         ? (this.segmentsFd ??= this.openAppendFd(filename))
@@ -520,10 +519,7 @@ export class MeetStorageWriter {
     try {
       child.stdin.write(Buffer.from(bytes));
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "ffmpeg stdin write failed",
-      );
+      log.warn({ err, meetingId: this.meetingId }, "ffmpeg stdin write failed");
     }
   }
 
@@ -533,10 +529,7 @@ export class MeetStorageWriter {
     try {
       child.stdin?.end();
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "ffmpeg stdin end failed",
-      );
+      log.warn({ err, meetingId: this.meetingId }, "ffmpeg stdin end failed");
     }
   }
 }

@@ -21,9 +21,11 @@
  *     invokes `leave(id, "timeout")`.
  *   - On `leave`, best-effort hit the bot's `/leave` first; fall back to
  *     `DockerRunner.stop` + `remove` so stuck bots don't leak containers.
+ *   - Start a {@link MeetAudioIngest} before the container spawns so the
+ *     bot has a socket to connect to the moment it boots, and tear the
+ *     ingest down after the container is removed on leave.
  *
- * Not yet wired in this PR — left for their owning PRs:
- *   - PR 16 adds audio ingest server startup before the container spawns.
+ * Not yet wired in this PR — left as TODOs for their owning PRs:
  *   - PR 22 instantiates the consent monitor and disposes it on leave.
  *   - PR 23 substitutes `{assistantName}` into `CONSENT_MESSAGE`.
  */
@@ -37,6 +39,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { MeetAudioIngest } from "./audio-ingest.js";
 import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
 import {
   type MeetEventUnsubscribe,
@@ -93,10 +96,25 @@ export interface JoinInput {
 interface ActiveSession extends MeetSession {
   /** Hard-cap timeout handle — cleared on leave. */
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  /**
+   * The audio-ingest instance owning the Unix-socket server and Deepgram
+   * session for this meeting. Created in `join()` and torn down in
+   * `leave()` after the container is removed.
+   */
+  audioIngest: MeetAudioIngestLike;
   /** Unsubscribe handles for per-session dispatcher subscriptions. */
   eventUnsubscribes: MeetEventUnsubscribe[];
   /** True once the bot has emitted a `lifecycle.joined` event. */
   joinedPublished: boolean;
+}
+
+/**
+ * Thin interface for the audio-ingest surface the session manager uses.
+ * Lets tests swap in a fake without needing the real Deepgram/socket stack.
+ */
+export interface MeetAudioIngestLike {
+  start(meetingId: string, socketPath: string, apiKey: string): Promise<void>;
+  stop(): Promise<void>;
 }
 
 export interface MeetSessionManagerDeps {
@@ -113,6 +131,11 @@ export interface MeetSessionManagerDeps {
   resolveDaemonUrl?: () => string;
   /** Override workspace directory resolution (tests). */
   getWorkspaceDir?: () => string;
+  /**
+   * Override the audio-ingest factory. Default constructs a
+   * {@link MeetAudioIngest} with its own defaults.
+   */
+  audioIngestFactory?: () => MeetAudioIngestLike;
 }
 
 class MeetSessionManagerImpl {
@@ -121,11 +144,14 @@ class MeetSessionManagerImpl {
 
   constructor(deps: MeetSessionManagerDeps = {}) {
     this.deps = {
-      dockerRunnerFactory: deps.dockerRunnerFactory ?? (() => new DockerRunner()),
+      dockerRunnerFactory:
+        deps.dockerRunnerFactory ?? (() => new DockerRunner()),
       getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
+      audioIngestFactory:
+        deps.audioIngestFactory ?? (() => new MeetAudioIngest()),
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -146,6 +172,8 @@ class MeetSessionManagerImpl {
       botLeaveFetch: deps.botLeaveFetch ?? this.deps.botLeaveFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? this.deps.resolveDaemonUrl,
       getWorkspaceDir: deps.getWorkspaceDir ?? this.deps.getWorkspaceDir,
+      audioIngestFactory:
+        deps.audioIngestFactory ?? this.deps.audioIngestFactory,
     };
     // Re-install the token resolver in case `_resetForTests` cleared it.
     getMeetSessionEventRouter().setBotApiTokenResolver((meetingId) => {
@@ -211,6 +239,25 @@ class MeetSessionManagerImpl {
 
     const daemonUrl = this.deps.resolveDaemonUrl();
 
+    // Audio ingest + container spawn are started concurrently:
+    //   1. The ingest opens its Unix-socket server and a Deepgram session,
+    //      then waits for the bot to connect (bounded by a 30s timeout).
+    //   2. The container is started in parallel; once it boots, the bot
+    //      process inside dials the shared socket.
+    //
+    // Starting the ingest first (i.e. before `runner.run()` returns) is
+    // what lets the bot connect as soon as its process comes up. Running
+    // them concurrently keeps the total latency bounded — the join
+    // completes once both steps succeed, or fails fast if either step
+    // rejects.
+    const audioSocketPath = join(socketsDir, "audio.sock");
+    const audioIngest = this.deps.audioIngestFactory();
+    const audioIngestPromise = audioIngest.start(
+      meetingId,
+      audioSocketPath,
+      deepgramKey,
+    );
+
     const env: Record<string, string> = {
       MEET_URL: url,
       MEETING_ID: meetingId,
@@ -256,6 +303,12 @@ class MeetSessionManagerImpl {
         { err, meetingId, image: meet.containerImage },
         "Failed to spawn meet bot container",
       );
+      // Tear down the concurrently-started audio ingest so we don't leak
+      // a listening socket or a Deepgram session on the spawn-failure path.
+      // Swallow its in-flight promise before stopping to prevent unhandled
+      // rejections from surfacing in the caller's context.
+      audioIngestPromise.catch(() => {});
+      await audioIngest.stop().catch(() => {});
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         meetingId,
@@ -272,6 +325,8 @@ class MeetSessionManagerImpl {
       // Roll back the container so we don't leak a started-but-unreachable
       // bot. Best-effort — surface the original error either way.
       await runner.remove(runResult.containerId).catch(() => {});
+      audioIngestPromise.catch(() => {});
+      await audioIngest.stop().catch(() => {});
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
@@ -280,6 +335,29 @@ class MeetSessionManagerImpl {
         { detail },
       );
       throw new Error(detail);
+    }
+
+    // Now that the container is up, wait for the ingest to finish setup
+    // (Deepgram connected + bot connected via the shared socket). If the
+    // bot never connects within the 30s timeout, the promise rejects and
+    // we roll the container back before re-throwing.
+    try {
+      await audioIngestPromise;
+    } catch (err) {
+      log.error(
+        { err, meetingId, containerId: runResult.containerId },
+        "Meet audio ingest failed to start — rolling back container",
+      );
+      await runner.stop(runResult.containerId).catch(() => {});
+      await runner.remove(runResult.containerId).catch(() => {});
+      await audioIngest.stop().catch(() => {});
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
     }
 
     const botBaseUrl = `http://${MEET_BOT_HOST_IP}:${boundPort.hostPort}`;
@@ -302,6 +380,7 @@ class MeetSessionManagerImpl {
       startedAt,
       joinTimeoutMs,
       timeoutHandle: null,
+      audioIngest,
       eventUnsubscribes: [],
       joinedPublished: false,
     };
@@ -443,6 +522,18 @@ class MeetSessionManagerImpl {
       );
     }
 
+    // Tear down the audio-ingest after the container is gone — stopping it
+    // earlier would force the bot's outbound audio writes to fail while
+    // the container is still shutting down.
+    try {
+      await session.audioIngest.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetAudioIngest.stop failed — socket or Deepgram session may leak",
+      );
+    }
+
     void publishMeetEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       meetingId,
@@ -518,10 +609,7 @@ function errorDetail(err: unknown): string {
  * Default bot `/leave` hitter. Honors {@link BOT_LEAVE_HTTP_TIMEOUT_MS}.
  * Throws on non-2xx or timeout so `leave()` can fall through to stop.
  */
-async function defaultBotLeaveFetch(
-  url: string,
-  token: string,
-): Promise<void> {
+async function defaultBotLeaveFetch(url: string, token: string): Promise<void> {
   const response = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

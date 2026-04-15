@@ -8,22 +8,10 @@
  */
 
 import { EventEmitter } from "node:events";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MeetBotEvent, Participant } from "@vellumai/meet-contracts";
 
@@ -82,7 +70,9 @@ function makeSpawnMock(): {
   const spawn = mock((cmd: string, args: readonly string[]) => {
     calls.push({ cmd, args: [...args] });
     child = makeMockFfmpegChild();
-    return child as unknown as ReturnType<typeof import("node:child_process").spawn>;
+    return child as unknown as ReturnType<
+      typeof import("node:child_process").spawn
+    >;
   });
   return {
     spawn,
@@ -124,7 +114,11 @@ function transcriptChunk(
   meetingId: string,
   timestamp: string,
   text: string,
-  options: { isFinal?: boolean; speakerId?: string; speakerLabel?: string } = {},
+  options: {
+    isFinal?: boolean;
+    speakerId?: string;
+    speakerLabel?: string;
+  } = {},
 ): MeetBotEvent {
   return {
     type: "transcript.chunk",
@@ -301,10 +295,7 @@ describe("MeetStorageWriter segments.jsonl", () => {
       "m1",
       speakerChange("m1", "2024-01-01T00:00:12.000Z", "s1", "Alice"),
     );
-    router.dispatch(
-      "m1",
-      lifecycleLeft("m1", "2024-01-01T00:00:20.000Z"),
-    );
+    router.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:20.000Z"));
 
     await writer.stop();
 
@@ -436,10 +427,7 @@ describe("MeetStorageWriter meta.json", () => {
         isFinal: true,
       }),
     );
-    router.dispatch(
-      "m1",
-      lifecycleLeft("m1", "2024-01-01T00:00:30.000Z"),
-    );
+    router.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:30.000Z"));
 
     // meta.json is written on lifecycle:left, not stop()
     const meta = JSON.parse(
@@ -542,7 +530,10 @@ describe("MeetStorageWriter fsync cadence", () => {
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
       now,
-      fs: { fsyncSync: fsyncSyncMock as unknown as typeof import("node:fs").fsyncSync },
+      fs: {
+        fsyncSync:
+          fsyncSyncMock as unknown as typeof import("node:fs").fsyncSync,
+      },
     });
     writer.start();
 
@@ -550,9 +541,14 @@ describe("MeetStorageWriter fsync cadence", () => {
     for (let i = 0; i < FSYNC_WRITE_THRESHOLD; i++) {
       router.dispatch(
         "m1",
-        transcriptChunk("m1", `2024-01-01T00:00:${i.toString().padStart(2, "0")}.000Z`, "x", {
-          isFinal: true,
-        }),
+        transcriptChunk(
+          "m1",
+          `2024-01-01T00:00:${i.toString().padStart(2, "0")}.000Z`,
+          "x",
+          {
+            isFinal: true,
+          },
+        ),
       );
     }
     // At threshold, at least one fsync should have been triggered by the
@@ -570,7 +566,10 @@ describe("MeetStorageWriter fsync cadence", () => {
     const writer = new MeetStorageWriter("m1", {
       getWorkspaceDir: () => workspaceDir,
       now,
-      fs: { fsyncSync: fsyncSyncMock as unknown as typeof import("node:fs").fsyncSync },
+      fs: {
+        fsyncSync:
+          fsyncSyncMock as unknown as typeof import("node:fs").fsyncSync,
+      },
     });
     writer.start();
 

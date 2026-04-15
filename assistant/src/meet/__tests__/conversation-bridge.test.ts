@@ -80,7 +80,9 @@ function makeBridge(
     conversationId: overrides.conversationId ?? CONVERSATION_ID,
     insertMessage: recorder.fn,
     router,
-    assistantEventHub: { publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void> },
+    assistantEventHub: {
+      publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void>,
+    },
   });
   return { bridge, router, calls: recorder.calls, hubPublish };
 }
@@ -528,7 +530,9 @@ describe("MeetConversationBridge — error isolation", () => {
       conversationId: CONVERSATION_ID,
       insertMessage: failingInsert,
       router,
-      assistantEventHub: { publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void> },
+      assistantEventHub: {
+        publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void>,
+      },
     });
     bridge.subscribe();
 

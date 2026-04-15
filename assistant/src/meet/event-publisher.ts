@@ -238,15 +238,10 @@ export function subscribeEventHubPublisher(
         );
         return;
       case "speaker.change":
-        void publishMeetEvent(
-          assistantId,
-          meetingId,
-          "meet.speaker_changed",
-          {
-            speakerId: event.speakerId,
-            speakerName: event.speakerName,
-          },
-        );
+        void publishMeetEvent(assistantId, meetingId, "meet.speaker_changed", {
+          speakerId: event.speakerId,
+          speakerName: event.speakerName,
+        });
         return;
       case "transcript.chunk": {
         // Interim chunks are noisy and may be superseded by a later final

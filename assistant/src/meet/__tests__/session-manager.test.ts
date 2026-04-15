@@ -1,14 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -22,6 +15,7 @@ import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
   MEET_BOT_INTERNAL_PORT,
+  type MeetAudioIngestLike,
 } from "../session-manager.js";
 
 // ---------------------------------------------------------------------------
@@ -37,7 +31,15 @@ interface MockRunner {
 
 function makeMockRunner(
   overrides: {
-    runResult?: { containerId: string; boundPorts: Array<{ protocol: "tcp" | "udp"; containerPort: number; hostIp: string; hostPort: number }> };
+    runResult?: {
+      containerId: string;
+      boundPorts: Array<{
+        protocol: "tcp" | "udp";
+        containerPort: number;
+        hostIp: string;
+        hostPort: number;
+      }>;
+    };
     runError?: unknown;
   } = {},
 ): MockRunner {
@@ -61,6 +63,35 @@ function makeMockRunner(
     stop: mock(async () => {}),
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: runResult.containerId })),
+  };
+}
+
+/**
+ * Fake audio ingest that resolves `start()` immediately and tracks the
+ * calls it received. Default for session-manager tests that don't care
+ * about the ingest lifecycle — individual tests can spy on the returned
+ * object by grabbing it from `lastIngest` on the factory.
+ */
+interface FakeAudioIngest extends MeetAudioIngestLike {
+  start: ReturnType<typeof mock>;
+  stop: ReturnType<typeof mock>;
+}
+
+function makeFakeAudioIngestFactory(): {
+  factory: () => FakeAudioIngest;
+  getLastIngest: () => FakeAudioIngest | null;
+} {
+  let lastIngest: FakeAudioIngest | null = null;
+  return {
+    factory: () => {
+      const ingest: FakeAudioIngest = {
+        start: mock(async () => {}),
+        stop: mock(async () => {}),
+      };
+      lastIngest = ingest;
+      return ingest;
+    },
+    getLastIngest: () => lastIngest,
   };
 }
 
@@ -89,12 +120,15 @@ describe("MeetSessionManager.join", () => {
       return undefined;
     });
 
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey,
       resolveDaemonUrl: () => "http://host.docker.internal:7821",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
     });
 
     const session = await manager.join({
@@ -129,7 +163,12 @@ describe("MeetSessionManager.join", () => {
       image: string;
       env: Record<string, string>;
       binds: Array<{ hostPath: string; containerPath: string }>;
-      ports: Array<{ hostIp: string; hostPort: number; containerPort: number; protocol: string }>;
+      ports: Array<{
+        hostIp: string;
+        hostPort: number;
+        containerPort: number;
+        protocol: string;
+      }>;
       name: string;
       network: string;
     };
@@ -175,11 +214,13 @@ describe("MeetSessionManager.join", () => {
   });
 
   test("token resolver returns null when the meeting is not active", async () => {
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
     });
     // Before any join, the resolver installed in ctor returns null.
     expect(getMeetSessionEventRouter().resolveBotApiToken("nope")).toBeNull();
@@ -189,22 +230,20 @@ describe("MeetSessionManager.join", () => {
       meetingId: "m2",
       conversationId: "c2",
     });
-    expect(
-      getMeetSessionEventRouter().resolveBotApiToken("m2"),
-    ).not.toBeNull();
-    expect(
-      getMeetSessionEventRouter().resolveBotApiToken("other"),
-    ).toBeNull();
+    expect(getMeetSessionEventRouter().resolveBotApiToken("m2")).not.toBeNull();
+    expect(getMeetSessionEventRouter().resolveBotApiToken("other")).toBeNull();
 
     await manager.leave("m2", "cleanup");
   });
 
   test("rejects a second join for the same meeting id", async () => {
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
     });
     await manager.join({ url: "u", meetingId: "dup", conversationId: "c" });
     await expect(
@@ -217,10 +256,12 @@ describe("MeetSessionManager.join", () => {
     const runner = makeMockRunner({
       runResult: { containerId: "c-unbound", boundPorts: [] },
     });
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
+      audioIngestFactory: audioIngestFactory.factory,
     });
     await expect(
       manager.join({
@@ -242,12 +283,14 @@ describe("MeetSessionManager.leave", () => {
   test("calls bot HTTP first, then removes — skips stop on graceful success", async () => {
     const runner = makeMockRunner();
     const botLeaveFetch = mock(async () => {});
+    const audioIngestFactory = makeFakeAudioIngestFactory();
 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch,
+      audioIngestFactory: audioIngestFactory.factory,
     });
 
     const session = await manager.join({
@@ -279,12 +322,14 @@ describe("MeetSessionManager.leave", () => {
     const botLeaveFetch = mock(async () => {
       throw new Error("bot unreachable");
     });
+    const audioIngestFactory = makeFakeAudioIngestFactory();
 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch,
+      audioIngestFactory: audioIngestFactory.factory,
     });
 
     await manager.join({
@@ -313,11 +358,13 @@ describe("MeetSessionManager.leave", () => {
       throw err;
     });
 
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch,
+      audioIngestFactory: audioIngestFactory.factory,
     });
 
     await manager.join({
@@ -334,11 +381,13 @@ describe("MeetSessionManager.leave", () => {
   test("is a no-op for an unknown meeting id", async () => {
     const runner = makeMockRunner();
     const botLeaveFetch = mock(async () => {});
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch,
+      audioIngestFactory: audioIngestFactory.factory,
     });
     await manager.leave("never-joined", "who-cares");
     expect(botLeaveFetch).toHaveBeenCalledTimes(0);
@@ -371,11 +420,13 @@ describe("MeetSessionManager max-minutes timeout", () => {
 
   test("joinTimeoutMs matches services.meet.maxMeetingMinutes * 60_000", async () => {
     const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
     });
 
     const session = await manager.join({
@@ -400,22 +451,27 @@ describe("MeetSessionManager max-minutes timeout", () => {
     const realClearTimeout = globalThis.clearTimeout;
     let capturedCb: (() => void) | null = null;
     const fakeHandle = Symbol("fake-handle");
-    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-      ((cb: () => void, _ms: number) => {
-        capturedCb = cb;
-        return fakeHandle as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
-    (globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
-      ((handle: unknown) => {
-        if (handle === fakeHandle) capturedCb = null;
-      }) as typeof clearTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      cb: () => void,
+      _ms: number,
+    ) => {
+      capturedCb = cb;
+      return fakeHandle as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    (
+      globalThis as unknown as { clearTimeout: typeof clearTimeout }
+    ).clearTimeout = ((handle: unknown) => {
+      if (handle === fakeHandle) capturedCb = null;
+    }) as typeof clearTimeout;
 
     try {
+      const audioIngestFactory = makeFakeAudioIngestFactory();
       const manager = _createMeetSessionManagerForTests({
         dockerRunnerFactory: () => runner,
         getProviderKey: async () => "k",
         getWorkspaceDir: () => workspaceDir,
         botLeaveFetch,
+        audioIngestFactory: audioIngestFactory.factory,
       });
 
       await manager.join({
@@ -443,6 +499,153 @@ describe("MeetSessionManager max-minutes timeout", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Audio ingest wiring
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager audio ingest wiring", () => {
+  test("join starts the audio ingest with the meetingId, socket path, and Deepgram key", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const getProviderKey = mock(async (provider: string) => {
+      if (provider === "deepgram") return "deepgram-secret";
+      return "";
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey,
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-audio",
+      conversationId: "c",
+    });
+
+    const ingest = audioIngestFactory.getLastIngest();
+    expect(ingest).not.toBeNull();
+    expect(ingest!.start).toHaveBeenCalledTimes(1);
+    const [meetingId, socketPath, apiKey] = ingest!.start.mock
+      .calls[0] as unknown as [string, string, string];
+    expect(meetingId).toBe("m-audio");
+    expect(socketPath).toBe(
+      join(workspaceDir, "meets", "m-audio", "sockets", "audio.sock"),
+    );
+    expect(apiKey).toBe("deepgram-secret");
+
+    await manager.leave("m-audio", "cleanup");
+  });
+
+  test("leave stops the audio ingest after the container is removed", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    // Track call order by recording tags into a shared list.
+    const callOrder: string[] = [];
+    runner.remove = mock(async () => {
+      callOrder.push("remove");
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: () => {
+        const ingest = audioIngestFactory.factory();
+        const origStop = ingest.stop;
+        ingest.stop = mock(async () => {
+          callOrder.push("ingest.stop");
+          await (origStop as unknown as () => Promise<void>)();
+        });
+        return ingest;
+      },
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-order",
+      conversationId: "c",
+    });
+    await manager.leave("m-order", "cleanup");
+
+    const ingest = audioIngestFactory.getLastIngest();
+    expect(ingest).not.toBeNull();
+    expect(ingest!.stop).toHaveBeenCalledTimes(1);
+    // Ingest stop runs after the container is removed.
+    expect(callOrder).toEqual(["remove", "ingest.stop"]);
+  });
+
+  test("join rolls back the container when the audio ingest fails to start", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: () => {
+        const ingest = audioIngestFactory.factory();
+        ingest.start = mock(async () => {
+          throw new Error("bot-connect timeout");
+        });
+        return ingest;
+      },
+    });
+
+    await expect(
+      manager.join({
+        url: "u",
+        meetingId: "m-timeout",
+        conversationId: "c",
+      }),
+    ).rejects.toThrow(/bot-connect timeout/);
+
+    // Container is torn down even though ingest was the failing step.
+    expect(runner.stop).toHaveBeenCalledTimes(1);
+    expect(runner.remove).toHaveBeenCalledTimes(1);
+
+    // Ingest teardown happens too.
+    const ingest = audioIngestFactory.getLastIngest();
+    expect(ingest).not.toBeNull();
+    expect(ingest!.stop).toHaveBeenCalledTimes(1);
+
+    // No session lingers.
+    expect(manager.activeSessions()).toHaveLength(0);
+  });
+
+  test("join tears down the audio ingest when the container fails to spawn", async () => {
+    const runner = makeMockRunner({
+      runError: new Error("docker unreachable"),
+    });
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+    });
+
+    await expect(
+      manager.join({
+        url: "u",
+        meetingId: "m-nodocker",
+        conversationId: "c",
+      }),
+    ).rejects.toThrow(/docker unreachable/);
+
+    const ingest = audioIngestFactory.getLastIngest();
+    expect(ingest).not.toBeNull();
+    expect(ingest!.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Event-hub lifecycle publication (PR 19)
 // ---------------------------------------------------------------------------
 
@@ -460,6 +663,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
   test("join publishes meet.joining; leave publishes meet.left with reason", async () => {
     const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const { received, dispose } = captureHub();
     try {
       const manager = _createMeetSessionManagerForTests({
@@ -467,6 +671,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
         getProviderKey: async () => "k",
         getWorkspaceDir: () => workspaceDir,
         botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
       });
 
       await manager.join({
@@ -483,14 +688,14 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
       expect(meetTypes).toContain("meet.left");
 
       const joining = received.find((e) => e.message.type === "meet.joining")!;
-      expect(
-        (joining.message as { url: string }).url,
-      ).toBe("https://meet.google.com/aaa");
+      expect((joining.message as { url: string }).url).toBe(
+        "https://meet.google.com/aaa",
+      );
 
       const left = received.find((e) => e.message.type === "meet.left")!;
-      expect(
-        (left.message as { reason: string }).reason,
-      ).toBe("user-requested");
+      expect((left.message as { reason: string }).reason).toBe(
+        "user-requested",
+      );
     } finally {
       dispose();
     }
@@ -498,6 +703,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
   test("lifecycle:joined bot event publishes meet.joined exactly once", async () => {
     const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const { received, dispose } = captureHub();
     try {
       const manager = _createMeetSessionManagerForTests({
@@ -505,6 +711,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
         getProviderKey: async () => "k",
         getWorkspaceDir: () => workspaceDir,
         botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
       });
 
       await manager.join({
@@ -543,6 +750,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
   test("container spawn failure publishes meet.error", async () => {
     const runner = makeMockRunner({ runError: new Error("docker down") });
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const { received, dispose } = captureHub();
     try {
       const manager = _createMeetSessionManagerForTests({
@@ -550,6 +758,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
         getProviderKey: async () => "k",
         getWorkspaceDir: () => workspaceDir,
         botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
       });
 
       await expect(
@@ -564,9 +773,9 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
       const errors = received.filter((e) => e.message.type === "meet.error");
       expect(errors).toHaveLength(1);
-      expect(
-        (errors[0]!.message as { detail: string }).detail,
-      ).toContain("docker down");
+      expect((errors[0]!.message as { detail: string }).detail).toContain(
+        "docker down",
+      );
     } finally {
       dispose();
     }
@@ -574,6 +783,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
   test("lifecycle:error bot event publishes meet.error with detail", async () => {
     const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
     const { received, dispose } = captureHub();
     try {
       const manager = _createMeetSessionManagerForTests({
@@ -581,6 +791,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
         getProviderKey: async () => "k",
         getWorkspaceDir: () => workspaceDir,
         botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
       });
 
       await manager.join({
@@ -602,9 +813,9 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
 
       const errors = received.filter((e) => e.message.type === "meet.error");
       expect(errors).toHaveLength(1);
-      expect(
-        (errors[0]!.message as { detail: string }).detail,
-      ).toBe("join rejected by host");
+      expect((errors[0]!.message as { detail: string }).detail).toBe(
+        "join rejected by host",
+      );
 
       await manager.leave("m-ev-lerr", "cleanup");
     } finally {
