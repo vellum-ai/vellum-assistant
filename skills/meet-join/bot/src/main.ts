@@ -49,6 +49,7 @@ import type {
   SpeakerChangeEvent,
 } from "@vellumai/meet-contracts";
 
+import { sendChat } from "./browser/chat-bridge.js";
 import { startChatReader, type ChatReader } from "./browser/chat-reader.js";
 import { joinMeet, type JoinMeetOptions } from "./browser/join-flow.js";
 import {
@@ -149,6 +150,13 @@ export interface BotDeps {
   startAudioCapture: (
     opts: AudioCaptureOptions,
   ) => Promise<AudioCaptureHandle>;
+  /**
+   * Type `text` into the Meet chat composer and submit it. Invoked by the
+   * HTTP `/send_chat` endpoint. Separated from the other browser helpers
+   * so the main-test suite can inject a mock that captures the text
+   * without spinning up Playwright.
+   */
+  sendChat: (page: Page, text: string) => Promise<void>;
   createDaemonClient: (opts: {
     daemonUrl: string;
     meetingId: string;
@@ -198,6 +206,7 @@ export function defaultDeps(): BotDeps {
     startSpeakerScraper,
     startChatReader,
     startAudioCapture,
+    sendChat,
     createDaemonClient: (opts) =>
       new DaemonClient({
         daemonUrl: opts.daemonUrl,
@@ -565,8 +574,17 @@ export async function runBot(deps: BotDeps): Promise<void> {
           deps.exit(0);
         });
       },
-      onSendChat: () => {
-        // Phase 2 will replace the 501 stub with a real implementation.
+      onSendChat: async (text) => {
+        // Surfacing errors back to the HTTP server lets it respond 502 to
+        // the daemon when Playwright can't reach the chat panel (selector
+        // drift, panel closed, Meet DOM still loading, etc.). The HTTP
+        // server is responsible for validation and the 2000-char limit —
+        // at this layer we just drive the browser.
+        const page = subsystems.session?.page;
+        if (!page) {
+          throw new Error("send_chat: browser session is not ready");
+        }
+        await deps.sendChat(page, text);
       },
       onPlayAudio: () => {
         // Phase 3 will replace the 501 stub with a real implementation.

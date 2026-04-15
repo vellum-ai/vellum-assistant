@@ -271,11 +271,15 @@ describe("http-server", () => {
   });
 
   // -------------------------------------------------------------------------
-  // POST /send_chat (501 stub until Phase 2)
+  // POST /send_chat
+  //
+  // Happy-path and failure-path coverage lives in send-chat-endpoint.test.ts.
+  // These cases just sanity-check the auth/validation gate from this suite's
+  // perspective so a regression in the middleware would be caught here too.
   // -------------------------------------------------------------------------
 
   describe("POST /send_chat", () => {
-    test("returns 501 Not Implemented for a valid body", async () => {
+    test("invokes onSendChat and returns 200 for a valid body", async () => {
       const instance = makeServer();
       server = instance.server;
       const base = await startOnRandomPort(server);
@@ -288,10 +292,11 @@ describe("http-server", () => {
         },
         body: JSON.stringify({ type: "send_chat", text: "hello" }),
       });
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(200);
+      expect(instance.log.sendChatCalls).toEqual(["hello"]);
     });
 
-    test("validates body shape before returning 501", async () => {
+    test("rejects an empty text body with 400", async () => {
       const instance = makeServer();
       server = instance.server;
       const base = await startOnRandomPort(server);
@@ -305,6 +310,7 @@ describe("http-server", () => {
         body: JSON.stringify({ type: "send_chat", text: "" }),
       });
       expect(res.status).toBe(400);
+      expect(instance.log.sendChatCalls).toEqual([]);
     });
 
     test("requires auth", async () => {
@@ -318,6 +324,7 @@ describe("http-server", () => {
         body: JSON.stringify({ type: "send_chat", text: "hi" }),
       });
       expect(res.status).toBe(401);
+      expect(instance.log.sendChatCalls).toEqual([]);
     });
   });
 

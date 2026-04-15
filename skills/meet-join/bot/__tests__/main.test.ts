@@ -213,6 +213,9 @@ function makeDeps(
         },
       };
     },
+    sendChat: async (_page, text) => {
+      calls.push({ kind: "sendChat", text });
+    },
     createDaemonClient: (clientOpts) => {
       calls.push({
         kind: "daemon.create",

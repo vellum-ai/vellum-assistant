@@ -6,7 +6,7 @@
  *   - `GET  /health`     — liveness/health probe (also used by Docker HEALTHCHECK).
  *   - `GET  /status`     — full lifecycle snapshot.
  *   - `POST /leave`      — ask the bot to leave the meeting.
- *   - `POST /send_chat`  — post a chat message (Phase 2; stub returns 501 today).
+ *   - `POST /send_chat`  — post a chat message into the Meet chat panel.
  *   - `POST /play_audio` — play an out-of-band audio stream (Phase 3; stub 501).
  *
  * Every mutating route validates its body against the corresponding Zod
@@ -28,6 +28,15 @@ import { Hono, type Context } from "hono";
 import { BotState } from "./state.js";
 
 /**
+ * Google Meet enforces a 2000-character ceiling on a single chat message.
+ * We mirror that limit at the HTTP boundary so oversized payloads are
+ * rejected with a clear 400 instead of silently being truncated (or worse,
+ * causing Meet to reject the keystrokes and leave the bot in a half-typed
+ * state).
+ */
+const MEET_CHAT_MAX_LENGTH = 2000;
+
+/**
  * Callbacks the HTTP server invokes when commands arrive.
  *
  * The server is a thin wiring layer: it validates the incoming payload,
@@ -39,9 +48,10 @@ export interface HttpServerCallbacks {
   /** Called when `POST /leave` is received and the phase has been flipped. */
   onLeave: (reason: string | undefined) => Promise<void> | void;
   /**
-   * Called when `POST /send_chat` is received. Currently a stub — the HTTP
-   * route returns 501 regardless so the daemon can detect that Phase 2 has
-   * not landed yet.
+   * Called when `POST /send_chat` is received with a valid body. The
+   * implementation is expected to type `text` into the Meet chat composer
+   * and submit it. Throwing (or rejecting) is the signal that Playwright
+   * could not post the message — the HTTP route converts that into a 502.
    */
   onSendChat: (text: string) => Promise<void> | void;
   /**
@@ -134,7 +144,10 @@ export function createHttpServer(
   });
 
   // -------------------------------------------------------------------------
-  // POST /send_chat — validate now, return 501 until Phase 2 lands.
+  // POST /send_chat — validate, enforce Meet's 2000-char chat limit, then
+  // hand off to the Playwright-backed callback. Success returns 200; a
+  // thrown/rejected callback is surfaced as 502 so the daemon can tell
+  // "bad request" apart from "Meet DOM didn't cooperate".
   // -------------------------------------------------------------------------
 
   app.post("/send_chat", async (c) => {
@@ -146,11 +159,22 @@ export function createHttpServer(
         400,
       );
     }
-    // Invoke the callback so integration tests can still observe the call;
-    // Phase 2 will change this route to return 200 once the real handler
-    // is wired in.
-    void Promise.resolve(onSendChat(parsed.data.text)).catch(() => {});
-    return c.json({ error: "not implemented" }, 501);
+    if (parsed.data.text.length > MEET_CHAT_MAX_LENGTH) {
+      return c.json(
+        {
+          error: `text exceeds Meet chat limit of ${MEET_CHAT_MAX_LENGTH} characters`,
+          length: parsed.data.text.length,
+        },
+        400,
+      );
+    }
+    try {
+      await onSendChat(parsed.data.text);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ sent: false, error: message }, 502);
+    }
+    return c.json({ sent: true, timestamp: new Date().toISOString() }, 200);
   });
 
   // -------------------------------------------------------------------------
