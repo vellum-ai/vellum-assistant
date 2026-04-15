@@ -56,10 +56,14 @@ describe("serviceDockerRunArgs — assistant", () => {
     expect(args).toContain(`VELLUM_ASSISTANT_NAME=${instanceName}`);
   });
 
-  test("publishes the assistant HTTP port on 127.0.0.1 so sibling bot containers can reach the daemon via host.docker.internal", () => {
+  test("publishes the assistant HTTP port on all host interfaces so sibling bot containers can reach the daemon via host.docker.internal on both Docker Desktop and Linux", () => {
     const args = buildAssistantArgs();
     // The port mapping is expressed as two adjacent args: "-p" then the spec.
-    const portSpec = `127.0.0.1:${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`;
+    // Bound to all interfaces (no `127.0.0.1:` prefix) because on vanilla
+    // Linux Docker, host.docker.internal:host-gateway resolves to the Docker
+    // bridge gateway IP — packets arrive at the bridge interface, not
+    // loopback, so a 127.0.0.1 DNAT rule would not match.
+    const portSpec = `${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`;
     const portIndex = args.indexOf(portSpec);
     expect(portIndex).toBeGreaterThan(0);
     expect(args[portIndex - 1]).toBe("-p");

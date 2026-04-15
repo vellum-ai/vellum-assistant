@@ -590,11 +590,25 @@ export function serviceDockerRunArgs(opts: {
         "-p",
         `${gatewayPort}:${GATEWAY_INTERNAL_PORT}`,
         // Published so the Meet subsystem's sibling bot containers can reach
-        // the daemon's internal HTTP API at host.docker.internal:<port>. Bound
-        // to 127.0.0.1 so the daemon API is not exposed beyond the host's
-        // loopback.
+        // the daemon's internal HTTP API at host.docker.internal:<port>.
+        //
+        // Published on all host interfaces (no `127.0.0.1:` prefix) because on
+        // vanilla Linux Docker, `host.docker.internal:host-gateway` resolves
+        // to the Docker bridge gateway IP (e.g. 172.17.0.1), not loopback.
+        // Packets from sibling containers arrive at the host's bridge
+        // interface, and an iptables DNAT rule keyed on dest=127.0.0.1 would
+        // not match — causing connection refused. Docker Desktop (macOS/
+        // Windows) still works because its VM proxy forwards to the same
+        // published port regardless of the binding address.
+        //
+        // Security tradeoff: the daemon HTTP API is now reachable from the
+        // host's LAN (any device that can hit the host IP on this port).
+        // This matches the gateway port's existing posture and is acceptable
+        // for single-user self-hosted Docker mode per the Phase 1.8 security
+        // note. Managed/multi-tenant deployments are out of scope and would
+        // require a different design.
         "-p",
-        `127.0.0.1:${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
+        `${ASSISTANT_INTERNAL_PORT}:${ASSISTANT_INTERNAL_PORT}`,
         "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",
