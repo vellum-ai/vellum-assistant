@@ -77,9 +77,6 @@ extension MessageListView {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 guard !Task.isCancelled else { return }
                 scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-                withAnimation(VAnimation.fast) {
-                    isScrollRestored = true
-                }
 
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 guard !Task.isCancelled else { return }
@@ -236,10 +233,6 @@ extension MessageListView {
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
             scrollBinding.wrappedValue.scrollTo(id: "scroll-bottom-anchor", anchor: .bottom)
-            // Fade in after scroll is positioned
-            withAnimation(VAnimation.fast) {
-                isScrollRestored = true
-            }
 
             // Stage 2: slower content (150ms) — final correction
             try? await Task.sleep(nanoseconds: 150_000_000)

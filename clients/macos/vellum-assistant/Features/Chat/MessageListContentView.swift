@@ -221,6 +221,7 @@ struct MessageListContentView: View, Equatable {
             }
             .frame(minHeight: turnMinHeight, alignment: .top)
         }
+        .flipped()  // Flip each row back so content reads correctly in inverted scroll
     }
 
     @ViewBuilder
@@ -264,6 +265,7 @@ struct MessageListContentView: View, Equatable {
                 }
                 .padding(.vertical, VSpacing.sm)
                 .id("page-loading-indicator")
+                .flipped()
             }
 
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
@@ -330,10 +332,11 @@ struct MessageListContentView: View, Equatable {
                 uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
             )
             let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
-            ForEach(displayedItems) { item in
+            ForEach(displayedItems.reversed()) { item in
                 switch item {
                 case .queuedMarker(let count):
                     QueuedMessagesMarker(count: count)
+                        .flipped()
                 case .message(let message):
                     // Safe: every displayed message originates from `state.rows`
                     // so `rowsByMessageId[message.id]` is always present.
@@ -361,6 +364,7 @@ struct MessageListContentView: View, Equatable {
                 }
                     .id("subagent-\(subagent.id)")
                     .transition(.opacity)
+                    .flipped()
             }
 
             if state.isStreamingWithoutText && !state.canInlineProcessing {
@@ -374,13 +378,16 @@ struct MessageListContentView: View, Equatable {
                 .frame(minHeight: turnMinHeight, alignment: .top)
                 .id("streaming-without-text-indicator")
                 .transition(.opacity)
+                .flipped()
             } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                 VStack(spacing: 0) { compactingIndicatorRow() }
                     .frame(minHeight: turnMinHeight, alignment: .top)
+                    .flipped()
             }
 
             Color.clear.frame(height: 1)
                 .id("scroll-bottom-anchor")
+                .flipped()
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }
