@@ -64,7 +64,6 @@ struct SurfaceContainerView: View {
             case .confirmation(let data):
                 ConfirmationSurfaceView(
                     data: data,
-                    actions: surface.actions,
                     onAction: { actionId in
                         viewModel.onAction(actionId, nil)
                     }
