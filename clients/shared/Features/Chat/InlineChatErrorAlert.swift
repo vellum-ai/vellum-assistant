@@ -174,6 +174,8 @@ public struct InlineChatErrorAlert: View {
             .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
+
+            Spacer(minLength: 0)
         }
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
