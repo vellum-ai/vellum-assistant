@@ -17,9 +17,9 @@ public struct VAvatarImage: View {
     /// Whether the source image has a transparent background, computed once at init.
     private let isTransparent: Bool
 
-    /// Alpha byte value below which a pixel is considered transparent.
-    /// 242/255 ≈ 0.949, matching the original ~0.95 float threshold.
-    private static let alphaOpaqueThreshold: UInt8 = 242
+    /// Alpha byte value at or above which a pixel is considered opaque.
+    /// ceil(0.95 * 255) = 243, matching the original `< 0.95` float threshold.
+    private static let alphaOpaqueThreshold: UInt8 = 243
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
