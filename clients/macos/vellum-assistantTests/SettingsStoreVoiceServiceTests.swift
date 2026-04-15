@@ -556,9 +556,12 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
     }
 
     /// Verifies that exclusive-key providers can be reset through the STT
-    /// card without affecting other services.
+    /// card without affecting other services. No current catalog provider is
+    /// exclusive (deepgram is shared with TTS, openai-whisper and
+    /// google-gemini map to shared key names), so we use an unknown provider
+    /// which defaults to exclusive per `sttKeyIsExclusive` semantics.
     func testExclusiveKeyProviderCanBeResetSafely() {
-        let allowReset = SettingsStore.sttKeyIsExclusive(for: "deepgram")
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "future-provider")
         XCTAssertTrue(
             allowReset,
             "The STT reset flow should be allowed for exclusive-key providers"
