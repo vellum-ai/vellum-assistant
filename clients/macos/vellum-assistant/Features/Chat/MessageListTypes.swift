@@ -156,3 +156,22 @@ final class ProjectionCache {
         isThrottled = false
     }
 }
+
+// MARK: - Flipped Modifier
+
+/// Rotates 180° and mirrors horizontally — the "inverted scroll" technique.
+/// Apply to both the ScrollView and each row to get a bottom-anchored list
+/// where new content appears at the bottom without any scroll management.
+struct FlippedModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.radians(.pi))
+            .scaleEffect(x: -1, y: 1, anchor: .center)
+    }
+}
+
+extension View {
+    func flipped() -> some View {
+        modifier(FlippedModifier())
+    }
+}
