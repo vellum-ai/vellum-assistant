@@ -235,6 +235,12 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
+type ConversationWithWorkspaceDeps = Conversation & {
+  getWorkspaceGitService?: (_workspaceDir: string) => {
+    ensureInitialized: () => Promise<void>;
+  };
+};
+
 function makeConversation(): Conversation {
   const provider = {
     name: "mock",
@@ -247,7 +253,7 @@ function makeConversation(): Conversation {
       };
     },
   };
-  return new Conversation(
+  const conversation = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -255,6 +261,13 @@ function makeConversation(): Conversation {
     () => {},
     "/tmp",
   );
+  // Bypass real workspace git init: with "/tmp" as the workspace dir, a real
+  // ensureInitialized() walks all of /tmp and can exceed the 2s waitForPendingRun
+  // budget on CI where parallel tests churn /tmp subdirectories.
+  (conversation as ConversationWithWorkspaceDeps).getWorkspaceGitService = () => ({
+    ensureInitialized: async () => {},
+  });
+  return conversation;
 }
 
 async function waitForPendingRun(
