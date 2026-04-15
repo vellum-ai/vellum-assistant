@@ -759,6 +759,11 @@ describe("web_search_tool_result structural guard", () => {
     // before reaching the chat-completions provider.
     "providers/openai/chat-completions-provider.ts",
 
+    // OpenAI Responses API transport converts Anthropic-style messages to
+    // Responses API input format. web_search_tool_result blocks are handled
+    // upstream before reaching the responses provider.
+    "providers/openai/responses-provider.ts",
+
     // Renders tool_result blocks for client display. web_search_tool_result
     // blocks are rendered by the client via their own display path.
     "daemon/handlers/shared.ts",
