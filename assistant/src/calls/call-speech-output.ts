@@ -69,8 +69,14 @@ export function speakSystemPrompt(
 
 /**
  * Synthesize text via a streaming TTS provider and send the play URL
- * to the relay. Falls back to sendTextToken on synthesis failure so the
- * caller always hears something.
+ * to the relay.
+ *
+ * On synthesis failure the behavior depends on the provider:
+ * - Providers with a native Twilio TTS fallback (e.g. Fish Audio) fall
+ *   back to `sendTextToken(text)` so the caller still hears the message.
+ * - Providers without a native fallback (e.g. Deepgram) log the error
+ *   and send only an empty end-of-turn signal — the caller hears nothing
+ *   but the relay transitions back to listening state.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
