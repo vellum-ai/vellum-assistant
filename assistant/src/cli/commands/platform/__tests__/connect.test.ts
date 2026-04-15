@@ -43,11 +43,6 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async () => "",
 }));
 
-mock.module("../../../../ipc/gateway-client.js", () => ({
-  ipcGetFeatureFlags: async () => ({}),
-  ipcCall: async () => undefined,
-}));
-
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},

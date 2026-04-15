@@ -64,11 +64,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
   }),
 }));
 
-mock.module("../../../../ipc/gateway-client.js", () => ({
-  ipcGetFeatureFlags: async () => ({}),
-  ipcCall: async () => undefined,
-}));
-
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
