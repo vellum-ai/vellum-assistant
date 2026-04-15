@@ -841,15 +841,18 @@ export class CallController {
             ? (err as Error & { code?: string }).code
             : undefined;
 
-        // Check whether this provider supports falling back to native
-        // Twilio token-based TTS. Providers without a native fallback
-        // (e.g. Deepgram) must propagate the error so the outer handler
-        // can surface a user-facing recovery message.
+        // `allowNativeFallback` controls whether the LLM's original
+        // response text should be sent via native Twilio token-based
+        // TTS when synthesis fails. When false (e.g. Deepgram), the
+        // error is re-thrown so the outer catch handler sends a
+        // generic recovery message via native TTS instead — the
+        // caller still hears *something*, but not the LLM's text
+        // rendered in a mismatched voice.
         const catalogEntry = getCatalogProvider(provider.id as TtsProviderId);
         if (!catalogEntry.allowNativeFallback) {
           log.error(
             { err, provider: provider.id, errName, errCode },
-            "TTS synthesis failed — no native fallback available",
+            "TTS synthesis failed — native fallback disabled for this provider",
           );
           throw err;
         }
