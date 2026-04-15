@@ -56,7 +56,6 @@ KNOWN_BROKEN_FILES=(
   "email-unregister.test.ts"
   "feature-flag-registry-bundled.test.ts"
   "guard-tests.test.ts"
-  "host-shell-tool.test.ts"
   "memory-item-routes.test.ts"
   "provider-adapters.test.ts"
   "providers-delete.test.ts"
