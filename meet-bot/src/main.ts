@@ -14,16 +14,20 @@
  *     on macOS developer machines where PulseAudio is unavailable.
  *   - Logs a boot marker so the boot smoke test and the Docker `CMD` can
  *     verify the package structure.
- *   - If `MEET_URL` is set, brings up Xvfb + Chromium, navigates to the URL,
- *     drops a screenshot at `/tmp/boot-screenshot.png`, closes the session,
- *     and exits 0. This is the browser-runtime smoke path; the real Meet
- *     join flow (lobby handling, name entry, join-button clicks) lands in
- *     PR 11 of the meet-phase-1 plan.
+ *   - If `MEET_URL` is set, brings up Xvfb + Chromium and navigates to the
+ *     URL. When `JOIN_NAME` and `CONSENT_MESSAGE` are also set, runs the full
+ *     Meet join flow (name entry, Join/Ask-to-join branch, consent notice)
+ *     via `joinMeet`. When only `MEET_URL` is provided, drops a screenshot at
+ *     `/tmp/boot-screenshot.png`, closes the session, and exits 0 — this is
+ *     the browser-runtime smoke path the boot tests rely on.
+ *   - On join failure, logs the error and exits with status 1 so the
+ *     container orchestrator can observe the problem.
  *
  * Anything heavier — Hono HTTP control surface, live audio capture wiring,
  * transcript streaming — lands in later PRs.
  */
 
+import { joinMeet } from "./browser/join-flow.js";
 import { createBrowserSession } from "./browser/session.js";
 import { setupPulseAudio } from "./media/pulse.js";
 
@@ -44,10 +48,30 @@ async function main(): Promise<void> {
   if (meetUrl) {
     const session = await createBrowserSession(meetUrl);
     try {
-      await session.page.screenshot({ path: "/tmp/boot-screenshot.png" });
-      console.log(
-        `meet-bot captured boot screenshot for ${meetUrl} at /tmp/boot-screenshot.png`,
-      );
+      const displayName = process.env.JOIN_NAME;
+      const consentMessage = process.env.CONSENT_MESSAGE;
+
+      if (displayName && consentMessage) {
+        // Full join flow — drive the prejoin surface and post the consent
+        // message. Failures abort with exit(1) so the container orchestrator
+        // can restart or surface the error.
+        try {
+          await joinMeet(session.page, { displayName, consentMessage });
+          console.log(`meet-bot joined ${meetUrl} as ${displayName}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`meet-bot: join flow failed: ${msg}`);
+          process.exit(1);
+        }
+      } else {
+        // Backward-compatible screenshot-only path — used by the boot smoke
+        // test which sets only `MEET_URL`. Confirms the browser runtime can
+        // reach Meet without actually entering a meeting.
+        await session.page.screenshot({ path: "/tmp/boot-screenshot.png" });
+        console.log(
+          `meet-bot captured boot screenshot for ${meetUrl} at /tmp/boot-screenshot.png`,
+        );
+      }
     } finally {
       await session.close();
     }
