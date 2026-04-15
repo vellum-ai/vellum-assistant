@@ -43,7 +43,12 @@ class MeetSendChatTool implements Tool {
   description =
     "Post a message into the chat of an active Google Meet call. When exactly one Meet session is active, meetingId may be omitted and the active session is targeted automatically; otherwise pass the specific meetingId returned by meet_join.";
   category = "meet";
-  defaultRiskLevel = RiskLevel.Medium;
+  // Low: consent is established meeting-wide by `meet_join` (High) and the
+  // Phase 1 join-consent message announcing the bot. Chat posts within that
+  // bounded session are within the user's expressed consent envelope, and
+  // proactive-chat wakes run on client-less conversations where a Medium-risk
+  // approval prompt would hang forever. Aligns with `meet_leave` (also Low).
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
