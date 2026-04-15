@@ -6,8 +6,11 @@
  *     (PR 9) can authenticate inbound bot callbacks.
  *   - Stage per-meeting artifact directories (`sockets/`, `out/`) on the
  *     workspace volume.
- *   - Resolve the Deepgram API key (and a placeholder TTS key reserved for
- *     Phase 3) via the secure-keys abstraction.
+ *   - Resolve a placeholder TTS key reserved for Phase 3 via the
+ *     secure-keys abstraction. STT credentials are resolved inside the
+ *     audio-ingest via the configured `services.stt.provider` — the
+ *     session manager no longer needs to know which STT provider is in
+ *     use or how to fetch its key.
  *   - Drive `DockerRunner` to create + start the Meet-bot container with the
  *     right env/binds/port mappings.
  *   - Register the per-meeting handler with `MeetSessionEventRouter` via
@@ -23,7 +26,9 @@
  *     `DockerRunner.stop` + `remove` so stuck bots don't leak containers.
  *   - Start a {@link MeetAudioIngest} before the container spawns so the
  *     bot has a socket to connect to the moment it boots, and tear the
- *     ingest down after the container is removed on leave.
+ *     ingest down after the container is removed on leave. The ingest
+ *     resolves the STT provider from `services.stt.provider` on its own
+ *     — this class does not pass any API keys through.
  *   - Spin up a {@link MeetConsentMonitor} per meeting so objection
  *     phrases on transcript/chat trigger an auto-leave when
  *     `services.meet.autoLeaveOnObjection` is enabled.
@@ -118,8 +123,8 @@ interface ActiveSession extends MeetSession {
   /** Hard-cap timeout handle — cleared on leave. */
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   /**
-   * The audio-ingest instance owning the Unix-socket server and Deepgram
-   * session for this meeting. Created in `join()` and torn down in
+   * The audio-ingest instance owning the Unix-socket server and streaming
+   * STT session for this meeting. Created in `join()` and torn down in
    * `leave()` after the container is removed.
    */
   audioIngest: MeetAudioIngestLike;
@@ -138,10 +143,10 @@ interface ActiveSession extends MeetSession {
 
 /**
  * Thin interface for the audio-ingest surface the session manager uses.
- * Lets tests swap in a fake without needing the real Deepgram/socket stack.
+ * Lets tests swap in a fake without needing the real STT/socket stack.
  */
 export interface MeetAudioIngestLike {
-  start(meetingId: string, socketPath: string, apiKey: string): Promise<void>;
+  start(meetingId: string, socketPath: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -295,15 +300,16 @@ class MeetSessionManagerImpl {
 
     const botApiToken = generateBotApiToken();
 
-    const deepgramKey = (await this.deps.getProviderKey("deepgram")) ?? "";
     // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
     const ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
 
     const daemonUrl = this.deps.resolveDaemonUrl();
 
     // Audio ingest + container spawn are started concurrently:
-    //   1. The ingest opens its Unix-socket server and a Deepgram session,
-    //      then waits for the bot to connect (bounded by a 30s timeout).
+    //   1. The ingest opens its Unix-socket server and a streaming STT
+    //      session (provider resolved from `services.stt.provider` via
+    //      the provider catalog), then waits for the bot to connect
+    //      (bounded by a 30s timeout).
     //   2. The container is started in parallel; once it boots, the bot
     //      process inside dials the shared socket.
     //
@@ -311,14 +317,11 @@ class MeetSessionManagerImpl {
     // what lets the bot connect as soon as its process comes up. Running
     // them concurrently keeps the total latency bounded — the join
     // completes once both steps succeed, or fails fast if either step
-    // rejects.
+    // rejects (e.g. with a {@link MeetAudioIngestError} when no
+    // streaming-capable STT provider is configured).
     const audioSocketPath = join(socketsDir, "audio.sock");
     const audioIngest = this.deps.audioIngestFactory();
-    const audioIngestPromise = audioIngest.start(
-      meetingId,
-      audioSocketPath,
-      deepgramKey,
-    );
+    const audioIngestPromise = audioIngest.start(meetingId, audioSocketPath);
 
     const env: Record<string, string> = {
       MEET_URL: url,
@@ -370,7 +373,7 @@ class MeetSessionManagerImpl {
         "Failed to spawn meet bot container",
       );
       // Tear down the concurrently-started audio ingest so we don't leak
-      // a listening socket or a Deepgram session on the spawn-failure path.
+      // a listening socket or a streaming STT session on the spawn-failure path.
       // Swallow its in-flight promise before stopping to prevent unhandled
       // rejections from surfacing in the caller's context.
       audioIngestPromise.catch(() => {});
@@ -404,9 +407,14 @@ class MeetSessionManagerImpl {
     }
 
     // Now that the container is up, wait for the ingest to finish setup
-    // (Deepgram connected + bot connected via the shared socket). If the
-    // bot never connects within the 30s timeout, the promise rejects and
-    // we roll the container back before re-throwing.
+    // (streaming STT session opened + bot connected via the shared
+    // socket). If the bot never connects within the 30s timeout — or the
+    // ingest fails to open a streaming session (e.g. no STT provider
+    // configured; surfaced as `MeetAudioIngestError`) — the promise
+    // rejects and we roll the container back before re-throwing. The
+    // error's `message` is forwarded to the caller via both the `throw`
+    // and the `meet.error` event, so the user sees a pointer at
+    // `services.stt.provider` when that's the cause.
     try {
       await audioIngestPromise;
     } catch (err) {
@@ -627,7 +635,7 @@ class MeetSessionManagerImpl {
     } catch (err) {
       log.warn(
         { err, meetingId },
-        "MeetAudioIngest.stop failed — socket or Deepgram session may leak",
+        "MeetAudioIngest.stop failed — socket or streaming STT session may leak",
       );
     }
 

@@ -2,8 +2,8 @@
  * Unit tests for {@link MeetAudioIngest}.
  *
  * These tests exercise the ingest in isolation by injecting fake factories
- * for both the Deepgram session and the Unix-socket server. No real network
- * or filesystem socket is opened.
+ * for both the streaming transcriber and the Unix-socket server. No real
+ * network or filesystem socket is opened.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -14,8 +14,8 @@ import type {
 } from "../../stt/types.js";
 import {
   BOT_CONNECT_TIMEOUT_MS,
-  type DeepgramIngestOptions,
   MeetAudioIngest,
+  MeetAudioIngestError,
   type UnixSocketConnection,
   type UnixSocketServer,
 } from "../audio-ingest.js";
@@ -29,11 +29,10 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Fake Deepgram streaming session. Records every audio chunk it receives
- * and exposes an `emit` helper so tests can inject synthetic transcript
- * events.
+ * Fake streaming transcriber. Records every audio chunk it receives and
+ * exposes an `emit` helper so tests can inject synthetic transcript events.
  */
-class FakeDeepgramSession implements StreamingTranscriber {
+class FakeStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
 
@@ -41,13 +40,8 @@ class FakeDeepgramSession implements StreamingTranscriber {
   startCalls = 0;
   stopCalls = 0;
   started = false;
-  options: DeepgramIngestOptions;
 
   private listener: ((event: SttStreamServerEvent) => void) | null = null;
-
-  constructor(options: DeepgramIngestOptions) {
-    this.options = options;
-  }
 
   async start(
     onEvent: (event: SttStreamServerEvent) => void,
@@ -150,21 +144,33 @@ class FakeUnixSocketServer implements UnixSocketServer {
 // Test helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Flush multiple microtask ticks so callers can let the ingest's internal
+ * await chain settle before asserting that its connection listener is
+ * registered. Keep this larger than the ingest's actual chain depth so
+ * changes to the number of internal awaits don't make the tests flake.
+ */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await Promise.resolve();
+  }
+}
+
 function newIngestSetup(): {
   server: FakeUnixSocketServer;
-  session: FakeDeepgramSession;
+  session: FakeStreamingTranscriber;
   ingest: MeetAudioIngest;
   listenCalls: string[];
-  deepgramCalls: DeepgramIngestOptions[];
+  createTranscriberCalls: number;
 } {
   const server = new FakeUnixSocketServer();
-  let session: FakeDeepgramSession | null = null;
+  let session: FakeStreamingTranscriber | null = null;
   const listenCalls: string[] = [];
-  const deepgramCalls: DeepgramIngestOptions[] = [];
+  let createTranscriberCalls = 0;
   const ingest = new MeetAudioIngest({
-    createDeepgramSession: (opts) => {
-      deepgramCalls.push(opts);
-      session = new FakeDeepgramSession(opts);
+    createTranscriber: async () => {
+      createTranscriberCalls++;
+      session = new FakeStreamingTranscriber();
       return session;
     },
     listen: async (path) => {
@@ -175,18 +181,20 @@ function newIngestSetup(): {
   return {
     server,
     get session() {
-      if (!session) throw new Error("Deepgram session not created yet");
+      if (!session) throw new Error("Streaming transcriber not created yet");
       return session;
     },
     ingest,
     listenCalls,
-    deepgramCalls,
+    get createTranscriberCalls() {
+      return createTranscriberCalls;
+    },
   } as unknown as {
     server: FakeUnixSocketServer;
-    session: FakeDeepgramSession;
+    session: FakeStreamingTranscriber;
     ingest: MeetAudioIngest;
     listenCalls: string[];
-    deepgramCalls: DeepgramIngestOptions[];
+    createTranscriberCalls: number;
   };
 }
 
@@ -207,28 +215,18 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("MeetAudioIngest.start", () => {
-  test("opens Deepgram with smart-format + interim, opens socket server, resolves on bot connect", async () => {
+  test("opens streaming transcriber, opens socket server, resolves on bot connect", async () => {
     const setup = newIngestSetup();
 
-    const startPromise = setup.ingest.start(
-      "m1",
-      "/tmp/fake-audio.sock",
-      "dg-api-key",
-    );
+    const startPromise = setup.ingest.start("m1", "/tmp/fake-audio.sock");
 
     // The listen factory was called with the provided path.
     // The ingest awaits `listen()` before registering its connection
     // listener, so we need to let microtasks run before connecting.
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
 
     expect(setup.listenCalls).toEqual(["/tmp/fake-audio.sock"]);
-    expect(setup.deepgramCalls).toHaveLength(1);
-    expect(setup.deepgramCalls[0]).toEqual({
-      apiKey: "dg-api-key",
-      smartFormatting: true,
-      interimResults: true,
-    });
+    expect(setup.createTranscriberCalls).toBe(1);
 
     // Simulate the bot dialing in.
     setup.server.connectBot();
@@ -237,35 +235,35 @@ describe("MeetAudioIngest.start", () => {
     expect(setup.session.started).toBe(true);
   });
 
-  test("rejects when Deepgram fails to connect (and does not open the socket)", async () => {
+  test("rejects when the transcriber fails to connect (and does not open the socket)", async () => {
     const listen = mock(async () => new FakeUnixSocketServer());
-    const failingFactory = () => ({
+    const createTranscriber = mock(async () => ({
       providerId: "deepgram" as const,
       boundaryId: "daemon-streaming" as const,
       start: async () => {
-        throw new Error("dg auth failed");
+        throw new Error("stt auth failed");
       },
       sendAudio: () => {},
       stop: () => {},
-    });
+    }));
 
     const ingest = new MeetAudioIngest({
-      createDeepgramSession: failingFactory,
+      createTranscriber,
       listen,
     });
 
-    await expect(
-      ingest.start("m1", "/tmp/x.sock", "bad-key"),
-    ).rejects.toThrow(/dg auth failed/);
+    await expect(ingest.start("m1", "/tmp/x.sock")).rejects.toThrow(
+      /stt auth failed/,
+    );
     expect(listen).toHaveBeenCalledTimes(0);
   });
 
-  test("rejects and tears Deepgram down when the socket server fails to open", async () => {
+  test("rejects and tears the transcriber down when the socket server fails to open", async () => {
     const sessionsStopped: number[] = [];
-    let session: FakeDeepgramSession | null = null;
+    let session: FakeStreamingTranscriber | null = null;
     const ingest = new MeetAudioIngest({
-      createDeepgramSession: (opts) => {
-        session = new FakeDeepgramSession(opts);
+      createTranscriber: async () => {
+        session = new FakeStreamingTranscriber();
         const origStop = session.stop.bind(session);
         session.stop = () => {
           sessionsStopped.push(Date.now());
@@ -278,11 +276,56 @@ describe("MeetAudioIngest.start", () => {
       },
     });
 
-    await expect(
-      ingest.start("m1", "/tmp/x.sock", "k"),
-    ).rejects.toThrow(/EADDRINUSE/);
+    await expect(ingest.start("m1", "/tmp/x.sock")).rejects.toThrow(
+      /EADDRINUSE/,
+    );
     expect(session).not.toBeNull();
     expect(sessionsStopped).toHaveLength(1);
+  });
+
+  test("rejects with MeetAudioIngestError when no streaming provider is configured, cleaning up the socket path", async () => {
+    const unlinkCalls: string[] = [];
+    const closedServers: FakeUnixSocketServer[] = [];
+    const server = new FakeUnixSocketServer();
+    // Wrap close so we can verify the server is not opened (close is never called)
+    // on the missing-provider path.
+    const origClose = server.close.bind(server);
+    server.close = async () => {
+      closedServers.push(server);
+      await origClose();
+    };
+
+    const ingest = new MeetAudioIngest({
+      createTranscriber: async () => {
+        throw new MeetAudioIngestError(
+          "No streaming-capable STT provider is configured. " +
+            "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
+            "and ensure credentials are present.",
+        );
+      },
+      listen: async (path) => {
+        unlinkCalls.push(path);
+        return server;
+      },
+    });
+
+    const rejection = ingest.start("m-missing", "/tmp/missing.sock");
+    await expect(rejection).rejects.toThrow(
+      /No streaming-capable STT provider is configured/,
+    );
+    await expect(rejection).rejects.toBeInstanceOf(MeetAudioIngestError);
+    try {
+      await rejection;
+    } catch (err) {
+      expect(MeetAudioIngestError.isMeetAudioIngestError(err)).toBe(true);
+    }
+
+    // listen() was never called — socket path is uncreated and does not leak.
+    expect(unlinkCalls).toHaveLength(0);
+    expect(closedServers).toHaveLength(0);
+
+    // stop() is idempotent and safe to call on a failed-to-start ingest.
+    await ingest.stop();
   });
 
   test("rejects start() when the bot does not connect within the timeout", async () => {
@@ -310,17 +353,11 @@ describe("MeetAudioIngest.start", () => {
 
     try {
       const setup = newIngestSetup();
-      const startPromise = setup.ingest.start(
-        "m1",
-        "/tmp/timeout.sock",
-        "dg-key",
-      );
+      const startPromise = setup.ingest.start("m1", "/tmp/timeout.sock");
 
       // Let microtasks settle so the ingest has called `listen()` and
       // registered its watchdog.
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushMicrotasks();
 
       // The watchdog is the only pending timer — locate it and fire it.
       const pending = timers.filter((t) => !t.fired);
@@ -344,15 +381,10 @@ describe("MeetAudioIngest.start", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
-  test("forwards PCM bytes from the bot to Deepgram", async () => {
+  test("forwards PCM bytes from the bot to the transcriber", async () => {
     const setup = newIngestSetup();
-    const startPromise = setup.ingest.start(
-      "m-forward",
-      "/tmp/audio.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-forward", "/tmp/audio.sock");
+    await flushMicrotasks();
 
     const conn = setup.server.connectBot();
     await startPromise;
@@ -369,7 +401,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     await setup.ingest.stop();
   });
 
-  test("dispatches partial Deepgram events as non-final transcript chunks", async () => {
+  test("dispatches partial transcriber events as non-final transcript chunks", async () => {
     const setup = newIngestSetup();
     const captured: Array<Parameters<typeof dispatchMock>[1]> = [];
     const dispatchMock = mock((_meetingId: string, event: unknown) => {
@@ -380,13 +412,8 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
       dispatchMock("m-partial", e),
     );
 
-    const startPromise = setup.ingest.start(
-      "m-partial",
-      "/tmp/partial.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-partial", "/tmp/partial.sock");
+    await flushMicrotasks();
     setup.server.connectBot();
     await startPromise;
 
@@ -411,18 +438,13 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     await setup.ingest.stop();
   });
 
-  test("dispatches final Deepgram events as final transcript chunks", async () => {
+  test("dispatches final transcriber events as final transcript chunks", async () => {
     const setup = newIngestSetup();
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-final", (e) => captured.push(e));
 
-    const startPromise = setup.ingest.start(
-      "m-final",
-      "/tmp/final.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-final", "/tmp/final.sock");
+    await flushMicrotasks();
     setup.server.connectBot();
     await startPromise;
 
@@ -446,13 +468,8 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-ignore", (e) => captured.push(e));
 
-    const startPromise = setup.ingest.start(
-      "m-ignore",
-      "/tmp/ignore.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-ignore", "/tmp/ignore.sock");
+    await flushMicrotasks();
     setup.server.connectBot();
     await startPromise;
 
@@ -474,15 +491,10 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetAudioIngest.stop", () => {
-  test("destroys connection, stops Deepgram, closes server", async () => {
+  test("destroys connection, stops transcriber, closes server", async () => {
     const setup = newIngestSetup();
-    const startPromise = setup.ingest.start(
-      "m-stop",
-      "/tmp/stop.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-stop", "/tmp/stop.sock");
+    await flushMicrotasks();
     const conn = setup.server.connectBot();
     await startPromise;
 
@@ -495,13 +507,8 @@ describe("MeetAudioIngest.stop", () => {
 
   test("is idempotent", async () => {
     const setup = newIngestSetup();
-    const startPromise = setup.ingest.start(
-      "m-idem",
-      "/tmp/idem.sock",
-      "dg",
-    );
-    await Promise.resolve();
-    await Promise.resolve();
+    const startPromise = setup.ingest.start("m-idem", "/tmp/idem.sock");
+    await flushMicrotasks();
     setup.server.connectBot();
     await startPromise;
 
@@ -517,10 +524,8 @@ describe("MeetAudioIngest.stop", () => {
     const startPromise = setup.ingest.start(
       "m-afterstop",
       "/tmp/afterstop.sock",
-      "dg",
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushMicrotasks();
     const conn = setup.server.connectBot();
     await startPromise;
 
