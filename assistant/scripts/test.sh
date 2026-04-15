@@ -30,11 +30,51 @@ EXPERIMENTAL_FILES=(
   "memory-regressions.experimental.test.ts"
 )
 
+# Tests that exist in the tree but are known-broken when run.  They were
+# invisible to the previous `src/__tests__ -maxdepth 1` glob, so drift against
+# the surrounding code went uncaught.  They are excluded unconditionally until
+# triage lands a fix for each.  Each entry should get a follow-up issue before
+# being removed from this list.
+#
+# To triage an entry: run `bun test <path>` from `assistant/` and fix the
+# underlying code or tests until the file is green, then remove it here.
+KNOWN_BROKEN_FILES=(
+  "attachment-routes.test.ts"
+  "backup-routes.test.ts"
+  "byo-connection.test.ts"
+  "callback-routes-list.test.ts"
+  "client.test.ts"
+  "connect.test.ts"
+  "contact-routes.test.ts"
+  "conversation-tool-setup.test.ts"
+  "credentials-cli.test.ts"
+  "disconnect.test.ts"
+  "email-attachment.test.ts"
+  "email-download.test.ts"
+  "email-list.test.ts"
+  "email-register.test.ts"
+  "email-send.test.ts"
+  "email-status.test.ts"
+  "email-unregister.test.ts"
+  "feature-flag-registry-bundled.test.ts"
+  "guard-tests.test.ts"
+  "host-shell-tool.test.ts"
+  "memory-item-routes.test.ts"
+  "provider-adapters.test.ts"
+  "providers-delete.test.ts"
+  "qdrant-manager.test.ts"
+  "shell-tool-proxy-mode.test.ts"
+  "skill-feature-flags-integration.test.ts"
+  "status.test.ts"
+  "terminal-tools.test.ts"
+  "tts-text-sanitizer.test.ts"
+)
+
 # Collect test files, filtering experimental if needed
 test_files=()
 while IFS= read -r test_file; do
+  base_name="$(basename "${test_file}")"
   if [[ "${EXCLUDE_EXPERIMENTAL}" == "true" ]]; then
-    base_name="$(basename "${test_file}")"
     skip=0
     for ef in "${EXPERIMENTAL_FILES[@]}"; do
       if [[ "${base_name}" == "${ef}" ]]; then
@@ -47,15 +87,26 @@ while IFS= read -r test_file; do
     fi
   fi
   # Always exclude benchmark files — run them with `bun run test:bench` instead
-  if [[ "$(basename "${test_file}")" == *.benchmark.test.ts ]]; then
+  if [[ "${base_name}" == *.benchmark.test.ts ]]; then
+    continue
+  fi
+  # Always exclude known-broken files (see comment above the list).
+  skip_broken=0
+  for bf in "${KNOWN_BROKEN_FILES[@]}"; do
+    if [[ "${base_name}" == "${bf}" ]]; then
+      skip_broken=1
+      break
+    fi
+  done
+  if [[ ${skip_broken} -eq 1 ]]; then
     continue
   fi
 
   test_files+=("${test_file}")
-done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
+done < <(find src -type f -name '*.test.ts' | sort)
 
 if [[ ${#test_files[@]} -eq 0 ]]; then
-  echo "No test files found under src/__tests__"
+  echo "No test files found under src"
   exit 1
 fi
 
