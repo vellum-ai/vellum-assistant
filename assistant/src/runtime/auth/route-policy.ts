@@ -466,6 +466,16 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "filing", scopes: ["settings.read"] },
   { endpoint: "filing:POST", scopes: ["settings.write"] },
 
+  // Heartbeat (config, runs, checklist — all share the "heartbeat" policyKey)
+  { endpoint: "heartbeat", scopes: ["settings.write"] },
+
+  // Notification delivery ack from clients
+  { endpoint: "notification-intent-result", scopes: ["settings.write"] },
+
+  // Platform config (base URL)
+  { endpoint: "config/platform:GET", scopes: ["settings.read"] },
+  { endpoint: "config/platform", scopes: ["settings.write"] },
+
   // Diagnostics
   { endpoint: "export", scopes: ["settings.read"] },
   { endpoint: "diagnostics/env-vars", scopes: ["settings.read"] },

@@ -50,7 +50,6 @@ KNOWN_BROKEN_FILES=(
   "email-status.test.ts"
   "email-unregister.test.ts"
   "feature-flag-registry-bundled.test.ts"
-  "guard-tests.test.ts"
   "memory-item-routes.test.ts"
   "provider-adapters.test.ts"
   "qdrant-manager.test.ts"
