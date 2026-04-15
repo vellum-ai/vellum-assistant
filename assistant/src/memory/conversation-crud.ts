@@ -1218,6 +1218,31 @@ export function updateConversationHostAccess(
     .run();
 }
 
+export function archiveConversation(id: string): boolean {
+  const conv = getConversation(id);
+  if (!conv) return false;
+  const now = Date.now();
+  rawRun(
+    "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
+    now,
+    now,
+    id,
+  );
+  return true;
+}
+
+export function unarchiveConversation(id: string): boolean {
+  const conv = getConversation(id);
+  if (!conv) return false;
+  const now = Date.now();
+  rawRun(
+    "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
+    now,
+    id,
+  );
+  return true;
+}
+
 /**
  * Delete all conversations, messages, and related data (tool invocations,
  * memory segments, etc.) from the daemon database.

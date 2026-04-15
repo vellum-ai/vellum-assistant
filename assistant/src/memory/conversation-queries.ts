@@ -218,7 +218,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private', 'scheduled') AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -243,7 +243,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private', 'scheduled')
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private', 'scheduled') AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -257,9 +257,10 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
-        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
-      ),
+          sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+          sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
+          sql`${conversations.archivedAt} IS NULL`,
+        ),
     )
     .all();
   for (const row of titleMatchConvs) ftsConvIds.add(row.id);

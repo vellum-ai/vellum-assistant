@@ -32,11 +32,13 @@ export const conversations = sqliteTable(
     isAutoTitle: integer("is_auto_title").notNull().default(1),
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
+    archivedAt: integer("archived_at"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),
     index("idx_conversations_last_message_at").on(table.lastMessageAt),
     index("idx_conversations_conversation_type").on(table.conversationType),
+    index("idx_conversations_archived_at").on(table.archivedAt),
     index("idx_conversations_fork_parent_conversation_id").on(
       table.forkParentConversationId,
     ),
