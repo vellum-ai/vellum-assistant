@@ -203,7 +203,7 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * No-ops when the cache is already populated — callers that want to
  * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
  * tests preseed flag state via `_setOverridesForTesting()` without the
- * gateway fetch clobbering their setup or polluting fetch mocks.
+ * gateway IPC call clobbering their setup.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
   if (cachedOverrides != null) return;

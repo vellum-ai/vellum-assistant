@@ -146,7 +146,11 @@ export async function ipcCall(
 export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
   const result = await ipcCall("get_feature_flags");
   if (result && typeof result === "object" && !Array.isArray(result)) {
-    return result as Record<string, boolean>;
+    const filtered: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(result as Record<string, unknown>)) {
+      if (typeof v === "boolean") filtered[k] = v;
+    }
+    return filtered;
   }
   return {};
 }

@@ -300,8 +300,8 @@ export async function runDaemon(): Promise<void> {
     // Pre-populate the feature flag cache from the gateway so all
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
-    // daemon startup (the fetch has a 10s timeout that would otherwise
-    // stall the critical path).
+    // daemon startup (the IPC call has a 3s connect + 5s call timeout
+    // that would otherwise stall the critical path).
     void initFeatureFlagOverrides().catch((err) =>
       log.warn({ err }, "Background feature flag init failed"),
     );
