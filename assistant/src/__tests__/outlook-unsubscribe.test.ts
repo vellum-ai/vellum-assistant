@@ -91,13 +91,42 @@ function makeMessage(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("outlook_unsubscribe", () => {
-  test("rejects when not triggered by surface action", async () => {
+  test("rejects when neither surface action nor batch-authorized task", async () => {
     const result = await run(
       { message_id: "msg-1", confidence: 0.9 },
-      makeContext({ triggeredBySurfaceAction: false }),
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: false,
+      }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("surface action");
+  });
+
+  test("allows scheduled task run with batchAuthorizedByTask", async () => {
+    mockResolveOAuthConnection.mockResolvedValueOnce(fakeConnection);
+    mockGetMessageWithHeaders.mockResolvedValueOnce(
+      makeMessage([
+        {
+          name: "List-Unsubscribe",
+          value: "<https://mail.example.com/unsubscribe?id=789>",
+        },
+      ]),
+    );
+    mockResolveRequestAddress.mockResolvedValueOnce({
+      addresses: ["93.184.216.34"],
+    });
+    mockPinnedHttpsRequest.mockResolvedValueOnce(200);
+
+    const result = await run(
+      { message_id: "msg-1", confidence: 0.9 },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: true,
+      }),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Successfully unsubscribed via HTTPS GET");
   });
 
   test("returns error when message_id is missing", async () => {

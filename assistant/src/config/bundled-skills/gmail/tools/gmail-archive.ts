@@ -28,9 +28,9 @@ export async function run(
   // Resolve message IDs via priority: query → scan_id+sender_ids → message_ids → message_id
   if (query) {
     // Query path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction) {
+    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
       return err(
-        "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+        "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );
     }
 
@@ -83,9 +83,9 @@ export async function run(
     }
   } else if (scanId && senderIds?.length) {
     // Scan path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction) {
+    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
       return err(
-        "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+        "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );
     }
 
@@ -98,9 +98,9 @@ export async function run(
     messageIds = resolved;
   } else if (messageIds?.length) {
     // Batch message_ids path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction) {
+    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
       return err(
-        "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+        "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );
     }
   } else if (messageId) {

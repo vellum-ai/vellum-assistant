@@ -185,6 +185,7 @@ export function createToolExecutor(
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
+      batchAuthorizedByTask: ctx.taskRunId != null,
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
       requesterIdentifier: ctx.trustContext?.requesterIdentifier,

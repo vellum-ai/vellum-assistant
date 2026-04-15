@@ -8,9 +8,9 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (!context.triggeredBySurfaceAction) {
+  if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
     return err(
-      "This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
+      "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
     );
   }
 

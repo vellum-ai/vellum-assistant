@@ -163,6 +163,14 @@ export interface ToolContext {
   callSessionId?: string;
   /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
   triggeredBySurfaceAction?: boolean;
+  /**
+   * True when the invocation is inside a scheduled task run whose
+   * `required_tools` array pre-authorized this tool at task-creation time.
+   * Tools that normally require a surface-action click (e.g. bulk archive,
+   * unsubscribe) may treat this as equivalent consent, since the user
+   * already reviewed the tool list when the task was saved.
+   */
+  batchAuthorizedByTask?: boolean;
   /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
