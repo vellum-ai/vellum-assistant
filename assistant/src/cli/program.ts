@@ -23,6 +23,7 @@ import { registerCredentialExecutionCommand } from "./commands/credential-execut
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
+import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
@@ -79,6 +80,7 @@ Examples:
   registerHooksCommand(program);
   registerMcpCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
+    registerDomainCommand(program);
     registerEmailCommand(program);
   }
   registerContactsCommand(program);
