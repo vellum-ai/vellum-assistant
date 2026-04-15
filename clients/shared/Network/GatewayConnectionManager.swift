@@ -322,6 +322,9 @@ public final class GatewayConnectionManager: ObservableObject {
             guard response.isSuccess else {
                 if response.statusCode == 401 {
                     handleAuthenticationFailure()
+                } else if response.statusCode == 404, isManaged {
+                    handleManagedAssistantGoneFromPlatform()
+                    throw ConnectionError.healthCheckFailed
                 }
                 throw ConnectionError.healthCheckFailed
             }
@@ -507,6 +510,19 @@ public final class GatewayConnectionManager: ObservableObject {
         default:
             break
         }
+    }
+
+    // MARK: - 404 Recovery (managed assistant gone from platform)
+
+    /// Called when the managed-assistant health endpoint returns 404. The
+    /// assistant was retired on the platform (here, from the web UI, or from
+    /// another device) but local state still references it, so the health
+    /// check loop is hitting a dead endpoint forever. Stop reconnecting and
+    /// post a notification so the platform-layer observer can clean up.
+    private func handleManagedAssistantGoneFromPlatform() {
+        log.warning("Managed assistant returned 404 from health endpoint — disconnecting and notifying observer for cleanup")
+        disconnect()
+        NotificationCenter.default.post(name: .managedAssistantRetiredRemotely, object: self)
     }
 
     // MARK: - 401 Recovery

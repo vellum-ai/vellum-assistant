@@ -663,9 +663,17 @@ extension AppDelegate {
             replacement = await client.forceRemoveActiveAssistant()
         }
 
+        finalizePostRetire(replacement: replacement)
+        return true
+    }
+
+    /// Post-retire orchestration shared between the explicit retire flow and
+    /// the remote-retire-detected flow: either switch to the replacement
+    /// assistant or tear down the app and show onboarding.
+    func finalizePostRetire(replacement: LockfileAssistant?) {
         if let replacement {
             performSwitchAssistant(to: replacement)
-            return true
+            return
         }
 
         // No assistants left — tear down fully and show onboarding
@@ -745,7 +753,23 @@ extension AppDelegate {
         }
 
         showOnboarding()
-        return true
+    }
+
+    /// Respond to `.managedAssistantRetiredRemotely`: the platform has no
+    /// record of our active managed assistant. Force-remove its lockfile
+    /// entry (platform deregistration is best-effort and will no-op on 404)
+    /// and run the shared post-retire flow.
+    func handleManagedAssistantRetiredRemotely() {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else {
+            log.info("managedAssistantRetiredRemotely: no active assistant — ignoring")
+            return
+        }
+        log.warning("Managed assistant '\(activeId, privacy: .public)' no longer exists on platform — cleaning up local state")
+        Task { @MainActor in
+            let client = AssistantManagementClient.create()
+            let replacement = await client.forceRemoveActiveAssistant()
+            finalizePostRetire(replacement: replacement)
+        }
     }
 
     // MARK: - Uninstall

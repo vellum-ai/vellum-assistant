@@ -138,6 +138,23 @@ extension AppDelegate {
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
 
+        // Observe the managed-assistant-gone signal (health check 404) once
+        // per setup so a retired/deleted platform assistant no longer leaves
+        // the app in a permanent loading state.
+        if let prev = managedAssistantRetiredObserver {
+            NotificationCenter.default.removeObserver(prev)
+        }
+        managedAssistantRetiredObserver = NotificationCenter.default.addObserver(
+            forName: .managedAssistantRetiredRemotely,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.handleManagedAssistantRetiredRemotely()
+            }
+        }
+
         // Subscribe to SSE event stream for UI event routing.
         startEventSubscription()
 

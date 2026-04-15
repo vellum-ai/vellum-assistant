@@ -126,6 +126,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the assistant-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     var instanceChangeObserver: NSObjectProtocol?
+    /// Opaque token for the observer that cleans up local state when the
+    /// platform reports the active managed assistant no longer exists.
+    var managedAssistantRetiredObserver: NSObjectProtocol?
     /// Tracks file paths of .vellum bundles awaiting assistant responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
