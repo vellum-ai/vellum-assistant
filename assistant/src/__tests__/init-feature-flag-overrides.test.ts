@@ -81,12 +81,14 @@ describe("initFeatureFlagOverrides", () => {
 
     await initFeatureFlagOverrides();
 
-    // Change what IPC would return — but it shouldn't be called again
-    ipcResult = { "second-call": true };
+    // Change what IPC would return — if the guard is broken and init
+    // re-fetches, "first-call" would flip to false.
+    ipcResult = { "first-call": false, "second-call": true };
 
     await initFeatureFlagOverrides();
 
     const config = {} as any;
+    // first-call must still be true (from the cached first fetch)
     expect(isAssistantFeatureFlagEnabled("first-call", config)).toBe(true);
     // second-call should not be in the cache since init was a no-op
     expect(isAssistantFeatureFlagEnabled("second-call", config)).toBe(true); // defaults to true (undeclared)
