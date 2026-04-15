@@ -19,10 +19,15 @@ import { startParticipantScraper } from "../src/browser/participant-scraper.js";
  * Minimal participant row shape the fake page returns from `$$eval`. Mirrors
  * what the real extractor emits when it reads `data-participant-id` and the
  * participant-name subselector from each row.
+ *
+ * `isSelfByDom` mirrors the scraper's in-page detection of Meet's
+ * `data-self-name` attribute — the authoritative DOM marker for the bot's
+ * own row. Tests default it to `false`; self-row tests set it explicitly.
  */
 interface ScrapedRow {
   id: string | null;
   name: string | null;
+  isSelfByDom?: boolean;
 }
 
 /**
@@ -341,5 +346,121 @@ describe("startParticipantScraper", () => {
     const restart = events[events.length - 1]!;
     expect(restart.left).toHaveLength(0);
     expect(restart.joined.map((p) => p.id)).toEqual(["p-alice"]);
+  });
+
+  // --------------------------------------------------------------------
+  // isSelf detection — lets the consent monitor identify the bot's own
+  // participant id so bot-self transcripts and chat (e.g. the consent
+  // message) don't advance the watermark.
+  // --------------------------------------------------------------------
+
+  test("flags the bot's own row via Meet's data-self-name DOM marker", async () => {
+    // `isSelfByDom: true` simulates the real extractor finding the
+    // row's name node via `[data-self-name]` rather than
+    // `[data-participant-name]`.
+    const page = makeFakePage([
+      { id: "p-alice", name: "Alice", isSelfByDom: false },
+      { id: "p-bot", name: "AI Assistant", isSelfByDom: true },
+    ]);
+    const handle = startParticipantScraper(
+      page as unknown as Parameters<typeof startParticipantScraper>[0],
+      (event) => events.push(event),
+      { meetingId: "m-1", pollMs: 50, selfName: "AI Assistant" },
+    );
+    handles.push(handle);
+    await drainMicrotasks();
+    await sleep(10);
+
+    expect(events.length).toBe(1);
+    const joined = events[0]!.joined;
+    const alice = joined.find((p) => p.id === "p-alice");
+    const bot = joined.find((p) => p.id === "p-bot");
+    expect(alice?.isSelf).toBeUndefined();
+    expect(bot?.isSelf).toBe(true);
+  });
+
+  test("flags the bot's own row by display-name match when DOM marker is absent", async () => {
+    // Simulates a Meet variant that does not expose `data-self-name`
+    // on the bot row. The scraper falls back to matching the configured
+    // `selfName`. This fallback is safe for the bot because it picks a
+    // deliberately unique display name.
+    const page = makeFakePage([
+      { id: "p-alice", name: "Alice", isSelfByDom: false },
+      { id: "p-bot", name: "Velissa (Sidd's assistant)", isSelfByDom: false },
+    ]);
+    const handle = startParticipantScraper(
+      page as unknown as Parameters<typeof startParticipantScraper>[0],
+      (event) => events.push(event),
+      {
+        meetingId: "m-1",
+        pollMs: 50,
+        selfName: "Velissa (Sidd's assistant)",
+      },
+    );
+    handles.push(handle);
+    await drainMicrotasks();
+    await sleep(10);
+
+    expect(events.length).toBe(1);
+    const joined = events[0]!.joined;
+    const bot = joined.find((p) => p.name === "Velissa (Sidd's assistant)");
+    expect(bot?.isSelf).toBe(true);
+    const alice = joined.find((p) => p.id === "p-alice");
+    expect(alice?.isSelf).toBeUndefined();
+  });
+
+  test("does not flag any row when selfName is omitted and no DOM marker is present", async () => {
+    // Without a configured `selfName` and no authoritative DOM signal,
+    // the scraper plays it safe and leaves `isSelf` off every row — the
+    // consent monitor will simply never populate `botParticipantId`,
+    // which keeps its vacuous-filter behavior rather than mis-attributing
+    // a human's row as the bot.
+    const page = makeFakePage([
+      { id: "p-alice", name: "Alice", isSelfByDom: false },
+      { id: "p-bob", name: "Bob", isSelfByDom: false },
+    ]);
+    const handle = startParticipantScraper(
+      page as unknown as Parameters<typeof startParticipantScraper>[0],
+      (event) => events.push(event),
+      { meetingId: "m-1", pollMs: 50 },
+    );
+    handles.push(handle);
+    await drainMicrotasks();
+    await sleep(10);
+
+    expect(events.length).toBe(1);
+    for (const p of events[0]!.joined) {
+      expect(p.isSelf).toBeUndefined();
+    }
+  });
+
+  test("prefers the DOM marker even when a row's name happens to equal selfName", async () => {
+    // Defense in depth: if some human participant somehow shares the
+    // bot's configured display name (unlikely but not impossible), the
+    // authoritative DOM marker still wins and the scraper also flags the
+    // name-colliding row. Both rows end up with `isSelf: true`; the
+    // consent monitor's "first isSelf join wins" rule means the earlier
+    // row determines `botParticipantId`. This test pins the scraper
+    // behavior rather than the consumer's first-wins policy.
+    const page = makeFakePage([
+      { id: "p-bot", name: "AI Assistant", isSelfByDom: true },
+      { id: "p-imposter", name: "AI Assistant", isSelfByDom: false },
+    ]);
+    const handle = startParticipantScraper(
+      page as unknown as Parameters<typeof startParticipantScraper>[0],
+      (event) => events.push(event),
+      { meetingId: "m-1", pollMs: 50, selfName: "AI Assistant" },
+    );
+    handles.push(handle);
+    await drainMicrotasks();
+    await sleep(10);
+
+    expect(events.length).toBe(1);
+    const joined = events[0]!.joined;
+    expect(joined.find((p) => p.id === "p-bot")?.isSelf).toBe(true);
+    // The name-colliding row is also flagged by the name-fallback — this
+    // is a known limitation of the fallback and the reason we prefer the
+    // DOM marker when both are available.
+    expect(joined.find((p) => p.id === "p-imposter")?.isSelf).toBe(true);
   });
 });

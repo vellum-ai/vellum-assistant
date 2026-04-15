@@ -43,6 +43,20 @@ export interface ParticipantScraperOptions {
   meetingId: string;
   /** Poll interval in milliseconds. Defaults to 1000. */
   pollMs?: number;
+  /**
+   * Display name the bot joined the meeting under. When provided, the
+   * scraper flags the matching row with `isSelf: true` so downstream
+   * consumers (e.g. {@link MeetConsentMonitor}) can identify the bot's
+   * own participant id.
+   *
+   * The scraper prefers Meet's authoritative DOM signal — the name
+   * element carrying `data-self-name` rather than `data-participant-name`
+   * — and falls back to comparing the row's display name with this value
+   * when the DOM attribute is absent. The name fallback is safe for the
+   * bot (which picks a deliberately unique display name) but would be
+   * fragile for arbitrary humans.
+   */
+  selfName?: string;
 }
 
 /** Handle returned by {@link startParticipantScraper}. */
@@ -55,6 +69,13 @@ export interface ParticipantScraperHandle {
 interface ScrapedRow {
   id: string | null;
   name: string | null;
+  /**
+   * True when the row's name node was matched via `data-self-name` —
+   * Meet's own marker for the signed-in / joining user's row. Undefined
+   * when the DOM signal is absent; the caller may still flag the row by
+   * name match in that case.
+   */
+  isSelfByDom: boolean;
 }
 
 /**
@@ -74,6 +95,7 @@ export function startParticipantScraper(
 ): ParticipantScraperHandle {
   const pollMs = opts.pollMs ?? 1000;
   const meetingId = opts.meetingId;
+  const selfName = opts.selfName;
 
   /**
    * Snapshot of the previous poll keyed by participant id, so we can
@@ -109,7 +131,14 @@ export function startParticipantScraper(
             const nameEl = el.querySelector(nameSelector);
             const name =
               (nameEl?.textContent ?? "").trim() || null;
-            return { id: id ?? null, name };
+            // Meet marks the signed-in / joining user's row with
+            // `data-self-name` instead of `data-participant-name`. We
+            // use this authoritative marker to flag the bot's own row;
+            // callers may additionally match by display name.
+            const isSelfByDom =
+              nameEl instanceof HTMLElement &&
+              nameEl.hasAttribute("data-self-name");
+            return { id: id ?? null, name, isSelfByDom };
           }),
         selectors.INGAME_PARTICIPANT_NAME,
       );
@@ -129,7 +158,18 @@ export function startParticipantScraper(
       // keeps the scraper resilient to partially-rendered rows.
       const id = row.id ?? name;
       if (!id) continue;
-      current.set(id, { id, name });
+      // Flag the bot's own row so downstream consumers (consent monitor,
+      // watermark tracker) can filter out bot-self transcripts and chat.
+      // Prefer Meet's authoritative DOM signal (`data-self-name`); fall
+      // back to matching the configured bot display name when the DOM
+      // marker is absent.
+      const isSelf =
+        row.isSelfByDom ||
+        (selfName !== undefined && name !== "" && name === selfName);
+      const participant: Participant = isSelf
+        ? { id, name, isSelf: true }
+        : { id, name };
+      current.set(id, participant);
     }
 
     // First poll: everyone currently visible is a "joined" participant from
