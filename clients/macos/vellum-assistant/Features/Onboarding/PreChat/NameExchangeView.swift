@@ -50,6 +50,7 @@ struct NameExchangeView: View {
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
+                    .accessibilityLabel("Back")
                     .padding(.leading, VSpacing.xxl)
                 }
             }

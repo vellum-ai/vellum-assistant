@@ -222,10 +222,13 @@ struct ToolSelectionView: View {
 
             // Show typed entries as pills
             if !otherText.trimmingCharacters(in: .whitespaces).isEmpty {
-                let entries = otherText
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
+                let entries: [String] = {
+                    var seen = Set<String>()
+                    return otherText
+                        .split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty && seen.insert($0).inserted }
+                }()
 
                 if !entries.isEmpty {
                     WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {

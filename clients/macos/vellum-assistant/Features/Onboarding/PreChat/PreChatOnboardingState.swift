@@ -33,8 +33,9 @@ final class PreChatOnboardingState {
         }
         if !selectedTools.isEmpty {
             // Strip internal "other:" prefix so display reads "Trello" not "other:Trello"
-            let toolLabels = selectedTools.sorted().prefix(3)
+            let toolLabels = selectedTools
                 .map { $0.hasPrefix("other:") ? String($0.dropFirst(6)) : $0 }
+                .sorted().prefix(3)
                 .joined(separator: ", ")
             parts.append("mostly in \(toolLabels)")
         }

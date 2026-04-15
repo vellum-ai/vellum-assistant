@@ -70,9 +70,9 @@ struct PreChatOnboardingFlow: View {
 
     private func finish() {
         // Strip internal "other:" prefix so backend receives clean tool names
-        let cleanTools = state.selectedTools.sorted().map { id in
+        let cleanTools = state.selectedTools.map { id in
             id.hasPrefix("other:") ? String(id.dropFirst(6)) : id
-        }
+        }.sorted()
         let context = PreChatOnboardingContext(
             tools: cleanTools,
             tasks: Array(state.selectedTasks).sorted(),
