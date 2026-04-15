@@ -90,7 +90,7 @@ struct InlineVideoAttachmentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
                 .overlay(
@@ -108,7 +108,8 @@ struct InlineVideoAttachmentView: View {
             } else {
                 placeholderView
             }
-
+        }
+        .overlay(alignment: .topTrailing) {
             if failure == nil && !isLoading && isHovering {
                 Button(action: saveVideo) {
                     if isSaving {
