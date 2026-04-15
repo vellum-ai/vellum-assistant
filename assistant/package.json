@@ -39,7 +39,7 @@
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
-    "@vellumai/meet-contracts": "file:../packages/meet-contracts",
+    "@vellumai/meet-contracts": "file:../skills/meet-join/contracts",
     "archiver": "7.0.1",
     "commander": "13.1.0",
     "croner": "10.0.1",

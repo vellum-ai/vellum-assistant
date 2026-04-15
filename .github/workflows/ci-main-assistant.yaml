@@ -8,6 +8,7 @@ on:
       - 'assistant/**'
       - 'credential-executor/**'
       - 'packages/**'
+      - 'skills/meet-join/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
@@ -42,7 +43,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../meet-contracts && bun install --frozen-lockfile
+          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -80,7 +81,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../meet-contracts && bun install --frozen-lockfile
+          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -118,7 +119,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../meet-contracts && bun install --frozen-lockfile
+          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
