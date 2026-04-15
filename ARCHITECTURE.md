@@ -544,7 +544,7 @@ All feature flags (assistant-scoped and macOS-scoped) are declared in the unifie
 
 | Flag Type | Scope | Storage | Managed By |
 |-----------|-------|---------|------------|
-| Assistant feature flags (`scope: "assistant"`) | Gateway-managed, protected file | `~/.vellum/protected/feature-flags.json` (local) or `GATEWAY_SECURITY_DIR/feature-flags.json` (Docker) | Gateway IPC (`get_feature_flags` via `gateway.sock`) + `/v1/feature-flags` REST API (macOS clients) |
+| Assistant feature flags (`scope: "assistant"`) | Gateway-managed, protected file | `GATEWAY_SECURITY_DIR/feature-flags.json` | Gateway `get_feature_flags` IPC (assistant) + `/v1/feature-flags` REST API (macOS clients) |
 | macOS client feature flags (`scope: "macos"`) | Local-only, per-device | UserDefaults (plist) | macOS app directly |
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Flags not declared in the registry default to enabled (open by default).

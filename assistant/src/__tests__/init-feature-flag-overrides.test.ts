@@ -3,8 +3,7 @@
  * pre-populates the feature flag cache before CLI program construction.
  *
  * Uses the shared mock-gateway-ipc utility (installed in test-preload.ts)
- * which mocks gateway-client.ts so no test connects to a real gateway
- * socket.
+ * which mocks node:net so no test connects to a real gateway socket.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
