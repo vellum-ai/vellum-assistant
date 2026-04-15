@@ -2030,8 +2030,10 @@ describe("credential import display", () => {
       return null;
     });
 
-    // Default mock already has no credentialsImported field
-    platformImportBundleMock.mockResolvedValue({
+    // Mock the GCS import path (used by default since platformRequestUploadUrl
+    // succeeds) with a response that has no credentialsImported field, simulating
+    // an older server.
+    platformImportBundleFromGcsMock.mockResolvedValue({
       statusCode: 200,
       body: {
         success: true,
