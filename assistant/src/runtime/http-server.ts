@@ -1616,6 +1616,9 @@ export class RuntimeHttpServer {
           : {}),
       groupId: displayMeta?.groupId ?? null,
       ...(forkParent ? { forkParent } : {}),
+      ...(conversation.archivedAt != null
+        ? { archivedAt: conversation.archivedAt }
+        : {}),
     };
   }
 

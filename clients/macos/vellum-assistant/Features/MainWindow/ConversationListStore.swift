@@ -389,8 +389,9 @@ final class ConversationListStore {
         from item: ConversationListResponseItem,
         localId: UUID = UUID(),
         createdAt: Date? = nil,
-        isArchived: Bool
+        isArchived: Bool? = nil
     ) -> ConversationModel {
+        let isArchived = isArchived ?? (item.archivedAt != nil ? true : isConversationArchived(item.id))
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
         // When the daemon supports groups, groupId: null means "Recents" (system:all).
@@ -801,8 +802,7 @@ final class ConversationListStore {
             }
 
             let conversationModel = conversationModel(
-                from: conversation,
-                isArchived: isConversationArchived(conversation.id)
+                from: conversation
             )
             // VM creation is lazy — getOrCreateViewModel() will instantiate
             // when the conversation is first accessed (e.g. selected by the user).
