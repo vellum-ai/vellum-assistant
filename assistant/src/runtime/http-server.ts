@@ -227,6 +227,7 @@ import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -1795,13 +1796,28 @@ export class RuntimeHttpServer {
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
 
-      ...(this.sendMessageDeps
-        ? conversationAnalysisRouteDefinitions({
-            sendMessageDeps: this.sendMessageDeps,
-            buildConversationDetailResponse: (id) =>
-              this.buildConversationDetailResponse(id),
-          })
-        : []),
+      ...((): RouteDefinition[] => {
+        const sendMessageDeps = this.sendMessageDeps;
+        if (!sendMessageDeps) return [];
+        const analysisDeps = {
+          sendMessageDeps,
+          buildConversationDetailResponse: (id: string) =>
+            this.buildConversationDetailResponse(id),
+        };
+        // Also expose via the module singleton so background callers
+        // (e.g. job handlers) can invoke analyzeConversation() without
+        // HTTP-layer wiring. Daemon startup must never block, so failures
+        // to register the singleton are logged and swallowed.
+        try {
+          setAnalysisDeps(analysisDeps);
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to register analysis deps singleton; background analysis jobs will be skipped",
+          );
+        }
+        return conversationAnalysisRouteDefinitions(analysisDeps);
+      })(),
 
       ...groupRouteDefinitions(),
 
