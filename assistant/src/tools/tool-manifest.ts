@@ -6,6 +6,8 @@
  * so adding/removing tools only requires editing this manifest.
  */
 
+import { meetJoinTool } from "../../../skills/meet-join/tools/meet-join-tool.js";
+import { meetLeaveTool } from "../../../skills/meet-join/tools/meet-leave-tool.js";
 import { getConfig } from "../config/loader.js";
 import {
   isCesSecureInstallEnabled,
@@ -19,8 +21,6 @@ import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import { meetJoinTool } from "./meet/meet-join-tool.js";
-import { meetLeaveTool } from "./meet/meet-leave-tool.js";
 import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";

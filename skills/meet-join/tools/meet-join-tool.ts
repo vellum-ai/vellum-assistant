@@ -23,14 +23,18 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
-import { MeetSessionManager } from "../../../../skills/meet-join/daemon/session-manager.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
-import { getAssistantName } from "../../daemon/identity-helpers.js";
-import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { isAssistantFeatureFlagEnabled } from "../../../assistant/src/config/assistant-feature-flags.js";
+import { getConfig } from "../../../assistant/src/config/loader.js";
+import { getAssistantName } from "../../../assistant/src/daemon/identity-helpers.js";
+import { RiskLevel } from "../../../assistant/src/permissions/types.js";
+import type { ToolDefinition } from "../../../assistant/src/providers/types.js";
+import type {
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../assistant/src/tools/types.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
+import { MeetSessionManager } from "../daemon/session-manager.js";
 
 const log = getLogger("meet-join-tool");
 
@@ -51,14 +55,10 @@ export const MEET_URL_REGEX =
   /^https:\/\/meet\.google\.com\/[a-z]{3,4}-?[a-z]{4}-?[a-z]{3,4}(?:\?.*)?$/i;
 
 const MeetJoinInputSchema = z.object({
-  url: z
-    .string()
-    .trim()
-    .min(1, "url is required")
-    .regex(MEET_URL_REGEX, {
-      message:
-        "url must be a Google Meet link (https://meet.google.com/xxx-yyyy-zzz)",
-    }),
+  url: z.string().trim().min(1, "url is required").regex(MEET_URL_REGEX, {
+    message:
+      "url must be a Google Meet link (https://meet.google.com/xxx-yyyy-zzz)",
+  }),
   note: z.string().optional(),
 });
 

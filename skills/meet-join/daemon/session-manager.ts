@@ -113,7 +113,7 @@ const DEFAULT_DAEMON_PORT = 7821;
  * bot's `needsFullWiring` predicate requires a non-empty `JOIN_NAME`, so
  * this fallback keeps the full-join path reachable even on first boot
  * before `IDENTITY.md` has been written. Matches the tool-side fallback
- * in `assistant/src/tools/meet/meet-join-tool.ts`.
+ * in `skills/meet-join/tools/meet-join-tool.ts`.
  */
 export const MEET_JOIN_NAME_FALLBACK = "AI Assistant";
 
@@ -804,10 +804,7 @@ class MeetSessionManagerImpl {
     try {
       await session.storageWriter.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetStorageWriter.stop threw during leave",
-      );
+      log.warn({ err, meetingId }, "MeetStorageWriter.stop threw during leave");
     }
 
     // Tear down dispatcher subscribers BEFORE unregistering the router so no
