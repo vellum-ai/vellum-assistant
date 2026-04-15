@@ -49,9 +49,44 @@ When a single meeting is active, `meetingId` can be omitted — the tool targets
 ## Important constraints
 
 - This skill NEVER joins a meeting based on calendar context alone. Always require an explicit user request.
-- Only one set of tools is exposed: `meet_join` and `meet_leave`. Future phases may add chat/speak capabilities; this skill will be updated when they land.
-- If the `meet` feature flag is disabled, both tools return a clear error — relay that to the user rather than retrying.
+- If the `meet` feature flag is disabled, the meet tools return a clear error — relay that to the user rather than retrying.
 
 ## Transcription
 
 Transcription quality and latency reflect the user's configured `services.stt.provider`. Deepgram and Gemini stream over a WebSocket and return sub-second partials; Whisper approximates streaming with ~400 ms polls and therefore produces finals slightly later. Speaker attribution in meeting transcripts is derived from the Meet DOM active-speaker signal — it is independent of the STT provider.
+
+## Participating in chat
+
+The `meet_send_chat` tool posts a message into the active meeting's chat:
+
+```
+meet_send_chat(message: "The doc we were looking for is https://example.com/spec")
+```
+
+When a single meeting is active, `meetingId` can be omitted. If no meeting is active, the tool fails with a clear error — surface the error back to the user rather than retrying.
+
+Chat is appropriate when:
+
+- The user explicitly asked the assistant to say something in chat.
+- A participant addressed the assistant by name with a direct question.
+- A short, highly relevant resource would help (e.g. a link participants are trying to recall).
+- A brief factual clarification is warranted — something concrete and verifiable, not an opinion.
+
+Avoid chat for:
+
+- Long messages (roughly >500 characters) — if the answer does not fit in a short line, it probably belongs in a follow-up doc or DM, not chat.
+- Multiple messages in quick succession. One message, then wait.
+- Commentary on tone, mood, or the dynamic of the conversation.
+- Responding to passing mentions of the assistant that were not actual questions.
+- Jokes, pleasantries, or meta-commentary about the assistant's own presence.
+
+### Proactive chat opportunities
+
+A background chat-opportunity detector watches the meeting transcript and, when it judges that the moment might warrant a response from the assistant, wakes the agent loop with a hint of the form `opportunity_hint: <reason>`. At that point the assistant can call `meet_send_chat` if appropriate.
+
+Key points:
+
+- **The detector flags opportunities; the final decision is the assistant's.** Being woken does not mean the assistant must respond. Doing nothing — no tool call, no user-visible output — is a valid and frequent outcome. Prefer silence when the meeting can resolve the moment without external input.
+- **There is a 30-second cooldown between proactive escalations**, enforced by the system regardless of detector signal. The assistant does not need to track this itself, but should know that rapid follow-ups to the same opportunity are not possible by design — one well-chosen message is better than trying to layer on corrections.
+- **Prefer brevity** — aim for under 200 characters when responding to an opportunity hint.
+- **Prefer concrete information over pleasantries.** If there is no specific fact, link, or clarification to contribute, stay silent.
