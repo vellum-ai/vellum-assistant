@@ -161,7 +161,7 @@ public struct VButtonStyle: ButtonStyle {
                 isFullWidth: isFullWidth,
                 iconSize: iconSize
             ))
-            .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
+            .background(shape.fill(backgroundColor))
             .overlay(
                 shape.strokeBorder(
                     borderColor(isPressed: configuration.isPressed),
@@ -185,27 +185,19 @@ public struct VButtonStyle: ButtonStyle {
         }
     }
 
-    private func backgroundColor(isPressed: Bool) -> Color {
+    private var backgroundColor: Color {
         switch style {
         case .primary:
             guard isEnabled else { return VColor.primaryDisabled }
-            if isPressed { return VColor.primaryActive }
             if isHovered { return VColor.primaryHover }
             return VColor.primaryBase
         case .danger:
             guard isEnabled else { return VColor.primaryDisabled }
-            if isPressed { return VColor.systemNegativeHover }
             if isHovered { return VColor.systemNegativeHover }
             return VColor.systemNegativeStrong
         case .outlined:
             guard isEnabled else { return .clear }
-            if isIconOnly {
-                if isPressed { return VColor.surfaceActive }
-                if isHovered { return VColor.surfaceBase }
-                return .clear
-            }
-            if isPressed { return VColor.primarySecondHover.opacity(0.2) }
-            if isHovered { return VColor.primarySecondHover.opacity(0.15) }
+            if isHovered { return VColor.primarySecondHover }
             return .clear
         case .dangerOutline:
             return .clear
@@ -214,22 +206,18 @@ public struct VButtonStyle: ButtonStyle {
                 return isActive ? VColor.borderDisabled : .clear
             }
             if isActive {
-                if isPressed { return VColor.surfaceActive }
-                if isHovered { return VColor.surfaceActive }
+                if isHovered { return VColor.primarySecondHover }
                 return VColor.surfaceBase
             } else {
-                if isPressed { return VColor.surfaceActive }
-                if isHovered { return VColor.surfaceBase }
+                if isHovered { return VColor.primarySecondHover }
                 return .clear
             }
         case .dangerGhost:
             guard isEnabled else { return .clear }
-            if isPressed { return VColor.systemNegativeWeak }
             if isHovered { return VColor.systemNegativeWeak }
             return .clear
         case .contrast:
             guard isEnabled else { return VColor.primaryDisabled }
-            if isPressed { return VColor.contentEmphasized }
             if isHovered { return VColor.contentSecondary }
             return VColor.contentDefault
         }
@@ -243,10 +231,9 @@ public struct VButtonStyle: ButtonStyle {
         case .primary: return VColor.contentInset
         case .danger: return VColor.auxWhite
         case .contrast: return VColor.contentInset
-        case .outlined: return isHovered ? VColor.primaryActive : VColor.contentDefault
+        case .outlined: return VColor.contentDefault
         case .dangerOutline: return isHovered ? VColor.systemNegativeHover : VColor.systemNegativeStrong
         case .ghost:
-            if isHovered { return VColor.primaryActive }
             return VColor.contentDefault
         case .dangerGhost:
             if isHovered { return VColor.systemNegativeHover }
