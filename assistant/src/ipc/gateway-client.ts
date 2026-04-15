@@ -79,10 +79,11 @@ export async function ipcCall(
       socket.write(JSON.stringify(req) + "\n");
 
       // Call timeout — if the gateway doesn't respond in time, give up.
+      // Keep this timer ref'd (not unref'd) so the process waits for the
+      // response or timeout before exiting — the socket itself is unref'd.
       const callTimer = setTimeout(() => {
         finish(undefined);
       }, DEFAULT_CALL_TIMEOUT_MS);
-      callTimer.unref();
 
       socket.on("data", (chunk) => {
         buffer += chunk.toString();
