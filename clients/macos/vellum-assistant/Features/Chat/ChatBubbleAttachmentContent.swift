@@ -68,6 +68,63 @@ private func downsampleForDisplay(_ image: NSImage, targetSize: CGSize, scale: C
     return downsampleForDisplay(data: tiffData, targetSize: targetSize, scale: scale) ?? image
 }
 
+// MARK: - Aspect-Fit Image View
+
+/// Renders an NSImage at aspect-fit dimensions within a maximum bounding box,
+/// using definite `frame(width:height:)` (`_FrameLayout`) to avoid FlexFrame
+/// alignment cascades in LazyVStack cells.
+///
+/// Prefers pixel-accurate rendering via `CGImage` when available, falling back
+/// to `NSImage.size` (point dimensions) otherwise. The `min(..., 1.0)` scale
+/// clamp prevents upscaling small images beyond their native resolution.
+private struct AspectFitImageView: View {
+    let image: NSImage
+    let maxDimension: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        let fitSize = Self.computeFitSize(for: image, maxDimension: maxDimension, displayScale: displayScale)
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            Image(decorative: cgImage, scale: displayScale)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: fitSize.width, height: fitSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        } else {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: fitSize.width, height: fitSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+
+    /// Computes aspect-fit dimensions for an image within a `maxDimension` × `maxDimension`
+    /// bounding box. Uses CGImage pixel dimensions (divided by display scale) when available
+    /// for accuracy, falling back to `NSImage.size` (already in points).
+    static func computeFitSize(for image: NSImage, maxDimension: CGFloat, displayScale: CGFloat) -> CGSize {
+        let pointWidth: CGFloat
+        let pointHeight: CGFloat
+
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            pointWidth = CGFloat(cgImage.width) / displayScale
+            pointHeight = CGFloat(cgImage.height) / displayScale
+        } else {
+            pointWidth = image.size.width
+            pointHeight = image.size.height
+        }
+
+        guard pointWidth > 0, pointHeight > 0 else {
+            return CGSize(width: pointWidth, height: pointHeight)
+        }
+
+        let scale = min(maxDimension / pointWidth, maxDimension / pointHeight, 1.0)
+        return CGSize(width: pointWidth * scale, height: pointHeight * scale)
+    }
+}
+
 // MARK: - Inline Tool Call Image
 
 /// Renders a single tool-call-generated image at full width in the message flow.
@@ -80,7 +137,7 @@ private struct InlineToolCallImageView: View {
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
-        imageContent
+        AspectFitImageView(image: displayImage ?? image, maxDimension: VSpacing.chatBubbleMaxWidth)
             .onTapGesture {
                 // Open lightbox with the original full-resolution image.
                 AppDelegate.shared?.mainWindow?.windowState.showImageLightbox(
@@ -119,39 +176,6 @@ private struct InlineToolCallImageView: View {
                 return provider
             }
             .pointerCursor()
-    }
-
-    @ViewBuilder
-    private var imageContent: some View {
-        let renderImage = displayImage ?? image
-        if let cgImage = renderImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            let nativeWidth = CGFloat(cgImage.width) / displayScale
-            let nativeHeight = CGFloat(cgImage.height) / displayScale
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            let scale = nativeWidth > 0 ? min(maxDim / nativeWidth, maxDim / nativeHeight, 1.0) : 1.0
-            let fitWidth = nativeWidth * scale
-            let fitHeight = nativeHeight * scale
-            Image(decorative: cgImage, scale: displayScale)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fitWidth, height: fitHeight)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        } else {
-            let pointSize = renderImage.size
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            let scale = pointSize.width > 0 && pointSize.height > 0
-                ? min(maxDim / pointSize.width, maxDim / pointSize.height, 1.0)
-                : 1.0
-            let fitWidth = pointSize.width * scale
-            let fitHeight = pointSize.height * scale
-            Image(nsImage: renderImage)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fitWidth, height: fitHeight)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
     }
 }
 
@@ -370,36 +394,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     }
 
     /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
-    @ViewBuilder
     private func singleImageContent(_ nsImage: NSImage) -> some View {
-        if let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            let nativeWidth = CGFloat(cgImage.width) / displayScale
-            let nativeHeight = CGFloat(cgImage.height) / displayScale
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            let scale = nativeWidth > 0 ? min(maxDim / nativeWidth, maxDim / nativeHeight, 1.0) : 1.0
-            let fitWidth = nativeWidth * scale
-            let fitHeight = nativeHeight * scale
-            Image(decorative: cgImage, scale: displayScale)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fitWidth, height: fitHeight)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        } else {
-            let pointSize = nsImage.size
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            let scale = pointSize.width > 0 && pointSize.height > 0
-                ? min(maxDim / pointSize.width, maxDim / pointSize.height, 1.0)
-                : 1.0
-            let fitWidth = pointSize.width * scale
-            let fitHeight = pointSize.height * scale
-            Image(nsImage: nsImage)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fitWidth, height: fitHeight)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
+        AspectFitImageView(image: nsImage, maxDimension: VSpacing.chatBubbleMaxWidth)
     }
 
     /// Compact grid cell for multiple image attachments.
