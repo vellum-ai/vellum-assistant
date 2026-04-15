@@ -517,10 +517,9 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     const source = createConversation("cadence-source-graph");
 
     // extraction.batchSize = 2 → second message trips the batch
-    // trigger. Before the fix, the idle upsert that runs on the same
-    // tick would overwrite the batch job's runAfter with
-    // (now + idleTimeoutMs), silently debouncing it. Assert the single
-    // coalesced pending row ends up at ~now.
+    // trigger. The batch enqueue runs last and pulls `runAfter` back
+    // to `Date.now()`, overriding the per-message idle debounce. The
+    // single coalesced pending row should end up at ~now.
     await indexMessages(source.id, 1);
     const before = Date.now();
     await indexMessages(source.id, 1, 1);

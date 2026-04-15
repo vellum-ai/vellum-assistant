@@ -90,8 +90,12 @@ export function enqueueMemoryJob(
 
 /**
  * Upsert a debounced job: if a pending job of the same type and conversation
- * already exists, push its `runAfter` forward instead of creating a duplicate.
- * This prevents rapid message indexing from spawning redundant jobs.
+ * already exists, merge the new payload into the existing row and update
+ * `runAfter` instead of creating a duplicate. This prevents rapid message
+ * indexing from spawning redundant jobs while ensuring the latest payload
+ * keys (e.g. `scopeId`) reach the handler — including on upgraded instances
+ * where the existing pending row was enqueued by an older build that did
+ * not write those keys.
  *
  * Pass a `dbOverride` (transaction handle) to make this call atomic with
  * surrounding writes.
@@ -119,8 +123,19 @@ export function upsertDebouncedJob(
     )
     .get();
   if (existing) {
+    let existingPayload: Record<string, unknown> = {};
+    try {
+      existingPayload = JSON.parse(existing.payload) as Record<string, unknown>;
+    } catch {
+      existingPayload = {};
+    }
+    const mergedPayload = { ...existingPayload, ...payload };
     db.update(memoryJobs)
-      .set({ runAfter, updatedAt: Date.now() })
+      .set({
+        payload: JSON.stringify(mergedPayload),
+        runAfter,
+        updatedAt: Date.now(),
+      })
       .where(eq(memoryJobs.id, existing.id))
       .run();
   } else {

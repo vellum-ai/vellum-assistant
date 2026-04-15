@@ -190,9 +190,9 @@ export async function indexMessageNow(
       // Single pending `graph_extract` row per conversation. If the
       // batch threshold just fired, pull `runAfter` back to now so the
       // job runs immediately; otherwise debounce by the idle timeout.
-      // Using `upsertDebouncedJob` in both paths avoids the previous
-      // bug where the idle call would overwrite a just-enqueued batch
-      // job's `runAfter` and silently debounce it.
+      // Routing both paths through `upsertDebouncedJob` ensures the
+      // row's `runAfter` reflects whichever trigger ran last, so a
+      // batch crossing always takes effect immediately.
       upsertDebouncedJob(
         "graph_extract",
         {
