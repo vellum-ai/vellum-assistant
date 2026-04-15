@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { afterAll } from "bun:test";
 
 import { resetDb } from "../memory/db-connection.js";
+import { _setStorePath } from "../security/encrypted-store.js";
 
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
@@ -24,6 +25,11 @@ const testDir = realpathSync(
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
+
+// Isolate the encrypted credential store per test file. Without this,
+// parallel test processes all read/write the same ~/.vellum/protected/keys.enc,
+// causing races when one file deletes a key while another sets it.
+_setStorePath(join(testDir, "keys.enc"));
 
 // Force-close any DB connection inherited from the parent process (e.g. when
 // the test runner is spawned by the running assistant via a pre-push hook).
