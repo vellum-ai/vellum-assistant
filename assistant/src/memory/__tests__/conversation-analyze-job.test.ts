@@ -31,7 +31,7 @@ type AnalyzeArgs = {
 };
 const analyzeCalls: AnalyzeArgs[] = [];
 type AnalyzeResultStub =
-  | { analysisConversationId: string }
+  | { analysisConversationId: string; skipped?: true }
   | { error: { kind: string; status: number; message: string } };
 const mockAnalyzeConversation = mock(
   async (
@@ -46,6 +46,20 @@ const mockAnalyzeConversation = mock(
 
 mock.module("../../runtime/services/analyze-conversation.js", () => ({
   analyzeConversation: mockAnalyzeConversation,
+}));
+
+// Mock auto-analysis-enqueue — track calls so we can verify requeue behavior.
+type EnqueueArgs = {
+  conversationId: string;
+  trigger: string;
+};
+const enqueueCalls: EnqueueArgs[] = [];
+const mockEnqueueAutoAnalysisIfEnabled = mock((args: EnqueueArgs) => {
+  enqueueCalls.push(args);
+});
+
+mock.module("../auto-analysis-enqueue.js", () => ({
+  enqueueAutoAnalysisIfEnabled: mockEnqueueAutoAnalysisIfEnabled,
 }));
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
@@ -76,6 +90,7 @@ function makeJob(payload: Record<string, unknown>): MemoryJob<{
 describe("conversationAnalyzeJob", () => {
   beforeEach(() => {
     analyzeCalls.length = 0;
+    enqueueCalls.length = 0;
     mockGetAnalysisDeps.mockReset();
     mockGetAnalysisDeps.mockImplementation(() => null);
     mockAnalyzeConversation.mockReset();
@@ -137,6 +152,62 @@ describe("conversationAnalyzeJob", () => {
     expect(analyzeCalls[0]!.conversationId).toBe("conv-42");
     expect(analyzeCalls[0]!.opts).toEqual({ trigger: "auto" });
     expect(analyzeCalls[0]!.deps).toBe(depsStub);
+  });
+
+  test("requeues a follow-up idle trigger when the service returns skipped=true", async () => {
+    // If the rolling analysis conversation is already processing, the
+    // service returns { skipped: true } without running. The job handler
+    // completes successfully (no retry), so we must enqueue a follow-up
+    // ourselves — otherwise, if no later batch/idle/lifecycle trigger
+    // arrives, new source messages would never be analyzed.
+    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
+    mockAnalyzeConversation.mockImplementation(async () => ({
+      analysisConversationId: "analysis-1",
+      skipped: true as const,
+    }));
+
+    await conversationAnalyzeJob(
+      makeJob({ conversationId: "conv-busy" }),
+      TEST_CONFIG,
+    );
+
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]).toEqual({
+      conversationId: "conv-busy",
+      trigger: "idle",
+    });
+  });
+
+  test("does not requeue on a normal (non-skipped) successful run", async () => {
+    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
+    mockAnalyzeConversation.mockImplementation(async () => ({
+      analysisConversationId: "analysis-1",
+    }));
+
+    await conversationAnalyzeJob(
+      makeJob({ conversationId: "conv-ok" }),
+      TEST_CONFIG,
+    );
+
+    expect(enqueueCalls).toHaveLength(0);
+  });
+
+  test("does not requeue when the service returns an error result", async () => {
+    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
+    mockAnalyzeConversation.mockImplementation(async () => ({
+      error: {
+        kind: "BAD_REQUEST",
+        status: 400,
+        message: "Cannot auto-analyze an auto-analysis conversation",
+      },
+    }));
+
+    await conversationAnalyzeJob(
+      makeJob({ conversationId: "conv-err" }),
+      TEST_CONFIG,
+    );
+
+    expect(enqueueCalls).toHaveLength(0);
   });
 
   test("swallows (does not throw) when the service returns an error result", async () => {
