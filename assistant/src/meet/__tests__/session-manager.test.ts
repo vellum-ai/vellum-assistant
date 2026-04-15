@@ -10,6 +10,10 @@ import {
   test,
 } from "bun:test";
 
+import type { AssistantEvent } from "../../runtime/assistant-event.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import { meetEventDispatcher } from "../event-publisher.js";
 import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
@@ -65,6 +69,7 @@ let workspaceDir: string;
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "session-manager-test-"));
   __resetMeetSessionEventRouterForTests();
+  meetEventDispatcher._resetForTests();
 });
 
 afterEach(() => {
@@ -433,6 +438,177 @@ describe("MeetSessionManager max-minutes timeout", () => {
     } finally {
       globalThis.setTimeout = realSetTimeout;
       globalThis.clearTimeout = realClearTimeout;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Event-hub lifecycle publication (PR 19)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager event-hub lifecycle publication", () => {
+  function captureHub() {
+    const received: AssistantEvent[] = [];
+    const sub = assistantEventHub.subscribe(
+      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      (event) => {
+        received.push(event);
+      },
+    );
+    return { received, dispose: () => sub.dispose() };
+  }
+
+  test("join publishes meet.joining; leave publishes meet.left with reason", async () => {
+    const runner = makeMockRunner();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+      });
+
+      await manager.join({
+        url: "https://meet.google.com/aaa",
+        meetingId: "m-ev-1",
+        conversationId: "c",
+      });
+      await manager.leave("m-ev-1", "user-requested");
+
+      const meetTypes = received
+        .map((e) => e.message.type)
+        .filter((t) => t.startsWith("meet."));
+      expect(meetTypes).toContain("meet.joining");
+      expect(meetTypes).toContain("meet.left");
+
+      const joining = received.find((e) => e.message.type === "meet.joining")!;
+      expect(
+        (joining.message as { url: string }).url,
+      ).toBe("https://meet.google.com/aaa");
+
+      const left = received.find((e) => e.message.type === "meet.left")!;
+      expect(
+        (left.message as { reason: string }).reason,
+      ).toBe("user-requested");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("lifecycle:joined bot event publishes meet.joined exactly once", async () => {
+    const runner = makeMockRunner();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-ev-2",
+        conversationId: "c",
+      });
+
+      // Simulate the bot delivering its lifecycle:joined event twice — the
+      // session manager should only fire `meet.joined` on the first one.
+      getMeetSessionEventRouter().dispatch("m-ev-2", {
+        type: "lifecycle",
+        meetingId: "m-ev-2",
+        timestamp: new Date(0).toISOString(),
+        state: "joined",
+      });
+      getMeetSessionEventRouter().dispatch("m-ev-2", {
+        type: "lifecycle",
+        meetingId: "m-ev-2",
+        timestamp: new Date(0).toISOString(),
+        state: "joined",
+      });
+
+      // Let the fire-and-forget publish calls settle.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const joined = received.filter((e) => e.message.type === "meet.joined");
+      expect(joined).toHaveLength(1);
+
+      await manager.leave("m-ev-2", "cleanup");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("container spawn failure publishes meet.error", async () => {
+    const runner = makeMockRunner({ runError: new Error("docker down") });
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+      });
+
+      await expect(
+        manager.join({
+          url: "u",
+          meetingId: "m-ev-err",
+          conversationId: "c",
+        }),
+      ).rejects.toThrow(/docker down/);
+
+      await Promise.resolve();
+
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors).toHaveLength(1);
+      expect(
+        (errors[0]!.message as { detail: string }).detail,
+      ).toContain("docker down");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("lifecycle:error bot event publishes meet.error with detail", async () => {
+    const runner = makeMockRunner();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-ev-lerr",
+        conversationId: "c",
+      });
+
+      getMeetSessionEventRouter().dispatch("m-ev-lerr", {
+        type: "lifecycle",
+        meetingId: "m-ev-lerr",
+        timestamp: new Date(0).toISOString(),
+        state: "error",
+        detail: "join rejected by host",
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors).toHaveLength(1);
+      expect(
+        (errors[0]!.message as { detail: string }).detail,
+      ).toBe("join rejected by host");
+
+      await manager.leave("m-ev-lerr", "cleanup");
+    } finally {
+      dispose();
     }
   });
 });
