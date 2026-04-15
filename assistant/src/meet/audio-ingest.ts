@@ -62,50 +62,35 @@ const log = getLogger("meet-audio-ingest");
  */
 export const BOT_CONNECT_TIMEOUT_MS = 30_000;
 
+/**
+ * Sample rate (Hz) of the PCM frames the meet-bot captures and forwards over
+ * the audio socket. Mirrors `DEFAULT_RATE_HZ` in
+ * `meet-bot/src/media/audio-capture.ts` — duplicated here rather than
+ * imported because the daemon does not import from the `meet-bot` package
+ * (they ship as separate artifacts). Must be kept in sync with the bot's
+ * capture rate; otherwise providers whose adapter default differs
+ * (e.g. Gemini defaults to 48 kHz) will decode at the wrong rate and
+ * produce garbled transcripts.
+ */
+const MEET_BOT_SAMPLE_RATE_HZ = 16_000;
+
 // ---------------------------------------------------------------------------
 // Error class
 // ---------------------------------------------------------------------------
-
-/**
- * Symbol brand for {@link MeetAudioIngestError}. Declared at module scope
- * (not nested in the class) so `readonly [MEET_AUDIO_INGEST_ERROR_BRAND]`
- * can reference it without TDZ issues.
- */
-const MEET_AUDIO_INGEST_ERROR_BRAND: unique symbol = Symbol.for(
-  "MeetAudioIngestError",
-);
 
 /**
  * Marker error thrown by {@link MeetAudioIngest} when the ingest cannot
  * start because no streaming-capable STT provider is configured or the
  * configured provider lacks credentials.
  *
- * The session manager uses {@link MeetAudioIngestError.isMeetAudioIngestError}
- * to distinguish this from generic ingest errors when composing the
- * user-facing join-failure message.
+ * Exported as a named subclass so callers that need to distinguish this
+ * from generic ingest errors can use `instanceof MeetAudioIngestError`.
  */
 export class MeetAudioIngestError extends Error {
   readonly name = "MeetAudioIngestError";
-  /**
-   * Symbol-based brand so structural checks (e.g. across module boundaries
-   * where `instanceof` may mis-report after module reload) can still
-   * reliably identify instances of this error.
-   */
-  readonly [MEET_AUDIO_INGEST_ERROR_BRAND] = true as const;
 
   constructor(message: string) {
     super(message);
-  }
-
-  static isMeetAudioIngestError(err: unknown): err is MeetAudioIngestError {
-    if (err instanceof MeetAudioIngestError) return true;
-    return (
-      typeof err === "object" &&
-      err !== null &&
-      (err as { [MEET_AUDIO_INGEST_ERROR_BRAND]?: boolean })[
-        MEET_AUDIO_INGEST_ERROR_BRAND
-      ] === true
-    );
   }
 }
 
@@ -199,8 +184,7 @@ export class MeetAudioIngest {
   private stopped = false;
 
   constructor(deps: MeetAudioIngestDeps = {}) {
-    this.createTranscriber =
-      deps.createTranscriber ?? defaultCreateTranscriber;
+    this.createTranscriber = deps.createTranscriber ?? defaultCreateTranscriber;
     this.listen = deps.listen ?? defaultListen;
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
@@ -392,10 +376,7 @@ export class MeetAudioIngest {
       }
     }
 
-    log.info(
-      { meetingId: this.meetingId },
-      "MeetAudioIngest: stopped",
-    );
+    log.info({ meetingId: this.meetingId }, "MeetAudioIngest: stopped");
   }
 
   // ── Internals ──────────────────────────────────────────────────────
@@ -403,10 +384,7 @@ export class MeetAudioIngest {
   /**
    * Forward inbound bytes to the transcriber and log connection lifecycle.
    */
-  private wireConnection(
-    conn: UnixSocketConnection,
-    meetingId: string,
-  ): void {
+  private wireConnection(conn: UnixSocketConnection, meetingId: string): void {
     conn.onData((chunk) => {
       if (this.stopped) return;
       const transcriber = this.transcriber;
@@ -485,12 +463,24 @@ export class MeetAudioIngest {
  * can bind opaque ASR speaker labels to real participant identities.
  * Providers without diarization support silently ignore the flag.
  *
+ * Passes the meet-bot's capture sample rate through to the resolver so
+ * provider adapters decode at the correct rate regardless of their
+ * per-adapter defaults (Deepgram/Whisper default to 16 kHz but Gemini
+ * defaults to 48 kHz — passing the rate explicitly keeps all three
+ * producing intelligible transcripts).
+ *
  * Throws {@link MeetAudioIngestError} when no streaming-capable provider
  * is configured so the session manager can surface a clear join-failure
  * message pointing at `services.stt.provider`.
  */
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
-  const transcriber = await resolveStreamingTranscriber({ diarize: true });
+  const transcriber = await resolveStreamingTranscriber({
+    sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+    // `"preferred"`: enable diarization when the configured provider can
+    // do it, but don't refuse to start on providers that can't — Meet
+    // falls back to DOM-based speaker attribution via MeetSpeakerResolver.
+    diarize: "preferred",
+  });
   if (!transcriber) {
     throw new MeetAudioIngestError(
       "No streaming-capable STT provider is configured. " +
@@ -509,9 +499,7 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
 function defaultListen(socketPath: string): Promise<UnixSocketServer> {
   return new Promise<UnixSocketServer>((resolve, reject) => {
     let settled = false;
-    const connectionListeners: Array<
-      (conn: UnixSocketConnection) => void
-    > = [];
+    const connectionListeners: Array<(conn: UnixSocketConnection) => void> = [];
     const errorListeners: Array<(err: Error) => void> = [];
 
     const netServer: NetServer = netCreateServer((socket) => {

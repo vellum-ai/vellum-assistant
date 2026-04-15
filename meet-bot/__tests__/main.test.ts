@@ -54,6 +54,11 @@ interface MockHandles {
   fireSigterm: () => void;
   /** Invoke the SIGINT handler captured during boot. */
   fireSigint: () => void;
+  /**
+   * Fire the `onError` hook the `runBot` passed into `createDaemonClient`.
+   * Returns `null` if the daemon client hasn't been constructed yet.
+   */
+  fireDaemonError: (err: Error) => void;
   /** Page object the scrapers see. */
   page: object;
   /** HTTP callbacks the server captured. */
@@ -102,6 +107,8 @@ function makeDeps(
   let capturedHttpCallbacks: {
     onLeave: (reason: string | undefined) => void | Promise<void>;
   } | null = null;
+
+  let capturedDaemonOnError: ((err: Error) => void) | null = null;
 
   const fakePage = { __fake: true };
 
@@ -211,6 +218,7 @@ function makeDeps(
         daemonUrl: clientOpts.daemonUrl,
         meetingId: clientOpts.meetingId,
       });
+      capturedDaemonOnError = clientOpts.onError;
       return daemonClient;
     },
     createHttpServer: (serverOpts) => {
@@ -281,6 +289,14 @@ function makeDeps(
     },
     fireSigint: () => {
       if (sigintHandler) sigintHandler();
+    },
+    fireDaemonError: (err: Error) => {
+      if (!capturedDaemonOnError) {
+        throw new Error(
+          "daemon client onError not captured — did createDaemonClient run?",
+        );
+      }
+      capturedDaemonOnError(err);
     },
     page: fakePage,
     httpCallbacks: () => capturedHttpCallbacks,
@@ -581,6 +597,107 @@ describe("runBot — error paths", () => {
     expect(
       handles.errors.some((e) => e.includes("PulseAudio setup failed")),
     ).toBe(true);
+  });
+});
+
+describe("runBot — daemon-client terminal errors", () => {
+  test("logs a single terminal error without shutting down", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await runBot(deps);
+
+    const stopsBefore = handles.stopCounts();
+    const exitBefore = handles.exitCode();
+
+    handles.fireDaemonError(new Error("ingress returned status 503"));
+
+    // Give any fire-and-forget shutdown promise a chance to advance.
+    await new Promise((r) => setTimeout(r, 20));
+
+    // No shutdown yet — single transient failures are tolerated.
+    const stopsAfter = handles.stopCounts();
+    expect(stopsAfter.httpServer).toBe(stopsBefore.httpServer);
+    expect(stopsAfter.participant).toBe(stopsBefore.participant);
+    expect(stopsAfter.audio).toBe(stopsBefore.audio);
+    expect(handles.daemonStopped()).toBe(false);
+    expect(handles.exitCode()).toBe(exitBefore);
+
+    // But the failure must have been surfaced to the log.
+    expect(
+      handles.errors.some((e) => e.includes("daemon ingress failure")),
+    ).toBe(true);
+    expect(
+      handles.errors.some((e) => e.includes("status 503")),
+    ).toBe(true);
+  });
+
+  test("second terminal error within the window triggers graceful shutdown + exit 1", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await runBot(deps);
+
+    handles.fireDaemonError(new Error("ingress rejected batch with status 400"));
+    handles.fireDaemonError(new Error("ingress returned status 503"));
+
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // Exited 1 (error) rather than 0 (clean leave).
+    expect(handles.exitCode()).toBe(1);
+
+    // Subsystems torn down exactly once — same dedup as SIGTERM / /leave.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.participant).toBe(1);
+    expect(counts.speaker).toBe(1);
+    expect(counts.chat).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+
+    // Final lifecycle event is "error" with the daemon-ingress detail.
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const last = lifecycleStates[lifecycleStates.length - 1]!;
+    expect(last.state).toBe("error");
+    expect(last.detail).toContain("daemon ingress failure");
+
+    // Both failures were logged, plus the "shutting down" banner.
+    expect(
+      handles.errors.filter((e) => e.includes("daemon ingress failure"))
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      handles.errors.some((e) => e.includes("shutting down")),
+    ).toBe(true);
+  });
+
+  test("daemon-error shutdown deduplicates against SIGTERM", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await runBot(deps);
+
+    // Tip over the error threshold…
+    handles.fireDaemonError(new Error("status 400"));
+    handles.fireDaemonError(new Error("status 400"));
+
+    // …and race a SIGTERM into the shutdown.
+    handles.fireSigterm();
+
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // Each subsystem stopped exactly once — the shutdown guard held.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.participant).toBe(1);
+    expect(counts.speaker).toBe(1);
+    expect(counts.chat).toBe(1);
+    expect(counts.audio).toBe(1);
   });
 });
 

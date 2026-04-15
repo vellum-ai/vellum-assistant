@@ -39,12 +39,7 @@
  *   8. `lifecycle:left`   → meta.json written + `meet.left` on hub.
  */
 
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -302,7 +297,7 @@ describe("Meet pipeline end-to-end", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async (provider) => {
-        if (provider === "deepgram") return "deepgram-secret";
+        if (provider === "tts") return "tts-secret";
         return "";
       },
       getWorkspaceDir: () => workspaceDir,
@@ -561,8 +556,15 @@ describe("Meet pipeline end-to-end", () => {
       // observed and `meet.left` came last among the lifecycle transitions.
       const lifecycleKinds = hub.received
         .map((e) => e.message.type)
-        .filter((t) => t === "meet.joining" || t === "meet.joined" || t === "meet.left");
-      expect(lifecycleKinds).toEqual(["meet.joining", "meet.joined", "meet.left"]);
+        .filter(
+          (t) =>
+            t === "meet.joining" || t === "meet.joined" || t === "meet.left",
+        );
+      expect(lifecycleKinds).toEqual([
+        "meet.joining",
+        "meet.joined",
+        "meet.left",
+      ]);
 
       // Now drive lifecycle:left onto a freshly-constructed storage writer
       // scope — the session manager tore down the router, so we close the
@@ -589,7 +591,9 @@ describe("Meet pipeline end-to-end", () => {
     expect(existsSync(join(meetingDir, "transcript.jsonl"))).toBe(true);
     expect(existsSync(join(meetingDir, "segments.jsonl"))).toBe(true);
 
-    const transcriptLines = readJsonlLines(join(meetingDir, "transcript.jsonl"));
+    const transcriptLines = readJsonlLines(
+      join(meetingDir, "transcript.jsonl"),
+    );
     expect(transcriptLines.length).toBeGreaterThanOrEqual(1);
     expect(transcriptLines[0]).toMatchObject({
       timestamp: "2025-01-01T00:00:01.050Z",

@@ -7,7 +7,7 @@
  * daemon's {@link SttStreamServerEvent} contract with stable partial/final
  * semantics.
  *
- * Key differences vs. the batch-polling `GoogleGeminiStreamingTranscriber`:
+ * Design notes:
  * - Uses a long-lived WebSocket-backed session (not periodic REST polls).
  * - The server emits transcription events natively via
  *   `serverContent.inputTranscription`; we do not diff responses ourselves.
@@ -89,8 +89,6 @@ export interface GoogleGeminiLiveStreamOptions {
   baseUrl?: string;
   /** Sample rate for raw PCM input; used when normalizing MIME types. */
   pcmSampleRate?: number;
-  /** Channel count for raw PCM input; currently informational. */
-  pcmChannels?: number;
   /** Connect timeout in milliseconds. Default: 10_000. */
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
@@ -107,16 +105,13 @@ export interface GoogleGeminiLiveStreamOptions {
  * Implements the daemon {@link StreamingTranscriber} contract on top of
  * Gemini's bidirectional Live API with server-side input transcription.
  */
-export class GoogleGeminiLiveStreamingTranscriber
-  implements StreamingTranscriber
-{
+export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "google-gemini" as const;
   readonly boundaryId = "daemon-streaming" as const;
 
   private readonly client: GoogleGenAI;
   private readonly model: string;
   private readonly pcmSampleRate: number;
-  private readonly pcmChannels: number;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
 
@@ -147,7 +142,6 @@ export class GoogleGeminiLiveStreamingTranscriber
   constructor(apiKey: string, options: GoogleGeminiLiveStreamOptions = {}) {
     this.model = options.model ?? DEFAULT_MODEL;
     this.pcmSampleRate = options.pcmSampleRate ?? 16_000;
-    this.pcmChannels = options.pcmChannels ?? 1;
     this.connectTimeoutMs =
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
@@ -219,9 +213,7 @@ export class GoogleGeminiLiveStreamingTranscriber
         onerror: (ev: ErrorEvent): void => {
           if (!openFired && !this.session) {
             finishOpen(
-              new Error(
-                `Gemini Live connect error: ${this.describeError(ev)}`,
-              ),
+              new Error(`Gemini Live connect error: ${this.describeError(ev)}`),
             );
             return;
           }
@@ -332,10 +324,7 @@ export class GoogleGeminiLiveStreamingTranscriber
       session.sendRealtimeInput({ audioStreamEnd: true });
     } catch (err) {
       // If the send fails, force-close immediately.
-      log.warn(
-        { error: err },
-        "Failed to send audioStreamEnd; forcing close",
-      );
+      log.warn({ error: err }, "Failed to send audioStreamEnd; forcing close");
       this.flushFinalAndClose();
       return;
     }
@@ -586,4 +575,3 @@ export class GoogleGeminiLiveStreamingTranscriber
     return "Gemini Live session error";
   }
 }
-

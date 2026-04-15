@@ -93,10 +93,12 @@ export interface DeepgramRealtimeOptions {
    * Enable Deepgram's built-in speaker diarization. Default: false.
    *
    * When `true`, the adapter appends `diarize=true` to the Deepgram live
-   * URL and extracts per-word speaker tags from the `Results` frames, then
-   * surfaces the dominant speaker for the chunk as `speakerLabel` on the
-   * emitted `partial` / `final` events. Consumers (e.g. Meet) use this
-   * stable-within-session label to bind opaque ASR speakers to real
+   * URL so Deepgram attaches a `speaker` integer to each word (and
+   * sometimes a top-level `speaker` to the alternative). The adapter
+   * aggregates per-segment speakers (mode, with first-word tiebreaker)
+   * into a single `speakerLabel` emitted on `partial` / `final` events,
+   * alongside the alternative's `confidence`. Consumers (e.g. Meet) use
+   * this stable-within-session label to bind opaque ASR speakers to real
    * participant identities.
    *
    * Kept off by default so existing non-Meet callers (telephony, chat
@@ -111,8 +113,9 @@ export interface DeepgramRealtimeOptions {
 
 /**
  * A single word within a Deepgram streaming alternative. When diarization
- * is enabled, each word carries a numeric `speaker` tag that is stable
- * within a session (but opaque — Deepgram has no real-world identity).
+ * is enabled, each word carries a numeric `speaker` tag identifying the
+ * detected speaker turn — stable within a session (but opaque — Deepgram
+ * has no real-world identity).
  */
 interface DeepgramStreamWord {
   word?: string;
@@ -494,6 +497,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
+   *
+   * When diarization is enabled, Deepgram attaches a per-word `speaker`
+   * integer; we aggregate these into a single `speakerLabel` via
+   * {@link pickSpeakerLabel}.
    */
   private handleTranscriptFrame(frame: DeepgramStreamResponse): void {
     const alternative = frame.channel?.alternatives?.[0];
@@ -723,10 +730,16 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
  *      `alternatives[0].words[].speaker`.
  *
  * We prefer the top-level tag when present; otherwise we pick the
- * most-frequent per-word speaker (ties broken by first-seen order) so a
- * chunk spoken mostly by one person attributes cleanly to that person.
+ * most-frequent per-word speaker. On ties we fall back to the first
+ * word's speaker so short segments where the endpointer didn't cleanly
+ * break between turns still attribute deterministically.
+ *
  * Returns `undefined` when no speaker information is available — the
  * resolver treats unlabeled chunks the same as a non-diarizing provider.
+ *
+ * The returned label is `String(speaker)` to match the `speakerLabel`
+ * contract on {@link SttStreamServerPartialEvent} /
+ * {@link SttStreamServerFinalEvent}.
  */
 function extractSpeakerLabel(
   alternative: DeepgramStreamAlternative | undefined,
@@ -738,18 +751,21 @@ function extractSpeakerLabel(
   const words = alternative.words;
   if (!Array.isArray(words) || words.length === 0) return undefined;
   const counts = new Map<number, number>();
+  let firstSpeaker: number | undefined;
   for (const word of words) {
     if (typeof word.speaker !== "number") continue;
+    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
     counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
   }
-  if (counts.size === 0) return undefined;
-  let best: number | undefined;
-  let bestCount = -1;
+  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+  // Pick the most common speaker; on ties, prefer the first-word speaker.
+  let bestSpeaker = firstSpeaker;
+  let bestCount = counts.get(firstSpeaker) ?? 0;
   for (const [speaker, count] of counts) {
     if (count > bestCount) {
-      best = speaker;
+      bestSpeaker = speaker;
       bestCount = count;
     }
   }
-  return best !== undefined ? String(best) : undefined;
+  return String(bestSpeaker);
 }
