@@ -152,10 +152,11 @@ export async function wake(): Promise<void> {
     saveAssistantEntry(entry);
   }
 
+  if (!process.env.APP_VERSION) {
+    process.env.APP_VERSION = computeLocalVersion();
+  }
+
   if (!daemonRunning) {
-    if (!process.env.APP_VERSION) {
-      process.env.APP_VERSION = computeLocalVersion();
-    }
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 
