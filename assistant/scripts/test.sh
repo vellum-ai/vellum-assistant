@@ -18,6 +18,19 @@ set -uo pipefail
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
 COVERAGE="${COVERAGE:-false}"
+
+# Ensure the bundled feature-flag-registry.json exists before running tests.
+# The canonical copy lives at meta/feature-flags/feature-flag-registry.json and
+# is synced into assistant/src/ and gateway/src/ by sync-bundled-copies.ts.
+# CI runs this as a dedicated step; locally, postinstall handles it — but when
+# node_modules is symlinked (e.g. worktrees) postinstall never fires, so the
+# bundled copy can be missing and feature-flag-registry-bundled.test.ts fails.
+# Running the sync here is idempotent and cheap (two file copies).
+repo_root_sync="$(cd .. && pwd)"
+if [[ -f "${repo_root_sync}/meta/feature-flags/sync-bundled-copies.ts" ]]; then
+  (cd "${repo_root_sync}" && bun run meta/feature-flags/sync-bundled-copies.ts >/dev/null 2>&1 || true)
+fi
+unset repo_root_sync
 # Per-test timeout (seconds). Kills bun processes that pass but don't exit due to open handles.
 PER_TEST_TIMEOUT="${PER_TEST_TIMEOUT:-120}"
 # Longest-first scheduling: provide a durations file from a previous run to sort
@@ -47,7 +60,6 @@ KNOWN_BROKEN_FILES=(
   "email-send.test.ts"
   "email-status.test.ts"
   "email-unregister.test.ts"
-  "feature-flag-registry-bundled.test.ts"
   "memory-item-routes.test.ts"
   "qdrant-manager.test.ts"
   "skill-feature-flags-integration.test.ts"
