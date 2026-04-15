@@ -2,7 +2,6 @@ import SwiftUI
 
 public struct ConfirmationSurfaceView: View {
     public let data: ConfirmationSurfaceData
-    public let actions: [SurfaceActionButton]
     public let showCardChrome: Bool
     public let onAction: (String) -> Void
 
@@ -13,9 +12,8 @@ public struct ConfirmationSurfaceView: View {
 
     @State private var selectedAction: SelectedAction?
 
-    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
+    public init(data: ConfirmationSurfaceData, showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
         self.data = data
-        self.actions = actions
         self.showCardChrome = showCardChrome
         self.onAction = onAction
     }
