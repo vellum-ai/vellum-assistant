@@ -7,6 +7,7 @@
  * `MeetSessionEventRouter` handler.
  */
 
+import { EventEmitter } from "node:events";
 import {
   existsSync,
   mkdtempSync,
@@ -15,7 +16,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EventEmitter } from "node:events";
 import {
   afterEach,
   beforeEach,
