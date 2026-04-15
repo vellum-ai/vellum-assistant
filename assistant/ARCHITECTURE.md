@@ -599,7 +599,7 @@ Audio-to-text conversion occurs in five distinct runtime boundaries, each with i
 | ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                         | `src/calls/twilio-routes.ts`                                                                         |
 | **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                        | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
-| **Conversation streaming**   | Daemon process (WebSocket/incremental-batch)                                  | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
 | **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                 | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
 | **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                           | Fallback when STT service is unconfigured or fails                                                   |
 
@@ -646,15 +646,15 @@ Real-time conversation chat message capture on macOS and iOS uses a WebSocket-ba
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
-| Provider          | Adapter                                                | Mode                | Mechanism                                                                                                                                                                                                                                           |
-| ----------------- | ------------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`    | `realtime-ws`       | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                        |
-| **Google Gemini** | `src/providers/speech-to-text/google-gemini-stream.ts` | `incremental-batch` | Approximates streaming via throttled polling. Accumulates audio chunks and periodically sends the full buffer to Gemini `models.generateContent`, diffing against the last emitted partial. Uses model `gemini-2.0-flash`. Poll interval: 1 second. |
+| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                  |
+| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-live-2.5-flash-preview`. |
 
 **Provider-specific behavior differences:**
 
 - **Deepgram (`realtime-ws`)**: True WebSocket streaming with sub-second partial latency. Emits `partial` events for `is_final: false` frames and `final` events for `is_final: true` frames. Supports backpressure (drops audio frames when `bufferedAmount > 1 MiB`). Sends `CloseStream` message on stop with a 5-second grace period for the provider to flush remaining finals. Inactivity timeout: 30 seconds (provider-side hang detection). Connect timeout: 10 seconds. Auth errors map to close codes 1008/4001; rate limits to 1013.
-- **Google Gemini (`incremental-batch`)**: Polling-based approximation with ~1-second partial latency. Each poll sends the full accumulated audio buffer (not incremental deltas). Partials are only emitted when the new transcript is a forward progression (longer than or equal to the last emitted text) to prevent flickering. On `stop()`, a deterministic final batch request is sent with the complete audio; if it fails, the last emitted partial is used as a best-effort final. Request timeout: 15 seconds per batch call. Transient poll errors are non-fatal; only the final request is critical.
+- **Google Gemini (`realtime-ws`)**: WebSocket-backed Live API session. Partials are emitted as Gemini streams `inputTranscription.text` fragments; a `final` is emitted when the server signals `generationComplete` or `turnComplete`. On `stop()`, the adapter sends `audioStreamEnd: true` and waits up to a 5-second grace window for the server to flush remaining transcription before force-closing. Inactivity timeout: 30 seconds. Connect timeout: 10 seconds. Close codes 1008/4001 map to `auth`; 1013 maps to `rate-limit`; other codes map to `provider-error`. The model's own text turn is suppressed via a silent system instruction so we only pay for transcription.
 
 **Session lifecycle (daemon side):**
 
@@ -684,12 +684,12 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 
 **Error category mapping:**
 
-| Category         | Deepgram close codes | Google Gemini conditions               | Client action                      |
-| ---------------- | -------------------- | -------------------------------------- | ---------------------------------- |
-| `auth`           | 1008, 4001           | API key rejection (4xx)                | Mark stream failed; batch fallback |
-| `rate-limit`     | 1013                 | 429 response                           | Mark stream failed; batch fallback |
-| `timeout`        | N/A (inactivity)     | `AbortSignal.timeout` on batch request | Mark stream failed; batch fallback |
-| `provider-error` | All other codes      | Network/API errors                     | Mark stream failed; batch fallback |
+| Category         | Deepgram close codes | Google Gemini close codes            | Client action                      |
+| ---------------- | -------------------- | ------------------------------------ | ---------------------------------- |
+| `auth`           | 1008, 4001           | 1008, 4001                           | Mark stream failed; batch fallback |
+| `rate-limit`     | 1013                 | 1013                                 | Mark stream failed; batch fallback |
+| `timeout`        | N/A (inactivity)     | N/A (inactivity)                     | Mark stream failed; batch fallback |
+| `provider-error` | All other codes      | All other codes / Live session error | Mark stream failed; batch fallback |
 
 **Key source files:**
 
@@ -698,7 +698,7 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 | `src/stt/types.ts`                                     | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
 | `src/stt/stt-stream-session.ts`                        | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
 | `src/providers/speech-to-text/deepgram-realtime.ts`    | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
-| `src/providers/speech-to-text/google-gemini-stream.ts` | Google Gemini incremental-batch adapter: throttled polling, transcript diffing, deterministic final                                                   |
+| `src/providers/speech-to-text/google-gemini-live-stream.ts` | Google Gemini realtime-ws adapter: bidirectional Live API session, `serverContent.inputTranscription` normalization                              |
 | `src/providers/speech-to-text/provider-catalog.ts`     | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
 | `src/providers/speech-to-text/resolve.ts`              | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
 | `src/runtime/http-server.ts`                           | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
