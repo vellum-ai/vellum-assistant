@@ -51,7 +51,6 @@ KNOWN_BROKEN_FILES=(
   "memory-item-routes.test.ts"
   "qdrant-manager.test.ts"
   "skill-feature-flags-integration.test.ts"
-  "status.test.ts"
   "terminal-tools.test.ts"
   "tts-text-sanitizer.test.ts"
 )
