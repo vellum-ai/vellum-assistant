@@ -249,6 +249,41 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     expect(autoAnalyzeCalls).toHaveLength(0);
   });
 
+  test("isAutoAnalysisConversation throws — fails open, still enqueues graph_extract and continues disposal", () => {
+    // If the DB read inside `isAutoAnalysisConversation` throws (e.g. SQLite
+    // unavailable during teardown), disposal must not abort. We fail open:
+    // default to NOT skipping, so graph_extract still fires and the rest of
+    // the cleanup chain runs.
+    autoAnalyzeEnabled = true;
+
+    mock.module("../../memory/auto-analysis-guard.js", () => ({
+      AUTO_ANALYSIS_SOURCE: "auto-analysis",
+      isAutoAnalysisConversation: () => {
+        throw new Error("db closed");
+      },
+    }));
+
+    const ctx = makeDisposeContext({
+      conversationId: "conv-guard-throws",
+      trustClass: "guardian",
+    });
+
+    expect(() => disposeConversation(ctx)).not.toThrow();
+
+    // Fail-open: graph_extract fires even though the guard threw.
+    expect(memoryJobCalls).toHaveLength(1);
+    expect(memoryJobCalls[0]!.type).toBe("graph_extract");
+    // The auto-analyze helper also still runs (separate try/catch).
+    expect(autoAnalyzeCalls).toHaveLength(1);
+
+    // Restore the non-throwing stub for subsequent tests.
+    mock.module("../../memory/auto-analysis-guard.js", () => ({
+      AUTO_ANALYSIS_SOURCE: "auto-analysis",
+      isAutoAnalysisConversation: (conversationId: string) =>
+        autoAnalysisConversations.has(conversationId),
+    }));
+  });
+
   test("helper throws — disposal continues (best-effort semantics)", () => {
     // The try/catch around `enqueueAutoAnalysisIfEnabled` must swallow
     // errors so a broken helper never blocks disposal. We verify by

@@ -317,7 +317,15 @@ export function disposeConversation(ctx: DisposeContext): void {
     // from its reflective musings would double-write into the memory graph.
     // Mirrors the same guard applied in `indexer.ts` for the per-message
     // indexing path.
-    if (!isAutoAnalysisConversation(ctx.conversationId)) {
+    // Fail open: if the guard lookup throws (e.g. DB unavailable during
+    // teardown), default to NOT skipping so the rest of disposal still runs.
+    let isAutoAnalysis = false;
+    try {
+      isAutoAnalysis = isAutoAnalysisConversation(ctx.conversationId);
+    } catch {
+      // Best-effort — don't block conversation disposal
+    }
+    if (!isAutoAnalysis) {
       try {
         enqueueMemoryJob("graph_extract", {
           conversationId: ctx.conversationId,
