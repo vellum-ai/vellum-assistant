@@ -56,12 +56,12 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds duri
 
 ## Call quality sounds off
 
-- Verify `elevenlabs.voiceId` is set to a valid ElevenLabs voice ID
+- Verify `services.tts.providers.elevenlabs.voiceId` is set to a valid ElevenLabs voice ID
 - Ask for the desired voice style again and try a different voice selection
 
 ## Twilio says "application error" right after answer
 
 - This often means ConversationRelay rejected voice configuration after TwiML fetch
-- Keep `elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
+- Keep `services.tts.providers.elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
 - If you set `voiceModelId`, try clearing it and retesting:
-  `assistant config set elevenlabs.voiceModelId ""`
+  `assistant config set services.tts.providers.elevenlabs.voiceModelId ""`

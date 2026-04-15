@@ -22,9 +22,6 @@ const log = getLogger("token-exchange");
 /** TTL for exchange tokens — short-lived, minted per-request. */
 const EXCHANGE_TOKEN_TTL_SECONDS = 60;
 
-/** TTL for browser relay tokens — longer-lived for extension use. */
-const BROWSER_RELAY_TOKEN_TTL_SECONDS = 3600;
-
 // ---------------------------------------------------------------------------
 // Edge token validation
 // ---------------------------------------------------------------------------
@@ -129,22 +126,5 @@ export function mintServiceToken(): string {
     scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
-  });
-}
-
-/**
- * Mint a long-lived token for the Chrome extension to connect to the
- * browser relay WebSocket. Uses gateway audience so it passes
- * validateEdgeToken() on the WS upgrade path.
- *
- * sub=svc:browser-relay:self, scope_profile=gateway_service_v1, TTL=1h
- */
-export function mintBrowserRelayToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:browser-relay:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: BROWSER_RELAY_TOKEN_TTL_SECONDS,
   });
 }

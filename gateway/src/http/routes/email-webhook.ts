@@ -181,9 +181,19 @@ export function createEmailWebhookHandler(
 
     // Forward to runtime
     try {
+      const inReplyTo =
+        typeof payload.messageId === "string" ? payload.messageId : undefined;
+      const subject =
+        typeof payload.subject === "string" ? payload.subject : undefined;
+
       const result = await handleInbound(config, event, {
-        transportMetadata: buildEmailTransportMetadata(),
-        replyCallbackUrl: undefined, // Email replies go through the outbound send path (PR 4)
+        transportMetadata: buildEmailTransportMetadata({
+          senderAddress: event.actor.actorExternalId,
+          recipientAddress: recipientAddress,
+          subject,
+          inReplyTo,
+        }),
+        replyCallbackUrl: undefined, // Email replies use `assistant email send` tool (no /deliver/email)
         traceId,
         routingOverride: routing,
         sourceMetadata: {
@@ -222,6 +232,12 @@ export function createEmailWebhookHandler(
           "Email message forwarded to runtime",
         );
       }
+
+      // Propagate the runtime's full response (including denied/reason/replyText)
+      // so the platform can decide whether to persist the email and how to respond
+      // to the sender.
+      const runtimeBody = result.runtimeResponse ?? {};
+      return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(
         err,
@@ -235,8 +251,6 @@ export function createEmailWebhookHandler(
       dedupCache.unreserve(eventId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
-
-    return Response.json({ ok: true });
   };
 
   return { handler, dedupCache };

@@ -1,5 +1,6 @@
 import type { ApprovalRequired } from "@vellumai/ces-contracts";
 
+import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type {
@@ -162,6 +163,14 @@ export interface ToolContext {
   callSessionId?: string;
   /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
   triggeredBySurfaceAction?: boolean;
+  /**
+   * True when the invocation is inside a scheduled task run whose
+   * `required_tools` array pre-authorized this tool at task-creation time.
+   * Tools that normally require a surface-action click (e.g. bulk archive,
+   * unsubscribe) may treat this as equivalent consent, since the user
+   * already reviewed the tool list when the task was saved.
+   */
+  batchAuthorizedByTask?: boolean;
   /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
@@ -184,6 +193,14 @@ export interface ToolContext {
   isPlatformHosted?: boolean;
   /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
   cesClient?: CesClient;
+  /**
+   * The interface ID of the connected client driving the current turn (e.g.
+   * "macos", "chrome-extension"). Browser backend policy uses this to decide
+   * transport preference — for example, macOS-originated turns prefer the
+   * user's real Chrome session via the paired extension before falling back
+   * to cdp-inspect or local Playwright.
+   */
+  transportInterface?: InterfaceId;
 }
 
 export interface DiffInfo {

@@ -67,6 +67,15 @@ public enum AppURLs {
         docsURL(path: "/privacy-policy")
     }
 
+    /// Browser "use your own Chrome" (cdp-inspect host-browser backend) docs
+    /// — linked from the Developer tab `BrowserBackendCard`. The final slug
+    /// may change when the docs page lands in a later PR; this is a
+    /// placeholder that still routes through `docsBaseURL` so it honors
+    /// `VELLUM_DOCS_BASE_URL` overrides.
+    public static var browserCdpInspectDocs: URL {
+        docsURL(path: "/assistant/browser/cdp-inspect-backend")
+    }
+
     // MARK: - Helpers
 
     /// Build a docs URL by appending a path to the (possibly env-overridden) base.

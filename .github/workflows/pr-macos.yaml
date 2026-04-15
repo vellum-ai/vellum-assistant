@@ -168,6 +168,12 @@ jobs:
             wait "$pid"
           done
 
+      - name: Cache Kata kernel
+        uses: actions/cache@v5
+        with:
+          path: clients/macos/.container-cache/kata-3.17.0-arm64/vmlinux.container
+          key: kata-kernel-3.17.0-arm64
+
       - name: Build binaries
         timeout-minutes: 5
         run: ./build.sh binaries

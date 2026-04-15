@@ -133,6 +133,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/analyze", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
+  { endpoint: "conversations/host-access:GET", scopes: ["chat.read"] },
+  { endpoint: "conversations/host-access", scopes: ["approval.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
@@ -179,6 +181,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Settings / integrations / identity
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
+  { endpoint: "home/state", scopes: ["settings.read"] },
+  { endpoint: "home/feed", scopes: ["settings.read"] },
+  { endpoint: "home/feed:PATCH", scopes: ["settings.write"] },
+  { endpoint: "home/feed/actions", scopes: ["settings.write"] },
   { endpoint: "brain-graph", scopes: ["settings.read"] },
   { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
@@ -378,13 +384,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
+  { endpoint: "tts/synthesize", scopes: ["chat.read"] },
 
   // Queued message deletion
   { endpoint: "messages/queued", scopes: ["chat.write"] },
-
-  // Browser relay
-  { endpoint: "browser-relay/status", scopes: ["settings.read"] },
-  { endpoint: "browser-relay/command", scopes: ["settings.write"] },
 
   // Interfaces
   { endpoint: "interfaces", scopes: ["settings.read"] },
@@ -434,10 +437,16 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
 
   // Migrations
-  { endpoint: "migrations/validate", scopes: ["settings.write"] },
+  { endpoint: "migrations/validate", scopes: ["settings.read"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
+
+  // Backups
+  { endpoint: "backups", scopes: ["settings.read"] },
+  { endpoint: "backups/create", scopes: ["settings.write"] },
+  { endpoint: "backups/restore", scopes: ["settings.write"] },
+  { endpoint: "backups/verify", scopes: ["settings.read"] },
 
   // Settings (voice, avatar, client settings)
   { endpoint: "settings/voice", scopes: ["settings.write"] },
@@ -459,6 +468,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Dictation
   { endpoint: "dictation", scopes: ["chat.write"] },
+
+  // Speech-to-text
+  { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
   // OAuth / integrations
   { endpoint: "oauth/start", scopes: ["settings.write"] },
@@ -482,10 +494,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Tools
   { endpoint: "tools", scopes: ["settings.read"] },
   { endpoint: "tools/simulate-permission", scopes: ["settings.read"] },
-
-  // Permission mode
-  { endpoint: "permission-mode:GET", scopes: ["settings.read"] },
-  { endpoint: "permission-mode", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

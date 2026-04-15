@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
 
@@ -773,6 +773,171 @@ describe("HostCuProxy", () => {
       proxy.resolve(requestId, { axTree: "late response" });
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // abort listener lifecycle
+  // -------------------------------------------------------------------------
+
+  describe("abort listener lifecycle", () => {
+    // Helper that wraps an AbortSignal to observe add/removeEventListener
+    // invocations without tripping over tsc's strict overload matching on
+    // AbortSignal itself.
+    type Spied = {
+      signal: AbortSignal;
+      addCalls: string[];
+      removeCalls: string[];
+    };
+    function spySignal(source: AbortSignal): Spied {
+      const addCalls: string[] = [];
+      const removeCalls: string[] = [];
+      const s = source as any;
+      const origAdd = source.addEventListener.bind(source);
+      const origRemove = source.removeEventListener.bind(source);
+      s.addEventListener = (
+        type: string,
+        ...rest: any[]
+      ) => {
+        addCalls.push(type);
+        return (origAdd as any)(type, ...rest);
+      };
+      s.removeEventListener = (
+        type: string,
+        ...rest: any[]
+      ) => {
+        removeCalls.push(type);
+        return (origRemove as any)(type, ...rest);
+      };
+      return { signal: source, addCalls, removeCalls };
+    }
+
+    test("removes abort listener from signal after resolve completes", async () => {
+      setup();
+      const controller = new AbortController();
+      const spy = spySignal(controller.signal);
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        spy.signal,
+      );
+
+      expect(spy.addCalls).toEqual(["abort"]);
+      expect(spy.removeCalls).toEqual([]);
+
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(requestId, { axTree: "Button [1]" });
+      await resultPromise;
+
+      // Listener is detached after normal completion.
+      expect(spy.removeCalls).toEqual(["abort"]);
+
+      // Subsequent aborts are harmless no-ops (no side effects on the proxy).
+      controller.abort();
+      // No additional emitted envelopes from the late abort.
+      expect(sentMessages).toHaveLength(1);
+    });
+
+    test("removes abort listener from signal on timer timeout", async () => {
+      setup();
+
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        const spy = spySignal(controller.signal);
+
+        const resultPromise = proxy.request(
+          "computer_use_click",
+          { element_id: 1 },
+          "session-1",
+          1,
+          undefined,
+          spy.signal,
+        );
+
+        expect(spy.addCalls).toEqual(["abort"]);
+        expect(spy.removeCalls).toEqual([]);
+
+        const requestId = (sentMessages[0] as Record<string, unknown>)
+          .requestId as string;
+        expect(proxy.hasPendingRequest(requestId)).toBe(true);
+
+        // Advance past the 60s internal timeout.
+        jest.advanceTimersByTime(61 * 1000);
+
+        const result = await resultPromise;
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("Host CU proxy timed out");
+        expect(proxy.hasPendingRequest(requestId)).toBe(false);
+
+        // Listener is detached after the timer fires.
+        expect(spy.removeCalls).toEqual(["abort"]);
+
+        // Subsequent aborts should be harmless — no cancel emitted.
+        controller.abort();
+        expect(sentMessages).toHaveLength(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // sender throws synchronously
+  // -------------------------------------------------------------------------
+
+  describe("sender throws synchronously", () => {
+    test("rejects the promise, clears pending state and timer, invokes onInternalResolve", async () => {
+      sentMessages = [];
+      resolvedRequestIds = [];
+      const throwingSend = () => {
+        throw new Error("transport down");
+      };
+      proxy = new HostCuProxy(throwingSend as never, (requestId: string) =>
+        resolvedRequestIds.push(requestId),
+      );
+
+      // request() synchronously calls sendToClient inside the Promise
+      // executor. A throw there surfaces as a rejected promise.
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+
+      await expect(resultPromise).rejects.toThrow("transport down");
+
+      // The internal resolve should fire exactly once as part of cleanup.
+      expect(resolvedRequestIds).toHaveLength(1);
+
+      // Issue a new request on a fresh (non-throwing) sender and verify
+      // the proxy is still functional — no stale timers or bookkeeping
+      // from the failed request.
+      sentMessages = [];
+      proxy.updateSender(
+        ((msg: unknown) => sentMessages.push(msg)) as never,
+        true,
+      );
+      const okPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 2 },
+        "session-1",
+        2,
+      );
+      expect(sentMessages).toHaveLength(1);
+      const okRequestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(proxy.hasPendingRequest(okRequestId)).toBe(true);
+      proxy.resolve(okRequestId, { axTree: "Button [2]" });
+      const okResult = await okPromise;
+      expect(okResult.isError).toBe(false);
+      expect(okResult.content).toContain("Button [2]");
     });
   });
 

@@ -25,6 +25,20 @@ const APP_REFRESH_DEBOUNCE_MS = 500;
 export type AppSourceChangeCallback = (appId: string) => void;
 
 /**
+ * Module-level callback so tool-side-effects can ensure the watcher starts
+ * after the apps directory is created (e.g. on first app_create).
+ */
+let ensureWatcherStarted: (() => void) | null = null;
+
+export function setEnsureAppSourceWatcher(fn: () => void): void {
+  ensureWatcherStarted = fn;
+}
+
+export function ensureAppSourceWatcher(): void {
+  ensureWatcherStarted?.();
+}
+
+/**
  * Resolve app ID from a relative path within the apps directory.
  * Returns null if the path is not an app source file (e.g. dist/, records/).
  */
@@ -48,12 +62,29 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
 
 export class AppSourceWatcher {
   private watcher: FSWatcher | null = null;
+  private onChange: AppSourceChangeCallback | null = null;
   private debouncer = new DebouncerMap({
     defaultDelayMs: APP_REFRESH_DEBOUNCE_MS,
     maxEntries: 50,
   });
 
   start(onChange: AppSourceChangeCallback): void {
+    this.onChange = onChange;
+    this.tryWatch();
+  }
+
+  /**
+   * Ensure the watcher is running. Call after app creation so the watcher
+   * starts if the apps directory was created after daemon startup.
+   */
+  ensureStarted(): void {
+    if (this.watcher || !this.onChange) return;
+    this.tryWatch();
+  }
+
+  private tryWatch(): void {
+    if (this.watcher) return;
+
     let appsDir: string;
     try {
       appsDir = getAppsDir();
@@ -67,6 +98,9 @@ export class AppSourceWatcher {
       return;
     }
 
+    const onChange = this.onChange;
+    if (!onChange) return;
+
     try {
       this.watcher = watch(appsDir, { recursive: true }, (_eventType, filename) => {
         if (!filename) return;
@@ -78,6 +112,7 @@ export class AppSourceWatcher {
           onChange(appId);
         });
       });
+      log.info("App source watcher started");
     } catch (err) {
       log.warn({ err }, "Failed to watch apps directory; source watching disabled");
     }

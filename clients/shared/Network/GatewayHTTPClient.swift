@@ -401,14 +401,18 @@ public enum GatewayHTTPClient {
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - session: The `URLSession` to use. Defaults to `.shared`. Pass a dedicated
+    ///     session when the caller needs to control the lifecycle of the underlying
+    ///     data task (e.g. to safely cancel an SSE stream without a use-after-free
+    ///     in `AsyncBytes`).
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
+    public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         logOutgoing(request, quiet: false)
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {
             logResponse(request, http: http, quiet: false)
         }
@@ -578,14 +582,7 @@ public enum GatewayHTTPClient {
             if let runtimeUrl = assistant.runtimeUrl {
                 baseURL = runtimeUrl
             } else {
-                // Call the nonisolated pure function directly to avoid
-                // crossing into @MainActor isolation. The instance property
-                // `AuthService.shared.baseURL` is @MainActor-isolated and
-                // cannot be read from a nonisolated synchronous context.
-                baseURL = AuthService.resolveBaseURL(
-                    environment: ProcessInfo.processInfo.environment,
-                    userDefaults: .standard
-                )
+                baseURL = VellumEnvironment.resolvedPlatformURL
             }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
@@ -644,6 +641,15 @@ public enum GatewayHTTPClient {
         return cs
     }()
 
+    /// URL-path character set that preserves already-encoded percent sequences.
+    /// `.urlPathAllowed` excludes `%`, which causes pre-encoded path components
+    /// (e.g. `%2F` for skill slugs containing `/`) to be double-encoded as `%252F`.
+    private static let urlPathPreservingEncoded: CharacterSet = {
+        var cs = CharacterSet.urlPathAllowed
+        cs.insert("%")
+        return cs
+    }()
+
     /// Returns `true` when the current connection targets a managed (cloud-hosted)
     /// assistant that routes through the platform proxy, `false` otherwise.
     ///
@@ -652,6 +658,35 @@ public enum GatewayHTTPClient {
     /// should use flat paths (required by non-managed runtimes).
     public static func isConnectionManaged() throws -> Bool {
         return try resolveConnection().isManaged
+    }
+
+    /// Diagnostic summary of the current connection, intended for developer-mode UI.
+    /// Returns a human-readable multi-line string with base URL, assistant ID, auth type,
+    /// and managed flag. Secrets are masked. Returns the error description on failure.
+    public static func connectionDiagnostics() -> String {
+        do {
+            let conn = try resolveConnection()
+            let authType: String
+            if let header = conn.authHeader {
+                let maskedValue: String
+                if header.value.count > 12 {
+                    maskedValue = String(header.value.prefix(8)) + "…" + String(header.value.suffix(4))
+                } else {
+                    maskedValue = "<short>"
+                }
+                authType = "\(header.field): \(maskedValue)"
+            } else {
+                authType = "none"
+            }
+            return """
+            Base URL: \(conn.baseURL)
+            Assistant ID: \(conn.assistantId.isEmpty ? "<empty>" : conn.assistantId)
+            Auth: \(authType)
+            Managed: \(conn.isManaged)
+            """
+        } catch {
+            return "Connection error: \(error.localizedDescription)"
+        }
     }
 
     /// Credentials needed by the WebView JS fetch bridge (`window.vellum.fetch`).
@@ -676,6 +711,7 @@ public enum GatewayHTTPClient {
     ///   or `nil` if the connection cannot be resolved or is not authenticated.
     public static func resolveWebViewCredentials() -> WebViewCredentials? {
         guard let connection = try? resolveConnection() else { return nil }
+
         var headers: [String: String] = [:]
         if let auth = connection.authHeader {
             headers[auth.field] = auth.value
@@ -708,6 +744,67 @@ public enum GatewayHTTPClient {
     public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
         let connection = try resolveConnection()
         return try constructURL(path: path, params: params, connection: connection)
+    }
+
+    // MARK: - WebSocket Helpers
+
+    /// Constructs an authenticated WebSocket URL for the given gateway path.
+    ///
+    /// Converts the gateway base URL scheme from `http(s)` to `ws(s)` and
+    /// appends an auth token as a query parameter (since `URLSessionWebSocketTask`
+    /// does not support custom headers on the upgrade request). The token is
+    /// passed as a `token` query parameter which the gateway accepts as an
+    /// alternative to the `Authorization` header for WebSocket upgrades.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/` (e.g. `"stt/stream"`).
+    ///   - params: Additional query parameters to include in the URL.
+    /// - Returns: A `URLRequest` configured for a WebSocket upgrade with auth.
+    /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
+    public static func buildWebSocketRequest(path: String, params: [String: String]? = nil) throws -> URLRequest {
+        let connection = try resolveConnection()
+
+        // Merge auth token into query params — WebSocket upgrades cannot carry
+        // custom HTTP headers via URLSessionWebSocketTask, so the gateway
+        // accepts a `token` query parameter as an alternative.
+        var mergedParams = params ?? [:]
+        if let auth = connection.authHeader {
+            if auth.field == "Authorization", auth.value.hasPrefix("Bearer ") {
+                mergedParams["token"] = String(auth.value.dropFirst("Bearer ".count))
+            } else if auth.field == "X-Session-Token" {
+                mergedParams["token"] = auth.value
+            }
+        }
+
+        let httpURL = try constructURL(path: path, params: mergedParams, connection: connection)
+
+        // Convert http(s) scheme to ws(s) for the WebSocket transport.
+        guard var components = URLComponents(url: httpURL, resolvingAgainstBaseURL: false) else {
+            throw ClientError.invalidURL
+        }
+
+        // Strip trailing slash from the path — constructURL always appends one,
+        // but WebSocket upgrade handlers match exact paths (e.g. /v1/stt/stream
+        // not /v1/stt/stream/).
+        if components.path.hasSuffix("/"), components.path != "/" {
+            components.path = String(components.path.dropLast())
+        }
+        switch components.scheme {
+        case "https": components.scheme = "wss"
+        case "http": components.scheme = "ws"
+        default: break
+        }
+        guard let wsURL = components.url else {
+            throw ClientError.invalidURL
+        }
+
+        var request = URLRequest(url: wsURL)
+        // Include org ID header — URLSession forwards custom headers on the
+        // initial HTTP upgrade request even for WebSocket tasks.
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+        return request
     }
 
     /// Builds the gateway URL from path, query parameters, and connection info.
@@ -745,7 +842,7 @@ public enum GatewayHTTPClient {
             }
         }
 
-        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? pathComponent
+        let encodedPath = pathComponent.addingPercentEncoding(withAllowedCharacters: Self.urlPathPreservingEncoded) ?? pathComponent
         let trailingSlash = encodedPath.hasSuffix("/") ? "" : "/"
         guard let url = URL(string: "\(connection.baseURL)/v1/\(encodedPath)\(trailingSlash)\(queryString)") else {
             throw ClientError.invalidURL

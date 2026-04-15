@@ -31,6 +31,10 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
+// Mutable config used by the mocked loader so individual tests can override
+// specific fields (e.g. systemPromptPrefix) without touching other sections.
+const mockLoadedConfig: Record<string, unknown> = {};
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -49,7 +53,7 @@ mock.module("../config/loader.js", () => ({
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
   }),
-  loadConfig: () => ({}),
+  loadConfig: () => mockLoadedConfig,
   loadRawConfig: () => ({}),
   saveConfig: () => {},
   saveRawConfig: () => {},
@@ -75,7 +79,7 @@ const {
 } = await import("../prompts/system-prompt.js");
 
 /**
- * Extract just the workspace-file content (IDENTITY.md, SOUL.md, USER.md,
+ * Extract just the workspace-file content (IDENTITY.md, SOUL.md,
  * BOOTSTRAP.md) from the full system prompt, stripping all static
  * instruction sections, configuration, and skills catalog.
  *
@@ -119,10 +123,12 @@ describe("buildSystemPrompt", () => {
       "BOOTSTRAP.md",
       "UPDATES.md",
       "skills",
+      "users",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
+    delete mockLoadedConfig.systemPromptPrefix;
   });
 
   test("returns empty string when no files exist", () => {
@@ -244,31 +250,80 @@ describe("buildSystemPrompt", () => {
     expect(result).not.toContain("incident-response");
   });
 
-  test("appends USER.md after base prompt", () => {
-    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Base prompt");
-    writeFileSync(join(TEST_DIR, "USER.md"), "# User\n\nName: Alice");
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("Base prompt\n\n# User\n\nName: Alice");
-  });
-
-  test("appends USER.md after IDENTITY + SOUL", () => {
+  test("builds prompt without error when USER.md does not exist on disk", () => {
+    // Persona content now flows through options.userPersona (resolved via
+    // resolveGuardianPersona upstream). buildSystemPrompt must never read
+    // USER.md from disk — verify it returns a well-formed prompt when the
+    // file is absent.
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
-    writeFileSync(join(TEST_DIR, "USER.md"), "User info");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("Identity\n\nSoul\n\nUser info");
+    expect(basePrompt(result)).toBe("Identity\n\nSoul");
   });
 
-  test("USER.md alone becomes the prompt", () => {
-    writeFileSync(join(TEST_DIR, "USER.md"), "Just user");
+  test("does not read USER.md content from disk even when the file is present", () => {
+    // USER.md has been removed from PROMPT_FILES and the fallback read
+    // path. A stale file on disk must not leak into the prompt.
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
+    writeFileSync(
+      join(TEST_DIR, "USER.md"),
+      "stale user content that should be ignored",
+    );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("Just user");
+    expect(result).not.toContain("stale user content");
+    expect(basePrompt(result)).toBe("Identity");
   });
 
-  test("ignores empty USER.md", () => {
-    writeFileSync(join(TEST_DIR, "USER.md"), "  \n  ");
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("");
+  test("uses options.userPersona instead of USER.md", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
+    const result = buildSystemPrompt({
+      userPersona: "# User persona\n\nName: Alice",
+    });
+    expect(basePrompt(result)).toBe(
+      "Identity\n\nSoul\n\n# User persona\n\nName: Alice",
+    );
+  });
+
+  describe("BOOTSTRAP.md user persona placeholder", () => {
+    test("substitutes {{USER_PERSONA_FILE}} with users/<slug>.md when userSlug is provided", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+      );
+      const result = buildSystemPrompt({ userSlug: "alice" });
+      expect(result).toContain("users/alice.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
+
+    test("falls back to users/default.md when userSlug is omitted", () => {
+      writeFileSync(
+        join(TEST_DIR, "BOOTSTRAP.md"),
+        "# First run\n\nSave facts to users/{{USER_PERSONA_FILE}} immediately.",
+      );
+      const result = buildSystemPrompt();
+      expect(result).toContain("users/default.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
+
+    test("substitutes the unmodified bundled BOOTSTRAP.md template", () => {
+      // Copy the real bundled BOOTSTRAP.md into the test workspace so we
+      // verify substitution against the actual template the daemon ships.
+      const bundled = readFileSync(
+        join(
+          import.meta.dirname,
+          "..",
+          "prompts",
+          "templates",
+          "BOOTSTRAP.md",
+        ),
+        "utf-8",
+      );
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
+      const result = buildSystemPrompt({ userSlug: "alice" });
+      expect(result).toContain("users/alice.md");
+      expect(result).not.toContain("{{USER_PERSONA_FILE}}");
+    });
   });
 
   describe("app-builder tool ownership guidance", () => {
@@ -342,6 +397,72 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "_ All comments\n_ Nothing else");
     const result = buildSystemPrompt();
     expect(basePrompt(result)).toBe("");
+  });
+
+  describe("custom systemPromptPrefix", () => {
+    test("omits prefix when config value is unset", () => {
+      const result = buildSystemPrompt();
+      // With no prefix, the prompt should start with the parallel tool calls
+      // section (the first static section when no prefix is injected).
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is null", () => {
+      mockLoadedConfig.systemPromptPrefix = null;
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is an empty string", () => {
+      mockLoadedConfig.systemPromptPrefix = "";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("omits prefix when config value is whitespace-only", () => {
+      mockLoadedConfig.systemPromptPrefix = "   \n\n  ";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("<use_parallel_tool_calls>")).toBe(true);
+    });
+
+    test("injects prefix at the very start of the prompt when set", () => {
+      mockLoadedConfig.systemPromptPrefix = "You are operating in demo mode.";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("You are operating in demo mode.")).toBe(true);
+      // The standard static sections should still follow the prefix.
+      expect(result).toContain("<use_parallel_tool_calls>");
+      // Prefix lives in the static (cached) block, not the dynamic block.
+      const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      expect(boundaryIdx).toBeGreaterThan(-1);
+      const staticBlock = result.slice(0, boundaryIdx);
+      expect(staticBlock).toContain("You are operating in demo mode.");
+    });
+
+    test("trims leading/trailing whitespace from the prefix", () => {
+      mockLoadedConfig.systemPromptPrefix =
+        "\n\n  Pretend you are a pirate.  \n\n";
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Pretend you are a pirate.")).toBe(true);
+    });
+
+    test("multi-line prefixes are preserved verbatim after trimming", () => {
+      mockLoadedConfig.systemPromptPrefix =
+        "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.";
+      const result = buildSystemPrompt();
+      expect(
+        result.startsWith(
+          "# Org Guardrails\n\n- Never discuss pricing.\n- Escalate refunds.",
+        ),
+      ).toBe(true);
+    });
+
+    test("workspace file content still appears after prefix", () => {
+      mockLoadedConfig.systemPromptPrefix = "Custom prefix";
+      writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
+      const result = buildSystemPrompt();
+      expect(result.startsWith("Custom prefix")).toBe(true);
+      expect(basePrompt(result)).toBe("I am Vellum.");
+    });
   });
 });
 
@@ -470,22 +591,43 @@ describe("ensurePromptFiles", () => {
       "SOUL.md",
       "USER.md",
       "BOOTSTRAP.md",
+      "BOOTSTRAP-REFERENCE.md",
+      "HEARTBEAT.md",
       "conversations",
+      "users",
     ]) {
       const p = join(TEST_DIR, name);
       if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
   });
 
-  test("creates all 3 files from templates when none exist", () => {
+  test("creates SOUL.md and IDENTITY.md from templates when none exist", () => {
     ensurePromptFiles();
 
-    for (const file of ["SOUL.md", "IDENTITY.md", "USER.md"]) {
+    for (const file of ["SOUL.md", "IDENTITY.md"]) {
       const dest = join(TEST_DIR, file);
       expect(existsSync(dest)).toBe(true);
       const content = readFileSync(dest, "utf-8");
       expect(content.length).toBeGreaterThan(0);
     }
+  });
+
+  test("does not seed USER.md", () => {
+    // USER.md is no longer part of the seeded prompt files — persona
+    // content lives in users/<slug>.md and is resolved via the guardian
+    // persona path.
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "USER.md"))).toBe(false);
+  });
+
+  test("seeds users/default.md persona template", () => {
+    ensurePromptFiles();
+
+    const defaultPersonaPath = join(TEST_DIR, "users", "default.md");
+    expect(existsSync(defaultPersonaPath)).toBe(true);
+    const content = readFileSync(defaultPersonaPath, "utf-8");
+    expect(content.length).toBeGreaterThan(0);
   });
 
   test("does not overwrite existing files", () => {
@@ -497,9 +639,8 @@ describe("ensurePromptFiles", () => {
     const content = readFileSync(join(TEST_DIR, "IDENTITY.md"), "utf-8");
     expect(content).toBe(customContent);
 
-    // Other files should be created
+    // The other seeded file should be created
     expect(existsSync(join(TEST_DIR, "SOUL.md"))).toBe(true);
-    expect(existsSync(join(TEST_DIR, "USER.md"))).toBe(true);
   });
 
   test("handles missing template gracefully (warn, no crash)", () => {
@@ -524,7 +665,6 @@ describe("ensurePromptFiles", () => {
     // BOOTSTRAP.md was deleted by the user.
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
-    writeFileSync(join(TEST_DIR, "USER.md"), "My user");
 
     ensurePromptFiles();
 
@@ -542,11 +682,25 @@ describe("ensurePromptFiles", () => {
     expect(existsSync(bootstrapPath)).toBe(false);
   });
 
+  test("does not treat a workspace with populated users/ as a first run", () => {
+    // Upgraded workspaces may have dropped USER.md but still carry a
+    // populated users/ directory.  Presence of users/<slug>.md signals an
+    // existing install, so BOOTSTRAP.md must not be re-seeded even when
+    // SOUL.md and IDENTITY.md are absent (they will be freshly seeded from
+    // templates, but onboarding should not re-trigger).
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "users", "sidd.md"), "# Sidd persona");
+
+    ensurePromptFiles();
+
+    const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
+    expect(existsSync(bootstrapPath)).toBe(false);
+  });
+
   test("auto-deletes stale BOOTSTRAP.md when prior conversations exist", () => {
     // Simulate a non-first-run workspace: core files + BOOTSTRAP.md still present
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
-    writeFileSync(join(TEST_DIR, "USER.md"), "My user");
     writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Stale bootstrap");
 
     // Create a conversations directory with at least one entry
@@ -559,15 +713,18 @@ describe("ensurePromptFiles", () => {
     expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
   });
 
-  test("keeps BOOTSTRAP.md on first run even if conversations dir exists", () => {
-    // First run: no core files exist, BOOTSTRAP.md should be created and kept
+  test("does not seed BOOTSTRAP.md when conversations exist even if core files are missing", () => {
+    // An upgraded workspace might have dropped SOUL.md/IDENTITY.md (they
+    // will be re-seeded from templates) but still carries prior
+    // conversations.  Existing conversation history signals a non-fresh
+    // install, so onboarding must not re-trigger.
     const convDir = join(TEST_DIR, "conversations");
     mkdirSync(convDir, { recursive: true });
     writeFileSync(join(convDir, "conv-001.json"), "{}");
 
     ensurePromptFiles();
 
-    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
   });
 
   test("keeps BOOTSTRAP.md when no conversations exist yet", () => {

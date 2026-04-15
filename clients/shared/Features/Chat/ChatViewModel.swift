@@ -3,6 +3,7 @@ import Foundation
 import Network
 import Observation
 import os
+import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
@@ -36,7 +37,7 @@ public struct ConversationStarter: Identifiable, Codable {
 struct ConversationStartersResponse: Codable {
     let starters: [ConversationStarter]
     let total: Int
-    let status: String  // "ready", "generating", "empty"
+    let status: String  // "ready", "refreshing", "generating", "empty"
 }
 
 @MainActor
@@ -174,6 +175,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var messages: [ChatMessage] {
         get { messageManager.messages }
         set { messageManager.messages = newValue }
+    }
+    public var messagesRevision: UInt64 {
+        messageManager.messagesRevision
     }
     public var inputText: String {
         get { messageManager.inputText }
@@ -361,6 +365,47 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.pendingQueuedCount }
         set { messageManager.pendingQueuedCount = newValue }
     }
+    /// User-role messages currently in the queue, ordered by queue position ascending.
+    /// The queue drawer consumes this to render each queued message row.
+    public var queuedMessages: [ChatMessage] {
+        messages
+            .filter { $0.role == .user && isQueued($0.status) }
+            .sorted { lhs, rhs in
+                queuePosition(of: lhs.status) < queuePosition(of: rhs.status)
+            }
+    }
+    /// ID of the queued user message with the highest position (i.e. the tail of
+    /// the queue that will be processed last). `nil` when no user messages are
+    /// currently queued. Used to drive "edit last queued message" affordances.
+    ///
+    /// On position ties (e.g. multiple messages queued before any `message_queued`
+    /// acks arrive — all start at position 0), prefer the most recently added
+    /// message. `messages` is maintained in chronological (append) order, so
+    /// `>=` with iteration ensures the last-at-max wins.
+    public var tailQueuedMessageId: UUID? {
+        var tailId: UUID?
+        var tailPosition = Int.min
+        for message in messages where message.role == .user {
+            guard case let .queued(position) = message.status else { continue }
+            if position >= tailPosition {
+                tailPosition = position
+                tailId = message.id
+            }
+        }
+        return tailId
+    }
+    /// Returns true when the status is `.queued(position:)`, false otherwise.
+    private func isQueued(_ status: ChatMessageStatus) -> Bool {
+        if case .queued = status { return true }
+        return false
+    }
+    /// Extracts the position from a queued status, or `Int.max` for other statuses
+    /// so non-queued messages sort after queued ones (defensive — `queuedMessages`
+    /// already filters to queued-only).
+    private func queuePosition(of status: ChatMessageStatus) -> Int {
+        if case let .queued(position) = status { return position }
+        return .max
+    }
     public var suggestion: String? {
         get { messageManager.suggestion }
         set { messageManager.suggestion = newValue }
@@ -518,7 +563,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
     private let guardianClient: any GuardianClientProtocol = GuardianClient()
     private let regenerateClient: any RegenerateClientProtocol = RegenerateClient()
-    let conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient()
+    let conversationQueueClient: any ConversationQueueClientProtocol
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
@@ -617,9 +662,24 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
     public var conversationType: String?
+    /// Whether this conversation belongs to a non-Vellum channel (e.g. Slack,
+    /// Telegram). Set by the platform layer alongside `conversationId` when the
+    /// underlying `ConversationModel.isChannelConversation` is true. Used by
+    /// `ChatActionHandler` to suppress echo duplication when a channel user
+    /// message is already visible from history reconstruction.
+    ///
+    /// NOTE: Only the macOS client currently populates this flag. iOS does not
+    /// yet plumb `isChannelConversation` from the platform layer into
+    /// `ChatViewModel`, so channel-specific echo dedup is effectively a no-op on
+    /// iOS. If iOS gains support for channel-mirrored conversations, the iOS
+    /// conversation-loading path must set this flag alongside `conversationId`.
+    public var isChannelConversation: Bool = false
     /// Skill IDs to pre-activate in the conversation. Included in the
     /// `conversation_create` request for deterministic skill activation.
     public var preactivatedSkillIds: [String]?
+    /// Pre-chat onboarding context to include in the first message POST.
+    /// Consumed (nilled out) by MessageSendCoordinator on the first send.
+    public var pendingOnboardingContext: PreChatOnboardingContext?
     /// Whether this view model is currently bootstrapping a new conversation
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
@@ -914,6 +974,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     if let result = fullTC.result {
                         msgs[idx].toolCalls[tcIdx].result = result
                         msgs[idx].toolCalls[tcIdx].resultLength = result.count
+                        msgs[idx].toolCalls[tcIdx].resultRevision &+= 1
                     }
                     if let input = fullTC.input {
                         let formatted = ToolCallData.formatAllToolInput(input)
@@ -1017,12 +1078,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         eventStreamClient: EventStreamClient,
         settingsClient: any SettingsClientProtocol = SettingsClient(),
         interactionClient: any InteractionClientProtocol = InteractionClient(),
+        conversationQueueClient: any ConversationQueueClientProtocol = ConversationQueueClient(),
         onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil
     ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
+        self.conversationQueueClient = conversationQueueClient
         self.onToolCallsComplete = onToolCallsComplete
         self.paginationState = ChatPaginationState(
             messageManager: messageManager
@@ -1496,6 +1559,28 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 log.error("Failed to delete queued message")
             }
         }
+    }
+
+    /// Pop the tail (highest-position) queued message back into the composer
+    /// bindings and delete it from the queue. No-op when the queue is empty.
+    /// Used by the queue drawer's "edit last queued" affordance.
+    ///
+    /// Guards against clobbering an in-progress composer draft: if the composer
+    /// already has text (post-trim) or attachments, the call is a no-op — no
+    /// overwrite, no delete. Callers should also disable the edit affordance
+    /// when the composer is non-empty so the user gets visual feedback before
+    /// clicking.
+    public func editQueuedTail(
+        into text: Binding<String>,
+        attachments: Binding<[ChatAttachment]>
+    ) {
+        guard text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              attachments.wrappedValue.isEmpty else { return }
+        guard let tailId = tailQueuedMessageId,
+              let message = messages.first(where: { $0.id == tailId }) else { return }
+        text.wrappedValue = message.text
+        attachments.wrappedValue = message.attachments
+        deleteQueuedMessage(messageId: tailId)
     }
 
     /// Update local state after the server confirms a queued message deletion.

@@ -34,6 +34,7 @@ import {
   getRegisteredKinds,
   getResolver,
 } from "../approvals/guardian-request-resolvers.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -48,7 +49,10 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
+import {
+  handleGuardianActionDecision,
+  listGuardianDecisionPrompts,
+} from "../runtime/routes/guardian-action-routes.js";
 
 initializeDb();
 
@@ -1712,7 +1716,10 @@ describe("routing invariant: expired requests are excluded from pending discover
 // ===========================================================================
 
 describe("routing invariant: kind-specific action sets in prompt mapping", () => {
-  beforeEach(() => resetTables());
+  beforeEach(() => {
+    resetTables();
+    _setOverridesForTesting({});
+  });
 
   test("buildDecisionActions({ forGuardianOnBehalf: true }) includes temporal actions", () => {
     const actions = buildDecisionActions({ forGuardianOnBehalf: true });
@@ -1766,6 +1773,67 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actionIds).toContain("approve_conversation");
     expect(actionIds).toContain("reject");
     expect(actionIds).not.toContain("approve_always");
+  });
+
+  test("tool_approval prompt collapses to approve_once + reject under v2", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    const convId = "conv-kind-tool-approval-v2";
+    createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].actions.map((a) => a.action)).toEqual([
+      "approve_once",
+      "reject",
+    ]);
+  });
+
+  test("guardian action POST rejects temporal actions under v2", async () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+    const convId = "conv-kind-tool-approval-v2-submit";
+    createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: convId,
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const [prompt] = listGuardianDecisionPrompts({ conversationId: convId });
+    const response = await handleGuardianActionDecision(
+      new Request("http://localhost/v1/guardian-actions/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestId: prompt.requestId,
+          action: "approve_10m",
+          conversationId: convId,
+        }),
+      }),
+      {
+        subject: "actor:self:test-principal",
+        principalType: "actor",
+        assistantId: "self",
+        actorPrincipalId: TEST_PRINCIPAL_ID,
+        scopeProfile: "actor_client_v1",
+        scopes: new Set(["approval.write"]),
+        policyEpoch: 1,
+      },
+    );
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toContain("approve_once or reject");
   });
 
   test("pending_question prompt has approve_once + reject only (no temporal actions)", () => {

@@ -25,6 +25,9 @@ dist
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
 
+# Copied from meta/ into iOS Resources/ at build time by clients/ios/build.sh
+clients/ios/Resources/tts-provider-catalog.json
+
 # misc
 worktrees/
 .worktrees/
@@ -33,6 +36,7 @@ worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
+*.crx
 .qdrant-initialized
 .claude/*
 !.claude/commands/

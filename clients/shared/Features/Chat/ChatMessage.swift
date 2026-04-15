@@ -63,8 +63,24 @@ public struct ToolConfirmationData: Equatable {
         return normalized
     }
 
+    /// v2 host prompts use the legacy confirmation transport, but semantically
+    /// they mean "enable computer access for this conversation".
+    public var isConversationHostAccessPrompt: Bool {
+        isConversationHostAccessPromptShape(
+            toolName: toolName,
+            allowlistOptionsCount: allowlistOptions.count,
+            scopeOptionsCount: scopeOptions.count,
+            persistentDecisionsAllowed: persistentDecisionsAllowed,
+            temporaryOptionsAvailable: temporaryOptionsAvailable
+        )
+    }
+
     /// Short third-person summary shown above the code snippet in the details disclosure.
     public var detailsSummary: String {
+        if isConversationHostAccessPrompt {
+            return "The assistant needs computer access for this conversation"
+        }
+
         switch toolName {
         case "bash", "host_bash":
             return "The assistant wants to run a command"
@@ -524,7 +540,8 @@ public struct ToolConfirmationData: Equatable {
             toolName: toolName,
             input: input,
             toolCategory: toolCategory,
-            permissionFriendlyName: permissionFriendlyName
+            permissionFriendlyName: permissionFriendlyName,
+            isConversationHostAccessPrompt: isConversationHostAccessPrompt
         )
     }
 
@@ -584,7 +601,8 @@ public func confirmationHumanDescription(
     toolName: String,
     input: [String: AnyCodable],
     toolCategory: String? = nil,
-    permissionFriendlyName: String? = nil
+    permissionFriendlyName: String? = nil,
+    isConversationHostAccessPrompt: Bool = false
 ) -> String {
     // Use activity (or legacy reason), falling back to description/message for
     // tools that provide context via other fields (e.g. context_overflow_compression uses description)
@@ -640,6 +658,45 @@ public func confirmationHumanDescription(
                 .joined(separator: " ")
         }
     }()
+
+    if isConversationHostAccessPrompt {
+        switch toolName {
+        case "bash", "host_bash":
+            if !r.isEmpty {
+                return "Enable computer access for this conversation so the assistant can run a command on your computer \(r)?"
+            }
+            return "Enable computer access for this conversation so the assistant can run commands on your computer?"
+        case "file_write", "host_file_write":
+            let path = (input["path"]?.value as? String) ?? ""
+            if !r.isEmpty {
+                return "Enable computer access for this conversation so the assistant can write files on your computer \(r)?"
+            }
+            if path.isEmpty {
+                return "Enable computer access for this conversation so the assistant can write files on your computer?"
+            }
+            return "Enable computer access for this conversation so the assistant can write \(URL(fileURLWithPath: path).lastPathComponent)?"
+        case "file_edit", "host_file_edit":
+            let path = (input["path"]?.value as? String) ?? ""
+            if !r.isEmpty {
+                return "Enable computer access for this conversation so the assistant can edit files on your computer \(r)?"
+            }
+            if path.isEmpty {
+                return "Enable computer access for this conversation so the assistant can edit files on your computer?"
+            }
+            return "Enable computer access for this conversation so the assistant can edit \(URL(fileURLWithPath: path).lastPathComponent)?"
+        case "file_read", "host_file_read":
+            let path = (input["path"]?.value as? String) ?? ""
+            if !r.isEmpty {
+                return "Enable computer access for this conversation so the assistant can read files on your computer \(r)?"
+            }
+            if path.isEmpty {
+                return "Enable computer access for this conversation so the assistant can read files on your computer?"
+            }
+            return "Enable computer access for this conversation so the assistant can read \(URL(fileURLWithPath: path).lastPathComponent)?"
+        default:
+            return "Enable computer access for this conversation to continue?"
+        }
+    }
 
     switch toolName {
     case "request_system_permission":
@@ -713,6 +770,21 @@ public func confirmationHumanDescription(
     }
 }
 
+public func isConversationHostAccessPromptShape(
+    toolName: String,
+    allowlistOptionsCount: Int,
+    scopeOptionsCount: Int,
+    persistentDecisionsAllowed: Bool,
+    temporaryOptionsAvailable: [String]
+) -> Bool {
+    let isHostTool = toolName.hasPrefix("host_") || toolName == "computer_use_run_applescript"
+    guard isHostTool else { return false }
+    return allowlistOptionsCount == 0
+        && scopeOptionsCount == 0
+        && !persistentDecisionsAllowed
+        && temporaryOptionsAvailable.isEmpty
+}
+
 /// Data for a tool call displayed inline in an assistant message.
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
@@ -734,6 +806,11 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Lightweight sentinel tracking `result?.count` so that `==` can detect
     /// rehydration without expensive full-string comparison on multi-MB results.
     public var resultLength: Int = 0
+    /// Monotonically increasing revision counter bumped on every write to `result`.
+    /// Included in `==` so same-length in-place mutations (replay / correction /
+    /// rehydration) still trigger view re-evaluation, and used as an O(1) cache-key
+    /// component in render-time memoization of colored output.
+    public var resultRevision: Int = 0
     public var isError: Bool
     public var isComplete: Bool
     /// Raw decoded tool input dictionary, stored for lazy formatting of `inputFull`.
@@ -791,6 +868,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.inputFullLength == rhs.inputFullLength
             && lhs.inputRawValueLength == rhs.inputRawValueLength
             && lhs.partialOutputRevision == rhs.partialOutputRevision
+            && lhs.resultRevision == rhs.resultRevision
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
             && lhs.startedAt == rhs.startedAt
@@ -1155,6 +1233,21 @@ public struct ToolCallData: Identifiable, Equatable {
 
     private func truncated(_ s: String, to length: Int) -> String {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
+
+    /// Maximum character count for strings rendered in single-line `Text` views
+    /// with `.lineLimit(1)` + `.truncationMode(.tail)`. CoreText's
+    /// `TRun::CountCharsInWidth` scans the entire string to compute truncation,
+    /// which is O(n) on string length and runs on the main thread. Pre-truncating
+    /// to this limit keeps the measurement cheap while remaining visually lossless
+    /// (no single-line label would ever display more than ~200 characters).
+    public static let singleLineDisplayLimit = 200
+
+    /// Pre-truncate a string so CoreText's line-truncation measurement stays
+    /// cheap. Use this for any value that feeds a `.lineLimit(1)` `Text` view.
+    public static func displaySafe(_ s: String) -> String {
+        guard s.count > singleLineDisplayLimit else { return s }
+        return String(s.prefix(singleLineDisplayLimit - 1)) + "…"
     }
 
     // MARK: - Lazy tool input formatting
@@ -1710,6 +1803,7 @@ public struct ChatMessage: Identifiable, Equatable {
             hasher.combine(tc.inputFullLength)
             hasher.combine(tc.inputRawValueLength)
             hasher.combine(tc.partialOutputRevision)
+            hasher.combine(tc.resultRevision)
             hasher.combine(tc.buildingStatus)
             hasher.combine(tc.reasonDescription)
             hasher.combine(tc.startedAt)
@@ -1760,6 +1854,7 @@ public struct ChatMessage: Identifiable, Equatable {
             toolCalls[i].imageDataList = nil
             toolCalls[i].result = nil
             toolCalls[i].resultLength = 0
+            toolCalls[i].resultRevision &+= 1
             toolCalls[i].inputFull = ""
             toolCalls[i].inputFullLength = 0
             toolCalls[i].inputRawDict = nil

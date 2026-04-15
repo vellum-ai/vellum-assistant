@@ -9,28 +9,65 @@ import AppKit
 
 private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
-struct ComposerView: View {
+struct ComposerView: View, Equatable {
+    static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
+        // VoiceModeManager is @MainActor ObservableObject, not @Observable,
+        // so SwiftUI cannot track its internal state changes via struct ==.
+        // voiceModeState is a snapshot captured at struct-creation time so
+        // lhs holds the previous state and rhs holds the current state,
+        // avoiding live reads from a shared mutable reference.
+        if lhs.voiceModeState != .off || rhs.voiceModeState != .off {
+            return false
+        }
+
+        return lhs.inputText == rhs.inputText
+            && lhs.isSending == rhs.isSending
+            && lhs.isAssistantBusy == rhs.isAssistantBusy
+            && lhs.hasPendingConfirmation == rhs.hasPendingConfirmation
+            && lhs.isRecording == rhs.isRecording
+            && lhs.suggestion == rhs.suggestion
+            && lhs.pendingAttachments.map(\.id) == rhs.pendingAttachments.map(\.id)
+            && lhs.isLoadingAttachment == rhs.isLoadingAttachment
+            && lhs.recordingAmplitude == rhs.recordingAmplitude
+            && lhs.placeholderText == rhs.placeholderText
+            && lhs.composerCompactHeight == rhs.composerCompactHeight
+            && lhs.conversationId == rhs.conversationId
+            && lhs.isInteractionEnabled == rhs.isInteractionEnabled
+            && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
+            && lhs.contextWindowTokens == rhs.contextWindowTokens
+            && lhs.contextWindowMaxTokens == rhs.contextWindowMaxTokens
+            // Optional closure availability — nil vs non-nil affects which
+            // buttons are rendered (e.g. voice toggle, dictation routing).
+            && (lhs.onAllowPendingConfirmation != nil) == (rhs.onAllowPendingConfirmation != nil)
+            && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
+            && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
+            && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            // ConversationHostAccessControlConfiguration contains a closure
+            // so it can't be Equatable; compare nil/non-nil plus the
+            // value-type fields that drive rendering.
+            && lhs.conversationHostAccessControl?.isEnabled == rhs.conversationHostAccessControl?.isEnabled
+            && lhs.conversationHostAccessControl?.canToggle == rhs.conversationHostAccessControl?.canToggle
+            && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
+            && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
+            && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
+    }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
 
     // MARK: - ComposerMode
 
-    /// Three-mode state machine for the composer.
+    /// Two-mode state machine for the composer.
     private enum ComposerMode: Equatable {
         /// Normal text entry with attach/send buttons.
         case textEntry
-        /// Inline dictation: text field visible with a recording strip below.
-        case dictationInline
         /// Full voice conversation with inverse/high-contrast container.
         case voiceConversation
     }
 
-    /// The current mode derived from recording and voice-mode state.
+    /// The current mode derived from voice-mode state.
     private var currentMode: ComposerMode {
         if voiceModeManager.map({ $0.state != .off }) ?? false {
             return .voiceConversation
-        } else if isRecording {
-            return .dictationInline
         } else {
             return .textEntry
         }
@@ -53,6 +90,7 @@ struct ComposerView: View {
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager? = nil
+    var voiceModeState: VoiceModeManager.State = .off
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var recordingAmplitude: Float = 0
@@ -65,6 +103,7 @@ struct ComposerView: View {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -75,17 +114,8 @@ struct ComposerView: View {
     @State private var textViewIsFocused: Bool = false
     @State var cursorPosition: Int = 0
 
-    @State var showSlashMenu = false
-    @State var slashFilter = ""
-    @State var slashSelectedIndex = 0
-    @State var suppressSlashReopen = false
-    @State var suppressEmojiReopen = false
-    @State var showEmojiMenu = false
-    @State var emojiFilter = ""
-    @State var emojiSelectedIndex = 0
     @State var textReplacer = TextReplacementProxy()
-    /// Snapshot of inputText captured when dictation starts, used to restore on cancel.
-    @State private var preDictationText: String = ""
+    @State var composerController = ComposerController()
     /// Live amplitude from VoiceInputManager, bypassing ChatViewModel's 100ms coalescing.
     @State private var liveAmplitude: Float = 0
 
@@ -105,31 +135,28 @@ struct ComposerView: View {
     var body: some View {
         VStack(spacing: VSpacing.sm) {
             // Slash command popup (above the composer)
-            if showSlashMenu {
+            if composerController.showSlashMenu {
                 SlashCommandPopup(
-                    commands: filteredSlashCommands(slashFilter),
-                    selectedIndex: slashSelectedIndex,
+                    commands: composerController.slashCommandProvider.filteredCommands(composerController.slashFilter),
+                    selectedIndex: composerController.slashSelectedIndex,
                     onSelect: { command in selectSlashCommand(command) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if showEmojiMenu {
+            if composerController.showEmojiMenu {
                 EmojiPickerPopup(
-                    entries: filteredEmoji(emojiFilter),
-                    selectedIndex: emojiSelectedIndex,
+                    entries: composerController.emojiSearchProvider.search(query: composerController.emojiFilter, limit: 8),
+                    selectedIndex: composerController.emojiSelectedIndex,
                     onSelect: { entry in selectEmoji(entry) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            // Composer box — switches on the three-mode state machine
+            // Composer box — switches on the two-mode state machine
             switch currentMode {
             case .voiceConversation:
                 voiceConversationComposer
-
-            case .dictationInline:
-                dictationInlineComposer
 
             case .textEntry:
                 textEntryComposer
@@ -141,12 +168,8 @@ struct ComposerView: View {
         }
         #endif
         .fixedSize(horizontal: false, vertical: true)
-        .animation(VAnimation.fast, value: showSlashMenu)
-        .animation(VAnimation.fast, value: showEmojiMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(maxWidth: .infinity)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
         .task {
@@ -169,20 +192,10 @@ struct ComposerView: View {
         }
         .onChange(of: currentMode) {
             composerLog.debug("Composer mode: \(String(describing: currentMode))")
-            if currentMode == .dictationInline {
-                preDictationText = inputText
-            }
         }
         .onChange(of: isInteractionEnabled) { _, enabled in
-            if enabled, !hasPendingConfirmation {
-                composerFocus = true
-            } else if !enabled {
-                composerFocus = false
-                showSlashMenu = false
-                showEmojiMenu = false
-                suppressSlashReopen = false
-                suppressEmojiReopen = false
-            }
+            composerController.interactionEnabledChanged(enabled, hasPendingConfirmation: hasPendingConfirmation)
+            composerFocus = composerController.focusIntent
         }
         .onChange(of: hasPendingConfirmation) { _, pending in
             if !pending, isInteractionEnabled {
@@ -256,29 +269,43 @@ struct ComposerView: View {
                     ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
                 onSubmit: { performSendAction() },
                 onTab: {
-                    if showSlashMenu { handleSlashNavigation(.tab); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.tab); return true }
+                    if composerController.showSlashMenu {
+                        if let command = composerController.handleSlashNavigation(.tab) {
+                            inputText = command.selectedInputText
+                        }
+                        return true
+                    }
+                    if composerController.showEmojiMenu {
+                        if let entry = composerController.handleEmojiNavigation(.tab) {
+                            selectEmoji(entry)
+                        }
+                        return true
+                    }
                     if ghostSuffix != nil { onAcceptSuggestion(); return true }
                     return false
                 },
                 onUpArrow: {
-                    if showSlashMenu { handleSlashNavigation(.up); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.up); return true }
+                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.up); return true }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.up); return true }
                     return false
                 },
                 onDownArrow: {
-                    if showSlashMenu { handleSlashNavigation(.down); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.down); return true }
+                    if composerController.showSlashMenu { composerController.handleSlashNavigation(.down); return true }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.down); return true }
                     return false
                 },
                 onEscape: {
-                    if showSlashMenu { handleSlashNavigation(.dismiss); return true }
-                    if showEmojiMenu { handleEmojiNavigation(.dismiss); return true }
+                    if composerController.showSlashMenu {
+                        composerController.handleSlashNavigation(.dismiss)
+                        inputText = ""
+                        return true
+                    }
+                    if composerController.showEmojiMenu { composerController.handleEmojiNavigation(.dismiss); return true }
                     return false
                 },
                 onPasteImage: onPaste,
                 shouldOverrideReturn: {
-                    showSlashMenu || showEmojiMenu
+                    composerController.isPopupVisible
                 },
                 cursorPosition: $cursorPosition,
                 textReplacer: textReplacer
@@ -331,17 +358,10 @@ struct ComposerView: View {
             composerFocus = true
         }
         .onChange(of: inputText) {
-            if inputText.isEmpty {
-                withAnimation(VAnimation.fast) { showSlashMenu = false; showEmojiMenu = false }
-            } else {
-                updateSlashState()
-                updateEmojiState()
-            }
+            composerController.textChanged(inputText)
         }
         .onChange(of: cursorPosition) {
-            if !inputText.isEmpty {
-                updateEmojiState()
-            }
+            composerController.cursorMoved(to: cursorPosition)
         }
     }
 
@@ -350,12 +370,16 @@ struct ComposerView: View {
     /// regardless of how "send" is triggered.
     private func performSendAction() {
         let sendPath: String
-        if showSlashMenu {
+        if composerController.showSlashMenu {
             sendPath = "slashSelection"
-            handleSlashNavigation(.select)
-        } else if showEmojiMenu {
+            if let command = composerController.handleSlashNavigation(.select) {
+                selectSlashCommand(command)
+            }
+        } else if composerController.showEmojiMenu {
             sendPath = "emojiSelection"
-            handleEmojiNavigation(.select)
+            if let entry = composerController.handleEmojiNavigation(.select) {
+                selectEmoji(entry)
+            }
         } else if canSend {
             sendPath = "normalSend"
             onSend()
@@ -373,7 +397,7 @@ struct ComposerView: View {
 
     // MARK: - Text Entry Mode
 
-    /// Standard composer shell with border, used for textEntry and dictationInline modes.
+    /// Standard composer shell with border, used for textEntry mode.
     @ViewBuilder
     private func standardComposerShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) {
@@ -399,8 +423,24 @@ struct ComposerView: View {
                 composerTextField
                     .padding(.leading, VSpacing.xs)
                     .frame(minHeight: composerActionButtonSize)
+
+                if isRecording {
+                    VStreamingWaveform(
+                        amplitude: liveAmplitude,
+                        isActive: true,
+                        style: .scrolling,
+                        foregroundColor: VColor.contentTertiary,
+                        lineWidth: 2
+                    )
+                    .frame(height: 32)
+                    .frame(maxWidth: .infinity)
+                }
+
                 composerActionBar
             }
+        }
+        .onReceive(VoiceInputManager.amplitudeSubject.receive(on: RunLoop.main)) { amp in
+            liveAmplitude = amp
         }
     }
 
@@ -417,8 +457,26 @@ struct ComposerView: View {
                     iconSize: composerActionButtonSize,
                     action: { onAttach() }
                 )
-
                 .vTooltip("Attach file")
+            }
+
+            if let hostAccess = conversationHostAccessControl {
+                Button(action: hostAccess.onToggle) {
+                    VIconView(hostAccess.isEnabled ? .terminal : .lock, size: 14)
+                        .foregroundStyle(
+                            hostAccess.isEnabled
+                                ? VColor.systemPositiveStrong
+                                : VColor.contentSecondary
+                        )
+                        .frame(width: composerActionButtonSize, height: composerActionButtonSize)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!hostAccess.canToggle || hostAccess.isUpdating)
+                .vTooltip(hostAccess.errorMessage ?? "Computer access — \(hostAccess.subtitle)")
+                .accessibilityLabel("Computer access")
+                .accessibilityValue(hostAccess.isEnabled ? "Enabled" : "Disabled")
+                .animation(.easeInOut(duration: 0.15), value: hostAccess.isEnabled)
             }
 
             VContextWindowIndicator(
@@ -451,53 +509,55 @@ struct ComposerView: View {
                     .vTooltip("Live voice conversation")
                 }
 
-                // Dictate button
-                VButton(
-                    label: "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
-                )
-
-                .vTooltip(micTooltipText)
-
-                // Send button (always visible, disabled when empty)
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
-                }
-                .vTooltip("Type a message to send")
-            } else if !hasPendingConfirmation {
-                // Mic button (visible with or without text)
+                // Dictate / stop button
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
-                .vTooltip(micTooltipText)
-
-                // Send button
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip("Type a message to send")
                 }
-                .vTooltip(canSend ? "Send" : "Type a message to send")
+            } else if !hasPendingConfirmation {
+                // Mic / stop button
+                VButton(
+                    label: isRecording ? "Stop recording" : "Dictate",
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
+                    style: .ghost,
+                    iconSize: composerActionButtonSize,
+                    action: { (onDictateToggle ?? onMicrophoneToggle)() }
+                )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
+
+                if !isRecording {
+                    // Send button (hidden during recording)
+                    VButton(
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
+                        style: .primary,
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
+                }
             } else {
                 // Pending confirmation — show same buttons as empty-input state
                 if onVoiceModeToggle != nil {
@@ -508,86 +568,32 @@ struct ComposerView: View {
                         iconSize: composerActionButtonSize,
                         action: { onVoiceModeToggle?() }
                     )
+                    .vTooltip("Live voice conversation")
                 }
 
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
-                    iconOnly: VIcon.mic.rawValue,
+                    iconOnly: isRecording ? VIcon.circleStop.rawValue : VIcon.mic.rawValue,
                     style: .ghost,
                     iconSize: composerActionButtonSize,
                     action: { (onDictateToggle ?? onMicrophoneToggle)() }
                 )
+                .vTooltip(isRecording ? "Stop recording" : micTooltipText)
 
-
-                VButton(
-                    label: "Send message",
-                    iconOnly: VIcon.arrowUp.rawValue,
-                    style: .primary,
-                    isDisabled: !canSend,
-                    iconSize: composerActionButtonSize
-                ) {
-                    composerFocus = true
-                    performSendAction()
-                }
-            }
-        }
-    }
-
-    // MARK: - Dictation Inline Mode
-
-
-    @ViewBuilder
-    private var dictationInlineComposer: some View {
-        standardComposerShell {
-            VStack(spacing: VSpacing.sm) {
-                // Text field remains visible for live transcription
-                composerTextField
-                    .frame(minHeight: composerActionButtonSize)
-
-                // Inline recording strip
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-VStreamingWaveform(
-                        amplitude: liveAmplitude,
-                        isActive: true,
-                        style: .scrolling,
-                        foregroundColor: VColor.contentTertiary,
-                        lineWidth: 2
-                    )
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity)
-
-                    // Cancel: stop dictation and discard transcribed text
+                if !isRecording {
                     VButton(
-                        label: "Cancel dictation",
-                        iconOnly: VIcon.x.rawValue,
-                        style: .danger,
-                        iconSize: composerActionButtonSize,
-                        action: {
-                            inputText = preDictationText
-                            preDictationText = ""
-                            (onDictateToggle ?? onMicrophoneToggle)()
-                        }
-                    )
-                    .vTooltip("Cancel")
-
-                    // Accept: stop dictation and keep transcribed text
-                    VButton(
-                        label: "Accept dictation",
-                        iconOnly: VIcon.check.rawValue,
+                        label: "Send message",
+                        iconOnly: VIcon.arrowUp.rawValue,
                         style: .primary,
-                        iconSize: composerActionButtonSize,
-                        action: {
-                            preDictationText = ""
-                            (onDictateToggle ?? onMicrophoneToggle)()
-                        }
-                    )
-                    .vTooltip("Done")
+                        isDisabled: !canSend,
+                        iconSize: composerActionButtonSize
+                    ) {
+                        composerFocus = true
+                        performSendAction()
+                    }
+                    .vTooltip(canSend ? "Send" : "Type a message to send")
                 }
             }
-        }
-        .onReceive(VoiceInputManager.amplitudeSubject.receive(on: RunLoop.main)) { amp in
-            liveAmplitude = amp
         }
     }
 

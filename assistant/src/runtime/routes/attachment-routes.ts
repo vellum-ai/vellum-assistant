@@ -1,7 +1,13 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
-import { existsSync, realpathSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 import { z } from "zod";
@@ -18,6 +24,9 @@ import type { RouteDefinition } from "../http-router.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
+
+/** 100 MB — maximum file size for file-backed uploads (matches client memorySafetyLimit). */
+const MAX_FILE_BACKED_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 function resolveCanonicalPath(filePath: string): string {
   try {
@@ -124,17 +133,45 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
 
   // File-backed upload: when filePath is provided and data is empty/missing,
   // register the attachment by path reference instead of requiring base64 data.
-  // This supports retry of file-backed attachments (e.g. recordings) where the
-  // client no longer holds the inline data but the file still exists on disk.
+  // This supports:
+  //   1. Desktop client file-picker uploads — the file is copied into the
+  //      workspace attachments directory so it passes the directory allowlist.
+  //   2. Retry of file-backed attachments (e.g. recordings) where the client
+  //      no longer holds the inline data but the file still exists on disk.
   if (filePath && typeof filePath === "string" && (!data || data === "")) {
-    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    let resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+
+    // If the file isn't in an allowed directory, copy it into the workspace
+    // attachments directory. This handles desktop client file-picker uploads
+    // where the source file lives in an arbitrary user directory (e.g.
+    // ~/Desktop, ~/Downloads). The copy lands in the allowlisted workspace
+    // directory, preserving the security model.
     if (!resolvedPath) {
-      return httpError(
-        "BAD_REQUEST",
-        "filePath is outside allowed upload directories",
-        400,
+      const canonicalSource = resolveCanonicalPath(filePath);
+      if (!existsSync(canonicalSource)) {
+        return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
+      }
+      const sourceSize = statSync(canonicalSource).size;
+      if (sourceSize > MAX_FILE_BACKED_UPLOAD_BYTES) {
+        const sizeMB = Math.round(sourceSize / (1024 * 1024));
+        return httpError(
+          "BAD_REQUEST",
+          `File is ${sizeMB} MB which exceeds the ${MAX_FILE_BACKED_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
+          413,
+        );
+      }
+      const workspaceAttachmentsDir = join(
+        getWorkspaceDir(),
+        "data",
+        "attachments",
       );
+      mkdirSync(workspaceAttachmentsDir, { recursive: true });
+      const destFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const destPath = join(workspaceAttachmentsDir, destFilename);
+      copyFileSync(canonicalSource, destPath);
+      resolvedPath = resolveCanonicalPath(destPath);
     }
+
     if (!existsSync(resolvedPath)) {
       return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
     }

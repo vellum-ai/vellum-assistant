@@ -105,22 +105,6 @@ extension AppDelegate {
         setupGatewayConnectionManager()
     }
 
-    // MARK: - Backend Dispatch
-
-    /// Return the `AssistantManagementClient` appropriate for `assistant`'s cloud type.
-    ///
-    /// - Non-apple-container (or absent): delegates to the bundled `VellumCli` hatch path.
-    /// - `apple-container`: reserved — falls back to `VellumCli` today so existing
-    ///   behavior is preserved until the Apple Containers runtime is wired.
-    ///   A log warning is emitted so the absence of a dedicated client is visible.
-    func managementClient(for assistant: LockfileAssistant?) -> AssistantManagementClient {
-        guard let assistant, assistant.isAppleContainer else {
-            return vellumCli
-        }
-        log.warning("managementClient: apple-containers backend not yet implemented — falling back to CLI hatch for '\(assistant.assistantId, privacy: .public)'")
-        return vellumCli
-    }
-
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
@@ -224,6 +208,35 @@ extension AppDelegate {
                             NSWorkspace.shared.open(url)
                         }
                     }
+                case .openConversation(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    // If the conversation isn't in the sidebar yet (e.g. just created by a
+                    // surface action with `_action: "launch_conversation"` that the assistant
+                    // dispatched inline, spawning a fresh conversation and emitting
+                    // open_conversation), stub a sidebar entry using the optional title so
+                    // openConversation's trySelect retries find it.
+                    // Tag the stub with source: "open_conversation" so it's distinguishable
+                    // from true notification-flow stubs (which use source: "notification"
+                    // and may drive urgency/alerting behaviors that don't apply here).
+                    // This registration runs regardless of the focus flag so fan-out
+                    // callers (focus: false) still get the conversation in the sidebar.
+                    if let conversationManager = self.mainWindow?.conversationManager,
+                       !conversationManager.conversations.contains(where: { $0.conversationId == msg.conversationId }) {
+                        conversationManager.createNotificationConversation(
+                            conversationId: msg.conversationId,
+                            title: msg.title ?? "Untitled",
+                            sourceEventName: "open_conversation",
+                            groupId: nil,
+                            source: "open_conversation"
+                        )
+                    }
+                    // Switch focus only when the emitter did not explicitly opt out
+                    // (msg.focus != false). Absent (nil) defaults to switching, which
+                    // preserves existing single-target behavior.
+                    if shouldFocusForOpenConversation(msg) {
+                        self.openConversation(conversationId: msg.conversationId, anchorMessageId: msg.anchorMessageId)
+                    }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:
@@ -292,10 +305,7 @@ extension AppDelegate {
                 case .recordingResume(let msg):
                     self.handleRecordingResume(msg)
                 case .clientSettingsUpdate(let msg):
-                    if msg.key == "ttsVoiceId" {
-                        OpenAIVoiceService.overrideVoiceId = msg.value
-                        UserDefaults.standard.set(msg.value, forKey: msg.key)
-                    } else if msg.key == "voiceConversationTimeoutSeconds" {
+                    if msg.key == "voiceConversationTimeoutSeconds" {
                         let parsed = Int(msg.value)
                         if let parsed {
                             UserDefaults.standard.set(parsed, forKey: msg.key)
@@ -306,6 +316,11 @@ extension AppDelegate {
                     }
                     if msg.key == "activationKey" {
                         NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+                    }
+                    // Notify observers when the global TTS provider changes so
+                    // voice mode and other consumers can pick up the new provider.
+                    if msg.key == "ttsProvider" {
+                        NotificationCenter.default.post(name: .configChanged, object: nil)
                     }
                 case .identityChanged(let msg):
                     NotificationCenter.default.post(
@@ -322,7 +337,7 @@ extension AppDelegate {
                 case .avatarUpdated(let msg):
                     AvatarAppearanceManager.shared.reloadAvatar(avatarPath: msg.avatarPath)
                 case .soundsConfigUpdated:
-                    SoundManager.shared.reloadConfig()
+                    SoundManager.shared.handleSoundsConfigBroadcast()
                 case .configChanged:
                     NotificationCenter.default.post(name: .configChanged, object: nil)
                 case .featureFlagsChanged:
@@ -388,10 +403,13 @@ extension AppDelegate {
                     ))
                 case .appFilesChanged(let msg):
                     self.refreshAppsCache()
-                    for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
-                        guard appSurfaceId == msg.appId else { continue }
-                        self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
-                    }
+                    // WebView reload is handled by the separate ui_surface_update
+                    // message which triggers updateNSView → reloadGeneration →
+                    // loadHTMLString with fresh compiled HTML. Calling
+                    // webView.reload() here would replay stale inline HTML for
+                    // surfaces loaded via loadHTMLString (isInlineFallback),
+                    // racing with the correct ui_surface_update path.
+                    _ = msg
                 case .uiLayoutConfig(let msg):
                     self.mainWindow?.windowState.applyLayoutConfig(msg)
 
@@ -599,7 +617,11 @@ extension AppDelegate {
             let syncCollectUsageData = hasExplicitCollectUsageData ? collectUsageData : nil
             let syncSendDiagnostics = hasExplicitSendDiagnostics ? sendDiagnostics : nil
             if syncCollectUsageData != nil || syncSendDiagnostics != nil {
-                try? await FeatureFlagClient().setPrivacyConfig(collectUsageData: syncCollectUsageData, sendDiagnostics: syncSendDiagnostics)
+                try? await FeatureFlagClient().setPrivacyConfig(
+                    collectUsageData: syncCollectUsageData,
+                    sendDiagnostics: syncSendDiagnostics,
+                    llmRequestLogRetentionMs: nil
+                )
             }
 
             let tosAccepted = UserDefaults.standard.bool(forKey: "tosAccepted")

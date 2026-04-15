@@ -263,9 +263,9 @@ extension ChatViewModel {
             messages[msgIndex].toolCalls[tcIndex].inputRawValue = extractToolInput(msg.input)
             messages[msgIndex].toolCalls[tcIndex].inputRawDict = msg.input
             messages[msgIndex].toolCalls[tcIndex].buildingStatus = buildingStatus
-            messages[msgIndex].toolCalls[tcIndex].reasonDescription = (msg.input["activity"]?.value as? String)
+            messages[msgIndex].toolCalls[tcIndex].reasonDescription = ((msg.input["activity"]?.value as? String)
                 ?? (msg.input["reason"]?.value as? String)
-                ?? (msg.input["reasoning"]?.value as? String)
+                ?? (msg.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
             return
         }
         var toolCall = ToolCallData(
@@ -279,9 +279,9 @@ extension ChatViewModel {
         toolCall.buildingStatus = buildingStatus
         toolCall.toolUseId = msg.toolUseId
         toolCall.inputRawDict = msg.input
-        toolCall.reasonDescription = (msg.input["activity"]?.value as? String)
+        toolCall.reasonDescription = ((msg.input["activity"]?.value as? String)
             ?? (msg.input["reason"]?.value as? String)
-            ?? (msg.input["reasoning"]?.value as? String)
+            ?? (msg.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
         // Add to existing assistant message or create one.
         // Cap at 100 tool calls per message to prevent unbounded memory growth;
         // overflow falls through to create a new message.
@@ -431,6 +431,7 @@ extension ChatViewModel {
         if let msgIndex = targetMsgIndex, let tcIndex = targetTcIndex {
             messages[msgIndex].toolCalls[tcIndex].result = msg.result
             messages[msgIndex].toolCalls[tcIndex].resultLength = msg.result.count
+            messages[msgIndex].toolCalls[tcIndex].resultRevision &+= 1
             messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
             messages[msgIndex].toolCalls[tcIndex].isComplete = true
             messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
@@ -451,15 +452,66 @@ extension ChatViewModel {
                messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                 messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
             }
-            // When an app tool call completes, mark dynamic page surfaces in the
-            // same message as ready so the inline card enables its "Open App" button.
+            // When an app tool call completes, mark dynamic page surfaces as
+            // ready so the inline card enables its "Open App" button. Search
+            // the matched message first, then fall back to the current assistant
+            // message in case the surface ended up in a different message due
+            // to rotation or toolUseId-based matching across messages.
             let toolName = messages[msgIndex].toolCalls[tcIndex].toolName
             if toolName == "app_create" || toolName == "app_refresh" || toolName == "app_update" {
+                var found = false
+                var completedAppSurfaces: [(appId: String, html: String?)] = []
                 for surfIdx in messages[msgIndex].inlineSurfaces.indices {
-                    if case .dynamicPage = messages[msgIndex].inlineSurfaces[surfIdx].data {
+                    if case .dynamicPage(let dpData) = messages[msgIndex].inlineSurfaces[surfIdx].data {
                         messages[msgIndex].inlineSurfaces[surfIdx].isToolCallComplete = true
+                        found = true
+                        if let appId = dpData.appId {
+                            completedAppSurfaces.append((appId: appId, html: dpData.html))
+                        }
                     }
                 }
+                if !found, let currentId = currentAssistantMessageId,
+                   let currentIdx = messages.firstIndex(where: { $0.id == currentId }),
+                   currentIdx != msgIndex {
+                    for surfIdx in messages[currentIdx].inlineSurfaces.indices {
+                        if case .dynamicPage(let dpData) = messages[currentIdx].inlineSurfaces[surfIdx].data {
+                            messages[currentIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+                            if let appId = dpData.appId {
+                                completedAppSurfaces.append((appId: appId, html: dpData.html))
+                            }
+                        }
+                    }
+                }
+
+                // Re-request preview now that the build is complete. The eager
+                // request fired on ui_surface_show (before build) likely captured
+                // a blank/incomplete preview. At this point the daemon should
+                // have a stored preview or the HTML is final for offscreen capture.
+                for surface in completedAppSurfaces {
+                    var userInfo: [String: Any] = ["appId": surface.appId]
+                    if let html = surface.html {
+                        userInfo["html"] = html
+                    }
+                    // Force re-capture so a stale preview stored by the eager
+                    // pre-build request doesn't short-circuit this post-build one.
+                    userInfo["forceRecapture"] = true
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MainWindow.requestAppPreview"),
+                        object: nil,
+                        userInfo: userInfo
+                    )
+                }
+
+                // Trigger a library refresh so the new/updated app appears in
+                // the Library panel. The app_files_changed event may have fired
+                // before the daemon fully registered the app; this ensures the
+                // fetch happens after tool completion (authoritative "done" signal).
+                // Posted unconditionally for app tools — even when no inline
+                // surfaces carry an appId, the daemon's app list should be current.
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.refreshAppsCache"),
+                    object: nil
+                )
             }
         }
         // Auto-open clip files in the default video player.

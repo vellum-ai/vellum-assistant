@@ -240,7 +240,7 @@ export function createCesProcessManager(
       cmd: [discovery.executablePath],
       stdin: "pipe",
       stdout: "pipe",
-      stderr: "ignore",
+      stderr: "pipe",
       env: {
         ...process.env,
         // Signal to CES that it was launched by the assistant
@@ -251,6 +251,7 @@ export function createCesProcessManager(
     childProcess = proc;
 
     log.info({ pid: proc.pid }, "CES child process started");
+    forwardStderrToLogger(proc);
 
     return createStdioTransport(proc);
   }
@@ -272,7 +273,7 @@ export function createCesProcessManager(
       cmd: [bunPath, "run", discovery.sourcePath],
       stdin: "pipe",
       stdout: "pipe",
-      stderr: "ignore",
+      stderr: "pipe",
       env: {
         ...process.env,
         // Signal to CES that it was launched by the assistant
@@ -283,6 +284,7 @@ export function createCesProcessManager(
     childProcess = proc;
 
     log.info({ pid: proc.pid }, "CES child process started (from source)");
+    forwardStderrToLogger(proc);
 
     return createStdioTransport(proc);
   }
@@ -441,6 +443,35 @@ function createSocketTransport(socket: Socket): CesTransport {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function forwardStderrToLogger(proc: Subprocess): void {
+  if (!proc.stderr || typeof proc.stderr === "number") return;
+
+  const reader = proc.stderr.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  void (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIdx).trimEnd();
+          buffer = buffer.slice(newlineIdx + 1);
+          if (line) log.error({ pid: proc.pid }, `[ces-stderr] ${line}`);
+        }
+      }
+      const trailing = buffer.trimEnd();
+      if (trailing) log.error({ pid: proc.pid }, `[ces-stderr] ${trailing}`);
+    } catch {
+      // Process ended or stream closed; nothing to forward.
+    }
+  })();
+}
 
 async function stopLocalProcess(proc: Subprocess): Promise<void> {
   log.info({ pid: proc.pid }, "Stopping CES child process");

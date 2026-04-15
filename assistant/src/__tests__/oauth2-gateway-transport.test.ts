@@ -83,6 +83,7 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 // Track token exchange request
 let lastTokenRequestBody: URLSearchParams | null = null;
 let lastTokenRequestHeaders: Record<string, string> = {};
+let lastTokenRequestRawBody: string | null = null;
 
 // Mock fetch for token exchange
 let mockTokenResponse: {
@@ -112,7 +113,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.includes("token")) {
     // Capture request body and headers for assertions
     if (init?.body) {
-      lastTokenRequestBody = new URLSearchParams(init.body as string);
+      lastTokenRequestRawBody = String(init.body);
+      try {
+        lastTokenRequestBody = new URLSearchParams(init.body as string);
+      } catch {
+        lastTokenRequestBody = null;
+      }
     }
     if (init?.headers) {
       lastTokenRequestHeaders = init.headers as Record<string, string>;
@@ -135,7 +141,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 // Import module under test AFTER mocks are in place
 // ---------------------------------------------------------------------------
 
-import { type OAuth2Config, startOAuth2Flow } from "../security/oauth2.js";
+import {
+  type OAuth2Config,
+  refreshOAuth2Token,
+  startOAuth2Flow,
+} from "../security/oauth2.js";
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
   authorizeUrl: "https://provider.example.com/authorize",
@@ -151,6 +161,7 @@ beforeEach(() => {
   pendingCallbacks.clear();
   lastTokenRequestBody = null;
   lastTokenRequestHeaders = {};
+  lastTokenRequestRawBody = null;
   mockTokenResponse = {
     ok: true,
     status: 200,
@@ -842,6 +853,234 @@ describe("OAuth2 gateway transport", () => {
 
       const result = await flowPromise;
       expect(result.grantedScopes).toEqual(["read", "write", "admin"]);
+    });
+  });
+
+  describe("tokenExchangeBodyFormat", () => {
+    test("sends JSON body when tokenExchangeBodyFormat is 'json'", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const jsonConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: "test-client-secret",
+        tokenExchangeBodyFormat: "json",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        jsonConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("json-body-code");
+
+      await flowPromise;
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Body should be valid JSON
+      expect(lastTokenRequestRawBody).not.toBeNull();
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("authorization_code");
+      expect(parsed.client_id).toBe("test-client-id");
+      expect(parsed.client_secret).toBe("test-client-secret");
+      expect(parsed.code).toBe("json-body-code");
+      expect(parsed.code_verifier).toBeTruthy();
+    });
+
+    test("sends form-encoded body by default (tokenExchangeBodyFormat omitted)", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("form-body-code");
+
+      await flowPromise;
+
+      // Content-Type should be form-encoded
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe(
+        "application/x-www-form-urlencoded",
+      );
+
+      // Body should be parseable as URLSearchParams
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get("grant_type")).toBe(
+        "authorization_code",
+      );
+      expect(lastTokenRequestBody!.get("client_id")).toBe("test-client-id");
+    });
+
+    test("sends form-encoded body when tokenExchangeBodyFormat is explicitly 'form'", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const formConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        tokenExchangeBodyFormat: "form",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        formConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("explicit-form-code");
+
+      await flowPromise;
+
+      // Content-Type should be form-encoded
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe(
+        "application/x-www-form-urlencoded",
+      );
+
+      // Body should be parseable as URLSearchParams
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get("grant_type")).toBe(
+        "authorization_code",
+      );
+    });
+
+    test("JSON body format works with client_secret_basic auth method", async () => {
+      mockPublicBaseUrl = "https://gw.example.com";
+
+      const jsonBasicConfig: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: "test-client-secret",
+        tokenEndpointAuthMethod: "client_secret_basic",
+        tokenExchangeBodyFormat: "json",
+      };
+
+      const flowPromise = startOAuth2Flow(
+        jsonBasicConfig,
+        { openUrl: () => {} },
+        { callbackTransport: "gateway" },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve("json-basic-code");
+
+      await flowPromise;
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Should have Basic Auth header
+      const expectedCredentials = Buffer.from(
+        "test-client-id:test-client-secret",
+      ).toString("base64");
+      expect(lastTokenRequestHeaders["Authorization"]).toBe(
+        `Basic ${expectedCredentials}`,
+      );
+
+      // Body should be valid JSON without client_id/client_secret
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("authorization_code");
+      expect(parsed.client_id).toBeUndefined();
+      expect(parsed.client_secret).toBeUndefined();
+      expect(parsed.code_verifier).toBeTruthy();
+    });
+  });
+
+  describe("refreshOAuth2Token", () => {
+    test("sends JSON body when tokenExchangeBodyFormat is 'json'", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+        undefined, // tokenEndpointAuthMethod defaults to client_secret_post
+        "json",
+      );
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Body should be valid JSON with refresh_token grant
+      expect(lastTokenRequestRawBody).not.toBeNull();
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("refresh_token");
+      expect(parsed.refresh_token).toBe("test-refresh-token");
+      expect(parsed.client_id).toBe("test-client-id");
+      expect(parsed.client_secret).toBe("test-client-secret");
+
+      // Result should contain the tokens
+      expect(result.accessToken).toBe("test-access-token");
+      expect(result.refreshToken).toBe("test-refresh-token");
+    });
+
+    test("sends form-encoded body by default", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+      );
+
+      // Content-Type should be form-encoded
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe(
+        "application/x-www-form-urlencoded",
+      );
+
+      // Body should be parseable as URLSearchParams
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get("grant_type")).toBe("refresh_token");
+      expect(lastTokenRequestBody!.get("refresh_token")).toBe(
+        "test-refresh-token",
+      );
+      expect(lastTokenRequestBody!.get("client_id")).toBe("test-client-id");
+      expect(lastTokenRequestBody!.get("client_secret")).toBe(
+        "test-client-secret",
+      );
+
+      expect(result.accessToken).toBe("test-access-token");
+    });
+
+    test("JSON body format works with client_secret_basic auth method", async () => {
+      const result = await refreshOAuth2Token(
+        "https://provider.example.com/token",
+        "test-client-id",
+        "test-refresh-token",
+        "test-client-secret",
+        "client_secret_basic",
+        "json",
+      );
+
+      // Content-Type should be application/json
+      expect(lastTokenRequestHeaders["Content-Type"]).toBe("application/json");
+
+      // Should have Basic Auth header
+      const expectedCredentials = Buffer.from(
+        "test-client-id:test-client-secret",
+      ).toString("base64");
+      expect(lastTokenRequestHeaders["Authorization"]).toBe(
+        `Basic ${expectedCredentials}`,
+      );
+
+      // Body should be valid JSON without client_id/client_secret (basic auth puts them in header)
+      expect(lastTokenRequestRawBody).not.toBeNull();
+      const parsed = JSON.parse(lastTokenRequestRawBody!);
+      expect(parsed.grant_type).toBe("refresh_token");
+      expect(parsed.refresh_token).toBe("test-refresh-token");
+      expect(parsed.client_id).toBeUndefined();
+      expect(parsed.client_secret).toBeUndefined();
+
+      expect(result.accessToken).toBe("test-access-token");
     });
   });
 });

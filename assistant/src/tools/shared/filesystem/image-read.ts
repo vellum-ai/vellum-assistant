@@ -61,6 +61,74 @@ function detectMediaType(buf: Buffer): string | null {
   return null;
 }
 
+function buildImageToolResult(
+  buffer: Buffer,
+  sourceLabel: string,
+): ToolExecutionResult {
+  if (buffer.length > MAX_SOURCE_SIZE_BYTES) {
+    const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+    return {
+      content: `Error: image too large (${sizeMB} MB). Maximum source file size is 100 MB.`,
+      isError: true,
+    };
+  }
+
+  // Detect actual format from magic bytes - never trust the file extension
+  // alone, since sips converts to JPEG and files can be misnamed.
+  const detectedType = detectMediaType(buffer);
+  if (!detectedType) {
+    return {
+      content: `Error: could not detect image format for ${sourceLabel}. The file may be corrupt.`,
+      isError: true,
+    };
+  }
+
+  // Optimize before size-checking — oversized images may compress under the limit.
+  const rawBase64 = buffer.toString("base64");
+  const { data: base64Data, mediaType: finalType } = optimizeImageForTransport(
+    rawBase64,
+    detectedType,
+  );
+  const optimized = base64Data !== rawBase64;
+
+  const optimizedBytes = Buffer.from(base64Data, "base64").length;
+  if (optimizedBytes > MAX_SIZE_BYTES) {
+    const sizeMB = (optimizedBytes / (1024 * 1024)).toFixed(1);
+    return {
+      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB even after optimization.`,
+      isError: true,
+    };
+  }
+
+  const imageBlock: ImageContent = {
+    type: "image" as const,
+    source: {
+      type: "base64" as const,
+      media_type: finalType,
+      data: base64Data,
+    },
+  };
+
+  const sizeSuffix = optimized
+    ? ` (optimized from ${(buffer.length / 1024).toFixed(0)} KB to ${(
+        optimizedBytes / 1024
+      ).toFixed(0)} KB)`
+    : "";
+
+  return {
+    content: `Image loaded: ${sourceLabel} (${optimizedBytes} bytes, ${finalType})${sizeSuffix}`,
+    isError: false,
+    contentBlocks: [imageBlock],
+  };
+}
+
+export function readImageBase64(
+  base64Data: string,
+  sourceLabel: string,
+): ToolExecutionResult {
+  return buildImageToolResult(Buffer.from(base64Data, "base64"), sourceLabel);
+}
+
 /**
  * Read an image file from disk, optionally optimize it, and return a
  * ToolExecutionResult with base64-encoded image content blocks.
@@ -98,52 +166,5 @@ export function readImageFile(resolvedPath: string): ToolExecutionResult {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error reading file: ${msg}`, isError: true };
   }
-
-  // Detect actual format from magic bytes - never trust the file extension
-  // alone, since sips converts to JPEG and files can be misnamed.
-  const detectedType = detectMediaType(buffer);
-  if (!detectedType) {
-    return {
-      content: `Error: could not detect image format for ${resolvedPath}. The file may be corrupt.`,
-      isError: true,
-    };
-  }
-
-  // Optimize before size-checking — oversized images may compress under the limit.
-  const rawBase64 = buffer.toString("base64");
-  const { data: base64Data, mediaType: finalType } =
-    optimizeImageForTransport(rawBase64, detectedType);
-  const optimized = base64Data !== rawBase64;
-
-  const optimizedBytes = optimized
-    ? Math.ceil((base64Data.length * 3) / 4)
-    : buffer.length;
-  if (optimizedBytes > MAX_SIZE_BYTES) {
-    const sizeMB = (optimizedBytes / (1024 * 1024)).toFixed(1);
-    return {
-      content: `Error: image too large (${sizeMB} MB). Maximum is 20 MB even after optimization.`,
-      isError: true,
-    };
-  }
-
-  const imageBlock: ImageContent = {
-    type: "image" as const,
-    source: {
-      type: "base64" as const,
-      media_type: finalType,
-      data: base64Data,
-    },
-  };
-
-  const sizeSuffix = optimized
-    ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(
-        optimizedBytes / 1024
-      ).toFixed(0)} KB)`
-    : "";
-
-  return {
-    content: `Image loaded: ${resolvedPath} (${optimizedBytes} bytes, ${finalType})${sizeSuffix}`,
-    isError: false,
-    contentBlocks: [imageBlock],
-  };
+  return buildImageToolResult(buffer, resolvedPath);
 }

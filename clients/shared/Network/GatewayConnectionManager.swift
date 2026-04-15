@@ -46,21 +46,27 @@ public final class GatewayConnectionManager: ObservableObject {
     @Published public var isTrustRulesSheetOpen: Bool = false
     @Published public var currentModel: String?
     @Published public var latestModelInfo: ModelInfoMessage?
-    @Published public var permissionMode: PermissionModeUpdateMessage?
 
     /// Whether the transport has authenticated successfully.
     var isAuthenticated = false
 
     // MARK: - Connection State (internal)
 
+    #if os(macOS)
+    /// Cached snapshot of the active assistant from the lockfile.
+    /// Refreshed on connect, reconfigure, and when the active assistant changes
+    /// externally (e.g. CLI `vellum use`). Reads from this cache replace the
+    /// synchronous `LockfileAssistant.loadAll()` calls that previously blocked
+    /// the main thread on every health check cycle.
+    private var cachedAssistant: LockfileAssistant?
+    private var assistantChangeObserver: NSObjectProtocol?
+    #endif
+
     /// Whether auto-wake should be attempted on disconnect.
     /// Applies to local and Docker assistants (not remote or managed).
     private var isLocal: Bool {
         #if os(macOS)
-        guard let id = LockfileAssistant.loadActiveAssistantId(),
-              let assistant = LockfileAssistant.loadByName(id) else {
-            return false
-        }
+        guard let assistant = cachedAssistant else { return false }
         return (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged
         #else
         return false
@@ -70,11 +76,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Whether the connected assistant is a managed (platform-hosted) assistant.
     private var isManaged: Bool {
         #if os(macOS)
-        guard let id = LockfileAssistant.loadActiveAssistantId(),
-              let assistant = LockfileAssistant.loadByName(id) else {
-            return false
-        }
-        return assistant.isManaged
+        return cachedAssistant?.isManaged ?? false
         #else
         return false
         #endif
@@ -90,11 +92,9 @@ public final class GatewayConnectionManager: ObservableObject {
     /// Number of consecutive successful health checks. Used to suppress
     /// repetitive "Health check passed" logs after the first three passes.
     private var consecutiveHealthCheckSuccesses = 0
-    private let permissionModeClient: any PermissionModeClientProtocol = PermissionModeClient()
-
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
-        isUpdateInProgress = value
+        if value != wasInProgress { isUpdateInProgress = value }
         if value && !wasInProgress {
             outcomeEmittedForCurrentCycle = false
             if healthCheckTask != nil {
@@ -146,6 +146,18 @@ public final class GatewayConnectionManager: ObservableObject {
             // macOS re-reads from disk on each request; no persistence needed here.
             #endif
         }
+
+        #if os(macOS)
+        assistantChangeObserver = NotificationCenter.default.addObserver(
+            forName: LockfileAssistant.activeAssistantDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshCachedAssistant()
+            }
+        }
+        #endif
     }
 
     // MARK: - Connect
@@ -160,6 +172,11 @@ public final class GatewayConnectionManager: ObservableObject {
         reconnectionTask = nil
         #endif
         disconnectInternal(cancelAutoWake: cancelAutoWake)
+
+        #if os(macOS)
+        refreshCachedAssistant()
+        LockfileAssistant.startWatching()
+        #endif
 
         isConnecting = true
 
@@ -255,6 +272,9 @@ public final class GatewayConnectionManager: ObservableObject {
         autoWakeTask?.cancel()
         autoWakeTask = nil
         #endif
+        #if os(macOS)
+        cachedAssistant = nil
+        #endif
         disconnect()
         isAuthenticated = false
         refreshTask?.cancel()
@@ -276,7 +296,6 @@ public final class GatewayConnectionManager: ObservableObject {
         latestMemoryStatus = nil
         currentModel = nil
         latestModelInfo = nil
-        permissionMode = nil
     }
 
     /// Clears the last update outcome after the UI has consumed it.
@@ -288,8 +307,12 @@ public final class GatewayConnectionManager: ObservableObject {
 
     private func performHealthCheck() async throws {
         do {
-            let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-            let healthPath = isManaged ? "assistants/{assistantId}/health" : "health"
+            let healthPath: String
+            #if os(macOS)
+            healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
+            #else
+            healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
+            #endif
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
                 timeout: 10,
@@ -306,14 +329,7 @@ public final class GatewayConnectionManager: ObservableObject {
             if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
                 if let newVersion = decoded.version, newVersion != assistantVersion {
                     assistantVersion = newVersion
-                    #if os(macOS)
-                    if let id = LockfileAssistant.loadActiveAssistantId(), !id.isEmpty {
-                        LockfilePaths.updateServiceGroupVersion(assistantId: id, version: newVersion)
-                    }
-                    #endif
                     handleDaemonVersionChanged(newVersion)
-                } else if let newVersion = decoded.version {
-                    assistantVersion = newVersion
                 }
             }
 
@@ -427,7 +443,7 @@ public final class GatewayConnectionManager: ObservableObject {
     private func handleServerMessage(_ message: ServerMessage) {
         if case .assistantStatus(let status) = message {
             if let version = status.version {
-                assistantVersion = version
+                if version != assistantVersion { assistantVersion = version }
                 checkVersionCompatibility(assistantVersion: version)
                 if self.isUpdateInProgress && !self.outcomeEmittedForCurrentCycle {
                     if let target = self.updateTargetVersion, self.versionsMatch(version, target) {
@@ -448,7 +464,7 @@ public final class GatewayConnectionManager: ObservableObject {
             }
             if let newFingerprint = status.keyFingerprint {
                 let oldFingerprint = keyFingerprint
-                keyFingerprint = newFingerprint
+                if newFingerprint != oldFingerprint { keyFingerprint = newFingerprint }
 
                 if let oldFingerprint, oldFingerprint != newFingerprint {
                     log.info("Assistant key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
@@ -486,8 +502,6 @@ public final class GatewayConnectionManager: ObservableObject {
             latestModelInfo = msg
         case .memoryStatus(let msg):
             latestMemoryStatus = msg
-        case .permissionModeUpdate(let msg):
-            permissionMode = msg
         case .authResult(let result):
             isAuthenticated = result.success
         default:
@@ -498,8 +512,12 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - 401 Recovery
 
     private func handleAuthenticationFailure() {
-        let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-        if isManaged {
+        #if os(macOS)
+        let managedConnection = cachedAssistant?.isManaged ?? false
+        #else
+        let managedConnection = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+        #endif
+        if managedConnection {
             log.warning("401 in managed mode — session token may be expired")
             eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                 conversationId: "",
@@ -704,7 +722,7 @@ public final class GatewayConnectionManager: ObservableObject {
         // Single CLI call replaces direct HTTP calls for broadcast + workspace commit
         Task {
             guard let handler = postSparkleUpdateHandler,
-                  let name = LockfileAssistant.loadActiveAssistantId() else { return }
+                  let name = cachedAssistant?.assistantId ?? LockfileAssistant.loadActiveAssistantId() else { return }
             await handler(name, preUpdateVersion)
         }
     }
@@ -733,32 +751,18 @@ public final class GatewayConnectionManager: ObservableObject {
     private func setConnected(_ connected: Bool) {
         guard isConnected != connected else { return }
         isConnected = connected
-        isConnecting = false
+        if isConnecting { isConnecting = false }
         if connected {
             NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
             #if os(macOS)
             handlePostSparkleUpdate()
             #endif
-            fetchInitialPermissionMode()
         }
         #if os(macOS)
         if !connected {
             autoWakeIfAssistantDied()
         }
         #endif
-    }
-
-    // MARK: - Permission Mode
-
-    /// Fetches the initial permission mode state from the daemon on connection.
-    private func fetchInitialPermissionMode() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if let mode = await permissionModeClient.fetchPermissionMode() {
-                self.permissionMode = mode
-            }
-            // Non-critical — SSE events will sync state once available.
-        }
     }
 
     // MARK: - Errors
@@ -793,11 +797,36 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
 
+    // MARK: - Cached Assistant
+
+    #if os(macOS)
+    /// Synchronously refreshes the cached assistant snapshot from the lockfile.
+    /// Called during connect and when `activeAssistantDidChange` fires.
+    private func refreshCachedAssistant() {
+        let id: String?
+        if let activeId = LockfileAssistant.loadActiveAssistantId(), !activeId.isEmpty {
+            id = activeId
+        } else if let legacyId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !legacyId.isEmpty {
+            id = legacyId
+        } else {
+            id = nil
+        }
+        guard let id else {
+            cachedAssistant = nil
+            return
+        }
+        cachedAssistant = LockfileAssistant.loadByName(id)
+    }
+    #endif
+
     deinit {
         #if os(macOS)
         autoWakeTask?.cancel()
         reconnectionTask?.cancel()
+        if let observer = assistantChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        LockfileAssistant.stopWatching()
         #endif
     }
 }
-

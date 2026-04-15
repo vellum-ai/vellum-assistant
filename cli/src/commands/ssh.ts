@@ -6,6 +6,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
+import { sshAppleContainer } from "./ssh-apple-container";
 
 const SSH_OPTS = [
   "-o",
@@ -79,6 +80,12 @@ export async function ssh(): Promise<void> {
   if (cloud === "aws") {
     console.error("SSH to AWS instances is not yet supported.");
     process.exit(1);
+  }
+
+  // Apple container: connect to the management socket for an interactive shell.
+  if (cloud === "apple-container") {
+    await sshAppleContainer(entry);
+    return;
   }
 
   let child;

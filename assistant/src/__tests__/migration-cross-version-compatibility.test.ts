@@ -834,7 +834,9 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
       expect(sha256Hex(writtenDb)).toBe(sha256Hex(dbData));
 
       const writtenConfig = readFileSync(testConfigPath, "utf8");
-      expect(writtenConfig).toBe('{"model":"test-round-trip"}');
+      expect(writtenConfig).toBe(
+        JSON.stringify({ model: "test-round-trip" }, null, 2) + "\n",
+      );
     }
   });
 

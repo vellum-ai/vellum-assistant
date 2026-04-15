@@ -154,14 +154,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-google-oauth",
-      "scope": "assistant",
-      "key": "managed-google-oauth",
-      "label": "Managed Google OAuth",
-      "description": "Show the Google OAuth service card in Models & Services settings",
-      "defaultEnabled": true
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -178,11 +170,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "settings-integrations-grid",
+      "id": "multi-platform-assistant",
       "scope": "assistant",
-      "key": "settings-integrations-grid",
-      "label": "Integrations Grid",
-      "description": "Show the Integrations grid in Models & Services settings, replacing individual OAuth provider cards",
+      "key": "multi-platform-assistant",
+      "label": "Multi-Platform Assistant Switcher",
+      "description": "Enable the menu-bar assistant switcher for managing multiple platform-hosted assistants (new/switch/retire)",
       "defaultEnabled": false
     },
     {
@@ -296,7 +288,62 @@
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
       "defaultEnabled": false
+    },
+    {
+      "id": "tool-result-truncation",
+      "scope": "assistant",
+      "key": "tool-result-truncation",
+      "label": "Post-Turn Tool Result Truncation",
+      "description": "Truncate large tool results after each assistant turn, persisting full content to disk for on-demand re-reads",
+      "defaultEnabled": true
+    },
+    {
+      "id": "managed-gemini-embeddings-enabled",
+      "scope": "assistant",
+      "key": "managed-gemini-embeddings-enabled",
+      "label": "Managed Gemini Embeddings Enabled",
+      "description": "Route embedding requests through the platform runtime proxy using Vellum-managed Gemini credentials when available",
+      "defaultEnabled": false
+    },
+    {
+      "id": "fork-from-message",
+      "scope": "macos",
+      "key": "fork-from-message",
+      "label": "Fork from Message",
+      "description": "Show the 'Fork from here' option in message overflow menus",
+      "defaultEnabled": false
+    },
+    {
+      "id": "managed-x-oauth-integration",
+      "scope": "assistant",
+      "key": "managed-x-oauth-integration",
+      "label": "Managed X/Twitter OAuth",
+      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "onboarding-pre-chat",
+      "scope": "macos",
+      "key": "onboarding-pre-chat",
+      "label": "Pre-Chat Onboarding Flow",
+      "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
+      "defaultEnabled": false
+    },
+    {
+      "id": "home-tab",
+      "scope": "macos",
+      "key": "home-tab",
+      "label": "Home Tab",
+      "description": "Replace the knowledge graph top-level tab with a new Home page showing relationship progression, facts, and capability tiers",
+      "defaultEnabled": false
+    },
+    {
+      "id": "channel-avatar-sync",
+      "scope": "assistant",
+      "key": "channel-avatar-sync",
+      "label": "Channel Avatar Sync",
+      "description": "Automatically sync the assistant's avatar to connected channels (Slack) when the avatar changes or a new channel is connected",
+      "defaultEnabled": true
     }
   ]
 }
-

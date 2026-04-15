@@ -268,6 +268,7 @@ public final class MainWindow {
     let usageDashboardStore: UsageDashboardStore
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
+    private let assistantFeatureFlagStore: AssistantFeatureFlagStore
     var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
     let updateManager: UpdateManager
@@ -295,6 +296,9 @@ public final class MainWindow {
 
     /// Tracks daemon reconnects so trace state can be reset on stream restart.
     private var connectionCancellable: AnyCancellable?
+    /// Tracks changes to `SettingsStore.userTimezone` so the usage dashboard
+    /// re-fetches with the new timezone when the user changes it in settings.
+    private var userTimezoneCancellable: AnyCancellable?
     private var layoutObserver: NSObjectProtocol?
     private var defaultTrafficLightOrigin: NSPoint?
     private var hasConnectedOnce = false
@@ -309,15 +313,24 @@ public final class MainWindow {
         conversationManager.activeViewModel
     }
 
-    init(services: AppServices, updateManager: UpdateManager, isFirstLaunch: Bool = false) {
+    init(
+        services: AppServices,
+        updateManager: UpdateManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore,
+        isFirstLaunch: Bool = false,
+        preChatContext: PreChatOnboardingContext? = nil
+    ) {
         self.services = services
         self.updateManager = updateManager
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
-            isFirstLaunch: isFirstLaunch
+            isFirstLaunch: isFirstLaunch,
+            preChatContext: preChatContext
         )
         self.usageDashboardStore = UsageDashboardStore()
+        self.usageDashboardStore.updateTimezone(services.settingsStore.userTimezone)
         self.conversationManager.ambientAgent = services.ambientAgent
         documentManager.connectionManager = connectionManager
         Task { @MainActor [weak self] in
@@ -334,6 +347,19 @@ public final class MainWindow {
             }
         }
         observeDaemonReconnects()
+        observeUserTimezoneChanges()
+    }
+
+    /// Keep `UsageDashboardStore.resolvedTimezone` in sync with the user's
+    /// configured timezone in Settings. When the user updates or clears the
+    /// setting, the store resets and re-fetches on the next render.
+    private func observeUserTimezoneChanges() {
+        userTimezoneCancellable = services.settingsStore.$userTimezone
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] newIdentifier in
+                self?.usageDashboardStore.updateTimezone(newIdentifier)
+            }
     }
 
     /// Reset trace state when the daemon reconnects after a disconnect.
@@ -434,7 +460,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Skill
 /// Covers listing, enabling, disabling, configuring, installing, uninstalling,
 /// updating, searching, drafting, and creating skills.
 public protocol SkillsClientProtocol {
-    func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
+    func fetchSkillsList(includeCatalog: Bool, origin: String?, kind: String?, query: String?, category: String?) async -> SkillsListResponseMessage?
     func enableSkill(name: String) async -> SkillOperationResult?
     func disableSkill(name: String) async -> SkillOperationResult?
     func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillOperationResult?
@@ -21,6 +21,7 @@ public protocol SkillsClientProtocol {
     func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, overwrite: Bool?) async -> SkillOperationResult?
     func fetchSkillDetail(skillId: String) async -> SkillDetailHTTPResponse?
     func fetchSkillFiles(skillId: String) async -> SkillDetailFilesHTTPResponse?
+    func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse?
 }
 
 /// Gateway-backed implementation of ``SkillsClientProtocol``.
@@ -38,11 +39,16 @@ public struct SkillsClient: SkillsClientProtocol {
         value.addingPercentEncoding(withAllowedCharacters: pathComponentAllowed) ?? value
     }
 
-    public func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage? {
+    public func fetchSkillsList(includeCatalog: Bool, origin: String? = nil, kind: String? = nil, query: String? = nil, category: String? = nil) async -> SkillsListResponseMessage? {
         do {
-            let params: [String: String]? = includeCatalog ? ["include": "catalog"] : nil
+            var params: [String: String] = [:]
+            if includeCatalog { params["include"] = "catalog" }
+            if let origin { params["origin"] = origin }
+            if let kind { params["kind"] = kind }
+            if let query, !query.isEmpty { params["q"] = query }
+            if let category { params["category"] = category }
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills", params: params, timeout: 10
+                path: "assistants/{assistantId}/skills", params: params.isEmpty ? nil : params, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchSkillsList failed (HTTP \(response.statusCode))")
@@ -130,7 +136,7 @@ public struct SkillsClient: SkillsClientProtocol {
             if let version { body["version"] = version }
 
             let response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/skills/install", json: body, timeout: 10
+                path: "assistants/{assistantId}/skills/install", json: body, timeout: 120
             )
             guard response.isSuccess else {
                 log.error("installSkill failed (HTTP \(response.statusCode))")
@@ -139,7 +145,9 @@ public struct SkillsClient: SkillsClientProtocol {
                     error: extractErrorMessage(from: response.data)
                 )
             }
-            return SkillOperationResult(success: true)
+            let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+            let skillId = json?["skillId"] as? String
+            return SkillOperationResult(success: true, skillId: skillId)
         } catch {
             log.error("installSkill error: \(error.localizedDescription)")
             return SkillOperationResult(success: false, error: error.localizedDescription)
@@ -290,8 +298,12 @@ public struct SkillsClient: SkillsClientProtocol {
                 return nil
             }
             return try JSONDecoder().decode(SkillDetailHTTPResponse.self, from: skillData)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
         } catch {
-            log.error("fetchSkillDetail error: \(error.localizedDescription)")
+            log.error("fetchSkillDetail error: \(error, privacy: .public)")
             return nil
         }
     }
@@ -306,8 +318,34 @@ public struct SkillsClient: SkillsClientProtocol {
                 return nil
             }
             return try JSONDecoder().decode(SkillDetailFilesHTTPResponse.self, from: response.data)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
         } catch {
-            log.error("fetchSkillFiles error: \(error.localizedDescription)")
+            log.error("fetchSkillFiles error: \(error, privacy: .public)")
+            return nil
+        }
+    }
+
+    public func fetchSkillFileContent(skillId: String, path: String) async -> SkillFileContentResponse? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/skills/\(Self.encodePath(skillId))/files/content",
+                params: ["path": path],
+                timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("fetchSkillFileContent failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(SkillFileContentResponse.self, from: response.data)
+        } catch is CancellationError {
+            return nil
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return nil
+        } catch {
+            log.error("fetchSkillFileContent error: \(error, privacy: .public)")
             return nil
         }
     }

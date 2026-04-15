@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getOllamaBaseUrlEnv } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
+import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
@@ -64,6 +67,16 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
         );
       }
       throw err;
+    }
+  }
+
+  dispose(): void {
+    this.delegate?.dispose?.();
+  }
+
+  resetForRetry(): void {
+    if (!this.delegate) {
+      this.initPromise = null;
     }
   }
 
@@ -176,10 +189,30 @@ function putInVectorCache(
 
 /** Clear cached embedding backends and the in-memory vector cache. */
 export function clearEmbeddingBackendCache(): void {
+  for (const backend of new Set(backendCache.values())) {
+    try {
+      backend.dispose?.();
+    } catch (err) {
+      log.warn(
+        { err, provider: backend.provider, model: backend.model },
+        "Failed to dispose embedding backend during cache clear",
+      );
+    }
+  }
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
   localBackendBroken = false;
+}
+
+/** Reset the sticky local-backend failure flag without evicting live backends. */
+export function resetLocalEmbeddingFailureState(): void {
+  localBackendBroken = false;
+  for (const backend of new Set(backendCache.values())) {
+    if (backend instanceof LazyLocalEmbeddingBackend) {
+      backend.resetForRetry();
+    }
+  }
 }
 
 function cacheKey(provider: string, model: string, extras?: string[]): string {
@@ -243,6 +276,7 @@ export interface EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]>;
+  dispose?(): void;
 }
 
 export interface EmbeddingBackendSelection {
@@ -278,6 +312,44 @@ export async function selectEmbeddingBackend(
       ),
       reason: null,
     };
+  }
+
+  // When the managed-gemini-embeddings-enabled flag is on AND managed proxy
+  // prerequisites are satisfied, insert managed-proxy Gemini at the front of
+  // the auto chain so platform assistants use Vellum-managed Gemini embeddings.
+  if (
+    (requested === "auto" || requested === "gemini") &&
+    isAssistantFeatureFlagEnabled("managed-gemini-embeddings-enabled", config)
+  ) {
+    const proxyCtx = await resolveManagedProxyContext();
+    if (proxyCtx.enabled) {
+      const meta = MANAGED_PROVIDER_META["gemini"];
+      if (meta?.managed && meta.proxyPath) {
+        const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
+        const managedModel = config.memory.embeddings.geminiModel;
+        const managedDimensions =
+          config.memory.embeddings.geminiDimensions ?? 3072;
+        const extras = geminiCacheExtras(config);
+        return {
+          backend: getCachedOrCreate(
+            "gemini",
+            managedModel,
+            () =>
+              new GeminiEmbeddingBackend(
+                proxyCtx.assistantApiKey,
+                managedModel,
+                {
+                  taskType: config.memory.embeddings.geminiTaskType,
+                  dimensions: managedDimensions,
+                  managedBaseUrl,
+                },
+              ),
+            [...extras, "managed"],
+          ),
+          reason: null,
+        };
+      }
+    }
   }
 
   // Auto order: local → openai → gemini → ollama
@@ -329,11 +401,18 @@ export async function selectEmbeddingBackend(
       case "gemini": {
         const geminiKey = await getProviderKeyAsync("gemini");
         if (!geminiKey) {
-          const cached = getCached(
-            "gemini",
-            config.memory.embeddings.geminiModel,
-            geminiCacheExtras(config),
-          );
+          // Check managed cache variant first so a warm managed backend
+          // survives transient proxy-context blips, then non-managed.
+          const cached =
+            getCached("gemini", config.memory.embeddings.geminiModel, [
+              ...geminiCacheExtras(config),
+              "managed",
+            ]) ??
+            getCached(
+              "gemini",
+              config.memory.embeddings.geminiModel,
+              geminiCacheExtras(config),
+            );
           if (cached) return { backend: cached, reason: null };
           continue;
         }
@@ -614,6 +693,53 @@ async function selectFallbackBackends(
               geminiCacheExtras(config),
             ),
           );
+        } else if (
+          isAssistantFeatureFlagEnabled(
+            "managed-gemini-embeddings-enabled",
+            config,
+          )
+        ) {
+          // Try managed proxy Gemini as fallback when no direct key exists.
+          const proxyCtx = await resolveManagedProxyContext();
+          const meta = MANAGED_PROVIDER_META["gemini"];
+          if (proxyCtx.enabled && meta?.managed && meta.proxyPath) {
+            const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
+            const managedModel = config.memory.embeddings.geminiModel;
+            const managedDimensions =
+              config.memory.embeddings.geminiDimensions ?? 3072;
+            const extras = geminiCacheExtras(config);
+            backends.push(
+              getCachedOrCreate(
+                "gemini",
+                managedModel,
+                () =>
+                  new GeminiEmbeddingBackend(
+                    proxyCtx.assistantApiKey,
+                    managedModel,
+                    {
+                      taskType: config.memory.embeddings.geminiTaskType,
+                      dimensions: managedDimensions,
+                      managedBaseUrl,
+                    },
+                  ),
+                [...extras, "managed"],
+              ),
+            );
+          } else {
+            // Check managed cache variant first, then non-managed, so a warm
+            // managed backend survives transient proxy-context blips.
+            const cached =
+              getCached("gemini", config.memory.embeddings.geminiModel, [
+                ...geminiCacheExtras(config),
+                "managed",
+              ]) ??
+              getCached(
+                "gemini",
+                config.memory.embeddings.geminiModel,
+                geminiCacheExtras(config),
+              );
+            if (cached) backends.push(cached);
+          }
         } else {
           // Preserve cached backend on transient credential-store failures.
           const cached = getCached(

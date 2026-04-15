@@ -36,13 +36,12 @@ public final class ToolConfirmationNotificationService {
             trigger: nil
         )
 
-        do {
-            try await UNUserNotificationCenter.current().add(request)
-            log.info("Posted tool confirmation notification: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
-        } catch {
+        if let error = await UNUserNotificationCenter.current().safeAdd(request) {
             log.error("Failed to post notification: \(error.localizedDescription)")
             return Self.inlineHandledSentinel
         }
+
+        log.info("Posted tool confirmation notification: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
 
         // If a continuation already exists for this requestId (e.g. daemon re-sent
         // the request), resume it with "deny" to avoid a leaked continuation crash.

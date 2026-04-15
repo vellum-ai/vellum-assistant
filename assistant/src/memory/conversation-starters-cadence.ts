@@ -37,7 +37,8 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
     .from(memoryCheckpoints)
     .where(eq(memoryCheckpoints.key, checkpointKey))
     .get();
-  const lastCount = checkpoint ? parseInt(checkpoint.value, 10) : 0;
+  const parsedLastCount = checkpoint ? parseInt(checkpoint.value, 10) : 0;
+  const lastCount = Number.isFinite(parsedLastCount) ? parsedLastCount : 0;
 
   // Cadence formula
   let threshold: number;
@@ -49,8 +50,9 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
     threshold = 10;
   }
 
+  const checkpointAhead = totalActive < lastCount;
   const delta = Math.max(0, totalActive - lastCount);
-  if (delta < threshold) return;
+  if (!checkpointAhead && delta < threshold) return;
 
   // Dedup: don't enqueue if a pending/running job for this scope already exists
   const existing = db
@@ -68,7 +70,7 @@ export function maybeEnqueueConversationStartersJob(scopeId: string): void {
 
   enqueueMemoryJob("generate_conversation_starters", { scopeId });
   log.info(
-    { totalActive, lastCount, delta, threshold, scopeId },
+    { totalActive, lastCount, delta, threshold, scopeId, checkpointAhead },
     "Enqueued conversation starters generation job",
   );
 }

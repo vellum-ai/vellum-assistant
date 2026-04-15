@@ -1,6 +1,11 @@
 // Conversation lifecycle, auth, model config, and history types.
 
-import type { ChannelId, InterfaceId } from "../../channels/types.js";
+import type {
+  ChannelId,
+  HostProxyInterfaceId,
+  InterfaceId,
+} from "../../channels/types.js";
+import { supportsHostProxy } from "../../channels/types.js";
 import type { ConversationType } from "./shared.js";
 import type { UserMessageAttachment } from "./shared.js";
 
@@ -26,26 +31,61 @@ interface BaseTransportMetadata {
   chatType?: string;
 }
 
-/** Transport metadata for macOS desktop clients, including host environment fields. */
-export interface MacosTransportMetadata extends BaseTransportMetadata {
-  /** Interface identifier for macOS transport. */
-  interfaceId: "macos";
-  /** Home directory of the host macOS user. */
+/**
+ * Transport metadata for interfaces that support the full desktop host-proxy
+ * set (see `HostProxyInterfaceId` / `supportsHostProxy`). Carries the host
+ * environment fields the client reports so the `<workspace>` block renders
+ * the user's actual machine rather than a containerized daemon's own OS.
+ *
+ * Today this variant is populated only by the macOS client, but the shape
+ * is capability-keyed (not interface-name-keyed) so future host-capable
+ * clients (e.g. a native Linux or Windows desktop) get the same treatment
+ * automatically when added to `HostProxyInterfaceId`.
+ */
+export interface HostProxyTransportMetadata extends BaseTransportMetadata {
+  /** Interface identifier — restricted to interfaces that support host proxies. */
+  interfaceId: HostProxyInterfaceId;
+  /** Home directory of the user on the host machine (e.g. `NSHomeDirectory()`). */
   hostHomeDir?: string;
-  /** Username of the host macOS user. */
+  /** Username of the user on the host machine (e.g. `NSUserName()`). */
   hostUsername?: string;
 }
 
-/** Transport metadata for non-macOS transports. */
-export interface NonMacosTransportMetadata extends BaseTransportMetadata {
+/**
+ * Transport metadata for interfaces that do NOT support host-proxy tools
+ * (iOS, CLI, channel ingress, chrome-extension, etc.). No host environment
+ * because the assistant has no local filesystem to address on the client.
+ */
+export interface NonHostProxyTransportMetadata extends BaseTransportMetadata {
   /** Interface identifier for this transport (e.g. "ios", "cli"). */
-  interfaceId?: Exclude<InterfaceId, "macos">;
+  interfaceId?: Exclude<InterfaceId, HostProxyInterfaceId>;
 }
 
-/** Lightweight conversation transport metadata for channel identity and natural-language guidance. */
+/**
+ * Discriminated union of transport metadata variants, keyed on whether the
+ * interface supports host-proxy tools (`supportsHostProxy`). The daemon uses
+ * that same predicate at runtime to decide whether to populate / read host
+ * environment fields on the conversation, so the type system and the runtime
+ * gate stay in lock-step as new host-capable interfaces are added.
+ */
 export type ConversationTransportMetadata =
-  | MacosTransportMetadata
-  | NonMacosTransportMetadata;
+  | HostProxyTransportMetadata
+  | NonHostProxyTransportMetadata;
+
+/**
+ * Type guard: does this transport belong to an interface that supports the
+ * full host-proxy set? Wraps `supportsHostProxy` so the capability logic
+ * stays in one place (channels/types.ts) and narrows the discriminated
+ * union to `HostProxyTransportMetadata` for safe field access.
+ */
+export function isHostProxyTransport(
+  transport: ConversationTransportMetadata,
+): transport is HostProxyTransportMetadata {
+  return (
+    transport.interfaceId !== undefined &&
+    supportsHostProxy(transport.interfaceId)
+  );
+}
 
 export interface ConversationCreateRequest {
   type: "conversation_create";
@@ -171,6 +211,7 @@ export interface ConversationInfo {
   title: string;
   correlationId?: string;
   conversationType?: ConversationType;
+  hostAccess: boolean;
 }
 
 export interface ConversationTitleUpdated {
@@ -212,6 +253,7 @@ export interface ConversationListResponse {
     updatedAt: number;
     conversationType?: ConversationType;
     source?: string;
+    hostAccess: boolean;
     scheduleJobId?: string;
     channelBinding?: ChannelBinding;
     conversationOriginChannel?: ChannelId;
@@ -427,6 +469,23 @@ export interface ScheduleConversationCreated {
   title: string;
 }
 
+/**
+ * Server push — instructs the client to open and focus a conversation. If
+ * the conversation isn't already present in the client's sidebar list (e.g.
+ * it was just created via `POST /v1/conversations`), the client should stub
+ * a sidebar entry using the provided `title` before navigating.
+ */
+export interface OpenConversation {
+  type: "open_conversation";
+  conversationId: string;
+  /** Optional conversation title; supplied when the client may not yet have the conversation in its list. */
+  title?: string;
+  /** Optional message ID to scroll to after focus. */
+  anchorMessageId?: string;
+  /** When `false`, the client should register the conversation in its sidebar (so it's visible and navigable) but must NOT switch focus to it. Omitting the field defaults to `true` for backward compatibility with existing single-target 'jump to conversation' callers. */
+  focus?: boolean;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ConversationsClientMessages =
@@ -465,4 +524,5 @@ export type _ConversationsServerMessages =
   | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
-  | ScheduleConversationCreated;
+  | ScheduleConversationCreated
+  | OpenConversation;

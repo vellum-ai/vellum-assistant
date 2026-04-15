@@ -21,6 +21,7 @@ struct AppsGridView: View {
     @State private var showShareSheet = false
     @State private var isBundling = false
     @State private var menuOpenAppId: String?
+    @State private var appToDelete: AppListManager.AppItem?
 
     // Shared apps fetched from daemon
     @State private var sharedApps: [SharedAppItem] = []
@@ -63,6 +64,24 @@ struct AppsGridView: View {
             localAppsTask = nil
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
+        }
+        .alert("Delete App?", isPresented: Binding(
+            get: { appToDelete != nil },
+            set: { if !$0 { appToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { appToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let app = appToDelete {
+                    Task { await AppsClient().deleteApp(id: app.id) }
+                    appListManager.removeApp(id: app.id)
+                    AppPreviewImageStore.remove(appId: app.id)
+                    appToDelete = nil
+                }
+            }
+        } message: {
+            if let app = appToDelete {
+                Text("Are you sure you want to delete \"\(app.name)\"? This action cannot be undone.")
+            }
         }
         .sheet(item: $editingApp) { app in
             AppIconPickerSheet(
@@ -141,7 +160,6 @@ struct AppsGridView: View {
 
     private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
-        let appIcon = resolvedIcon(for: app)
         let rawPreview = app.previewBase64 ?? previewCache[app.id]
         let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
@@ -179,7 +197,7 @@ struct AppsGridView: View {
                         ZStack {
                             VColor.surfaceBase
 
-                            VIconView(appIcon, size: 32)
+                            VIconView(.puzzle, size: 32)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
@@ -222,9 +240,7 @@ struct AppsGridView: View {
                                         VMenuDivider()
                                         VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
                                             hoveredAppId = nil
-                                            Task { await AppsClient().deleteApp(id: app.id) }
-                                            appListManager.removeApp(id: app.id)
-                                            AppPreviewImageStore.remove(appId: app.id)
+                                            appToDelete = app
                                         }
                                     }
                                 } onDismiss: {
@@ -296,9 +312,7 @@ struct AppsGridView: View {
             VMenuDivider()
             VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
                 hoveredAppId = nil
-                Task { await AppsClient().deleteApp(id: app.id) }
-                appListManager.removeApp(id: app.id)
-                AppPreviewImageStore.remove(appId: app.id)
+                appToDelete = app
             }
         }
         .accessibilityLabel(app.name)
@@ -471,14 +485,15 @@ struct AppsGridView: View {
         localAppsTask?.cancel()
         localAppsTask = Task { @MainActor in
             let response = await AppsClient().fetchAppsList()
-            if let response, response.success {
+            if let response, response.success || !response.apps.isEmpty {
                 let daemonItems = response.apps.map {
                     AppListManager.AppItem_Daemon(
                         id: $0.id, name: $0.name, description: $0.description,
                         icon: $0.icon, appType: nil, createdAt: $0.createdAt
                     )
                 }
-                appListManager.syncFromDaemon(daemonItems)
+                // Partial decode: sync add/update but skip pruning
+                appListManager.syncFromDaemon(daemonItems, skipPrune: !response.success)
             }
             hasFetchedLocalApps = true
         }

@@ -43,8 +43,6 @@ function isRateLimitedRoute(url: URL): boolean {
     url.pathname === "/deliver/slack" ||
     url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
-    (url.pathname.startsWith("/v1/") &&
-      url.pathname !== "/v1/browser-relay" &&
-      url.pathname !== "/v1/browser-relay/token")
+    (url.pathname.startsWith("/v1/") && url.pathname !== "/v1/browser-relay")
   );
 }

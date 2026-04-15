@@ -17,15 +17,18 @@ export function pruneOldLlmRequestLogsJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): void {
+  const rawRetention = job.payload.retentionMs;
   const retentionMs =
-    typeof job.payload.retentionMs === "number" &&
-    Number.isFinite(job.payload.retentionMs) &&
-    job.payload.retentionMs >= 0
-      ? job.payload.retentionMs
-      : config.memory.cleanup.llmRequestLogRetentionMs;
+    rawRetention === null
+      ? null
+      : typeof rawRetention === "number" &&
+          Number.isFinite(rawRetention) &&
+          rawRetention >= 0
+        ? rawRetention
+        : config.memory.cleanup.llmRequestLogRetentionMs;
 
-  // 0 means disabled
-  if (retentionMs === 0) return;
+  // null means "keep forever" — skip pruning entirely
+  if (retentionMs === null || retentionMs === undefined) return;
 
   const cutoffMs = Date.now() - retentionMs;
 

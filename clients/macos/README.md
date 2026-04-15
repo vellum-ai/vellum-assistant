@@ -52,7 +52,7 @@ For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
 
 To install the pre-built macOS app, download the signed and notarized DMG:
 
-**[Download Vellum.dmg](https://github.com/vellum-ai/velly/releases/latest/download/vellum-assistant.dmg)**
+**[Download Vellum.dmg](https://github.com/vellum-ai/vellum-assistant/releases/latest/download/vellum-assistant.dmg)**
 
 1. Open the DMG and drag **Vellum.app** to your Applications folder
 2. Launch Vellum — macOS may prompt "are you sure?" on first launch (click Open)
@@ -62,7 +62,7 @@ The app includes **Sparkle auto-update** — after the initial install, updates 
 
 > **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
 
-All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
+All releases are available at [github.com/vellum-ai/vellum-assistant/releases](https://github.com/vellum-ai/vellum-assistant/releases).
 
 ---
 
@@ -70,13 +70,13 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 
 ### Local Mode
 - macOS 15.0 (Sequoia) or later
-- Xcode 15+ (for building from source)
+- Xcode 26+ (for building from source)
 - Anthropic API key
 - Local daemon running (`vellum wake`)
 
 ### Managed Mode
 - macOS 15.0 (Sequoia) or later
-- Xcode 15+ (for building from source)
+- Xcode 26+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
 - No API key or local daemon required
 
@@ -132,6 +132,7 @@ The build script uses incremental compilation and caching:
 - Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
+- The first app build downloads and caches the Kata 3.17.0 ARM64 kernel in `clients/macos/.container-cache/`, then bundles it into `Vellum.app/Contents/Resources/DeveloperVM/`
 
 ### First-Time Setup: Code Signing (Optional but Recommended)
 

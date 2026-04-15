@@ -114,6 +114,30 @@ export class MessageQueue {
     return item;
   }
 
+  /**
+   * Read-only access to a queued message by index without mutating the queue.
+   * Returns `undefined` when the index is out of range.
+   */
+  peek(index: number = 0): QueuedMessage | undefined {
+    return this.items[index];
+  }
+
+  /**
+   * Pop up to `count` messages FIFO and return them in order.
+   * Decrements the byte budget for each popped item using the same
+   * accounting as `shift` / `removeByRequestId`, keeping the bookkeeping
+   * centralized here rather than at call sites.
+   */
+  shiftN(count: number): QueuedMessage[] {
+    const n = Math.min(Math.max(0, count), this.items.length);
+    if (n === 0) return [];
+    const removed = this.items.splice(0, n);
+    for (const item of removed) {
+      this.currentBytes -= estimateItemBytes(item);
+    }
+    return removed;
+  }
+
   clear(): void {
     this.items = [];
     this.currentBytes = 0;

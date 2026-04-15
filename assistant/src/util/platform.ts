@@ -185,6 +185,18 @@ export function getPidPath(): string {
   return join(vellumRoot(), "vellum.pid");
 }
 
+/**
+ * Returns the path to the runtime HTTP port file (~/.vellum/runtime-port).
+ * The daemon writes its active HTTP port here on startup so thin helpers
+ * that need to reach the runtime (e.g. the chrome-extension native messaging
+ * helper) can locate a non-default `RUNTIME_HTTP_PORT` without a manifest
+ * change. Root-level path by design — the file is read by helpers that may
+ * not know the workspace override path.
+ */
+export function getRuntimePortFilePath(): string {
+  return join(vellumRoot(), "runtime-port");
+}
+
 export function getDbPath(): string {
   return join(getDataDir(), "db", "assistant.db");
 }
@@ -311,7 +323,7 @@ export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");
 }
 
-/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
+/** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
@@ -371,6 +383,7 @@ export function ensureDataDir(): void {
     join(wsData, "memory"),
     join(wsData, "memory", "knowledge"),
     join(wsData, "apps"),
+    join(wsData, "attachments"),
     join(wsData, "interfaces"),
     join(wsData, "sounds"),
   ];

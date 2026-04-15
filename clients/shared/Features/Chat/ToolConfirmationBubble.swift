@@ -69,6 +69,19 @@ public struct ToolConfirmationBubble: View {
 
     /// Label shown in the collapsed state after a decision is made.
     private var collapsedLabel: String {
+        if confirmation.isConversationHostAccessPrompt {
+            switch confirmation.state {
+            case .approved:
+                return "Computer access enabled for this conversation"
+            case .denied:
+                return "Computer access not enabled for this conversation"
+            case .timedOut:
+                return "Timed out"
+            case .pending:
+                return ""
+            }
+        }
+
         switch confirmation.state {
         case .approved:
             switch confirmation.approvedDecision {
@@ -190,7 +203,6 @@ public struct ToolConfirmationBubble: View {
             }
         }
         .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.primaryBase.opacity(0.08))
@@ -257,7 +269,6 @@ public struct ToolConfirmationBubble: View {
             .clipped()
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
@@ -319,12 +330,10 @@ public struct ToolConfirmationBubble: View {
             Text(content)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
         .adaptiveScrollFrame(for: content, maxHeight: maxHeight, lineThreshold: Int(maxHeight / 16))
         .padding(VSpacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.surfaceOverlay)
@@ -374,7 +383,6 @@ public struct ToolConfirmationBubble: View {
                     } else {
                         VDiffView(computedDiff, maxHeight: 260)
                             .padding(VSpacing.sm)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
                                     .fill(VColor.surfaceOverlay)
@@ -424,6 +432,10 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var primaryAllowLabel: String {
+        if confirmation.isConversationHostAccessPrompt {
+            return "Enable computer access"
+        }
+
         switch effectivePrimaryAction {
         case "allow_10m": return "Allow for 10 minutes"
         case "allow_conversation": return "Allow for this conversation"

@@ -22,10 +22,16 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import {
+  derefToolResultReReads,
+  postTurnTruncateToolResults,
+} from "../context/post-turn-tool-result-truncation.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
+import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import { getHookManager } from "../hooks/manager.js";
 import {
   clearSentryConversationContext,
@@ -39,11 +45,14 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
+  getLastUserTimestampBefore,
+  getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
   updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
@@ -61,6 +70,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
+import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
@@ -231,6 +241,7 @@ export interface AgentLoopConversationContext {
     data: SurfaceData;
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
+    persistent?: boolean;
   }>;
 
   workingDir: string;
@@ -243,6 +254,8 @@ export interface AgentLoopConversationContext {
   currentTurnChannelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
+  /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
+  taskRunId?: string;
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
@@ -770,14 +783,35 @@ export async function runAgentLoopImpl(
     const isGuardian =
       resolvedInboundActorContext?.trustClass === "guardian" ||
       !resolvedInboundActorContext;
+
+    // Surface long gaps between user messages so the model can acknowledge
+    // the absence naturally. Gated at >12h to avoid noisy injection during
+    // normal back-and-forth turns.
+    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+    let timeSinceLastMessage: string | null = null;
+    const currentUserMessage = getMessageById(userMessageId);
+    if (currentUserMessage) {
+      const prevUserTs = getLastUserTimestampBefore(
+        ctx.conversationId,
+        currentUserMessage.createdAt,
+      );
+      if (
+        prevUserTs > 0 &&
+        currentUserMessage.createdAt - prevUserTs > TWELVE_HOURS_MS
+      ) {
+        timeSinceLastMessage = timeAgo(prevUserTs);
+      }
+    }
+
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian
-        ? { timestamp, interfaceName, channelName }
+        ? { timestamp, interfaceName, channelName, timeSinceLastMessage }
         : {
             timestamp,
             interfaceName,
             channelName,
             actorContext: resolvedInboundActorContext,
+            timeSinceLastMessage,
           },
     );
 
@@ -942,8 +976,12 @@ export async function runAgentLoopImpl(
         // value from injectionOpts to avoid duplicate injection.
         runMessages = applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          ...(step.compactionResult?.compacted && { pkbContext: currentPkbContent }),
-          ...(step.compactionResult?.compacted && { nowScratchpad: currentNowContent }),
+          ...(step.compactionResult?.compacted && {
+            pkbContext: currentPkbContent,
+          }),
+          ...(step.compactionResult?.compacted && {
+            nowScratchpad: currentNowContent,
+          }),
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
@@ -1742,7 +1780,39 @@ export async function runAgentLoopImpl(
       // would create a duplicate plain-text bubble below the alert card.
     }
 
-    const restoredHistory = [...preRepairMessages, ...newMessages];
+    let restoredHistory = [...preRepairMessages, ...newMessages];
+
+    // Post-turn tool result truncation: save large results to disk and
+    // replace in-context content with a prefix/suffix stub + file pointer.
+    if (isAssistantFeatureFlagEnabled("tool-result-truncation", config)) {
+      try {
+        const conv = getConversation(ctx.conversationId);
+        if (conv) {
+          const convDir = getResolvedConversationDirPath(
+            ctx.conversationId,
+            conv.createdAt,
+          );
+          const { messages: derefMessages, dereferencedCount } =
+            derefToolResultReReads(restoredHistory);
+          const { messages: truncatedMessages, truncatedCount } =
+            postTurnTruncateToolResults(derefMessages, {
+              conversationDir: convDir,
+            });
+          if (truncatedCount > 0 || dereferencedCount > 0) {
+            rlog.info(
+              { truncatedCount, dereferencedCount },
+              "Post-turn tool result truncation applied",
+            );
+          }
+          restoredHistory = truncatedMessages;
+        }
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Post-turn tool result truncation failed (non-fatal)",
+        );
+      }
+    }
 
     const postLoopContextEstimate = estimatePromptTokens(
       restoredHistory,
@@ -1989,6 +2059,12 @@ export async function runAgentLoopImpl(
 
       // Commit app changes (fire-and-forget — apps repo is separate from workspace)
       void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
+
+      // Recompute relationship-state.json at turn boundary (fire-and-forget).
+      // The writer swallows its own errors, but we still guard with catch()
+      // here so a regression in the writer can never bubble out of the
+      // agent loop and reject an otherwise-complete turn.
+      void writeRelationshipState().catch(() => {});
     }
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
@@ -2004,6 +2080,10 @@ export async function runAgentLoopImpl(
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;
+    // taskRunId scopes ephemeral task-run permissions to a single turn. Clear
+    // before drainQueue so queued/drained turns on a reused conversation can't
+    // inherit stale in-task-run scope from the turn that just finished.
+    ctx.taskRunId = undefined;
 
     // Consolidation deferred to compaction: keeping assistant + tool_result
     // messages unconsolidated preserves the exact message structure sent to

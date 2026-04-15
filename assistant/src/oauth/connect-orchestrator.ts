@@ -209,6 +209,8 @@ export async function orchestrateOAuthConnect(
     authorizeParams,
     userinfoUrl,
     tokenEndpointAuthMethod,
+    tokenExchangeBodyFormat:
+      (providerRow.tokenExchangeBodyFormat as "form" | "json") ?? "form",
   };
 
   const storageParams = {

@@ -28,10 +28,13 @@ export const SAFE_ENV_VARS = [
   "GPG_TTY",
   "GNUPGHOME",
   "VELLUM_DEV",
+  "VELLUM_DEBUG",
+  "VELLUM_ENVIRONMENT",
   "VELLUM_WORKSPACE_DIR",
   "CES_BOOTSTRAP_SOCKET_DIR",
   "GATEWAY_INTERNAL_URL",
   "VELLUM_PLATFORM_URL",
+  "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_DOCS_BASE_URL",
   "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
@@ -44,6 +47,9 @@ export const SAFE_ENV_VARS = [
   "VELLUM_PROFILER_MAX_RUNS",
   "VELLUM_PROFILER_MIN_FREE_MB",
   "VELLUM_MEMORY_LIMIT",
+  "VELLUM_CPU_LIMIT",
+  "VELLUM_BACKUP_DIR",
+  "VELLUM_BACKUP_KEY_PATH",
 ] as const;
 
 /**
@@ -75,7 +81,10 @@ export function buildSanitizedEnv(): Record<string, string> {
   env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
   // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
   // arrows, etc.) survive piping through tools like pbcopy without corruption.
-  if (!env.LANG) env.LANG = "C.UTF-8";
-  if (!env.LC_ALL) env.LC_ALL = "C.UTF-8";
+  // macOS (Darwin) does not provide C.UTF-8, so use en_US.UTF-8 there.
+  const utf8Locale =
+    process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+  if (!env.LANG) env.LANG = utf8Locale;
+  if (!env.LC_ALL) env.LC_ALL = utf8Locale;
   return env;
 }

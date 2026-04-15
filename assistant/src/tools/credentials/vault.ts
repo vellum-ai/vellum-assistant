@@ -1,5 +1,6 @@
 import { getConfig } from "../../config/loader.js";
 import {
+  clearSlackUserToken,
   setSlackChannelConfig,
   type SlackChannelConfigResult,
 } from "../../daemon/handlers/config-slack-channel.js";
@@ -37,20 +38,26 @@ const log = getLogger("credential-vault");
 function isSlackChannelCredential(
   service: string,
   field: string,
-): field is "bot_token" | "app_token" {
+): field is "bot_token" | "app_token" | "user_token" {
   return (
     service === "slack_channel" &&
-    (field === "bot_token" || field === "app_token")
+    (field === "bot_token" ||
+      field === "app_token" ||
+      field === "user_token")
   );
 }
 
 async function storeSlackChannelCredential(
-  field: "bot_token" | "app_token",
+  field: "bot_token" | "app_token" | "user_token",
   value: string,
 ): Promise<SlackChannelConfigResult> {
-  return field === "bot_token"
-    ? setSlackChannelConfig(value, undefined)
-    : setSlackChannelConfig(undefined, value);
+  if (field === "bot_token") {
+    return setSlackChannelConfig(value, undefined);
+  }
+  if (field === "app_token") {
+    return setSlackChannelConfig(undefined, value);
+  }
+  return setSlackChannelConfig(undefined, undefined, value);
 }
 
 function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
@@ -454,6 +461,28 @@ class CredentialStoreTool implements Tool {
             content:
               "Error: credential metadata file has an unrecognized version; cannot delete credentials",
             isError: true,
+          };
+        }
+
+        // Surgical delete for the Slack user_token: it grants read-only access
+        // to channels the bot isn't a member of, but the Socket Mode connection
+        // is powered by the bot + app tokens. Tearing down the oauth_connection
+        // row when only user_token is removed would flap the integration's
+        // connected state until the next sync. Keep bot+app teardown behavior
+        // unchanged — those tokens are what the connection depends on.
+        if (service === "slack_channel" && field === "user_token") {
+          const slackResult = await clearSlackUserToken();
+          if (!slackResult.success) {
+            return {
+              content: `Error: ${
+                slackResult.error ?? "failed to delete Slack user token"
+              }`,
+              isError: true,
+            };
+          }
+          return {
+            content: `Deleted credential for ${service}/${field}.`,
+            isError: false,
           };
         }
 

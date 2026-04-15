@@ -3,61 +3,14 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
 
-// MARK: - Module-private constants (nonisolated by default)
-// These live outside the @MainActor class so nonisolated static functions
-// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
-// into @MainActor isolation — which is an error in Swift 6 language mode.
-private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
-private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
-private let _defaultBaseURL: String = {
-    #if DEBUG && os(macOS)
-    return "http://localhost:8000"
-    #else
-    return "https://platform.vellum.ai"
-    #endif
-}()
-
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
 
-    public var baseURL: String {
-        Self.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
-    }
+    /// UserDefaults key for the connected organization ID.
+    public static let connectedOrganizationIdKey = "connectedOrganizationId"
 
     private init() {}
-
-    /// Pure URL resolution logic — safe to call from any isolation context.
-    /// All inputs are value types; no mutable shared state is accessed.
-    ///
-    /// Resolution order:
-    /// 1. `VELLUM_PLATFORM_URL` environment variable
-    /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
-    /// 3. Build-time default (`http://localhost:8000` for DEBUG, `https://platform.vellum.ai` for RELEASE)
-    nonisolated static func resolveBaseURL(
-        environment: [String: String],
-        userDefaults: UserDefaults
-    ) -> String {
-        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
-            return override
-        }
-        #if DEBUG
-        // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
-            return override
-        }
-        #endif
-        return _defaultBaseURL
-    }
-
-    nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        return normalized.isEmpty ? nil : normalized
-    }
 
     private struct AuthRequestConfig {
         let path: String
@@ -176,7 +129,7 @@ public final class AuthService {
 
     /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
     public func getOrganizations() async throws -> [PlatformOrganization] {
-        let urlString = "\(baseURL)/v1/organizations/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -221,6 +174,49 @@ public final class AuthService {
         }
     }
 
+    public enum OrganizationResolutionError: LocalizedError, Sendable {
+        case noOrganizations
+        case multipleOrganizations
+
+        public var errorDescription: String? {
+            switch self {
+            case .noOrganizations:
+                return "No organizations found for this account"
+            case .multipleOrganizations:
+                return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+            }
+        }
+    }
+
+    /// Resolve the caller's organization ID, persisting it under
+    /// `connectedOrganizationId` in UserDefaults for synchronous readers.
+    ///
+    /// A persisted value is re-validated against the current org list on
+    /// every call so stale cross-environment IDs don't leak through.
+    @discardableResult
+    public func resolveOrganizationId() async throws -> String {
+        let orgs = try await getOrganizations()
+        let persistedOrgId = UserDefaults.standard.string(forKey: Self.connectedOrganizationIdKey)
+        if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
+            log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
+            return persistedOrgId
+        }
+        if persistedOrgId != nil {
+            log.warning("Persisted organization ID not found in user's orgs — re-resolving")
+        }
+        switch orgs.count {
+        case 0:
+            throw OrganizationResolutionError.noOrganizations
+        case 1:
+            let orgId = orgs[0].id
+            UserDefaults.standard.set(orgId, forKey: Self.connectedOrganizationIdKey)
+            log.info("Resolved organization: \(orgId, privacy: .public)")
+            return orgId
+        default:
+            throw OrganizationResolutionError.multipleOrganizations
+        }
+    }
+
     // MARK: - Platform Request Helper
 
     /// Raw result of a platform HTTP request — status code + body data.
@@ -229,6 +225,28 @@ public final class AuthService {
     private struct PlatformResponse {
         let data: Data
         let statusCode: Int
+
+        func decode<T: Decodable>(_ type: T.Type) throws -> T {
+            switch statusCode {
+            case 401:
+                throw PlatformAPIError.authenticationRequired
+            case 403:
+                throw PlatformAPIError.accessDenied(detail: "Access denied")
+            case 404:
+                throw PlatformAPIError.notFound
+            case 200..<300:
+                do {
+                    return try JSONDecoder().decode(type, from: data)
+                } catch {
+                    throw PlatformAPIError.decodingError(error.localizedDescription)
+                }
+            default:
+                throw PlatformAPIError.serverError(
+                    statusCode: statusCode,
+                    detail: String(data: data, encoding: .utf8)
+                )
+            }
+        }
     }
 
     /// Dispatch an authenticated platform API request and return the raw
@@ -246,7 +264,7 @@ public final class AuthService {
         body: Data? = nil,
         timeoutInterval: TimeInterval? = nil
     ) async throws -> PlatformResponse {
-        let urlString = "\(baseURL)/\(path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/\(path)"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -286,14 +304,14 @@ public final class AuthService {
 
     // MARK: - Platform Assistant API
 
-    /// Retrieve a specific managed assistant by ID.
-    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
-        let response = try await performPlatformRequest(
-            path: "v1/assistants/\(id)/",
-            method: "GET",
-            organizationId: organizationId
-        )
-
+    /// Map a platform assistant `GET` response into a `PlatformAssistantResult`.
+    ///
+    /// Shared by single-assistant lookup endpoints (`getAssistant`,
+    /// `getActiveAssistant`) that all use the same `.found` / `.notFound` /
+    /// `.accessDenied` status-code contract.
+    private func decodeAssistantResult(
+        _ response: PlatformResponse
+    ) throws -> PlatformAssistantResult {
         switch response.statusCode {
         case 404:
             return .notFound
@@ -315,38 +333,44 @@ public final class AuthService {
         }
     }
 
+    /// Retrieve a specific managed assistant by ID.
+    public func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try decodeAssistantResult(response)
+    }
+
+    /// Retrieve the user's currently active managed assistant.
+    public func getActiveAssistant(organizationId: String) async throws -> PlatformAssistantResult {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/active/",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try decodeAssistantResult(response)
+    }
+
     /// List managed assistants visible to the caller in the given organization.
     ///
-    /// Used by the multi-assistant bootstrap flow to discover existing assistants
-    /// when a previously-connected assistant ID is no longer found (404). The
-    /// platform caps each org at 5 managed assistants, which always fits in a
-    /// single page, so pagination is not needed. Callers assume the platform
-    /// returns newest-first and take `results.first`.
+    /// The backend already scopes the response to platform (cloud-hosted)
+    /// assistants — self-hosted-local assistants are excluded by a hardcoded
+    /// filter in the queryset — so no additional query parameter is needed.
+    ///
+    /// Used by the managed bootstrap flow to discover existing platform
+    /// assistants before falling through to hatch. The platform caps each org
+    /// at 5 managed assistants, which always fits in a single page, so
+    /// pagination is not needed. Callers assume the platform returns
+    /// newest-first and take `results.first`.
     public func listAssistants(organizationId: String) async throws -> [PlatformAssistant] {
         let response = try await performPlatformRequest(
             path: "v1/assistants/",
             method: "GET",
             organizationId: organizationId
         )
-
-        switch response.statusCode {
-        case 401:
-            throw PlatformAPIError.authenticationRequired
-        case 403:
-            throw PlatformAPIError.accessDenied(detail: "Access denied")
-        case 200..<300:
-            do {
-                let paginated = try JSONDecoder().decode(PaginatedPlatformAssistantsResponse.self, from: response.data)
-                return paginated.results
-            } catch {
-                throw PlatformAPIError.decodingError(error.localizedDescription)
-            }
-        default:
-            throw PlatformAPIError.serverError(
-                statusCode: response.statusCode,
-                detail: String(data: response.data, encoding: .utf8)
-            )
-        }
+        return try response.decode(PaginatedPlatformAssistantsResponse.self).results
     }
 
     /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
@@ -406,6 +430,26 @@ public final class AuthService {
         return response.statusCode == 200 ? .reusedExisting(assistant) : .createdNew(assistant)
     }
 
+    @discardableResult
+    public func updateAssistant(
+        id: String,
+        organizationId: String,
+        name: String? = nil,
+        description: String? = nil
+    ) async throws -> PlatformAssistant {
+        var fields: [String: String] = [:]
+        if let name { fields["name"] = name }
+        if let description { fields["description"] = description }
+
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/",
+            method: "PATCH",
+            organizationId: organizationId,
+            body: try JSONEncoder().encode(fields)
+        )
+        return try response.decode(PlatformAssistant.self)
+    }
+
     // MARK: - Recovery Mode
 
     /// Enter recovery mode for a managed assistant.
@@ -457,7 +501,7 @@ public final class AuthService {
         assistantId: String,
         organizationId: String
     ) async throws {
-        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/\(path)/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(assistantId)/\(path)/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -529,7 +573,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/ensure-registration/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -592,7 +636,7 @@ public final class AuthService {
         clientPlatform: String,
         assistantVersion: String? = nil
     ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
-        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -644,6 +688,61 @@ public final class AuthService {
             return try JSONDecoder().decode(ReprovisionSelfHostedLocalApiKeyResponse.self, from: data)
         } catch {
             throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Retire (deregister) a self-hosted local assistant from the platform.
+    ///
+    /// Calls `DELETE /v1/assistants/{platformAssistantId}/retire/` to remove the
+    /// platform-side registration created by `ensureSelfHostedLocalRegistration`.
+    public func retireSelfHostedLocalAssistant(
+        platformAssistantId: String,
+        organizationId: String
+    ) async throws {
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/assistants/\(platformAssistantId)/retire/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+        urlRequest.timeoutInterval = 15
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request DELETE assistants/\(platformAssistantId, privacy: .public)/retire/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        // 404 is acceptable — the registration may have already been removed.
+        if statusCode == 404 {
+            log.info("Platform assistant \(platformAssistantId, privacy: .public) not found — already deregistered")
+            return
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
         }
     }
 
@@ -704,7 +803,7 @@ public final class AuthService {
         requestConfig: AuthRequestConfig,
         includeSessionToken: Bool
     ) async throws -> AuthAttemptResult {
-        let urlString = "\(baseURL)/_allauth/app/v1/\(requestConfig.path)"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
             throw AuthServiceError.invalidURL
         }

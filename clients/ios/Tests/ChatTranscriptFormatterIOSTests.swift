@@ -133,6 +133,41 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
         XCTAssertFalse(result.contains("### User\n"), "Should not contain default 'User' participant name")
     }
 
+    // MARK: - Queued message filtering
+
+    func testConversationMarkdownExcludesQueuedUserMessages() {
+        let messages = [
+            ChatMessage(role: .user, text: "Sent question", status: .sent),
+            ChatMessage(role: .assistant, text: "Answer"),
+            ChatMessage(role: .user, text: "Queued follow-up", status: .queued(position: 0)),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: nil,
+            participantNames: names
+        )
+
+        XCTAssertTrue(result.contains("Sent question"))
+        XCTAssertTrue(result.contains("Answer"))
+        XCTAssertFalse(result.contains("Queued follow-up"))
+    }
+
+    func testConversationMarkdownReturnsEmptyWhenAllUserMessagesQueued() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending one", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Pending two", status: .queued(position: 1)),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: "Drafts",
+            participantNames: names
+        )
+
+        XCTAssertEqual(result, "")
+    }
+
     // MARK: - messagePlainText
 
     func testMessagePlainTextReturnsTrimmedText() {

@@ -3,78 +3,12 @@ import VellumAssistantShared
 #if os(macOS)
 import AppKit
 
-// MARK: - Emoji Navigation
-
-enum EmojiNavigation {
-    case up, down, select, tab, dismiss
-}
-
 // MARK: - Emoji Picker Logic (ComposerView extension)
 
 extension ComposerView {
 
-    /// Walks backward from `cursorPosition` through `inputText` to find an
-    /// unmatched `:` followed by 2+ alphanumeric/underscore characters.
-    /// Returns nil if no valid trigger is found.
-    func emojiTriggerRange() -> (colonIndex: String.Index, filter: String)? {
-        guard !showSlashMenu else { return nil }
-        guard cursorPosition > 0, cursorPosition <= inputText.utf16.count else { return nil }
-
-        let cursorIdx = String.Index(utf16Offset: cursorPosition, in: inputText)
-        var idx = cursorIdx
-
-        // Walk backward looking for the triggering `:`
-        while idx > inputText.startIndex {
-            idx = inputText.index(before: idx)
-            let ch = inputText[idx]
-
-            if ch == ":" {
-                // Found the colon — extract the filter between colon and cursor
-                let afterColon = inputText.index(after: idx)
-                let filter = String(inputText[afterColon..<cursorIdx])
-
-                // Must have at least 2 characters after the colon
-                guard filter.count >= 2 else { return nil }
-
-                return (colonIndex: idx, filter: filter)
-            }
-
-            // Only allow alphanumeric characters and underscores between `:` and cursor
-            if ch.isWhitespace || (!ch.isLetter && !ch.isNumber && ch != "_") {
-                return nil
-            }
-        }
-
-        return nil
-    }
-
-    func updateEmojiState() {
-        if suppressEmojiReopen {
-            suppressEmojiReopen = false
-            return
-        }
-        if let trigger = emojiTriggerRange() {
-            let results = EmojiCatalog.search(query: trigger.filter)
-            if !results.isEmpty {
-                withAnimation(VAnimation.fast) { showEmojiMenu = true }
-                if emojiFilter != trigger.filter {
-                    emojiSelectedIndex = 0
-                }
-                emojiFilter = trigger.filter
-            } else {
-                withAnimation(VAnimation.fast) { showEmojiMenu = false }
-            }
-        } else {
-            withAnimation(VAnimation.fast) { showEmojiMenu = false }
-        }
-    }
-
-    func filteredEmoji(_ filter: String) -> [EmojiEntry] {
-        EmojiCatalog.search(query: filter, limit: 8)
-    }
-
     func selectEmoji(_ entry: EmojiEntry) {
-        guard let trigger = emojiTriggerRange() else { return }
+        guard let trigger = composerController.emojiTriggerRange() else { return }
 
         let colonOffset = trigger.colonIndex.utf16Offset(in: inputText)
         let cursorUtf16 = cursorPosition
@@ -83,28 +17,7 @@ extension ComposerView {
 
         textReplacer.replaceText?(nsRange, entry.emoji)
 
-        withAnimation(VAnimation.fast) { showEmojiMenu = false }
-        emojiSelectedIndex = 0
-    }
-
-    func handleEmojiNavigation(_ action: EmojiNavigation) {
-        if showEmojiMenu {
-            let filtered = filteredEmoji(emojiFilter)
-            guard !filtered.isEmpty else { return }
-            switch action {
-            case .up:
-                emojiSelectedIndex = (emojiSelectedIndex - 1 + filtered.count) % filtered.count
-            case .down:
-                emojiSelectedIndex = (emojiSelectedIndex + 1) % filtered.count
-            case .select:
-                selectEmoji(filtered[emojiSelectedIndex])
-            case .tab:
-                selectEmoji(filtered[emojiSelectedIndex])
-            case .dismiss:
-                withAnimation(VAnimation.fast) { showEmojiMenu = false }
-                suppressEmojiReopen = true
-            }
-        }
+        composerController.closeEmojiMenu()
     }
 }
 

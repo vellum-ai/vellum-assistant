@@ -5,7 +5,7 @@ import Foundation
 /// Abstraction for fetching usage data, decoupled from the full GatewayConnectionManager.
 public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
-    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse?
+    func fetchUsageDaily(from: Int, to: Int, granularity: String, tz: String) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
 }
 
@@ -29,9 +29,10 @@ public struct UsageClient: UsageClientProtocol {
         return result?.0
     }
 
-    public func fetchUsageDaily(from: Int, to: Int, granularity: String = "daily") async -> UsageDailyResponse? {
+    public func fetchUsageDaily(from: Int, to: Int, granularity: String = "daily", tz: String) async -> UsageDailyResponse? {
+        let encodedTz = tz.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? tz
         let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)", timeout: 10
+            path: "assistants/{assistantId}/usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)&tz=\(encodedTz)", timeout: 10
         )
         return result?.0
     }
@@ -55,11 +56,17 @@ public enum UsageTimeRange: String, CaseIterable, Sendable {
     case last90Days = "Last 90 Days"
 
     /// Compute the epoch-millisecond `from` and `to` bounds for this range.
-    /// `to` is always the current instant; `from` is midnight UTC of the starting day.
-    public func epochMillisRange(now: Date = Date()) -> (from: Int, to: Int) {
+    /// `to` is always the current instant; `from` is midnight in `timeZone` of
+    /// the starting day. The timezone parameter controls where the range
+    /// anchors — e.g. "Today" means midnight in the user's local timezone, not
+    /// midnight UTC.
+    public func epochMillisRange(
+        now: Date = Date(),
+        timeZone: TimeZone = .current
+    ) -> (from: Int, to: Int) {
         let to = Int(now.timeIntervalSince1970 * 1000)
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.timeZone = timeZone
         let startOfToday = calendar.startOfDay(for: now)
 
         let startDate: Date
@@ -165,6 +172,16 @@ public final class UsageDashboardStore {
     /// Whether the current daily data uses hourly granularity (true when range is "Today").
     public var isHourlyGranularity: Bool { selectedRange == .today }
 
+    /// IANA identifier of the timezone used for bucket boundaries and labels.
+    /// Defaults to the system timezone; callers override via `updateTimezone`
+    /// when the user sets an explicit `ui.userTimezone`.
+    public private(set) var resolvedTimezoneIdentifier: String = TimeZone.current.identifier
+
+    /// The resolved `TimeZone` that matches `resolvedTimezoneIdentifier`.
+    public var resolvedTimezone: TimeZone {
+        TimeZone(identifier: resolvedTimezoneIdentifier) ?? .current
+    }
+
     // MARK: - Dependencies
 
     private var client: any UsageClientProtocol = UsageClient()
@@ -180,6 +197,18 @@ public final class UsageDashboardStore {
     public func updateClient(_ newClient: any UsageClientProtocol) {
         client = newClient
         reset()
+    }
+
+    /// Update the effective timezone used for range calculation and bucket
+    /// labels. If `identifier` is nil or unrecognized, falls back to
+    /// `TimeZone.current`. Resets any loaded data so the next refresh
+    /// re-fetches with the new timezone.
+    public func updateTimezone(_ identifier: String?) {
+        let resolved = identifier.flatMap { TimeZone(identifier: $0) } ?? .current
+        if resolved.identifier != resolvedTimezoneIdentifier {
+            resolvedTimezoneIdentifier = resolved.identifier
+            reset()
+        }
     }
 
     /// Reset all loaded data so the next `refresh()` re-fetches.
@@ -208,7 +237,9 @@ public final class UsageDashboardStore {
         breakdownGeneration &+= 1
         let capturedBreakdownGen = breakdownGeneration
 
-        let range = selectedRange.epochMillisRange()
+        let tz = resolvedTimezone
+        let tzIdentifier = resolvedTimezoneIdentifier
+        let range = selectedRange.epochMillisRange(timeZone: tz)
 
         totalsState = .loading
         dailyState = .loading
@@ -216,7 +247,9 @@ public final class UsageDashboardStore {
 
         let granularity = isHourlyGranularity ? "hourly" : "daily"
         async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
-        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to, granularity: granularity)
+        async let dailyResult = client.fetchUsageDaily(
+            from: range.from, to: range.to, granularity: granularity, tz: tzIdentifier
+        )
         async let breakdownResult = client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
         )
@@ -260,7 +293,7 @@ public final class UsageDashboardStore {
         breakdownGeneration &+= 1
         let capturedGeneration = breakdownGeneration
 
-        let range = selectedRange.epochMillisRange()
+        let range = selectedRange.epochMillisRange(timeZone: resolvedTimezone)
         breakdownState = .loading
 
         let result = await client.fetchUsageBreakdown(

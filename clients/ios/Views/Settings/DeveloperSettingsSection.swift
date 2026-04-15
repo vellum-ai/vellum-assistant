@@ -9,6 +9,7 @@ import VellumAssistantShared
 /// the version label 7 times.
 struct DeveloperSettingsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
+    @ObservedObject var conversationStore: IOSConversationStore
 
     var body: some View {
         // Forward clientProvider.traceStore into a child view that holds it as
@@ -16,7 +17,8 @@ struct DeveloperSettingsSection: View {
         // (keeps counts and the Clear button's enabled state live).
         DeveloperSettingsSectionContent(
             clientProvider: clientProvider,
-            traceStore: clientProvider.traceStore
+            traceStore: clientProvider.traceStore,
+            conversationStore: conversationStore
         )
     }
 }
@@ -24,6 +26,7 @@ struct DeveloperSettingsSection: View {
 private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
     @ObservedObject var traceStore: TraceStore
+    @ObservedObject var conversationStore: IOSConversationStore
     @State private var showDebugPanel = false
     @State private var showUsageDashboard = false
     // Captured once when the sheet opens so the panel stays on the same conversation
@@ -34,9 +37,16 @@ private struct DeveloperSettingsSectionContent: View {
     // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
     @State private var usageDashboardStore: UsageDashboardStore
 
-    init(clientProvider: ClientProvider, traceStore: TraceStore) {
+    // Assistant picker state
+    @State private var availableAssistants: [PlatformAssistant] = []
+    @State private var selectedAssistantId: String = ""
+    @State private var isLoadingAssistants = false
+    @State private var assistantLoadError: String?
+
+    init(clientProvider: ClientProvider, traceStore: TraceStore, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
         self.traceStore = traceStore
+        self.conversationStore = conversationStore
         _usageDashboardStore = State(initialValue: UsageDashboardStore())
     }
 
@@ -50,6 +60,8 @@ private struct DeveloperSettingsSectionContent: View {
 
     var body: some View {
         Form {
+            assistantSection
+
             Section("Trace Store") {
                 LabeledContent("Conversations with events", value: "\(conversationCount)")
                 LabeledContent("Total events", value: "\(totalEventCount)")
@@ -82,6 +94,46 @@ private struct DeveloperSettingsSectionContent: View {
             Section("Connection") {
                 LabeledContent("Status", value: clientProvider.isConnected ? "Connected" : "Disconnected")
             }
+
+            Section("Connection Diagnostics") {
+                let diag = GatewayHTTPClient.connectionDiagnostics()
+                Text(diag)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+
+                // Detailed prerequisite breakdown so the developer can see
+                // exactly which piece is present vs missing.
+                let hasSessionToken = SessionTokenManager.getToken() != nil
+                let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+                let managedId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId)
+                let managedURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL)
+                let gatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL)
+
+                LabeledContent("Session Token", value: hasSessionToken ? "Present" : "Missing")
+                    .foregroundStyle(hasSessionToken ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Organization ID", value: orgId ?? "Missing")
+                    .foregroundStyle(orgId != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Managed Assistant ID", value: managedId ?? "Missing")
+                    .foregroundStyle(managedId != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Managed Platform URL", value: managedURL ?? "Missing")
+                    .foregroundStyle(managedURL != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Gateway Base URL", value: gatewayURL ?? "Missing")
+                    .foregroundStyle(gatewayURL != nil ? VColor.contentDefault : VColor.systemNegativeStrong)
+                LabeledContent("Resolved Platform URL", value: VellumEnvironment.resolvedPlatformURL)
+                LabeledContent("Environment", value: "\(VellumEnvironment.current)")
+
+                if let fetchError = conversationStore.lastFetchError {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Last Fetch Error")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                        Text(fetchError)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
         }
         .navigationTitle("Developer")
         .navigationBarTitleDisplayMode(.inline)
@@ -98,6 +150,102 @@ private struct DeveloperSettingsSectionContent: View {
         .onChange(of: clientProvider.clientGeneration) {
             usageDashboardStore.reset()
         }
+        .task {
+            await loadAssistants()
+        }
+    }
+
+    // MARK: - Assistant Picker
+
+    @ViewBuilder
+    private var assistantSection: some View {
+        if isLoadingAssistants {
+            Section("Assistant") {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading assistants…")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+            }
+        } else if let error = assistantLoadError {
+            Section("Assistant") {
+                Text(error)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                Button("Retry") {
+                    Task { await loadAssistants() }
+                }
+            }
+        } else if availableAssistants.count > 1 {
+            Section("Assistant") {
+                Picker("Active Assistant", selection: $selectedAssistantId) {
+                    ForEach(availableAssistants, id: \.id) { assistant in
+                        Text(assistant.name ?? assistant.id)
+                            .tag(assistant.id)
+                    }
+                }
+                .onChange(of: selectedAssistantId) { _, newId in
+                    switchAssistant(to: newId)
+                }
+
+                if let active = availableAssistants.first(where: { $0.id == selectedAssistantId }) {
+                    assistantDetailRows(active)
+                }
+            }
+        } else if let sole = availableAssistants.first {
+            Section("Assistant") {
+                LabeledContent("Name", value: sole.name ?? sole.id)
+                assistantDetailRows(sole)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func assistantDetailRows(_ assistant: PlatformAssistant) -> some View {
+        LabeledContent("ID", value: assistant.id)
+            .font(.system(.caption, design: .monospaced))
+            .textSelection(.enabled)
+        if let status = assistant.status {
+            LabeledContent("Status", value: status)
+        }
+    }
+
+    private func loadAssistants() async {
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !orgId.isEmpty else {
+            return
+        }
+
+        isLoadingAssistants = true
+        assistantLoadError = nil
+
+        do {
+            let assistants = try await AuthService.shared.listAssistants(organizationId: orgId)
+            availableAssistants = assistants
+            let currentId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId) ?? ""
+            if assistants.contains(where: { $0.id == currentId }) {
+                selectedAssistantId = currentId
+            } else if let first = assistants.first {
+                selectedAssistantId = first.id
+                switchAssistant(to: first.id)
+            }
+        } catch is CancellationError {
+            // .task cancelled during navigation — not a user-visible error
+        } catch {
+            assistantLoadError = error.localizedDescription
+        }
+
+        isLoadingAssistants = false
+    }
+
+    private func switchAssistant(to assistantId: String) {
+        let currentId = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId) ?? ""
+        guard assistantId != currentId, !assistantId.isEmpty else { return }
+
+        UserDefaults.standard.set(assistantId, forKey: UserDefaultsKeys.managedAssistantId)
+        clientProvider.rebuildClient()
     }
 }
 #endif

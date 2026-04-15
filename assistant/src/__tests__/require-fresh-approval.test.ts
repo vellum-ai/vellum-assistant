@@ -108,16 +108,20 @@ mock.module("../permissions/checker.js", () => ({
 
 mock.module("../memory/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
+  getRecentInvocations: () => [],
+  rotateToolInvocations: () => 0,
 }));
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
     if (name === "unknown_tool") return undefined;
+    const isGmailTool = name.startsWith("gmail_");
     return {
       name,
       description: "test tool",
-      category: "credential-execution",
+      category: isGmailTool ? "gmail" : "credential-execution",
       defaultRiskLevel: "high",
+      executionTarget: isGmailTool ? ("host" as const) : undefined,
       getDefinition: () => ({}),
       execute: async () => fakeToolResult,
     };
@@ -255,6 +259,41 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     );
 
     expect(result.isError).toBe(false);
+  });
+
+  test("medium-risk gmail archive is auto-approved in non-interactive guardian sessions", async () => {
+    riskOverride = RiskLevel.Medium;
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Needs approval",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "gmail_archive",
+      { query: "in:inbox", confidence: 0.92 },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    expect(result.isError).toBe(false);
+  });
+
+  test("high-risk gmail send_draft is denied in non-interactive guardian sessions", async () => {
+    riskOverride = RiskLevel.High;
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Needs approval",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "gmail_send_draft",
+      { draft_id: "draft-123", confidence: 0.99 },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("requires user approval");
   });
 
   test("low-risk tools are still auto-approved in non-interactive guardian sessions", async () => {

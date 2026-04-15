@@ -7,21 +7,27 @@ const mockListProviders = mock(() => [
     description: "Google OAuth provider",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/google",
     requiresClientSecret: 1,
     managedServiceConfigKey: "google-oauth",
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenExchangeUrl: "https://oauth2.googleapis.com/token",
-    tokenEndpointAuthMethod: null,
+    refreshUrl: null,
+    tokenEndpointAuthMethod: "client_secret_post",
+    tokenExchangeBodyFormat: "form",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "[]",
+    scopeSeparator: null,
     authorizeParams: null,
 
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     loopbackPort: null,
     injectionTemplates: null,
     appType: null,
@@ -43,21 +49,27 @@ const mockListProviders = mock(() => [
     description: "GitHub OAuth provider",
     dashboardUrl: "https://github.com/settings/developers",
     clientIdPlaceholder: null,
+    logoUrl: null,
     requiresClientSecret: 1,
     managedServiceConfigKey: null,
     authorizeUrl: "https://github.com/login/oauth/authorize",
     tokenExchangeUrl: "https://github.com/login/oauth/access_token",
-    tokenEndpointAuthMethod: null,
+    refreshUrl: null,
+    tokenEndpointAuthMethod: "client_secret_post",
+    tokenExchangeBodyFormat: "form",
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
     scopePolicy: "[]",
+    scopeSeparator: null,
     authorizeParams: null,
 
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,
     pingBody: null,
+    revokeUrl: null,
+    revokeBodyTemplate: null,
     loopbackPort: null,
     injectionTemplates: null,
     appType: null,
@@ -149,6 +161,7 @@ describe("GET /v1/oauth/providers", () => {
       "dashboard_url",
       "client_id_placeholder",
       "requires_client_secret",
+      "logo_url",
       "supports_managed_mode",
       "feature_flag",
     ];
@@ -156,6 +169,31 @@ describe("GET /v1/oauth/providers", () => {
     for (const provider of body.providers) {
       expect(Object.keys(provider).sort()).toEqual(expectedKeys.sort());
     }
+  });
+
+  test("response includes logo_url for each provider", async () => {
+    const req = new Request("http://localhost/v1/oauth/providers");
+    const url = new URL(req.url);
+    const res = await getRoute("GET", "oauth/providers").handler({
+      req,
+      url,
+      server: null as never,
+      authContext: null as never,
+      params: {},
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      providers: Array<{
+        provider_key: string;
+        logo_url: string | null;
+      }>;
+    };
+
+    expect(body.providers[0]!.logo_url).toBe(
+      "https://cdn.simpleicons.org/google",
+    );
+    expect(body.providers[1]!.logo_url).toBeNull();
   });
 
   test("supports_managed_mode=true returns only managed providers", async () => {

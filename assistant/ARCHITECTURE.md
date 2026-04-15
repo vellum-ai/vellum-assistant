@@ -7,7 +7,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Transport metadata arrives via `conversation_create.transport` (HTTP) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
 - Telegram webhook ingress injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer dashboard-only UI tasks cleanly.
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies per-channel first-time fast-path onboarding.
-- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture) from playbook + transport context.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, `users/<slug>.md` persona capture) from playbook + transport context.
 - Conversation runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 - Permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
@@ -335,9 +335,9 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 | Endpoint                                | Method | Description                                                                                                                                          |
 | --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`) |
-| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }`                                                                   |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata                                                                     |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                  |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. Surgical user-token-only deletion is exposed internally via `clearSlackUserToken` (used by the credential vault) but is not reachable through this HTTP endpoint. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
@@ -345,12 +345,17 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 Both tokens are stored in the secure key store (CES credential store with encrypted file fallback):
 
-| Secure key                           | Content                                                                    |
-| ------------------------------------ | -------------------------------------------------------------------------- |
-| `credential/slack_channel/bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
-| `credential/slack_channel/app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
+| Secure key                            | Content                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `credential/slack_channel/bot_token`  | Slack bot token (used for `chat.postMessage` and `auth.test`)                                                                                         |
+| `credential/slack_channel/app_token`  | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`)                                                                            |
+| `credential/slack_channel/user_token` | Optional. Slack user OAuth token (`xoxp-...`). Enables reading channels and DMs the bot isn't a member of (for triage). Never used for writes. |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
+
+**Read/write auth split:** The Slack adapter (`src/messaging/providers/slack/adapter.ts`) caches read and write auth separately. Reads (`listConversations`, `getHistory`, replies, search, `users.info`) prefer the user token when present via `getReadAuth()` — giving visibility into channels and DMs the bot hasn't been invited to. Writes (`postMessage`, `markRead`, and any future state-changing calls) always use the bot token via `getWriteAuth()` so posts come from the bot identity, never the user's. When no user token is stored, reads fall back to the bot token (unchanged legacy behavior).
+
+**Workspace-consistency invariant:** The user token and bot token must be for the same Slack workspace. `setSlackChannelConfig` enforces this by calling `auth.test` on each token and comparing the returned `team_id`; if the user token's workspace does not match an already-stored bot token's workspace, the user token is rejected and not stored.
 
 **Token validation via `auth.test`:**
 
@@ -581,6 +586,167 @@ All guardian decisions for voice access requests flow through:
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
 | `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
 | `src/memory/canonical-guardian-store.ts`       | Canonical request persistence and CAS resolution                                       |
+
+### Speech-to-Text (STT) Boundaries
+
+Audio-to-text conversion occurs in five distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block is the single source of truth for STT provider selection across both daemon and telephony boundaries.
+
+**Provider catalog model:** The daemon's canonical provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the single source of truth for STT provider metadata — credential mappings, supported boundaries, telephony mode, and conversation streaming mode. The client-facing catalog (`meta/stt-provider-catalog.json`) carries display metadata (names, hints, setup mode, `conversationStreamingMode`) and is bundled into native apps at build time. A CI parity test (`src/__tests__/stt-catalog-parity.test.ts`) enforces that provider IDs, ordering, and credential-provider name mappings stay aligned between the two catalogs. To add a new provider, follow the checklist in `docs/stt-provider-onboarding.md`.
+
+**Boundary overview:**
+
+| Boundary                     | Runtime                                                                       | Provider (current)                             | Adapter module                                                                                                                               | Caller                                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                         | `src/calls/twilio-routes.ts`                                                                         |
+| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                        | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| **Conversation streaming**   | Daemon process (WebSocket/incremental-batch)                                  | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
+| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                 | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                           | Fallback when STT service is unconfigured or fails                                                   |
+
+**Telephony boundary (hybrid routing):**
+
+Telephony STT uses a provider-conditional hybrid model driven by `services.stt.provider`. The routing resolver (`src/calls/telephony-stt-routing.ts`) maps the configured provider to a discriminated strategy at call setup time:
+
+- **`conversation-relay-native`** (Deepgram, Google) — TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription natively; the daemon receives transcribed text via the relay WebSocket. The Twilio-native provider name and default speech model are read from the provider catalog entry's `telephonyRouting.twilioNativeMapping` (e.g. Deepgram maps to `provider: "Deepgram"` with `defaultSpeechModel: "nova-3"`; Google maps to `provider: "Google"` with `defaultSpeechModel: undefined`).
+
+- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy. The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon, which transcribes server-side via the provider's batch API.
+
+Key modules:
+
+| Module                                              | Purpose                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/calls/telephony-stt-routing.ts`                | Maps `services.stt.provider` to a discriminated `TelephonySttStrategy` |
+| `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates provider-conditional TwiML            |
+| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                   |
+| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio                           |
+| `src/calls/media-stream-stt-session.ts`             | STT session that transcribes audio turns via `services.stt`            |
+| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol       |
+| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams            |
+| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions       |
+| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                       |
+
+Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that TwiML generation matches the provider-conditional strategy for each supported provider.
+
+To add a new telephony STT provider: add a `telephonyRouting` entry to the provider's catalog entry in `provider-catalog.ts`. Set `strategyKind` to `"conversation-relay-native"` for Twilio-native providers (and include a `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`), or `"media-stream-custom"` for providers that require daemon-side transcription. The routing resolver reads these fields from the catalog — no hardcoded maps to update.
+
+**Daemon batch boundary:**
+
+The daemon transcribes audio attachments (e.g. voice messages from channel inbound) by calling a provider's REST API directly.
+
+- `src/stt/types.ts` defines provider-agnostic domain types: `BatchTranscriber` interface, `SttTranscribeRequest`, `SttTranscribeResult`, `SttError` with normalized categories (`auth`, `rate-limit`, `timeout`, `invalid-audio`, `provider-error`), and `SttProviderId` / `SttBoundaryId` discriminants.
+- `createDaemonBatchTranscriber()` in `src/stt/daemon-batch-transcriber.ts` is the factory that returns a `BatchTranscriber` backed by the configured STT provider (OpenAI Whisper or Deepgram, selected via `services.stt.provider`). Returns `null` when no API key is available for the selected provider. `normalizeSttError()` maps raw provider errors to `SttError` categories.
+- `resolveBatchTranscriber()` in `src/providers/speech-to-text/resolve.ts` is the credential-aware entry point — it reads the configured provider from `services.stt`, resolves the corresponding API key from the secure key store, and delegates to the factory.
+- `tryTranscribeAudioAttachments()` in `src/runtime/routes/inbound-stages/transcribe-audio.ts` is the callsite that uses the facade for channel audio attachment transcription.
+
+To add a new daemon batch STT provider, follow the full checklist in `docs/stt-provider-onboarding.md` — it covers the daemon catalog, type registration, config schema, adapter wiring, credential plumbing, client catalog, and parity tests.
+
+**Conversation streaming boundary:**
+
+Real-time conversation chat message capture on macOS and iOS uses a WebSocket-based streaming STT path. When the configured `services.stt` provider supports conversation streaming (determined by the `conversationStreamingMode` field in the provider catalog), native clients open a WebSocket session through the gateway to the daemon's `/v1/stt/stream` endpoint. The daemon resolves a `StreamingTranscriber` for the configured provider and streams partial/final transcript events back to the client in real time.
+
+Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
+
+| Provider          | Adapter                                                | Mode                | Mechanism                                                                                                                                                                                                                                           |
+| ----------------- | ------------------------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`    | `realtime-ws`       | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                        |
+| **Google Gemini** | `src/providers/speech-to-text/google-gemini-stream.ts` | `incremental-batch` | Approximates streaming via throttled polling. Accumulates audio chunks and periodically sends the full buffer to Gemini `models.generateContent`, diffing against the last emitted partial. Uses model `gemini-2.0-flash`. Poll interval: 1 second. |
+
+**Provider-specific behavior differences:**
+
+- **Deepgram (`realtime-ws`)**: True WebSocket streaming with sub-second partial latency. Emits `partial` events for `is_final: false` frames and `final` events for `is_final: true` frames. Supports backpressure (drops audio frames when `bufferedAmount > 1 MiB`). Sends `CloseStream` message on stop with a 5-second grace period for the provider to flush remaining finals. Inactivity timeout: 30 seconds (provider-side hang detection). Connect timeout: 10 seconds. Auth errors map to close codes 1008/4001; rate limits to 1013.
+- **Google Gemini (`incremental-batch`)**: Polling-based approximation with ~1-second partial latency. Each poll sends the full accumulated audio buffer (not incremental deltas). Partials are only emitted when the new transcript is a forward progression (longer than or equal to the last emitted text) to prevent flickering. On `stop()`, a deterministic final batch request is sent with the complete audio; if it fails, the last emitted partial is used as a best-effort final. Request timeout: 15 seconds per batch call. Transient poll errors are non-fatal; only the final request is critical.
+
+**Session lifecycle (daemon side):**
+
+1. Client opens a WebSocket to `/v1/stt/stream` with required query parameter `mimeType` and optional `provider` and `sampleRate`. The `provider` parameter is optional compatibility metadata — the runtime is config-authoritative and always resolves the streaming transcriber from `services.stt.provider`. When a requested provider disagrees with the configured provider, the runtime logs a mismatch warning.
+2. `SttStreamSession` (in `src/stt/stt-stream-session.ts`) resolves a `StreamingTranscriber` via `resolveStreamingTranscriber()` from `src/providers/speech-to-text/resolve.ts`, using the configured provider (not the requested one).
+3. The transcriber's `start()` method opens the provider session.
+4. A `ready` event (with `provider` field) is sent to the client, signaling that audio frames are accepted.
+5. Client sends `audio` frames (binary WebSocket frames or base64-encoded JSON) and a `stop` event when recording ends.
+6. The transcriber emits `partial` and `final` events, forwarded to the client as JSON frames with monotonic `seq` numbers.
+7. The session closes deterministically on: client disconnect, `stop` event followed by provider `closed`, idle timeout (60 seconds), or runtime shutdown.
+
+**Session lifecycle (client side):**
+
+- `STTStreamingClient` (`clients/shared/Network/STTStreamingClient.swift`) manages the WebSocket session using `URLSessionWebSocketTask`. It builds the gateway WebSocket URL via `GatewayHTTPClient.buildWebSocketRequest(path: "stt/stream", params:)`.
+- `STTProviderRegistry` (`clients/shared/Utilities/STTProviderRegistry.swift`) exposes `isStreamingAvailable` (checks the configured provider's `conversationStreamingMode` from the bundled `stt-provider-catalog.json`) and `isServiceConfigured` (checks whether any STT provider is set).
+- macOS: `VoiceInputManager.startStreamingSession()` creates a fresh `STTStreamingClient` per recording session. Streaming partials take priority over `SFSpeechRecognizer` partials while the stream is active and healthy. When recording stops, if the stream delivered at least one `final` event (`streamingReceivedFinal`) and has not failed (`streamingFailed`), the streaming final text is used directly. Otherwise, the batch STT path (`STTClient.transcribe()`) provides the fallback.
+- iOS: `InputBarView.handleStreamingEvent()` applies the same priority scheme. Streaming partials update the text field while `isStreamingActive` is true and the user has not manually typed. A `.final` event commits the result via `onVoiceResult` and tears down the session. On error or close without a final, `resolveTranscriptWithServiceFirst()` triggers batch STT fallback.
+
+**Fallback semantics:**
+
+The conversation streaming path degrades gracefully to the existing batch STT path:
+
+1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks `STTProviderRegistry.isStreamingAvailable` before attempting a streaming session. When `false`, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
+2. **Connection failure** (network error, gateway down, auth failure): The `STTStreamingClient` reports an `STTStreamFailure` to the client's `onFailure` callback. macOS sets `streamingFailed = true`; iOS sets `isStreamingActive = false`. Both platforms then fall through to batch STT resolution when recording stops.
+3. **Mid-session provider error** (provider WebSocket disconnect, timeout, rate limit): The daemon session emits an `error` event (with a normalized `SttErrorCategory`) followed by `closed`. The client marks the stream as failed and defers to batch STT.
+4. **Missing credentials**: `resolveStreamingTranscriber()` returns `null` when the API key is not configured. The session sends an `error`+`closed` pair and the client falls back to batch.
+
+**Error category mapping:**
+
+| Category         | Deepgram close codes | Google Gemini conditions               | Client action                      |
+| ---------------- | -------------------- | -------------------------------------- | ---------------------------------- |
+| `auth`           | 1008, 4001           | API key rejection (4xx)                | Mark stream failed; batch fallback |
+| `rate-limit`     | 1013                 | 429 response                           | Mark stream failed; batch fallback |
+| `timeout`        | N/A (inactivity)     | `AbortSignal.timeout` on batch request | Mark stream failed; batch fallback |
+| `provider-error` | All other codes      | Network/API errors                     | Mark stream failed; batch fallback |
+
+**Key source files:**
+
+| File                                                   | Purpose                                                                                                                                               |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/stt/types.ts`                                     | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
+| `src/stt/stt-stream-session.ts`                        | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
+| `src/providers/speech-to-text/deepgram-realtime.ts`    | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
+| `src/providers/speech-to-text/google-gemini-stream.ts` | Google Gemini incremental-batch adapter: throttled polling, transcript diffing, deterministic final                                                   |
+| `src/providers/speech-to-text/provider-catalog.ts`     | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
+| `src/providers/speech-to-text/resolve.ts`              | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
+| `src/runtime/http-server.ts`                           | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
+| `gateway/src/http/routes/stt-stream-websocket.ts`      | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
+| `clients/shared/Network/STTStreamingClient.swift`      | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
+| `clients/shared/Utilities/STTProviderRegistry.swift`   | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
+| `clients/macos/.../VoiceInputManager.swift`            | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
+| `clients/ios/Views/InputBarView.swift`                 | iOS integration: `handleStreamingEvent()`, auto-stop coordination, batch fallback                                                                     |
+
+**Client service-first boundary:**
+
+All product-facing dictation and voice-streaming paths on macOS and iOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+
+- `STTClient` conforms to `STTClientProtocol` and returns a typed `STTResult` enum (`success`, `notConfigured`, `serviceUnavailable`, `error`). Callers pattern-match on the result to deterministically trigger native fallback.
+- The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
+- `stt-routes.ts` (`src/runtime/routes/stt-routes.ts`) defines the HTTP endpoint, validates the audio payload, and delegates to `resolveBatchTranscriber()`.
+
+Product-facing flows using service-first STT:
+
+| Flow                          | Client | Entry point                                                                                                                                                                                                                                                  |
+| ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Push-to-talk dictation**    | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                                                                                    |
+| **Conversation chat capture** | macOS  | `VoiceInputManager.handleFinalTranscription()` — prefers streaming final when available; falls back to batch `sttClient.transcribe()` when streaming was not used, failed, or produced no finals                                                             |
+| **Input bar dictation**       | iOS    | `InputBarView.resolveTranscriptWithServiceFirst()` — encodes captured audio buffers to WAV, calls `sttClient.transcribe()`, falls back to native transcript on failure. In conversation mode, defers to streaming final when `streamingFinalReceived` is set |
+| **Voice mode (streaming)**    | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result                                                          |
+
+**Client-native fallback boundary:**
+
+Apple-native on-device recognition via `SFSpeechRecognizer` serves two roles in all three product-facing flows above: (1) it provides low-latency partial transcriptions for real-time display during recording, and (2) it provides the fallback final transcription when the STT service is unconfigured (HTTP 503), temporarily unavailable (HTTP 5xx), or returns an empty result. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**.
+
+- macOS: `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The macOS protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
+- iOS: `SpeechRecognizerAdapter` protocol in `clients/ios/Services/SpeechRecognizerAdapter.swift` covers authorization, availability, and task construction. `AppleSpeechRecognizerAdapter` is the production implementation. `InputBarView` consumes the adapter. **Note:** The iOS protocol defines its own framework-agnostic types (`SpeechRecognizerAuthorizationStatus`, `SpeechRecognitionResult`) so callers never see `SFSpeechRecognizer` directly. However, `startRecognitionTask` still returns `SFSpeechAudioBufferRecognitionRequest` in its tuple, so full framework decoupling is not yet achieved.
+
+Platform divergence summary:
+
+- **Auth API:** macOS uses a callback-based `requestAuthorization(completion:)` returning `SFSpeechRecognizerAuthorizationStatus`; iOS uses `async requestAuthorization()` returning a custom `SpeechRecognizerAuthorizationStatus` enum.
+- **Recognizer exposure:** macOS exposes the raw `SFSpeechRecognizer?` via `makeRecognizer(locale:)`; iOS fully encapsulates recognizer construction inside `startRecognitionTask`.
+- **Concurrency model:** The iOS protocol is `@MainActor`-annotated; the macOS protocol is not.
+
+These differences are intentional — the adapters were designed for their respective platform integration needs, not for cross-platform uniformity.
+
+**Cross-boundary notes:**
+
+- The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary uses `resolveTelephonySttRouting()` to determine the Twilio integration strategy. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers; the client catalog (`meta/stt-provider-catalog.json`) mirrors it for display purposes (including `conversationStreamingMode`). The parity guard test (`src/__tests__/stt-catalog-parity.test.ts`) fails CI when the two catalogs diverge on provider IDs, ordering, or credential-provider name mappings.
+- Conversation streaming does not replace the client service-first batch path. When streaming is available, it runs concurrently during recording and provides real-time partials and finals. The batch path remains the fallback for providers that do not support streaming, when streaming fails mid-session, or when streaming produces no final transcript.
+- Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
+- Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
+- **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
 ### Update Bulletin System
 
@@ -2025,6 +2191,76 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 | `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
 | `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
 | `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |
+
+### TTS Provider Abstraction (`services.tts`)
+
+All text-to-speech functionality (in-app message playback and phone call voice) routes through a catalog-driven, provider-agnostic TTS abstraction. The architecture consists of six layers: a canonical provider catalog, a config schema, a config resolver, a provider registry, an explicit call-strategy abstraction, and a top-level synthesis orchestrator.
+
+**Canonical provider catalog (`provider-catalog.ts`):** The provider catalog is the **single source of truth** for TTS provider identity and metadata on the assistant side. Every provider the system supports is declared as a `TtsProviderCatalogEntry` in the `CATALOG` array. Each entry captures the provider's unique ID (`TtsProviderId`), display name, telephony call mode (`TtsCallMode`: `"native-twilio"` or `"synthesized-play"`), static capabilities (`supportsStreaming`, `supportedFormats`), and secret requirements (credential store keys, display names, setup commands). Downstream modules query the catalog via `getCatalogProvider()`, `listCatalogProviders()`, or `listCatalogProviderIds()` instead of hardcoding provider IDs.
+
+A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the subset of provider metadata needed by native clients (macOS, iOS) for display and setup UX. The client artifact must list exactly the same provider IDs as the assistant catalog. A CI consistency guard test (`src/tts/__tests__/provider-catalog-consistency.test.ts`) compares the two sets and fails if they drift.
+
+**Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
+
+| Field                         | Type   | Default        | Description                                               |
+| ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
+| `services.tts.mode`           | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)             |
+| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID) |
+| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
+
+Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
+
+**Config resolver (`tts-config-resolver.ts`):** `resolveTtsConfig(config)` reads `services.tts.provider` to determine the active provider and returns a `ResolvedTtsConfig` containing the provider ID and its provider-specific config object from `services.tts.providers.<id>`. No legacy fallback logic exists.
+
+**Provider registry (`provider-registry.ts`):** A runtime registry where provider adapters self-register at startup via `registerTtsProvider()`. Callers resolve a provider by ID with `getTtsProvider()`, which throws for unknown IDs so misconfiguration surfaces immediately. Built-in providers are registered in `providers/register-builtins.ts` during daemon initialization. The registration is catalog-checked — `register-builtins.ts` validates that each adapter's ID exists in the catalog.
+
+**Provider interface (`types.ts`):** Every provider implements the `TtsProvider` interface:
+
+- `id` — unique provider identifier (matches `TtsProviderId`)
+- `capabilities` — static capability advertisement (`supportsStreaming`, `supportedFormats`)
+- `synthesize(request)` — buffer-oriented synthesis (required for all providers)
+- `synthesizeStream?(request, onChunk)` — optional chunk-level streaming for real-time use cases
+
+The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets providers tailor format, latency, and quality trade-offs per product surface.
+
+**Synthesis orchestrator (`synthesize-text.ts`):** `synthesizeText()` is the top-level entry point. It resolves the globally configured provider via the config resolver, looks up the adapter in the registry, and delegates synthesis. Provider selection is always global — per-use-case policy only gates capabilities (e.g. format checks), never overrides the chosen provider.
+
+**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the Twilio ConversationRelay telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
+
+- **`native-twilio`** — Twilio handles TTS natively via ConversationRelay. The profile needs a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string. New native providers plug in by registering a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` — no edits to core call routing logic required.
+- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams chunks to Twilio via `play` messages. Uses a placeholder TTS provider (`"Google"`) and an empty voice string because Twilio never drives TTS itself on this path.
+
+**Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses `resolveCallStrategy()` to determine the call mode, then dispatches to the appropriate path. For `native-twilio`, it looks up the registered `NativeTwilioVoiceSpec` to build the voice string. For `synthesized-play`, it uses the placeholder profile. This replaces the previous `supportsStreaming`-based branching with explicit catalog-declared modes.
+
+**Adding a new TTS provider (catalog-first checklist):**
+
+1. **Catalog entry** — Add a new `TtsProviderCatalogEntry` to the `CATALOG` array in `src/tts/provider-catalog.ts`. Declare the provider's ID, display name, call mode, capabilities, and secret requirements.
+2. **Client artifact** — Add a corresponding entry to `meta/tts-provider-catalog.json` with the same provider ID, display name, and client-facing metadata (subtitle, setup mode, setup hint). The CI consistency guard will fail if this is skipped.
+3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
+4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
+5. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
+6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
+
+No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
+
+**Key source files:**
+
+| File                                                       | Purpose                                                                                      |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/tts/provider-catalog.ts`                              | Canonical provider catalog: single source of truth for provider IDs and metadata             |
+| `src/tts/types.ts`                                         | Core domain types: `TtsProvider`, `TtsProviderId`, `TtsCallMode`, `TtsUseCase`, capabilities |
+| `src/tts/provider-registry.ts`                             | Runtime provider registry: register, lookup, list                                            |
+| `src/tts/tts-config-resolver.ts`                           | Config resolver: `resolveTtsConfig()` reads `services.tts` and returns resolved              |
+| `src/tts/synthesize-text.ts`                               | Top-level orchestrator: `synthesizeText()` entry point                                       |
+| `src/tts/providers/register-builtins.ts`                   | Startup registration of built-in providers (catalog-checked)                                 |
+| `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                                            |
+| `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                                            |
+| `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
+| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
+| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
+| `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS/iOS settings UI                                 |
+| `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
+| `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |
 
 ### Managed Profiler Runtime
 

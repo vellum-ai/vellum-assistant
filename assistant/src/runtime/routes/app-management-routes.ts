@@ -23,6 +23,7 @@ import { z } from "zod";
 import { packageApp } from "../../bundler/app-bundler.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
+import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
@@ -39,11 +40,11 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  inlineDistAssets,
   isMultifileApp,
   listApps,
   queryAppRecords,
   resolveAppDir,
+  resolveEffectiveAppHtml,
   updateApp,
   updateAppRecord,
 } from "../../memory/app-store.js";
@@ -583,16 +584,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
               return httpError("BAD_REQUEST", "payload is not valid JSON", 400);
             }
 
-            const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson =
-              {
-                algorithm: "ed25519",
-                signer: {
-                  key_id: body.keyId,
-                  display_name: "HTTP Signer",
-                },
-                content_hashes: contentHashes,
-                signature: body.signature,
-              };
+            const signatureJson: SignatureJson = {
+              algorithm: "ed25519",
+              signer: {
+                key_id: body.keyId,
+                display_name: "HTTP Signer",
+              },
+              content_hashes: contentHashes,
+              signature: body.signature,
+            };
             return Response.json({ signed: true, signatureJson });
           }
 
@@ -738,8 +738,6 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
             return httpError("NOT_FOUND", `App not found: ${appId}`, 404);
           }
 
-          let html = app.htmlDefinition;
-
           if (isMultifileApp(app)) {
             const appDir = getAppDirPath(appId);
             const distIndex = join(appDir, "dist", "index.html");
@@ -752,12 +750,8 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
                 );
               }
             }
-            if (existsSync(distIndex)) {
-              html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-            } else {
-              html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
-            }
           }
+          const html = resolveEffectiveAppHtml(app);
 
           const { dirName } = resolveAppDir(app.id);
           return Response.json({

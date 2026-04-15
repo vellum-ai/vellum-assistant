@@ -9,6 +9,11 @@ import type {
 import { getDb } from "./db.js";
 import { rawAll } from "./raw-query.js";
 import { llmUsageEvents } from "./schema.js";
+import {
+  bucketEventsByDay,
+  bucketEventsByHour,
+  type UsageEventBucketRow,
+} from "./usage-buckets.js";
 
 // ---------------------------------------------------------------------------
 // Write
@@ -152,8 +157,25 @@ export type UsageGranularity = "daily" | "hourly";
 
 /** A single time bucket with its aggregate totals. */
 export interface UsageDayBucket {
-  /** ISO date string: "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly), UTC. */
+  /**
+   * Stable unique identifier for the bucket. Safe for use as a SwiftUI/React
+   * list key. Distinct even for DST fall-back duplicate hours (which share the
+   * same `date` string). Daily buckets use `date` directly; hourly buckets use
+   * "YYYY-MM-DD HH:00|<offsetMinutes>" to disambiguate repeated local hours.
+   */
+  bucketId: string;
+  /**
+   * Local-time bucket key in the requested tz:
+   * "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly).
+   * NOT unique: on DST fall-back days, two 01:00 hourly buckets share this key.
+   * Use `bucketId` as a list identifier and `date` for display/sort only.
+   */
   date: string;
+  /**
+   * Human-readable label for the bucket, formatted in the requested tz.
+   * Hourly: "3pm". Daily: "Apr 11".
+   */
+  displayLabel?: string;
   /** Direct input tokens only; cache traffic is tracked separately in totals. */
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -164,6 +186,14 @@ export interface UsageDayBucket {
 /** A grouped breakdown row (by actor, provider, or model). */
 export interface UsageGroupBreakdown {
   group: string;
+  /**
+   * Stable identifier for the group. Populated with the conversation id when
+   * `groupBy === "conversation"` (and `null` for that mode's "Other" bucket,
+   * which aggregates events with no conversation id). For all other group-bys
+   * (`actor`, `provider`, `model`) this is always `null` — the raw grouping
+   * column is already exposed via `group`.
+   */
+  groupId: string | null;
   /** Direct input tokens only; cache traffic is reported separately below. */
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -186,16 +216,10 @@ interface TotalsRow {
   unpriced_event_count: number;
 }
 
-interface DayBucketRow {
-  date: string;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  total_estimated_cost_usd: number | null;
-  event_count: number;
-}
 
 interface GroupRow {
   group_key: string;
+  group_id: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
   total_cache_creation_tokens: number;
@@ -238,67 +262,68 @@ export function getUsageTotals(range: UsageTimeRange): UsageTotals {
   };
 }
 
-/**
- * Return per-day aggregates (UTC) within the given time range, ordered by date ascending.
- *
- * Each bucket key is a YYYY-MM-DD string derived by dividing the epoch-millis
- * timestamp by 86400000 and formatting as a date.
- */
-export function getUsageDayBuckets(range: UsageTimeRange): UsageDayBucket[] {
-  const rows = rawAll<DayBucketRow>(
+/** Fetch raw events in a time range for in-memory bucketing. */
+function fetchRawBucketRows(range: UsageTimeRange): UsageEventBucketRow[] {
+  return rawAll<UsageEventBucketRow>(
     /*sql*/ `
     SELECT
-      strftime('%Y-%m-%d', created_at / 1000, 'unixepoch')  AS date,
-      COALESCE(SUM(input_tokens), 0)                         AS total_input_tokens,
-      COALESCE(SUM(output_tokens), 0)                        AS total_output_tokens,
-      COALESCE(SUM(estimated_cost_usd), 0)                   AS total_estimated_cost_usd,
-      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)          AS event_count
+      created_at,
+      input_tokens,
+      output_tokens,
+      estimated_cost_usd,
+      llm_call_count
     FROM llm_usage_events
     WHERE created_at >= ?1 AND created_at <= ?2
-    GROUP BY date
-    ORDER BY date ASC
     `,
     range.from,
     range.to,
   );
-  return rows.map((r) => ({
-    date: r.date,
-    totalInputTokens: r.total_input_tokens,
-    totalOutputTokens: r.total_output_tokens,
-    totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
-    eventCount: r.event_count,
-  }));
+}
+
+/** Options for bucket aggregation. */
+export interface UsageBucketOptions {
+  /**
+   * When true, emit a zero-value bucket for every day (or hour) in the range
+   * even if no events fall inside it. Defaults to false so the CLI and other
+   * callers only see active periods; the chart route opts in.
+   */
+  fillEmpty?: boolean;
 }
 
 /**
- * Return per-hour aggregates (UTC) within the given time range, ordered ascending.
+ * Return per-day aggregates within the given time range, keyed by local date
+ * in the requested timezone (default UTC).
  *
- * Each bucket key is a "YYYY-MM-DD HH:00" string.
+ * Each bucket key is a "YYYY-MM-DD" string anchored on local midnight in `tz`.
+ * When `options.fillEmpty` is true, empty days within the range are filled
+ * with zero-value buckets. DST-short and DST-long local days are handled
+ * correctly.
  */
-export function getUsageHourBuckets(range: UsageTimeRange): UsageDayBucket[] {
-  const rows = rawAll<DayBucketRow>(
-    /*sql*/ `
-    SELECT
-      strftime('%Y-%m-%d %H:00', created_at / 1000, 'unixepoch')  AS date,
-      COALESCE(SUM(input_tokens), 0)                               AS total_input_tokens,
-      COALESCE(SUM(output_tokens), 0)                              AS total_output_tokens,
-      COALESCE(SUM(estimated_cost_usd), 0)                         AS total_estimated_cost_usd,
-      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)                AS event_count
-    FROM llm_usage_events
-    WHERE created_at >= ?1 AND created_at <= ?2
-    GROUP BY date
-    ORDER BY date ASC
-    `,
-    range.from,
-    range.to,
-  );
-  return rows.map((r) => ({
-    date: r.date,
-    totalInputTokens: r.total_input_tokens,
-    totalOutputTokens: r.total_output_tokens,
-    totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
-    eventCount: r.event_count,
-  }));
+export function getUsageDayBuckets(
+  range: UsageTimeRange,
+  tz: string = "UTC",
+  options: UsageBucketOptions = {},
+): UsageDayBucket[] {
+  const rows = fetchRawBucketRows(range);
+  return bucketEventsByDay(rows, range, tz, options);
+}
+
+/**
+ * Return per-hour aggregates within the given time range, keyed by local hour
+ * in the requested timezone (default UTC).
+ *
+ * Each bucket key is a "YYYY-MM-DD HH:00" string anchored on local hour starts.
+ * When `options.fillEmpty` is true, empty hours are filled with zero-value
+ * buckets. DST fall-back produces two distinct buckets for the duplicated hour;
+ * DST spring-forward produces 23 buckets for the affected day.
+ */
+export function getUsageHourBuckets(
+  range: UsageTimeRange,
+  tz: string = "UTC",
+  options: UsageBucketOptions = {},
+): UsageDayBucket[] {
+  const rows = fetchRawBucketRows(range);
+  return bucketEventsByHour(rows, range, tz, options);
 }
 
 type GroupByDimension = "actor" | "provider" | "model" | "conversation";
@@ -330,6 +355,7 @@ export function getUsageGroupBreakdown(
         CASE WHEN e.conversation_id IS NULL THEN 'Other'
              ELSE COALESCE(c.title, 'Untitled')
         END AS group_key,
+        e.conversation_id                                AS group_id,
         COALESCE(SUM(e.input_tokens), 0)                 AS total_input_tokens,
         COALESCE(SUM(e.output_tokens), 0)                AS total_output_tokens,
         COALESCE(SUM(e.cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
@@ -348,6 +374,10 @@ export function getUsageGroupBreakdown(
     );
     return rows.map((r) => ({
       group: r.group_key,
+      // `GROUP BY e.conversation_id` makes `e.conversation_id` unambiguous
+      // inside each group — it is the seeded conversation id for real rows
+      // and `null` for the "Other" bucket (events with no conversation).
+      groupId: r.group_id,
       totalInputTokens: r.total_input_tokens,
       totalOutputTokens: r.total_output_tokens,
       totalCacheCreationTokens: r.total_cache_creation_tokens,
@@ -362,6 +392,7 @@ export function getUsageGroupBreakdown(
     /*sql*/ `
     SELECT
       ${column}                                      AS group_key,
+      NULL                                           AS group_id,
       COALESCE(SUM(input_tokens), 0)                 AS total_input_tokens,
       COALESCE(SUM(output_tokens), 0)                AS total_output_tokens,
       COALESCE(SUM(cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
@@ -378,6 +409,11 @@ export function getUsageGroupBreakdown(
   );
   return rows.map((r) => ({
     group: r.group_key,
+    // Non-conversation group-bys (actor/provider/model) don't have a
+    // separate stable id — the grouping column itself is the identifier
+    // and is already exposed via `group`. The SELECT projects
+    // `NULL AS group_id` so the runtime shape matches `GroupRow`.
+    groupId: r.group_id,
     totalInputTokens: r.total_input_tokens,
     totalOutputTokens: r.total_output_tokens,
     totalCacheCreationTokens: r.total_cache_creation_tokens,

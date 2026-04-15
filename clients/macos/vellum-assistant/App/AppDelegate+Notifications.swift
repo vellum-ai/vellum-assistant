@@ -281,20 +281,19 @@ extension AppDelegate {
             // Both are kept so users get the system banner sound even if custom sounds are disabled.
             SoundManager.shared.play(.notification)
 
-            do {
-                try await UNUserNotificationCenter.current().add(request)
+            if let postError = await UNUserNotificationCenter.current().safeAdd(request) {
+                log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(postError.localizedDescription)")
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: postError.localizedDescription,
+                    errorCode: nil
+                )
+            } else {
                 self.sendNotificationIntentResult(
                     deliveryId: deliveryId,
                     success: true,
                     errorMessage: nil,
-                    errorCode: nil
-                )
-            } catch {
-                log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
-                self.sendNotificationIntentResult(
-                    deliveryId: deliveryId,
-                    success: false,
-                    errorMessage: error.localizedDescription,
                     errorCode: nil
                 )
             }

@@ -26,7 +26,7 @@ mock.module("../channels/config.js", () => ({
 mock.module("../config/env.js", () => ({}));
 
 mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
+  loadRawConfig: () => mockRawConfig ?? {},
   loadConfig: () => ({
     twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
     whatsapp: { phoneNumber: "" },
@@ -35,12 +35,17 @@ mock.module("../config/loader.js", () => ({
     twilio: { phoneNumber: mockTwilioPhoneNumber ?? "" },
     whatsapp: { phoneNumber: "" },
   }),
-}));
-
-mock.module("../email/service.js", () => ({
-  getEmailService: () => ({
-    getPrimaryInboxAddress: async () => undefined,
-  }),
+  getNestedValue: (obj: Record<string, unknown>, path: string) => {
+    const keys = path.split(".");
+    let current: unknown = obj;
+    for (const key of keys) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return current;
+  },
+  saveRawConfig: () => {},
+  setNestedValue: () => {},
 }));
 
 mock.module("../inbound/platform-callback-registration.js", () => ({

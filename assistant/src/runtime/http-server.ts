@@ -5,17 +5,26 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
-import type { BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
-import { extensionRelayServer } from "../browser-extension-relay/server.js";
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from "../calls/guardian-action-sweep.js";
+import {
+  activeMediaStreamSessions,
+  MediaStreamCallSession,
+} from "../calls/media-stream-server.js";
 import type { RelayWebSocketData } from "../calls/relay-server.js";
 import {
   activeRelayConnections,
@@ -32,6 +41,7 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -57,23 +67,35 @@ import {
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
+import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import {
+  activeSttStreamSessions,
+  SttStreamSession,
+} from "../stt/stt-stream-session.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { getRuntimePortFilePath } from "../util/platform.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
-import { authenticateRequest } from "./auth/middleware.js";
+import {
+  authenticateHostBrowserResultRequest,
+  authenticateRequest,
+} from "./auth/middleware.js";
+import { parseSub } from "./auth/subject.js";
 import {
   mintDaemonDeliveryToken,
   mintUiPageToken,
   verifyToken,
 } from "./auth/token-service.js";
+import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
 import type { RouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
@@ -109,7 +131,9 @@ import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
+import { backupRouteDefinitions } from "./routes/backup-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
@@ -140,14 +164,22 @@ import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
+import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
+import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
+import { homeStateRouteDefinitions } from "./routes/home-state-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
-import { hostBrowserRouteDefinitions } from "./routes/host-browser-routes.js";
+import {
+  hostBrowserRouteDefinitions,
+  resolveHostBrowserEvent,
+  resolveHostBrowserResultByRequestId,
+  resolveHostBrowserSessionInvalidated,
+} from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import {
@@ -180,6 +212,7 @@ import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
+import { sttRouteDefinitions } from "./routes/stt-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
@@ -229,6 +262,74 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
+/**
+ * WebSocket data attached to `/v1/browser-relay` connections. The route
+ * is used exclusively by the chrome-extension CDP proxy — outbound
+ * `host_browser_request` frames are pushed through the
+ * {@link ChromeExtensionRegistry}, and inbound `host_browser_result`
+ * frames are dispatched through
+ * `resolveHostBrowserResultByRequestId`. The extension may also submit
+ * results via `POST /v1/host-browser-result` (both transports resolve
+ * through the same core function).
+ */
+interface BrowserRelayWebSocketData {
+  wsType: "browser-relay";
+  connectionId: string;
+  /**
+   * Guardian identity derived from the JWT claims at WebSocket upgrade
+   * time. Used by the ChromeExtensionRegistry to route
+   * host_browser_request frames to the correct extension. Undefined when
+   * HTTP auth is disabled (dev bypass) or when the token's sub cannot be
+   * parsed into an actor principal.
+   */
+  guardianId?: string;
+  /**
+   * Stable per-extension-install identifier supplied by the client on
+   * the WebSocket handshake (via the `clientInstanceId` query param or
+   * the `x-client-instance-id` header). Plumbed into the
+   * ChromeExtensionRegistry so multiple parallel installs for the same
+   * guardian (e.g. two Chrome profiles, two desktops) don't evict each
+   * other on register/unregister. Undefined on older extension builds
+   * — the registry synthesizes a connection-scoped fallback key in
+   * that case for backwards-compatible single-instance semantics.
+   */
+  clientInstanceId?: string;
+}
+
+/**
+ * WebSocket data attached to `/v1/calls/media-stream` connections.
+ * The `wsType` discriminator routes frames to the media-stream call
+ * session instead of the ConversationRelay or browser-relay handlers.
+ */
+interface MediaStreamWebSocketData {
+  wsType: "media-stream";
+  callSessionId: string;
+  /** Bound at open time so the close handler tears down the exact session
+   *  that owns *this* socket, avoiding races with reconnects. */
+  session?: MediaStreamCallSession;
+}
+
+/**
+ * WebSocket data attached to `/v1/stt/stream` connections.
+ * The `wsType` discriminator routes frames to the STT streaming
+ * session orchestrator instead of the other WebSocket handlers.
+ *
+ * `provider` is optional compatibility metadata from the client/gateway.
+ * The runtime is config-authoritative — it always resolves the streaming
+ * transcriber from `services.stt.provider` in the assistant config.
+ */
+interface SttStreamWebSocketData {
+  wsType: "stt-stream";
+  /** Optional requested provider — metadata only; runtime uses config. */
+  provider?: string;
+  mimeType: string;
+  sampleRate?: number;
+  /** The session ID for tracking in the active sessions registry. */
+  sessionId: string;
+  /** Bound at open time so the close handler tears down the exact session. */
+  session?: SttStreamSession;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -258,6 +359,7 @@ export class RuntimeHttpServer {
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
+  private getFilingService?: RuntimeHttpServerOptions["getFilingService"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -282,6 +384,7 @@ export class RuntimeHttpServer {
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
+    this.getFilingService = options.getFilingService;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -319,7 +422,11 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    type AllWebSocketData = RelayWebSocketData | BrowserRelayWebSocketData;
+    type AllWebSocketData =
+      | RelayWebSocketData
+      | BrowserRelayWebSocketData
+      | MediaStreamWebSocketData
+      | SttStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -330,8 +437,107 @@ export class RuntimeHttpServer {
         open(ws) {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
-            extensionRelayServer.handleOpen(
-              ws as ServerWebSocket<BrowserRelayWebSocketData>,
+            // When the JWT sub resolved to a guardian principal at upgrade
+            // time, register this connection with the chrome-extension
+            // registry so host_browser_request frames can be routed to it.
+            if (data.guardianId) {
+              const now = Date.now();
+              getChromeExtensionRegistry().register({
+                id: data.connectionId,
+                guardianId: data.guardianId,
+                clientInstanceId: data.clientInstanceId,
+                ws,
+                connectedAt: now,
+                lastActiveAt: now,
+              });
+            }
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              { callSessionId: msData.callSessionId },
+              "Media-stream WebSocket opened",
+            );
+            const session = new MediaStreamCallSession(
+              ws,
+              msData.callSessionId,
+            );
+            activeMediaStreamSessions.set(msData.callSessionId, session);
+            // Bind the session instance to the websocket so the close
+            // handler tears down *this* session, not a replacement that
+            // a reconnect may have inserted under the same callSessionId.
+            msData.session = session;
+            return;
+          }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            const sttData = data as SttStreamWebSocketData;
+
+            // The runtime is config-authoritative: always resolve the
+            // provider from `services.stt.provider` regardless of what
+            // the client/gateway requested.
+            //
+            // getConfig() can throw (e.g. after invalidateConfigCache()
+            // when config.json is temporarily invalid). Wrap in try/catch
+            // so the session still starts normally — resolveStreamingTranscriber
+            // reads config inside SttStreamSession.start()'s own guarded path.
+            let configuredProvider: string | undefined;
+            try {
+              configuredProvider = getConfig().services.stt.provider;
+
+              // Mismatch telemetry: when the optional requested provider
+              // disagrees with the configured provider, log a warning so
+              // operators can detect stale client builds.
+              if (sttData.provider && sttData.provider !== configuredProvider) {
+                log.warn(
+                  {
+                    requestedProvider: sttData.provider,
+                    configuredProvider,
+                    sessionId: sttData.sessionId,
+                  },
+                  "STT stream provider mismatch — requested provider differs from configured provider; using configured provider",
+                );
+              }
+            } catch (err) {
+              log.warn(
+                {
+                  error: err instanceof Error ? err.message : String(err),
+                  sessionId: sttData.sessionId,
+                },
+                "Failed to read config for STT provider mismatch telemetry — proceeding without mismatch check",
+              );
+            }
+
+            // Fall back to the requested provider (or "unknown") when
+            // config reading failed, so the session constructor still
+            // gets a usable label for logging/error messages.
+            const effectiveProvider =
+              configuredProvider ?? sttData.provider ?? "unknown";
+
+            log.info(
+              {
+                requestedProvider: sttData.provider ?? "(none)",
+                configuredProvider: effectiveProvider,
+                mimeType: sttData.mimeType,
+                sessionId: sttData.sessionId,
+              },
+              "STT stream WebSocket opened",
+            );
+            const session = new SttStreamSession(
+              ws,
+              effectiveProvider,
+              sttData.mimeType,
+              { sampleRate: sttData.sampleRate },
+            );
+            sttData.session = session;
+            activeSttStreamSessions.set(sttData.sessionId, session);
+
+            // Start the session asynchronously — resolves the streaming
+            // transcriber and sends a `ready` event on success.
+            void session.start(() =>
+              resolveStreamingTranscriber({
+                sampleRate: sttData.sampleRate,
+              }),
             );
             return;
           }
@@ -352,10 +558,148 @@ export class RuntimeHttpServer {
               ? message
               : new TextDecoder().decode(message);
           if ("wsType" in data && data.wsType === "browser-relay") {
-            extensionRelayServer.handleMessage(
-              ws as ServerWebSocket<BrowserRelayWebSocketData>,
-              raw,
-            );
+            // Inbound frames on `/v1/browser-relay` carry one of:
+            //   - `host_browser_result` — paired response to an outbound
+            //     `host_browser_request` (see PR2).
+            //   - `host_browser_event` — unsolicited CDP event forwarded
+            //     from the extension's `chrome.debugger.onEvent`
+            //     subscription (PR10).
+            //   - `host_browser_session_invalidated` — detach
+            //     notification forwarded from the extension's
+            //     `chrome.debugger.onDetach` subscription (PR10).
+            //
+            // Every supported frame type delegates into a shared
+            // resolver exported from `host-browser-routes.ts` so the
+            // validation and resolution semantics stay in lockstep
+            // with the HTTP path. Malformed or unsupported frames are
+            // logged at debug and swallowed — we never throw out of a
+            // WebSocket `message` handler because an uncaught
+            // exception would tear down the whole socket for an
+            // attacker-controlled payload.
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(raw);
+            } catch (err) {
+              log.debug(
+                {
+                  connectionId: data.connectionId,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                "browser-relay: dropped non-JSON inbound frame",
+              );
+              return;
+            }
+            if (!parsed || typeof parsed !== "object") {
+              log.debug(
+                { connectionId: data.connectionId },
+                "browser-relay: dropped non-object inbound frame",
+              );
+              return;
+            }
+            const frame = parsed as Record<string, unknown>;
+            switch (frame.type) {
+              case "host_browser_result": {
+                const resolution = resolveHostBrowserResultByRequestId({
+                  requestId: frame.requestId,
+                  content: frame.content,
+                  isError: frame.isError,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      requestId:
+                        typeof frame.requestId === "string"
+                          ? frame.requestId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_result frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_event": {
+                const resolution = resolveHostBrowserEvent({
+                  method: frame.method,
+                  params: frame.params,
+                  cdpSessionId: frame.cdpSessionId,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      method:
+                        typeof frame.method === "string"
+                          ? frame.method
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_event frame rejected",
+                  );
+                }
+                return;
+              }
+              case "host_browser_session_invalidated": {
+                const resolution = resolveHostBrowserSessionInvalidated({
+                  targetId: frame.targetId,
+                  reason: frame.reason,
+                });
+                if (!resolution.ok) {
+                  log.warn(
+                    {
+                      connectionId: data.connectionId,
+                      targetId:
+                        typeof frame.targetId === "string"
+                          ? frame.targetId
+                          : undefined,
+                      code: resolution.code,
+                      message: resolution.message,
+                    },
+                    "browser-relay: host_browser_session_invalidated frame rejected",
+                  );
+                }
+                return;
+              }
+              case "keepalive": {
+                // Extension keepalive frames refresh the connection's
+                // activity timestamp without producing log noise or
+                // altering routing semantics. Unknown extra keys on
+                // the frame are silently ignored (lenient validation).
+                getChromeExtensionRegistry().touch(data.connectionId);
+                return;
+              }
+              default: {
+                log.debug(
+                  { connectionId: data.connectionId, type: frame.type },
+                  "browser-relay: dropped unsupported inbound frame type",
+                );
+                return;
+              }
+            }
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            msData.session?.handleMessage(raw);
+            return;
+          }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            const sttData = data as SttStreamWebSocketData;
+            const session = sttData.session;
+            if (!session) return;
+
+            if (typeof message === "string") {
+              session.handleMessage(message);
+            } else {
+              // Binary frame — raw audio bytes.
+              const buffer =
+                message instanceof ArrayBuffer
+                  ? Buffer.from(new Uint8Array(message))
+                  : Buffer.from(message);
+              session.handleBinaryAudio(buffer);
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -367,11 +711,62 @@ export class RuntimeHttpServer {
         close(ws, code, reason) {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
-            extensionRelayServer.handleClose(
-              ws as ServerWebSocket<BrowserRelayWebSocketData>,
-              code,
-              reason?.toString(),
+            // Always attempt to unregister — the registry uses connectionId
+            // as the key and no-ops if the entry is absent (e.g. when the
+            // connection was never registered because guardianId was
+            // undefined, or when it was superseded by a newer registration
+            // for the same guardian).
+            getChromeExtensionRegistry().unregister(data.connectionId);
+            return;
+          }
+          if ("wsType" in data && data.wsType === "media-stream") {
+            const msData = data as MediaStreamWebSocketData;
+            log.info(
+              {
+                callSessionId: msData.callSessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Media-stream WebSocket closed",
             );
+            // Use the session bound at open time so we tear down the
+            // exact session that owns *this* socket, not a replacement
+            // that a reconnect may have inserted under the same key.
+            const msSession = msData.session;
+            if (msSession) {
+              msSession.handleTransportClosed(code, reason?.toString());
+              msSession.destroy();
+              // Only delete from the map if *our* session is still the
+              // registered one — a reconnect may have already replaced it.
+              if (
+                activeMediaStreamSessions.get(msData.callSessionId) ===
+                msSession
+              ) {
+                activeMediaStreamSessions.delete(msData.callSessionId);
+              }
+            }
+            return;
+          }
+          if ("wsType" in data && data.wsType === "stt-stream") {
+            const sttData = data as SttStreamWebSocketData;
+            log.info(
+              {
+                provider: sttData.provider,
+                sessionId: sttData.sessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "STT stream WebSocket closed",
+            );
+            const session = sttData.session;
+            if (session) {
+              session.handleClose(code, reason?.toString());
+              // Only delete from the map if our session is still the
+              // registered one — avoids races with reconnects.
+              if (activeSttStreamSessions.get(sttData.sessionId) === session) {
+                activeSttStreamSessions.delete(sttData.sessionId);
+              }
+            }
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -389,34 +784,7 @@ export class RuntimeHttpServer {
       },
     });
 
-    if (this.processMessage) {
-      const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
-      this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
-        this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
-          this.sweepInProgress = false;
-        });
-      }, 30_000);
-    }
-
-    startGuardianExpirySweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.approvalCopyGenerator,
-    );
-    log.info("Guardian approval expiry sweep started");
-
-    startGuardianActionSweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.guardianActionCopyGenerator,
-    );
-    log.info("Guardian action expiry sweep started");
-
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    this.startBackgroundSweeps();
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -447,6 +815,117 @@ export class RuntimeHttpServer {
       },
       "Runtime HTTP server listening",
     );
+
+    // Advertise the actual port to thin helpers that need to reach the
+    // runtime without inheriting the daemon's environment (e.g. the
+    // chrome-extension native messaging helper, spawned by Chrome).
+    this.writeRuntimePortFile(this.actualPort);
+  }
+
+  /**
+   * Start background sweep timers: retry sweep for failed channel events,
+   * guardian approval/action expiry sweeps, and canonical guardian expiry.
+   * Extracted from start() to allow future callers to defer sweep startup.
+   */
+  private startBackgroundSweeps(): void {
+    if (this.processMessage && !this.retrySweepTimer) {
+      const pm = this.processMessage;
+      const mintBt = () => mintDaemonDeliveryToken();
+      this.retrySweepTimer = setInterval(() => {
+        if (this.sweepInProgress) return;
+        this.sweepInProgress = true;
+        sweepFailedEvents(pm, mintBt).finally(() => {
+          this.sweepInProgress = false;
+        });
+      }, 30_000);
+    }
+
+    startGuardianExpirySweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.approvalCopyGenerator,
+    );
+    log.info("Guardian approval expiry sweep started");
+
+    startGuardianActionSweep(
+      getGatewayInternalBaseUrl(),
+      () => mintDaemonDeliveryToken(),
+      this.guardianActionCopyGenerator,
+    );
+    log.info("Guardian action expiry sweep started");
+
+    startCanonicalGuardianExpirySweep();
+    log.info("Canonical guardian request expiry sweep started");
+  }
+
+  /**
+   * Atomically publish the runtime HTTP port to ~/.vellum/runtime-port so
+   * external helpers can locate a non-default `RUNTIME_HTTP_PORT` without
+   * any manifest changes. Best-effort — write failures never block
+   * daemon startup (see assistant/AGENTS.md "Daemon startup philosophy").
+   */
+  private writeRuntimePortFile(actualPort: number): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      const dir = dirname(portFile);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      const tmpPath = `${portFile}.tmp.${process.pid}`;
+      writeFileSync(tmpPath, String(actualPort), { mode: 0o644 });
+      renameSync(tmpPath, portFile);
+      log.info({ portFile, actualPort }, "Wrote runtime port file");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to write runtime port file; non-default assistant ports may require --assistant-port on thin helpers",
+      );
+    }
+  }
+
+  /**
+   * Remove the runtime port file written by `writeRuntimePortFile`.
+   * Called from `stop()` on clean shutdown so a stale file does not
+   * point thin helpers (e.g. the chrome-extension native messaging
+   * helper) at a dead port until the next daemon start overwrites it.
+   * Best-effort — unlink failures never block shutdown.
+   *
+   * The unlink is conditional: we only remove the file if its current
+   * contents still match this server's port. The runtime-port file
+   * lives at the user-home level (`~/.vellum/runtime-port`) and is
+   * therefore shared across multiple daemon instances running on
+   * different `RUNTIME_HTTP_PORT`s. If a sibling instance has already
+   * rewritten the file with its own port, deleting it would strand
+   * thin helpers on the default port `7821` and break their ability
+   * to reach the still-running sibling.
+   *
+   * Note: this only runs on graceful shutdown. A crash leaves the
+   * file in place; the next successful startup overwrites it.
+   */
+  private removeRuntimePortFile(): void {
+    try {
+      const portFile = getRuntimePortFilePath();
+      if (!existsSync(portFile)) return;
+      // Read-then-compare-then-unlink. Race-safe enough: the worst case
+      // is that another instance writes the file between our read and
+      // our unlink, in which case we erroneously delete its mapping.
+      // That window is short (a few microseconds) and a sibling startup
+      // will rewrite the file on its next port-publish call. The much
+      // more common multi-instance race — sibling already overwrote
+      // before our stop() runs — is correctly handled here as a no-op.
+      const current = readFileSync(portFile, "utf-8").trim();
+      if (current !== String(this.actualPort)) {
+        log.info(
+          { portFile, current, actualPort: this.actualPort },
+          "Leaving runtime port file alone — owned by another instance",
+        );
+        return;
+      }
+      unlinkSync(portFile);
+      log.info({ portFile }, "Removed runtime port file");
+    } catch (err) {
+      log.warn({ err }, "Failed to remove runtime port file");
+    }
   }
 
   async stop(): Promise<void> {
@@ -458,11 +937,21 @@ export class RuntimeHttpServer {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
     }
+
+    // Deterministic teardown of active STT streaming sessions before
+    // stopping the HTTP server so provider sessions are cleaned up
+    // and clients receive proper close frames.
+    for (const [sessionId, session] of activeSttStreamSessions) {
+      session.destroy();
+      activeSttStreamSessions.delete(sessionId);
+    }
+
     if (this.server) {
       this.server.stop(true);
       this.server = null;
       log.info("Runtime HTTP server stopped");
     }
+    this.removeRuntimePortFile();
   }
 
   private async handleRequest(
@@ -513,6 +1002,24 @@ export class RuntimeHttpServer {
       return this.handleRelayUpgrade(req, server);
     }
 
+    // WebSocket upgrade for Twilio Media Streams — same private-network
+    // restrictions as relay upgrades.
+    if (
+      path.startsWith("/v1/calls/media-stream") &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleMediaStreamUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for STT streaming — private-network restrictions
+    // and explicit gateway-service token verification before upgrade.
+    if (
+      path === "/v1/stt/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleSttStreamUpgrade(req, server);
+    }
+
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
@@ -533,6 +1040,13 @@ export class RuntimeHttpServer {
       return handlePairingStatus(url, this.pairingContext);
     }
 
+    // Chrome extension capability-token pair endpoint — unauthenticated but
+    // restricted to loopback peers + an extension-id allowlist. Used by the
+    // native messaging helper to bootstrap a scoped token.
+    if (path === "/v1/browser-extension-pair") {
+      return await handleBrowserExtensionPair(req, server);
+    }
+
     // Guardian bootstrap and refresh endpoints — before JWT auth because
     // bootstrap is the first endpoint called to obtain a JWT, and refresh
     // needs to work when the access token is expired. Bootstrap has its
@@ -547,7 +1061,19 @@ export class RuntimeHttpServer {
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
     // authenticateRequest handles dev bypass (DISABLE_HTTP_AUTH) internally.
-    const authResult = authenticateRequest(req);
+    //
+    // Special-case: /v1/host-browser-result POST accepts either a
+    // daemon-minted JWT (legacy/cloud) or a host_browser capability
+    // token (self-hosted chrome extension). The chrome extension's
+    // HTTP fallback (`postHostBrowserResult`) hands over the same
+    // capability token it presented to `/v1/browser-relay`, so the
+    // POST route must understand both auth shapes. Every other route
+    // keeps the JWT-only flow via `authenticateRequest`.
+    const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    const authResult =
+      normalizedPath === "/v1/host-browser-result" && req.method === "POST"
+        ? authenticateHostBrowserResultRequest(req)
+        : authenticateRequest(req);
     if (!authResult.ok) {
       return authResult.response;
     }
@@ -635,15 +1161,110 @@ export class RuntimeHttpServer {
       );
     }
 
+    // When auth is enabled we accept two different kinds of token on the
+    // `/v1/browser-relay` handshake:
+    //
+    //   1. **Capability token** — a signed `host_browser_command`
+    //      capability minted by `mintHostBrowserCapability()` and handed
+    //      to the chrome extension by the native-messaging pair flow
+    //      (`/v1/browser-extension-pair`). This is the preferred,
+    //      self-hosted default: the extension never has to touch a
+    //      gateway JWT.
+    //   2. **JWT** (audience `vellum-daemon`) — the legacy path used by
+    //      the gateway-proxied cloud flow and by any compatibility
+    //      callers that still hold a daemon-bound JWT. In that case we
+    //      parse the JWT `sub` to extract the actor principal id and
+    //      fall back to the explicit `x-guardian-id` / `guardianId`
+    //      query param for service-token paths (see below).
+    //
+    // When auth is disabled (dev bypass), guardianId remains undefined
+    // and the registration is skipped — host_browser_request routing
+    // requires an authenticated guardian.
+    //
+    // Gateway path: when the WebSocket upgrade is proxied through the
+    // gateway, the upstream token minted by `mintServiceToken()` has
+    // `sub=svc:gateway:self` with no actor principal id. The gateway
+    // parses the downstream edge token's `actorPrincipalId` and forwards
+    // it as an explicit `guardianId` query parameter (and/or header) so
+    // we can register the connection under the real guardian. Missing
+    // guardian context on this path is rejected (fail closed).
+    // Read the client-supplied stable instance id off the handshake.
+    // The extension generates this on first run and persists it in
+    // chrome.storage so it survives service-worker restarts and
+    // browser restarts. The header form is preferred so gateway
+    // forwarding and proxy logs don't surface instance ids in the
+    // URL, but we also accept a query param for fetch-based clients
+    // that can't mutate headers. An empty string is treated as absent
+    // so sparse clients don't end up all sharing the same legacy key.
+    const rawInstanceHeader = req.headers.get("x-client-instance-id")?.trim();
+    const rawInstanceQuery = new URL(req.url).searchParams
+      .get("clientInstanceId")
+      ?.trim();
+    const clientInstanceId =
+      (rawInstanceHeader ?? "") || (rawInstanceQuery ?? "") || undefined;
+
+    let guardianId: string | undefined;
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get("token");
       if (!token) {
         return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      // 1) Capability-token path (self-hosted default). The chrome
+      //    extension presents the token it received from the native
+      //    messaging pair flow. We derive `guardianId` from the
+      //    capability claims directly — the claims are HMAC-signed by
+      //    the same daemon so there is no cross-tenant risk.
+      const capabilityClaims = verifyHostBrowserCapability(token);
+      if (capabilityClaims) {
+        guardianId = capabilityClaims.guardianId;
+      } else {
+        // 2) JWT compatibility path (gateway / legacy). Fall back to the
+        //    existing verifyToken+parseSub flow so cloud callers and any
+        //    old self-hosted clients still holding a daemon JWT
+        //    continue to work during the cutover.
+        const jwtResult = verifyToken(token, "vellum-daemon");
+        if (!jwtResult.ok) {
+          return httpError("UNAUTHORIZED", "Unauthorized", 401);
+        }
+        const subResult = parseSub(jwtResult.claims.sub);
+        if (subResult.ok && subResult.actorPrincipalId) {
+          // Direct actor principal — this is the loopback / desktop path.
+          guardianId = subResult.actorPrincipalId;
+        } else {
+          // Service-token path (gateway-forwarded). The gateway must plumb
+          // the resolved actor principal as an explicit `x-guardian-id`
+          // header or `guardianId` query param. Header takes precedence
+          // because headers are easier for the gateway to forward without
+          // rewriting the URL.
+          const headerGuardianId =
+            req.headers.get("x-guardian-id")?.trim() ?? "";
+          const queryGuardianId =
+            wsUrl.searchParams.get("guardianId")?.trim() ?? "";
+          const fallbackGuardianId = headerGuardianId || queryGuardianId;
+          if (fallbackGuardianId) {
+            guardianId = fallbackGuardianId;
+          } else {
+            // Fail closed: a service-token relay upgrade without a
+            // guardian context cannot be routed safely. Allowing the
+            // upgrade to proceed creates an unscoped socket that never
+            // registers in the ChromeExtensionRegistry.
+            log.warn(
+              {
+                principalType: subResult.ok
+                  ? subResult.principalType
+                  : "unknown",
+                sub: jwtResult.claims.sub,
+              },
+              "Browser relay upgrade denied: missing guardian context on service-token path",
+            );
+            return httpError(
+              "UNAUTHORIZED",
+              "Browser relay requires guardian context",
+              401,
+            );
+          }
+        }
       }
     }
 
@@ -652,6 +1273,8 @@ export class RuntimeHttpServer {
       data: {
         wsType: "browser-relay",
         connectionId,
+        guardianId,
+        clientInstanceId,
       } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {
@@ -679,6 +1302,108 @@ export class RuntimeHttpServer {
       return new Response("Missing callSessionId", { status: 400 });
     }
     const upgraded = server.upgrade(req, { data: { callSessionId } });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
+  }
+
+  private handleMediaStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct media-stream access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    const wsUrl = new URL(req.url);
+    const callSessionId = wsUrl.searchParams.get("callSessionId");
+    if (!callSessionId) {
+      return new Response("Missing callSessionId", { status: 400 });
+    }
+    // Media-stream connections use a distinct wsType so the open/message/close
+    // handlers route them to MediaStreamCallSession instead of RelayConnection.
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "media-stream",
+        callSessionId,
+      } satisfies MediaStreamWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    // Bun's WebSocket upgrade consumes the request — no Response is sent.
+    return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/stt/stream`.
+   *
+   * Private-network restrictions apply (same as relay/media-stream) so the
+   * runtime remains unreachable from the public internet. The gateway
+   * authenticates the downstream client and proxies the upgrade with a
+   * short-lived gateway service token.
+   */
+  private handleSttStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct STT stream access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    // Verify the gateway service token before accepting the upgrade.
+    if (!isHttpAuthDisabled()) {
+      const wsUrl = new URL(req.url);
+      const token = wsUrl.searchParams.get("token");
+      if (!token) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const jwtResult = verifyToken(token, "vellum-daemon");
+      if (!jwtResult.ok) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      // Accept gateway service tokens (svc:gateway:*) — these are the
+      // only tokens the gateway mints for upstream connections.
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+    }
+
+    const wsUrl = new URL(req.url);
+    // provider is optional compatibility metadata — the runtime resolves
+    // the streaming transcriber from config (`services.stt.provider`).
+    const provider = wsUrl.searchParams.get("provider") ?? undefined;
+    const mimeType = wsUrl.searchParams.get("mimeType");
+    if (!mimeType) {
+      return new Response("Missing required query parameter: mimeType", {
+        status: 400,
+      });
+    }
+
+    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
+    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
+
+    const sessionId = crypto.randomUUID();
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "stt-stream",
+        provider,
+        mimeType,
+        sampleRate,
+        sessionId,
+      } satisfies SttStreamWebSocketData,
+    });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -834,6 +1559,7 @@ export class RuntimeHttpServer {
       lastMessageAt: conversation.lastMessageAt,
       conversationType: conversation.conversationType ?? "standard",
       source: conversation.source ?? "user",
+      hostAccess: conversation.hostAccess === 1,
       ...(conversation.scheduleJobId
         ? { scheduleJobId: conversation.scheduleJobId }
         : {}),
@@ -964,6 +1690,11 @@ export class RuntimeHttpServer {
       ...heartbeatRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
       }),
+      ...filingRouteDefinitions({
+        getFilingService: this.getFilingService,
+      }),
+      ...homeStateRouteDefinitions(),
+      ...homeFeedRouteDefinitions(),
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...logExportRouteDefinitions(),
@@ -997,29 +1728,7 @@ export class RuntimeHttpServer {
           : undefined,
       }),
       ...ttsRouteDefinitions(),
-
-      // Browser relay — not extracted into a domain module because
-      // these two routes depend on the in-process extensionRelayServer
-      // singleton which is only available here.
-      {
-        endpoint: "browser-relay/status",
-        method: "GET",
-        handler: () => Response.json(extensionRelayServer.getStatus()),
-      },
-      {
-        endpoint: "browser-relay/command",
-        method: "POST",
-        handler: async ({ req }) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          const resp = await extensionRelayServer.sendCommand(
-            body as Omit<
-              import("../browser-extension-relay/protocol.js").ExtensionCommand,
-              "id"
-            >,
-          );
-          return Response.json(resp);
-        },
-      },
+      ...sttRouteDefinitions(),
 
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
@@ -1332,6 +2041,7 @@ export class RuntimeHttpServer {
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
+      ...backupRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.

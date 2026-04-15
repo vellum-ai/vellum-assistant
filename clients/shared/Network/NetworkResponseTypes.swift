@@ -3,7 +3,7 @@ import Foundation
 // MARK: - SSE Event Envelope
 
 /// Envelope around `ServerMessage` for SSE events from the gateway.
-struct AssistantEvent: Decodable {
+struct AssistantEvent: Decodable, Sendable {
     let id: String
     let assistantId: String
     let conversationId: String?
@@ -22,6 +22,7 @@ public struct ConversationsListResponse: Decodable {
         public let updatedAt: Int
         public let conversationType: String?
         public let source: String?
+        public let hostAccess: Bool?
         public let scheduleJobId: String?
         public let channelBinding: ChannelBinding?
         public let conversationOriginChannel: String?

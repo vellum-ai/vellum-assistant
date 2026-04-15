@@ -7,29 +7,33 @@ struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onCreateSkill: (() -> Void)?
+    var onImportMemory: ((String) -> Void)?
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
+    var authManager: AuthManager?
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var initialTab: String? = nil
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
-    @State private var cachedAssistantName: String = "Your Assistant"
-    @State private var isEmailEnabled: Bool = false
+    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.loadFromDiskCache()?.name, fallback: "Your Assistant")
     @Binding var pendingSkillId: String?
     @State private var pendingFilePath: String?
-    private static let emailFeatureFlagKey = "email-channel"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onImportMemory: ((String) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, authManager: AuthManager? = nil, assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
+        self.onImportMemory = onImportMemory
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
         self.conversationManager = conversationManager
+        self.authManager = authManager
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
@@ -51,7 +55,7 @@ struct IntelligencePanel: View {
         VPageContainer(title: "About \(cachedAssistantName)") {
             // Tab bar
             VTabs(
-                items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
+                items: IntelligenceTab.allCases.map { (label: $0.rawValue, tag: $0) },
                 selection: $selectedTab
             )
             .padding(.bottom, VSpacing.md)
@@ -67,40 +71,8 @@ struct IntelligencePanel: View {
         .task {
             let info = await IdentityInfo.loadAsync()
             cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-            await loadFeatureFlags()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-            if let key = notification.userInfo?["key"] as? String,
-               let enabled = notification.userInfo?["enabled"] as? Bool {
-                if key == Self.emailFeatureFlagKey {
-                    isEmailEnabled = enabled
-                }
-            }
         }
     }
-
-    private var visibleTabs: [IntelligenceTab] {
-        IntelligenceTab.allCases
-    }
-
-    private func loadFeatureFlags() async {
-        let featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
-        do {
-            let flags = try await featureFlagClient.getFeatureFlags()
-            if let emailFlag = flags.first(where: { $0.key == Self.emailFeatureFlagKey }) {
-                isEmailEnabled = emailFlag.enabled
-            }
-        } catch {
-            // Fall through to local file fallback
-            let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-                registry: loadFeatureFlagRegistry()
-            )
-            if let emailEnabled = resolved[Self.emailFeatureFlagKey] {
-                isEmailEnabled = emailEnabled
-            }
-        }
-    }
-
 
     // MARK: - Tab Content
 
@@ -118,7 +90,8 @@ struct IntelligencePanel: View {
                 onNavigateToFile: { path in
                     pendingFilePath = path
                     withAnimation(VAnimation.fast) { selectedTab = .workspace }
-                }
+                },
+                onOpenThread: onImportMemory
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -145,14 +118,13 @@ struct IntelligencePanel: View {
                 eventStreamClient: eventStreamClient,
                 store: store,
                 conversationManager: conversationManager,
-                isEmailEnabled: isEmailEnabled,
                 showToast: showToast
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .memories:
-            MemoriesPanel(connectionManager: connectionManager, focusedMemoryId: $pendingMemoryId)
+            MemoriesPanel(connectionManager: connectionManager, assistantName: cachedAssistantName, onImportMemory: onImportMemory, focusedMemoryId: $pendingMemoryId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }

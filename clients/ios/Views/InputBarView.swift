@@ -9,7 +9,7 @@ import ObjCExceptionCatcher
 import VellumAssistantShared
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "InputBarView"
 )
 
@@ -23,6 +23,20 @@ struct InputBarView: View {
     var onVoiceResult: ((String) -> Void)?
     var viewModel: ChatViewModel
 
+    /// Speech recognizer adapter — defaults to the Apple implementation backed by SFSpeechRecognizer.
+    /// Inject a mock for testing.
+    var speechRecognizer: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+
+    /// STT client for service-first transcription via the gateway. When the service returns a
+    /// successful transcription it takes precedence over the native recognizer result; the native
+    /// result is used as a fallback when the service is unavailable, unconfigured, or returns an
+    /// empty result.
+    var sttClient: any STTClientProtocol = STTClient()
+
+    /// Factory that creates a fresh `STTStreamingClientProtocol` for each recording session.
+    /// Inject a mock factory for testing.
+    var sttStreamingClientFactory: () -> any STTStreamingClientProtocol = { STTStreamingClient() }
+
     @State private var isRecording = false
     /// True after the audio engine and tap have been torn down (set by finishRecordingForAutoStop
     /// and stopRecording). Prevents double-stop when the auto-stop path and the isFinal callback
@@ -35,7 +49,9 @@ struct InputBarView: View {
     /// the user has not typed anything in the interim.
     @State private var isAutoStopPending = false
     @State private var textAtAutoStop: String = ""
-    @State private var recognitionTask: SFSpeechRecognitionTask?
+    /// Cancellation closure returned by the adapter's startRecognitionTask — tears down the
+    /// recognition task without requiring a direct SFSpeechRecognitionTask reference.
+    @State private var cancelRecognitionTask: (() -> Void)?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var audioEngine = AVAudioEngine()
     @State private var showPhotosPicker = false
@@ -61,6 +77,53 @@ struct InputBarView: View {
     /// Set to true when Cancel is tapped before recording has started; checked by beginRecording()
     /// so that a cancel during the mic-permission or setup window aborts the session.
     @State private var isCancelledBeforeRecording = false
+
+    /// Raw PCM audio buffers captured during the recording session. Serialized to WAV and sent
+    /// to the STT service for service-first transcription when the session ends.
+    @State private var audioBuffers: [Data] = []
+    /// The audio format of the recording session, captured when the tap is installed so we can
+    /// build a correct WAV header when encoding the collected buffers.
+    @State private var recordingSampleRate: Int = 0
+
+    /// Monotonically increasing generation counter that identifies the current STT recording
+    /// session. Incremented each time a new recording starts. The async STT resolution task
+    /// captures this value at launch and checks it on completion — if it no longer matches,
+    /// a newer session has started and the stale result is silently discarded.
+    @State private var sttSessionId: Int = 0
+
+    /// True when the current recording session is using STT-only mode (no native speech
+    /// recognition task). Set when STT is configured and the native recognizer is unavailable
+    /// or unauthorized. In this mode, auto-stop routes directly to the STT service instead
+    /// of waiting for a native isFinal callback.
+    @State private var isSTTOnlyMode = false
+
+    // MARK: - Streaming STT State
+
+    /// The active streaming STT client for the current recording session. Non-nil when
+    /// the session is using real-time streaming transcription. Created fresh per session
+    /// via `sttStreamingClientFactory`.
+    @State private var activeStreamingClient: (any STTStreamingClientProtocol)?
+
+    /// True when the streaming session has been successfully set up and is receiving events.
+    /// When false (stream setup failed or provider doesn't support streaming), the session
+    /// falls back to the existing batch STT path.
+    @State private var isStreamingActive = false
+
+    /// True once a streaming `.final` event has been received for the current session.
+    /// When set, the batch STT resolution path defers to the streaming result instead of
+    /// overwriting it.
+    @State private var streamingFinalReceived = false
+
+    /// The text value captured at the moment streaming partials began being applied.
+    /// Used to detect whether the user has typed in the text field during streaming — if
+    /// so, streaming updates are suppressed to avoid overwriting user input.
+    @State private var textBeforeStreamingPartials: String = ""
+
+    /// True once `onVoiceResult` has been called for the current recording session.
+    /// Prevents duplicate delivery when batch resolution and streaming final race
+    /// (e.g. auto-stop fires before `.ready`, then streaming delivers a `.final`
+    /// after the batch task has already committed).
+    @State private var voiceResultCommitted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,7 +179,7 @@ struct InputBarView: View {
     }
 
     private var voiceOrbState: VoiceOrbState {
-        // The SFSpeechRecognizer pipeline only has listening and idle states in
+        // The speech recognizer pipeline only has listening and idle states in
         // this simplified implementation; thinking/processing is not separately
         // observable here, so we reflect the recording flag directly.
         isRecording ? .listening : .idle
@@ -286,13 +349,27 @@ struct InputBarView: View {
                 log.warning("Microphone access denied")
                 DispatchQueue.main.async {
                     isVoiceOrbExpanded = false
-                    viewModel.errorText = "Microphone access denied — enable it in Settings > Privacy > Microphone."
+                    // When STT is configured, only microphone permission is required — don't
+                    // mention speech recognition since we can transcribe without it.
+                    if STTProviderRegistry.isServiceConfigured {
+                        viewModel.errorText = "Microphone not authorized — enable it in Settings > Privacy > Microphone."
+                    } else {
+                        viewModel.errorText = "Microphone access denied — enable it in Settings > Privacy > Microphone."
+                    }
                 }
                 return
             }
-            // Request speech recognition access
-            SFSpeechRecognizer.requestAuthorization { status in
-                DispatchQueue.main.async {
+
+            Task { @MainActor in
+                if STTProviderRegistry.isServiceConfigured {
+                    // When an STT provider is configured, speech recognition permission is
+                    // not required — the STT service handles transcription. Proceed directly
+                    // to recording.
+                    log.info("STT provider configured — skipping speech recognition authorization")
+                    beginRecording()
+                } else {
+                    // Request speech recognition access via the adapter
+                    let status = await speechRecognizer.requestAuthorization()
                     guard status == .authorized else {
                         log.warning("Speech recognition not authorized: \(String(describing: status))")
                         isVoiceOrbExpanded = false
@@ -313,11 +390,18 @@ struct InputBarView: View {
             return
         }
 
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
-            log.error("Speech recognizer not available")
-            isVoiceOrbExpanded = false
-            viewModel.errorText = "Voice input is not available on this device."
-            return
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
+        // When STT is not configured, the native speech recognizer is required.
+        // When STT is configured, the native recognizer is optional — we can fall
+        // back to STT-only mode if it's unavailable.
+        if !sttConfigured {
+            guard speechRecognizer.isAvailable else {
+                log.error("Speech recognizer not available")
+                isVoiceOrbExpanded = false
+                viewModel.errorText = "Voice input is not available on this device."
+                return
+            }
         }
 
         do {
@@ -331,9 +415,59 @@ struct InputBarView: View {
             return
         }
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        recognitionRequest = request
+        // Determine whether we can use the native speech recognizer. When STT is
+        // configured the native recognizer is optional — if it's unavailable or
+        // throws on start, we fall back to STT-only mode (PCM capture + service
+        // transcription without a native recognition task).
+        var nativeRequest: SFSpeechAudioBufferRecognitionRequest?
+        var nativeCancelTask: (() -> Void)?
+        var useSTTOnly = false
+
+        if speechRecognizer.isAvailable {
+            do {
+                let taskResult = try speechRecognizer.startRecognitionTask { result, error in
+                    if let result = result {
+                        let transcribed = result.transcription
+                        if result.isFinal {
+                            log.info("Native transcription final: \(transcribed, privacy: .public)")
+                            resolveTranscriptWithServiceFirst(nativeTranscript: transcribed)
+                        }
+                    }
+                    if let error = error {
+                        // Code 1110 is "no speech detected" — not an error worth logging at error level
+                        let nsError = error as NSError
+                        if nsError.code != 1110 {
+                            log.error("Recognition error: \(error.localizedDescription)")
+                        }
+                        stopRecording()
+                        isVoiceOrbExpanded = false
+                    }
+                }
+                nativeRequest = taskResult.request
+                nativeCancelTask = taskResult.cancel
+            } catch {
+                if sttConfigured {
+                    // Native recognizer failed to start but STT is available — proceed in STT-only mode.
+                    log.info("Native recognition task failed to start, using STT-only mode: \(error.localizedDescription)")
+                    useSTTOnly = true
+                } else {
+                    log.error("Failed to start recognition task: \(error.localizedDescription)")
+                    isVoiceOrbExpanded = false
+                    viewModel.errorText = "Voice input is not available on this device."
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                    return
+                }
+            }
+        } else if sttConfigured {
+            // Speech recognizer not available but STT is configured — use STT-only mode.
+            log.info("Speech recognizer not available, using STT-only mode")
+            useSTTOnly = true
+        }
+        // else: not available + not configured — guarded above with early return.
+
+        recognitionRequest = nativeRequest
+        cancelRecognitionTask = nativeCancelTask
+        isSTTOnlyMode = useSTTOnly || nativeRequest == nil
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -342,15 +476,59 @@ struct InputBarView: View {
             log.error("No audio input channels available")
             isVoiceOrbExpanded = false
             viewModel.errorText = "No microphone input available."
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            cleanupRecognition()
             return
         }
 
         // Reset per-session state for the new recording session.
+        sttSessionId += 1
         lastSpeechTime = Date()
         hasSpeechOccurred = false
         isAudioEngineStopped = false
         isAutoStopPending = false
         textAtAutoStop = ""
+        audioBuffers = []
+        recordingSampleRate = Int(recordingFormat.sampleRate)
+        streamingFinalReceived = false
+        isStreamingActive = false
+        textBeforeStreamingPartials = text
+        voiceResultCommitted = false
+
+        // Tear down any leftover streaming client from a previous session.
+        if let oldClient = activeStreamingClient {
+            activeStreamingClient = nil
+            Task { await oldClient.close() }
+        }
+
+        // Start streaming STT when the configured provider supports conversation streaming.
+        // The streaming client sends partial/final transcript events while audio is being
+        // captured. If streaming setup fails, the session falls back to batch STT seamlessly.
+        let streamingAvailable = STTProviderRegistry.isStreamingAvailable
+        if streamingAvailable {
+            let client = sttStreamingClientFactory()
+            activeStreamingClient = client
+            let sessionAtStart = sttSessionId
+
+            let sampleRateForStream = Int(recordingFormat.sampleRate)
+
+            Task { @MainActor in
+                await client.start(
+                    mimeType: "audio/pcm",
+                    sampleRate: sampleRateForStream,
+                    onEvent: { event in
+                        self.handleStreamingEvent(event, sessionId: sessionAtStart)
+                    },
+                    onFailure: { failure in
+                        self.handleStreamingFailure(failure, sessionId: sessionAtStart)
+                    }
+                )
+            }
+        }
+
+        // Capture the native request locally for the tap closure. In STT-only mode
+        // this is nil and the tap only captures PCM data for the service.
+        let capturedNativeRequest = nativeRequest
 
         // installTap throws an Objective-C NSException (not a Swift Error) on
         // format mismatch or stale engine state during audio route changes.
@@ -360,7 +538,32 @@ struct InputBarView: View {
         var installError: NSError?
         let installed = VLMPerformWithObjCExceptionHandling({
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-                request.append(buffer)
+                // Feed audio buffers to the native recognizer when available.
+                capturedNativeRequest?.append(buffer)
+
+                // Capture raw PCM samples for STT service transcription and streaming.
+                // Convert float samples to 16-bit integers (WAV/PCM standard).
+                if let floatData = buffer.floatChannelData {
+                    let frameCount = Int(buffer.frameLength)
+                    if frameCount > 0 {
+                        var pcmChunk = Data(count: frameCount * MemoryLayout<Int16>.size)
+                        pcmChunk.withUnsafeMutableBytes { rawBuffer in
+                            let int16Buffer = rawBuffer.bindMemory(to: Int16.self)
+                            for i in 0..<frameCount {
+                                let clamped = max(-1.0, min(1.0, floatData[0][i]))
+                                int16Buffer[i] = Int16(clamped * Float(Int16.max)).littleEndian
+                            }
+                        }
+                        Task { @MainActor in
+                            self.audioBuffers.append(pcmChunk)
+
+                            // Stream the PCM chunk to the active streaming client when available.
+                            if self.isStreamingActive, let streamClient = self.activeStreamingClient {
+                                await streamClient.sendAudio(pcmChunk)
+                            }
+                        }
+                    }
+                }
 
                 // Compute RMS amplitude for both voice orb animation and silence detection.
                 guard let floatData = buffer.floatChannelData else { return }
@@ -398,41 +601,11 @@ struct InputBarView: View {
             return
         }
 
-        recognitionTask = recognizer.recognitionTask(with: request) { result, error in
-            DispatchQueue.main.async {
-                if let result = result {
-                    let transcribed = result.bestTranscription.formattedString
-                    if result.isFinal {
-                        log.info("Voice transcription final: \(transcribed, privacy: .public)")
-                        // Only apply the final transcription if the user has not typed anything
-                        // since auto-stop. When isAutoStopPending is true the voice orb has already
-                        // collapsed and the text field is visible, so the user may have started
-                        // editing; we respect their input by skipping the overwrite in that case.
-                        if !isAutoStopPending || text == textAtAutoStop {
-                            text = transcribed
-                            onVoiceResult?(transcribed)
-                        }
-                        stopRecording()
-                        isVoiceOrbExpanded = false
-                    }
-                }
-                if let error = error {
-                    // Code 1110 is "no speech detected" — not an error worth logging at error level
-                    let nsError = error as NSError
-                    if nsError.code != 1110 {
-                        log.error("Recognition error: \(error.localizedDescription)")
-                    }
-                    stopRecording()
-                    isVoiceOrbExpanded = false
-                }
-            }
-        }
-
         do {
             audioEngine.prepare()
             try audioEngine.start()
             isRecording = true
-            log.info("Voice recording started")
+            log.info("Voice recording started (sttOnly=\(isSTTOnlyMode))")
 
             // Silence detection timer: polls every 0.25 s to check how long
             // the mic has been quiet. Stops recording once the threshold is met
@@ -476,6 +649,239 @@ struct InputBarView: View {
         }
     }
 
+    /// Resolves the final transcript using service-first precedence: sends captured audio to the
+    /// STT gateway service and uses its result when successful. Falls back to the native recognizer
+    /// transcript when the service is unavailable, unconfigured, or returns an empty result.
+    ///
+    /// When streaming has already delivered a final transcript (`streamingFinalReceived`) or the
+    /// stream is still active, this method is a no-op — the streaming result takes precedence
+    /// over batch.
+    private func resolveTranscriptWithServiceFirst(nativeTranscript: String) {
+        // If a result was already committed for this session (either by streaming final
+        // or a previous batch resolution), skip duplicate delivery.
+        guard !voiceResultCommitted else {
+            log.info("Voice result already committed for this session — skipping duplicate delivery")
+            return
+        }
+
+        // If the streaming path already committed a final transcript, do not overwrite it
+        // with a batch result.
+        guard !streamingFinalReceived else {
+            log.info("Streaming final already received — skipping batch STT resolution")
+            return
+        }
+
+        // If streaming is still active and may deliver a final, defer to it. The streaming
+        // final handler will handle completion.
+        guard !isStreamingActive else {
+            log.info("Streaming still active — deferring to streaming final event")
+            return
+        }
+
+        // Build WAV payload from captured PCM buffers.
+        let capturedBuffers = audioBuffers
+        let sampleRate = recordingSampleRate
+        let client = sttClient
+
+        // Capture auto-stop state before the async gap — these @State values may change.
+        let wasAutoStopPending = isAutoStopPending
+        let savedTextAtAutoStop = textAtAutoStop
+
+        // Capture the current session generation so we can detect if a new recording
+        // started while this async STT request was in-flight.
+        let sessionAtLaunch = sttSessionId
+
+        Task { @MainActor in
+            let serviceText = await transcribeViaService(
+                buffers: capturedBuffers,
+                sampleRate: sampleRate,
+                client: client
+            )
+
+            // If a new recording session started while the service request was
+            // in-flight, discard this stale result to avoid tearing down the new
+            // session's state.
+            guard sttSessionId == sessionAtLaunch else {
+                log.info("STT session \(sessionAtLaunch) superseded by session \(sttSessionId) — discarding stale result")
+                return
+            }
+
+            // Re-check after the async gap: another concurrent call may have
+            // committed while we were awaiting the service response.
+            guard !voiceResultCommitted else {
+                log.info("Voice result committed by concurrent resolution during await — skipping")
+                return
+            }
+
+            // Determine which transcript to use: service result if non-empty, else native fallback.
+            let finalTranscript: String
+            if let serviceText, !serviceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                log.info("Using STT service transcript (\(serviceText.count) chars)")
+                finalTranscript = serviceText
+            } else if !nativeTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                log.info("Falling back to native transcript (\(nativeTranscript.count) chars)")
+                finalTranscript = nativeTranscript
+            } else if isSTTOnlyMode {
+                // STT-only mode and service returned nothing — show error instead
+                // of silently delivering empty text.
+                log.warning("STT service returned empty result in STT-only mode — no fallback available")
+                viewModel.errorText = "Voice transcription failed. Please try again."
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            } else {
+                log.info("Both service and native transcripts empty")
+                finalTranscript = nativeTranscript
+            }
+
+            // Only apply the final transcription if the user has not typed anything since auto-stop.
+            if !wasAutoStopPending || text == savedTextAtAutoStop {
+                text = finalTranscript
+                voiceResultCommitted = true
+                onVoiceResult?(finalTranscript)
+            }
+            stopRecording()
+            isVoiceOrbExpanded = false
+        }
+    }
+
+    /// Encodes captured PCM buffers into a WAV file and sends them to the STT service.
+    /// Returns the service transcript on success, or nil on any failure/unconfigured/empty result.
+    private func transcribeViaService(
+        buffers: [Data],
+        sampleRate: Int,
+        client: any STTClientProtocol
+    ) async -> String? {
+        guard !buffers.isEmpty, sampleRate > 0 else {
+            log.info("No audio buffers captured — skipping STT service call")
+            return nil
+        }
+
+        // Concatenate all PCM chunks and encode as WAV. Run off the main actor to avoid
+        // blocking the UI with the data copy.
+        // Always encode as mono (channels: 1) because the PCM capture only reads
+        // floatData[0] (the first channel) — even when the recording format is stereo.
+        let wavData: Data = await Task.detached(priority: .userInitiated) {
+            var pcmData = Data()
+            for chunk in buffers {
+                pcmData.append(chunk)
+            }
+            let format = AudioWavEncoder.Format(
+                sampleRate: sampleRate,
+                channels: 1,
+                bitsPerSample: 16
+            )
+            return AudioWavEncoder.encode(pcmData: pcmData, format: format)
+        }.value
+
+        let result = await client.transcribe(audioData: wavData)
+        switch result {
+        case .success(let text):
+            return text
+        case .notConfigured:
+            log.info("STT service not configured — will use native fallback")
+            return nil
+        case .serviceUnavailable:
+            log.warning("STT service unavailable — will use native fallback")
+            return nil
+        case .error(let statusCode, let message):
+            log.warning("STT service error (status=\(String(describing: statusCode))): \(message) — will use native fallback")
+            return nil
+        }
+    }
+
+    // MARK: - Streaming Event Handling
+
+    /// Handles events from the STT streaming WebSocket session.
+    ///
+    /// - `ready`: marks the stream as active so audio chunks begin flowing.
+    /// - `partial`: applies interim transcript text to the composer binding.
+    /// - `final`: commits the final transcript, taking precedence over batch STT.
+    /// - `error`/`closed`: the stream is done; batch fallback will handle completion.
+    private func handleStreamingEvent(_ event: STTStreamEvent, sessionId: Int) {
+        // Stale-session guard: discard events from a superseded recording session.
+        guard sttSessionId == sessionId else {
+            log.info("Streaming event for stale session \(sessionId) (current: \(sttSessionId)) — ignoring")
+            return
+        }
+
+        switch event {
+        case .ready:
+            isStreamingActive = true
+            log.info("STT streaming session ready — streaming audio chunks")
+
+        case .partial(let partialText, let seq):
+            // Only apply partials if the stream is active and the user has not manually
+            // typed since the last partial was applied.
+            guard isStreamingActive, text == textBeforeStreamingPartials else { return }
+            log.debug("STT streaming partial (seq=\(seq)): \(partialText.prefix(80), privacy: .public)")
+            text = partialText
+            // Track the latest partial as the baseline for user-typing detection.
+            textBeforeStreamingPartials = partialText
+
+        case .final(let finalText, let seq):
+            log.info("STT streaming final (seq=\(seq), \(finalText.count) chars)")
+            streamingFinalReceived = true
+            // Skip if a result was already committed (e.g. batch resolution won the race).
+            guard !voiceResultCommitted else {
+                log.info("Voice result already committed — skipping streaming final delivery")
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            }
+            // During auto-stop the user may have typed in the text field while waiting
+            // for the streaming final. Only apply the streaming result when the text has
+            // not been edited since auto-stop began (same guard as the batch path).
+            if isAutoStopPending && text != textAtAutoStop {
+                log.info("User edited text during auto-stop — discarding streaming final")
+                stopRecording()
+                isVoiceOrbExpanded = false
+                return
+            }
+            text = finalText
+            textBeforeStreamingPartials = finalText
+            voiceResultCommitted = true
+            onVoiceResult?(finalText)
+            // Tear down the session — the streaming final is the authoritative result.
+            stopRecording()
+            isVoiceOrbExpanded = false
+
+        case .error(let category, let message, let seq):
+            log.warning("STT streaming error (seq=\(seq), category=\(category)): \(message)")
+            // Stream errored — fall back to batch. Clear streaming state so batch
+            // resolution proceeds normally.
+            isStreamingActive = false
+            // If auto-stop was waiting on a streaming final that never arrived,
+            // trigger batch fallback now to avoid a stuck session.
+            if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
+                resolveTranscriptWithServiceFirst(nativeTranscript: "")
+            }
+
+        case .closed:
+            log.info("STT streaming session closed")
+            isStreamingActive = false
+            // If auto-stop was waiting on a streaming final that never arrived,
+            // trigger batch fallback now to avoid a stuck session.
+            if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
+                resolveTranscriptWithServiceFirst(nativeTranscript: "")
+            }
+        }
+    }
+
+    /// Handles streaming session failure (connection error, timeout, rejected, etc.).
+    /// Falls back to the batch STT path for the current recording session.
+    private func handleStreamingFailure(_ failure: STTStreamFailure, sessionId: Int) {
+        guard sttSessionId == sessionId else { return }
+        log.warning("STT streaming failed: \(String(describing: failure)) — falling back to batch STT")
+        isStreamingActive = false
+        activeStreamingClient = nil
+        // If auto-stop was waiting on a streaming final that never arrived,
+        // trigger batch fallback now to avoid a stuck session.
+        if !streamingFinalReceived && isAutoStopPending && !voiceResultCommitted {
+            resolveTranscriptWithServiceFirst(nativeTranscript: "")
+        }
+    }
+
     private func stopRecording() {
         guard isRecording else { return }
         log.info("Voice recording stopped")
@@ -495,9 +901,12 @@ struct InputBarView: View {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
         cleanupRecognition()
+        cleanupStreaming()
         isRecording = false
         isAutoStopPending = false
+        isSTTOnlyMode = false
         micAmplitude = 0
+        audioBuffers = []
     }
 
     private func finishRecordingForAutoStop() {
@@ -529,12 +938,37 @@ struct InputBarView: View {
         isAudioEngineStopped = true
         micAmplitude = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+        // Signal the streaming client that recording has stopped so it can flush
+        // any remaining finals from the server before closing.
+        if let streamClient = activeStreamingClient, isStreamingActive {
+            Task { await streamClient.stop() }
+        }
+
+        // In STT-only mode there is no native recognition task to deliver a final
+        // transcript via the isFinal callback. Route directly to the STT service.
+        // However, if streaming is active, the streaming final event will handle
+        // completion — skip the batch fallback to avoid duplicate resolution.
+        if isSTTOnlyMode && !isStreamingActive {
+            resolveTranscriptWithServiceFirst(nativeTranscript: "")
+        }
     }
 
     private func cleanupRecognition() {
         recognitionRequest = nil
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        cancelRecognitionTask?()
+        cancelRecognitionTask = nil
+    }
+
+    /// Tears down the streaming STT client for the current session. Safe to call
+    /// even when no streaming client is active.
+    private func cleanupStreaming() {
+        isStreamingActive = false
+        streamingFinalReceived = false
+        if let client = activeStreamingClient {
+            activeStreamingClient = nil
+            Task { await client.close() }
+        }
     }
 }
 

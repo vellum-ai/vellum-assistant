@@ -25,6 +25,7 @@ private final class MeasuredTextCacheEntry: NSObject {
 struct MarkdownSegmentView: View, Equatable {
     let segments: [MarkdownSegment]
     var isStreaming: Bool = false
+    var typographyGeneration: Int? = nil
     var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.contentDefault
     var secondaryTextColor: Color = VColor.contentSecondary
@@ -40,6 +41,7 @@ struct MarkdownSegmentView: View, Equatable {
     static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
         lhs.segments == rhs.segments
             && lhs.isStreaming == rhs.isStreaming
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.maxContentWidth == rhs.maxContentWidth
             && lhs.textColor == rhs.textColor
             && lhs.secondaryTextColor == rhs.secondaryTextColor
@@ -55,7 +57,7 @@ struct MarkdownSegmentView: View, Equatable {
         let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         #if os(macOS)
-        let typographyGeneration = typographyObserver.generation
+        let typographyGeneration = self.typographyGeneration ?? typographyObserver.generation
         #endif
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
@@ -69,14 +71,16 @@ struct MarkdownSegmentView: View, Equatable {
                     )
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
-                    Text(attributed)
-                        .font(chatFont)
-                        .lineSpacing(4)
-                        .foregroundStyle(textColor)
-                        .tint(tintColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                    HStack(spacing: 0) {
+                        Text(attributed)
+                            .font(chatFont)
+                            .lineSpacing(4)
+                            .foregroundStyle(textColor)
+                            .tint(tintColor)
+                            .lineLimit(nil)
+                        Spacer(minLength: 0)
+                    }
                     #endif
 
                 case .codeBlock(let language, let code):
@@ -581,6 +585,11 @@ struct MarkdownSegmentView: View, Equatable {
 
     private static let mdConvertLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MarkdownConvert")
 
+    /// Shear applied to italic glyphs via `NSAttributedString.Key.obliqueness`.
+    /// DM Sans has no italic font face, so the slant has to be synthesized.
+    /// Value matches the historical 12° font-matrix transform (tan(12°) ≈ 0.213).
+    private static let emphasisObliqueness: NSNumber = 0.213 as NSNumber
+
     #if os(macOS)
     /// Converts a SwiftUI `AttributedString` to `NSAttributedString` with a
     /// base font and text color applied as defaults. Runs that already carry
@@ -680,19 +689,13 @@ struct MarkdownSegmentView: View, Equatable {
             )
         }
 
-        func fontHasExpectedTraits(_ font: NSFont, isEmphasized: Bool, isBold: Bool) -> Bool {
-            let matrix = CTFontGetMatrix(font as CTFont)
-            let hasOblique = abs(matrix.b) > 0.0001 || abs(matrix.c) > 0.0001
-            let hasBoldWeight: Bool
-            if isBold,
-               let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
-               let weightValue = variations[0x77676874 as NSNumber] {
-                hasBoldWeight = abs(CGFloat(truncating: weightValue) - 700) < 0.5
-            } else {
-                hasBoldWeight = !isBold
+        func fontHasExpectedTraits(_ font: NSFont, isBold: Bool) -> Bool {
+            if !isBold { return true }
+            guard let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber],
+                  let weightValue = variations[0x77676874 as NSNumber] else {
+                return false
             }
-
-            return (!isEmphasized || hasOblique) && hasBoldWeight
+            return abs(CGFloat(truncating: weightValue) - 700) < 0.5
         }
 
         for emphRun in emphasisRuns {
@@ -714,6 +717,7 @@ struct MarkdownSegmentView: View, Equatable {
                     continue
                 }
                 ns.addAttribute(.font, value: fontSet.boldItalic, range: nsRange)
+                ns.addAttribute(.obliqueness, value: emphasisObliqueness, range: nsRange)
             } else if isEmph {
                 guard fontSet.italicIsResolved else {
                     unresolvedEmphasisCount += 1
@@ -721,6 +725,7 @@ struct MarkdownSegmentView: View, Equatable {
                     continue
                 }
                 ns.addAttribute(.font, value: fontSet.italic, range: nsRange)
+                ns.addAttribute(.obliqueness, value: emphasisObliqueness, range: nsRange)
             } else if isBold {
                 guard fontSet.boldIsResolved else {
                     unresolvedEmphasisCount += 1
@@ -741,9 +746,16 @@ struct MarkdownSegmentView: View, Equatable {
             }
             let isEmph = emphRun.intent.contains(.emphasized)
             let isBold = emphRun.intent.contains(.stronglyEmphasized)
-            if !fontHasExpectedTraits(actualFont, isEmphasized: isEmph, isBold: isBold) {
+            if !fontHasExpectedTraits(actualFont, isBold: isBold) {
                 unresolvedEmphasisCount += 1
                 logUnresolvedFontsIfNeeded()
+            }
+            if isEmph {
+                let actualObliqueness = ns.attribute(.obliqueness, at: nsRange.location, effectiveRange: nil) as? NSNumber
+                if actualObliqueness == nil || abs(CGFloat(truncating: actualObliqueness!)) < 0.01 {
+                    unresolvedEmphasisCount += 1
+                    logUnresolvedFontsIfNeeded()
+                }
             }
         }
 
@@ -824,10 +836,11 @@ private struct CodeBlockView: View, Equatable {
                     Spacer()
                     VCopyButton(text: code, size: .compact)
                         .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                        .accessibilityHidden(!isHovered)
                         .animation(VAnimation.fast, value: isHovered)
                 }
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.top, VSpacing.xs)
+                .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.sm))
             }
 
             let codeLineCount = code.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
@@ -867,6 +880,8 @@ private struct CodeBlockView: View, Equatable {
             if language == nil || language?.isEmpty == true {
                 VCopyButton(text: code, size: .compact)
                     .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .accessibilityHidden(!isHovered)
                     .animation(VAnimation.fast, value: isHovered)
                     .padding(VSpacing.xs)
             }
@@ -899,12 +914,13 @@ private extension AttributedString {
 // MARK: - Optional Max Width
 
 private extension View {
-    /// Applies `.frame(maxWidth:alignment:)` only when a width is provided.
+    /// Applies a definite `.frame(width:)` only when a width is provided.
     /// When `nil`, no frame is applied — the view shrink-wraps to its content.
+    /// ⚠️ No `.frame(maxWidth:)` — see AGENTS.md.
     @ViewBuilder
     func optionalMaxWidth(_ width: CGFloat?) -> some View {
         if let width {
-            self.frame(maxWidth: width, alignment: .leading)
+            self.frame(width: width, alignment: .leading)
         } else {
             self
         }

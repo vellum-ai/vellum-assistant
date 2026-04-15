@@ -31,6 +31,7 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -100,9 +101,14 @@ describe("Channel verification reply templates", () => {
 describe("TwiML parameter propagation", () => {
   const defaultProfile = {
     language: "en-US",
-    transcriptionProvider: "deepgram",
     ttsProvider: "google",
     voice: "en-US-Standard-A",
+  };
+
+  const defaultSpeechConfig: TwilioRelaySpeechConfig = {
+    transcriptionProvider: "deepgram",
+    speechModel: undefined,
+    hints: undefined,
     interruptSensitivity: "low",
   };
 
@@ -112,6 +118,7 @@ describe("TwiML parameter propagation", () => {
       "wss://example.com/v1/calls/relay",
       null,
       defaultProfile,
+      defaultSpeechConfig,
       undefined,
       { verificationSessionId: "gv-session-456" },
     );
@@ -126,6 +133,7 @@ describe("TwiML parameter propagation", () => {
       "wss://example.com/v1/calls/relay",
       null,
       defaultProfile,
+      defaultSpeechConfig,
     );
     expect(twiml).not.toContain("<Parameter");
   });
@@ -136,6 +144,7 @@ describe("TwiML parameter propagation", () => {
       "wss://example.com/v1/calls/relay",
       null,
       defaultProfile,
+      defaultSpeechConfig,
       "token123",
       undefined,
     );

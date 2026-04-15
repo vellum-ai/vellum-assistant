@@ -62,6 +62,41 @@ public enum VFont {
         #endif
     }
 
+    /// Creates a DM Sans font at the given weight and size with the `tnum` OpenType
+    /// feature enabled (tabular numerals — every digit occupies the same advance width).
+    ///
+    /// Used for elements where digit columns must align (position pills like "#1"/"#12",
+    /// counters, timers). Equivalent to `dmSans(weight:size:)` plus a
+    /// `.featureSettings(.init(tag: "tnum", value: 1))` treatment applied at the
+    /// CoreText layer so the feature survives the SwiftUI→CT→NS/UIFont bridge.
+    private static func dmSansTabular(weight: Int, size: CGFloat) -> Font {
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        // OpenType feature "tnum" = tabular numerals. CoreText's OpenType feature keys
+        // expect the tag as a 4-character CFString and the value as a CFNumber (1 = on).
+        let openTypeFeatures: [[CFString: Any]] = [[
+            kCTFontOpenTypeFeatureTag: "tnum" as CFString,
+            kCTFontOpenTypeFeatureValue: 1 as CFNumber,
+        ]]
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontVariationAttribute: variations,
+            kCTFontFeatureSettingsAttribute: openTypeFeatures,
+        ] as CFDictionary)
+        let variantFont = CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor)
+        #if os(macOS)
+        let nsFont = variantFont as NSFont
+        return Font(nsFont)
+        #elseif os(iOS)
+        let uiFont = variantFont as! UIFont
+        return Font(uiFont)
+        #else
+        return Font.custom("DMSans-Regular", fixedSize: size)
+        #endif
+    }
+
     /// Creates an Instrument Serif font at the given CSS weight and size.
     private static func instrumentSerif(weight: Int, size: CGFloat) -> Font {
         let baseName = "InstrumentSerif-Regular" as CFString
@@ -117,6 +152,10 @@ public enum VFont {
 
     public static let labelDefault = dmSans(weight: 400, size: 11)
     public static let labelSmall   = dmSans(weight: 400, size: 10)
+
+    /// DM Sans at label size with tabular numerals (`tnum`) enabled — for position pills,
+    /// counters, and other short numeric labels where digits must align in a column.
+    public static let numericMono = dmSansTabular(weight: 400, size: 11)
 
     // MARK: - Menu
 
@@ -209,10 +248,16 @@ public enum VFont {
         }
         #endif
 
+        // Italic and boldItalic carry NO font-matrix slant — the slant is
+        // applied as a separate `.obliqueness` NSAttributedString attribute at
+        // emphasis-application time. NSTextView normalizes matrix-transformed
+        // fonts away during `setAttributedString` in some cases (observed when
+        // SwiftUI-bridged AttributedStrings flow through VSelectableTextView),
+        // so the matrix can't be relied on to reach the glyph renderer.
         let regular = resolvedDMSansFont(weight: 400, size: size)
         let bold = resolvedDMSansFont(weight: 700, size: size)
-        let italic = resolvedDMSansFont(weight: 400, size: size, obliqueDegrees: 12)
-        let boldItalic = resolvedDMSansFont(weight: 700, size: size, obliqueDegrees: 12)
+        let italic = resolvedDMSansFont(weight: 400, size: size)
+        let boldItalic = resolvedDMSansFont(weight: 700, size: size)
 
         let diagnosticPostScriptNames = [
             "regular": postScriptName(for: regular),
@@ -223,11 +268,10 @@ public enum VFont {
 
         let regularIsResolved = isResolvedDMSans(regular)
         let boldIsResolved = isResolvedDMSans(bold) && hasWeightAxis(bold, expected: 700)
-        let italicIsResolved = isResolvedDMSans(italic) && hasObliqueTransform(italic)
+        let italicIsResolved = isResolvedDMSans(italic)
         let boldItalicIsResolved =
             isResolvedDMSans(boldItalic)
             && hasWeightAxis(boldItalic, expected: 700)
-            && hasObliqueTransform(boldItalic)
 
         return ChatMarkdownFontSet(
             regular: regular,
@@ -243,11 +287,7 @@ public enum VFont {
         )
     }
 
-    package static func resolvedDMSansFont(
-        weight: Int,
-        size: CGFloat,
-        obliqueDegrees: CGFloat? = nil
-    ) -> NSFont {
+    package static func resolvedDMSansFont(weight: Int, size: CGFloat) -> NSFont {
         let baseName = "DMSans-Regular" as CFString
         let baseFont = CTFontCreateWithName(baseName, size, nil)
         let variations: [CFNumber: CFNumber] = [
@@ -256,19 +296,6 @@ public enum VFont {
         let descriptor = CTFontDescriptorCreateWithAttributes([
             kCTFontVariationAttribute: variations,
         ] as CFDictionary)
-
-        if let obliqueDegrees {
-            var oblique = CGAffineTransform(
-                a: 1,
-                b: 0,
-                c: CGFloat(tan(obliqueDegrees * .pi / 180.0)),
-                d: 1,
-                tx: 0,
-                ty: 0
-            )
-            return CTFontCreateCopyWithAttributes(baseFont, size, &oblique, descriptor) as NSFont
-        }
-
         return CTFontCreateCopyWithAttributes(baseFont, size, nil, descriptor) as NSFont
     }
 
@@ -282,16 +309,6 @@ public enum VFont {
 
     private static func postScriptName(for font: NSFont) -> String {
         CTFontCopyPostScriptName(font as CTFont) as String
-    }
-
-    private static func hasObliqueTransform(_ font: NSFont) -> Bool {
-        let matrix = CTFontGetMatrix(font as CTFont)
-        return abs(matrix.b) > 0.0001
-            || abs(matrix.c) > 0.0001
-            || abs(matrix.a - 1) > 0.0001
-            || abs(matrix.d - 1) > 0.0001
-            || abs(matrix.tx) > 0.0001
-            || abs(matrix.ty) > 0.0001
     }
 
     private static func hasWeightAxis(_ font: NSFont, expected: Int) -> Bool {
@@ -332,6 +349,7 @@ public enum VFont {
         _ = bodySmallEmphasised
         _ = labelDefault
         _ = labelSmall
+        _ = numericMono
         _ = menuCompact
         _ = chat
 

@@ -133,6 +133,7 @@ public extension EnvironmentValues {
 /// ```
 public struct VMenu<Content: View>: View {
     public let width: CGFloat?
+    public let maxHeight: CGFloat?
     public let content: Content
 
     #if os(macOS)
@@ -147,18 +148,45 @@ public struct VMenu<Content: View>: View {
 
     public init(
         width: CGFloat? = nil,
+        maxHeight: CGFloat? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.width = width
+        self.maxHeight = maxHeight
         self.content = content()
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
+    /// The menu's inner content, optionally wrapped in a vertical `ScrollView` when
+    /// `maxHeight` is set. Keeping the scroll wrapper conditional preserves the
+    /// intrinsic-size path for existing callers that don't opt into a height cap.
+    @ViewBuilder
+    private var innerContent: some View {
+        let stack = VStack(alignment: .leading, spacing: VSpacing.xs) {
             content
         }
         .padding(VSpacing.sm)
+
+        if maxHeight != nil {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) { stack }
+                    #if os(macOS)
+                    .onChange(of: focusedItemID) { _, newValue in
+                        guard let newValue else { return }
+                        withAnimation {
+                            proxy.scrollTo(newValue, anchor: .center)
+                        }
+                    }
+                    #endif
+            }
+        } else {
+            stack
+        }
+    }
+
+    public var body: some View {
+        innerContent
         .frame(width: width)
+        .frame(maxHeight: maxHeight)
         .environment(\.vMenuParentWidth, width)
         #if os(macOS)
         .environment(\.vMenuFocusedItemID, focusedItemID)
@@ -414,6 +442,7 @@ public struct VMenuItem<Trailing: View>: View {
             #if os(macOS)
             .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
             .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .id(itemID)
             .onAppear {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
@@ -462,6 +491,7 @@ public struct VMenuItem<Trailing: View>: View {
             #if os(macOS)
             .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: false)])
             .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+            .id(itemID)
             .onAppear {
                 coordinator?.registerItemAction(level: panelLevel, id: itemID) {
                     dismissMenu?(); action()
@@ -631,6 +661,7 @@ public struct VSubMenuItem<Content: View>: View {
         }
         .preference(key: VMenuItemRegistrationKey.self, value: [VMenuItemRegistration(id: itemID, isSubmenu: true)])
         .background(VMenuItemNSViewCapture(itemID: itemID, level: panelLevel, coordinator: coordinator))
+        .id(itemID)
         .onAppear {
             // Register both item action (Enter/Space) and submenu action (right arrow).
             // For submenus, both trigger the same behavior: open the child panel.
@@ -768,7 +799,7 @@ public struct VMenuDivider: View {
     public init() {}
 
     public var body: some View {
-        VColor.surfaceBase.frame(height: 1)
+        VColor.borderHover.frame(height: 1)
             .padding(.horizontal, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
             .accessibilityHidden(true)

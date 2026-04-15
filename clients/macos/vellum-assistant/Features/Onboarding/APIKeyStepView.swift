@@ -13,9 +13,9 @@ enum OnboardingHostingModeResolver {
             // and bare-host local as separate fallback options.
             modes.append(contentsOf: [.docker, .oldLocal])
         } else if localDockerEnabled {
-            // Keep "Local" as the default choice and expose the legacy
-            // non-Docker hatch explicitly as an escape hatch.
-            modes.append(.oldLocal)
+            // Show bare-metal local before Docker (experimental).
+            let localIndex = modes.firstIndex(of: .local)!
+            modes.insert(.oldLocal, at: localIndex)
         }
         if userHostedEnabled {
             modes.append(contentsOf: [.aws, .gcp, .customHardware])
@@ -25,14 +25,24 @@ enum OnboardingHostingModeResolver {
 
     static func displayName(
         for mode: OnboardingState.HostingMode,
+        localDockerEnabled: Bool,
         appleContainerEnabled: Bool
     ) -> String {
-        guard appleContainerEnabled else { return mode.displayName }
-        switch mode {
-        case .docker: return "Docker Local"
-        case .oldLocal: return "Host Local"
-        default: return mode.displayName
+        if appleContainerEnabled {
+            switch mode {
+            case .docker: return "Docker Local"
+            case .oldLocal: return "Host Local"
+            default: return mode.displayName
+            }
         }
+        if localDockerEnabled {
+            switch mode {
+            case .local: return "Docker (Experimental)"
+            case .oldLocal: return "Local (Bare Metal)"
+            default: return mode.displayName
+            }
+        }
+        return mode.displayName
     }
 
     static func subtitle(
@@ -44,7 +54,10 @@ enum OnboardingHostingModeResolver {
             return "Native macOS sandbox. Your machine, your data, fully isolated."
         }
         if localDockerEnabled && mode == .local {
-            return OnboardingState.HostingMode.docker.subtitle
+            return "Runs locally in a Docker container for added isolation."
+        }
+        if localDockerEnabled && mode == .oldLocal {
+            return "Runs directly on your Mac. No containers, no extra setup."
         }
         return mode.subtitle
     }
@@ -75,6 +88,12 @@ struct APIKeyStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var showCharacters = false
+
+    private static let welcomeCharacters: NSImage? = {
+        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
+    }()
 
     private var userHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("user-hosted-enabled")
@@ -85,43 +104,50 @@ struct APIKeyStepView: View {
     }
 
     private var appleContainerEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("apple-container")
+        AppleContainersAvailabilityChecker.check().isAvailable
     }
 
     var body: some View {
         Text("Hosting")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text("Where do you want your assistant to run?")
-            .font(VFont.titleSmall)
+        Text("Where do you want your assistant to live?")
+            .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        VStack(spacing: VSpacing.md) {
-            VStack(spacing: VSpacing.md) {
-                hostingCards
+        VStack(spacing: 0) {
+            hostingCards
 
+            VStack(spacing: VSpacing.sm) {
                 VButton(label: continueButtonTitle, style: .primary, isFullWidth: true, isDisabled: !canContinue) {
                     handleContinue()
                 }
 
-                VButton(label: "Need help deciding?", style: .ghost) {
-                    NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
-                }
-
                 if !isAuthenticated {
-                    VButton(label: "Back", style: .ghost) {
+                    VButton(label: "Back", style: .outlined, isFullWidth: true) {
                         goBack()
                     }
-                    .padding(.top, VSpacing.xs)
                 }
             }
+            .padding(.top, VSpacing.xxl)
+
+            Text("Need help choosing?")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .underline()
+                .accessibilityAddTraits(.isLink)
+                .onTapGesture {
+                    NSWorkspace.shared.open(AppURLs.hostingOptionsDocs)
+                }
+                .pointerCursor()
+                .padding(.top, VSpacing.xl)
         }
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showContent ? 1 : 0)
@@ -133,6 +159,26 @@ struct APIKeyStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
+        }
+
+        Spacer()
+
+        if let characters = Self.welcomeCharacters {
+            Image(nsImage: characters)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: VRadius.window,
+                    bottomTrailingRadius: VRadius.window,
+                    topTrailingRadius: 0
+                ))
+                .opacity(showCharacters ? 1 : 0)
+                .offset(y: showCharacters ? 0 : 30)
+                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
+                .onAppear { showCharacters = true }
+                .accessibilityHidden(true)
         }
     }
 
@@ -146,16 +192,6 @@ struct APIKeyStepView: View {
         )
     }
 
-    private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
-        switch mode {
-        case .vellumCloud:
-            if !isAuthenticated { return "Requires Account" }
-            return nil
-        default:
-            return nil
-        }
-    }
-
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
             ForEach(availableHostingModes, id: \.rawValue) { mode in
@@ -166,14 +202,17 @@ struct APIKeyStepView: View {
                 )
                 let title = OnboardingHostingModeResolver.displayName(
                     for: mode,
+                    localDockerEnabled: localDockerEnabled,
                     appleContainerEnabled: appleContainerEnabled
                 )
+                let requiresAccount = mode == .vellumCloud && !isAuthenticated
                 hostingCard(
                     icon: iconForMode(mode),
                     title: title,
                     subtitle: subtitle,
                     mode: mode,
-                    chipLabel: chipLabel(for: mode)
+                    isDisabled: requiresAccount,
+                    chipLabel: requiresAccount ? "Requires Account" : nil
                 )
             }
         }
@@ -182,6 +221,7 @@ struct APIKeyStepView: View {
     private func iconForMode(_ mode: OnboardingState.HostingMode) -> VIcon {
         switch mode {
         case .vellumCloud: return .cloud
+        case .local where localDockerEnabled && !appleContainerEnabled: return .package
         case .local: return .laptop
         case .docker: return .package
         case .oldLocal: return .laptop
@@ -195,78 +235,77 @@ struct APIKeyStepView: View {
         title: String,
         subtitle: String,
         mode: OnboardingState.HostingMode,
-        chipLabel: String?
+        isDisabled: Bool = false,
+        chipLabel: String? = nil
     ) -> some View {
-        let isDisabled = chipLabel != nil
         let isSelected = state.selectedHostingMode == mode && !isDisabled
 
         return Button(action: {
             guard !isDisabled else { return }
             state.selectedHostingMode = mode
         }) {
-            HStack(spacing: VSpacing.md) {
-                VIconView(icon, size: 18)
-                    .foregroundStyle(isDisabled ? VColor.contentTertiary : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
+            HStack(spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.md) {
+                    VIconView(icon, size: 14)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(width: 20, height: 20)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: VSpacing.sm) {
-                        Text(title)
-                            .font(VFont.bodyLargeEmphasised)
-                            .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
-
-                        Spacer()
-
-                        if let chipLabel {
-                            Text(chipLabel)
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xxs)
-                                .background(VColor.surfaceActive)
-                                .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        HStack(spacing: VSpacing.sm) {
+                            Text(title)
+                                .font(VFont.bodyMediumEmphasised)
+                                .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentEmphasized)
+                            if let chipLabel {
+                                Text(chipLabel)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xxs)
+                                    .background(VColor.surfaceBase)
+                                    .clipShape(Capsule())
+                            }
                         }
+                        Text(subtitle)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(2)
                     }
-                    Text(subtitle)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
                 }
 
-                if chipLabel == nil {
-                    Spacer()
+                Spacer()
 
+                if !isDisabled {
                     Circle()
                         .fill(isSelected ? VColor.primaryBase : Color.clear)
                         .overlay(
-                            Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderBase, lineWidth: 1.5)
+                            Circle().stroke(isSelected ? VColor.primaryBase : VColor.borderElement, lineWidth: 1.5)
                         )
                         .overlay(
                             isSelected
                                 ? Circle().fill(VColor.auxWhite).frame(width: 6, height: 6)
                                 : nil
                         )
-                        .frame(width: 18, height: 18)
+                        .frame(width: 16, height: 16)
                 }
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .frame(minHeight: 80)
+            .padding(VSpacing.md)
+            .frame(height: 72)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.05) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.xl)
+                        RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(
-                                isSelected ? VColor.primaryBase.opacity(0.5)
-                                    : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
-                                lineWidth: 2
+                                isSelected ? VColor.primaryBase.opacity(0.5) : VColor.borderDisabled,
+                                lineWidth: 1
                             )
                     )
             )
-            .opacity(isDisabled ? 0.85 : 1.0)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        .opacity(isDisabled ? 0.7 : 1.0)
         .pointerCursor()
     }
 

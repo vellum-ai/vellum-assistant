@@ -10,6 +10,8 @@ final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
     var isLoading = false
     var introText: String? = nil
+    /// Diagnostic detail from the most recent identity fetch failure.
+    var lastFetchError: String?
     private var introTask: Task<Void, Never>?
 
     var skillsStore: SkillsStore?
@@ -67,7 +69,13 @@ final class IdentityViewModel {
 
     func fetchIdentity() async {
         isLoading = true
-        identity = await identityClient.fetchRemoteIdentity()
+        let result = await identityClient.fetchRemoteIdentity()
+        identity = result
+        if result != nil {
+            lastFetchError = nil
+        } else {
+            lastFetchError = "Identity fetch returned nil — check gateway connectivity"
+        }
         isLoading = false
         generateIntro()
     }
@@ -107,6 +115,7 @@ final class IdentityViewModel {
 struct IdentityView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = IdentityViewModel()
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     var onConnectTapped: (() -> Void)?
 
     var body: some View {
@@ -138,6 +147,29 @@ struct IdentityView: View {
 
     private var intelligenceContent: some View {
         List {
+            // Developer-mode diagnostic banner for identity fetch errors.
+            if developerModeEnabled, let fetchError = viewModel.lastFetchError {
+                Section {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.triangleAlert, size: 12)
+                            Text("Intelligence fetch failed")
+                                .font(VFont.labelDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        Text(fetchError)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                            .textSelection(.enabled)
+                        Text(GatewayHTTPClient.connectionDiagnostics())
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
             // Intro text section
             if let introText = viewModel.introText {
                 Section {
@@ -337,6 +369,26 @@ struct IdentityView: View {
             Text("Loading...")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
+
+            if developerModeEnabled, let fetchError = viewModel.lastFetchError {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Fetch error:")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                    Text(fetchError)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
+                    Text(GatewayHTTPClient.connectionDiagnostics())
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(8)
+                .padding(.horizontal)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

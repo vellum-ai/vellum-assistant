@@ -8,6 +8,7 @@ import VellumAssistantShared
 struct MessageListView: View {
 
     let messages: [ChatMessage]
+    let messagesRevision: UInt64
     let isSending: Bool
     let isThinking: Bool
     let isCompacting: Bool
@@ -70,17 +71,24 @@ struct MessageListView: View {
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
-    /// Measured width of the chat container, used to detect sidebar/split resizes
-    /// and stabilize scroll position during layout width changes.
     /// When false, disables interactive controls (buttons, actions) inside the
     /// message list while keeping scrolling and text selection functional.
     var isInteractionEnabled: Bool = true
+    /// Measured width of the full chat pane. `layoutMetrics` derives the
+    /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
+    /// Stable height of the full chat pane (from GeometryReader). Unlike
+    /// scroll viewport height, this doesn't fluctuate when the composer resizes.
+    var containerHeight: CGFloat = 0
+    var layoutMetrics: MessageListLayoutMetrics {
+        MessageListLayoutMetrics(containerWidth: containerWidth)
+    }
     /// Cached in `@State` to avoid `UserDefaults` IPC on every view body
     /// evaluation. Seeded once from `UserDefaults` when SwiftUI first creates
     /// the state; persisted back in `handleSendingChanged()` when flipped.
     @State var hasEverSentMessage: Bool = UserDefaults.standard.bool(forKey: "hasEverSentMessage")
     @State var appearance = AvatarAppearanceManager.shared
+    @ObservedObject var typographyObserver = VFont.typographyObserver
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
@@ -92,11 +100,20 @@ struct MessageListView: View {
     /// re-evaluates views that read the specific property that changed.
     /// See `MessageListScrollState.swift` for details.
     @State var scrollState = MessageListScrollState()
+    /// Preserves thinking-block expanded/collapsed state across the
+    /// start/end of an active turn. See `ThinkingBlockExpansionStore.swift`.
+    @State var thinkingBlockExpansionStore = ThinkingBlockExpansionStore()
+    /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
+    /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
+    @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
+    /// Starts false on fresh mount; set to true after scroll restore settles.
+    /// Hides the scroll view during the restore window to prevent jitter.
+    @State var isScrollRestored = false
 
     // MARK: - Body
 
@@ -104,58 +121,53 @@ struct MessageListView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
+            let widths = layoutMetrics
+            // .frame(width:) creates _FrameLayout (not _FlexFrameLayout). FrameLayout
+            // returns bounds.midX for alignment without querying children, stopping the
+            // alignment cascade. The old .frame(maxWidth:) pattern created FlexFrameLayout
+            // which queried explicitAlignment on the entire LazyVStack subtree — O(n) per
+            // layout pass, causing 34-70s hangs. See AGENTS.md.
             ScrollView {
-                scrollViewContent
-                    .background(
-                        MessageListScrollObserver { newState in
-                            enqueueScrollGeometryUpdate(newState)
-                        }
-                    )
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    scrollViewContent
+                        .frame(width: widths.chatColumnWidth)
+                        .background(
+                            MessageListScrollObserver { newState in
+                                enqueueScrollGeometryUpdate(newState)
+                            }
+                        )
+                    Spacer(minLength: 0)
+                }
+                .frame(width: widths.scrollSurfaceWidth)
             }
-            .id(conversationId)
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            // Apply only to .initialOffset — where the scroll view starts
-            // when first displayed (including .id() recreation on switch).
-            // Deliberately NOT using the all-roles overload (.sizeChanges)
-            // because it fights user scroll-up during streaming: SwiftUI's
-            // definition of "at bottom" for anchor purposes can differ from
-            // our hysteresis-based isAtBottom, causing the viewport to snap
-            // back to bottom on every content-height change even after the
-            // user has entered freeBrowsing. Our explicit content-height
-            // auto-follow handles streaming growth with proper mode checks.
-            // https://developer.apple.com/documentation/swiftui/view/defaultscrollanchor(_:for:)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
-            .environment(\.suppressAutoScroll, { [self] in
-                scrollState.endStabilization()
-                if scrollState.isFollowingBottom {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
-                    scrollState.requestPinToBottom()
-                } else {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
-                    scrollState.beginStabilization(.expansion)
-                }
-            })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                scrollState.scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollState.isAtBottom {
-                    scrollState.handleReachedBottom()
-                }
-            }
+            .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
+            .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
+            .frame(width: widths.scrollSurfaceWidth)
+            .opacity(isScrollRestored ? 1 : 0)
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState)
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
             }
-            .onAppear { handleAppear() }
+            .onAppear {
+                handleAppear()
+            }
             .onDisappear {
                 scrollState.cancelAll()
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
                 highlightedMessageId = nil
             }
-            .onChange(of: isSending) { handleSendingChanged() }
-            .onChange(of: messages.count) { handleMessagesCountChanged() }
+            .onChange(of: isSending) {
+                handleSendingChanged()
+            }
+            .onChange(of: messages.count) {
+                handleMessagesCountChanged()
+            }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)

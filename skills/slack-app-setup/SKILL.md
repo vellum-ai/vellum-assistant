@@ -15,99 +15,58 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 ## Value Classification
 
-| Value     | Type       | Storage method            | Secret? |
-| --------- | ---------- | ------------------------- | ------- |
-| App Token | Credential | `credential_store` prompt | **Yes** |
-| Bot Token | Credential | `credential_store` prompt | **Yes** |
+| Value      | Type       | Storage method            | Secret? |
+| ---------- | ---------- | ------------------------- | ------- |
+| App Token  | Credential | `credential_store` prompt | **Yes** |
+| Bot Token  | Credential | `credential_store` prompt | **Yes** |
+| User Token | Credential | `credential_store` prompt | **Yes** |
 
-- Both tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
+- All tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
 
 # Setup Steps
 
 ## Step 0: Check Existing Configuration
 
-Before starting setup, check whether Slack is already configured by calling `credential_store` with `action: "inspect"` for each token:
+Before starting setup, check whether Slack is already configured by listing stored credentials:
 
-- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "app_token"`
-- Call `credential_store` with `action: "inspect"`, `service: "slack_channel"`, `field: "bot_token"`
+- Call `credential_store` with `action: "list"` (no other arguments).
 
-- If both credentials have `"hasSecret": true` and the connection is active — Slack is fully configured. Offer to show status or reconfigure.
-- If only one token is present — offer to resume setup from the missing step.
-- If neither is present — continue to Step 1.
+The result is a JSON array where each entry has at minimum `credential_id`, `service`, and `field`. The `list` action only returns credentials whose secret is still present in secure storage, so an entry's presence is a reliable signal that the token is stored.
+
+Scan the array for entries matching `service: "slack_channel"` and determine which of the following `field` values are present:
+
+- `app_token`
+- `bot_token`
+- `user_token`
+
+Then branch on the state of `app_token` and `bot_token` first (those are the required pair), and treat `user_token` as a secondary dimension:
+
+- If `app_token` and `bot_token` are **both** present:
+  - If `user_token` is also present — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
+  - If `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now (Step 3.5) to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
+- If exactly **one** of `app_token` or `bot_token` is present — offer to resume setup from the missing step. (If a `user_token` is also present, leave it in place; it will be re-validated against the bot's workspace once setup completes.)
+- If **neither** `app_token` nor `bot_token` is present — continue to Step 1. (If a `user_token` is present without a paired bot/app, it is orphaned from a prior incomplete setup. Tell the user it will be replaced during this run, and proceed.)
+
+Note: `user_token` is optional. Missing `user_token` is **not** blocking — setup is considered complete with just the app and bot tokens (bot-only visibility).
 
 ## Step 1: Generate Manifest & Create Slack App
 
-Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate a pre-configured Slack app manifest.
+Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate the manifest creation URL.
 
-Generate the manifest JSON:
+**IMPORTANT — use `bash` to build the manifest and URL programmatically.** Do NOT manually interpolate the user's name into a JSON string — special characters (quotes, backslashes, slashes, etc.) will break the JSON or the URL. Instead, run a `bash` command that passes the name and description via environment variables (so the shell never interprets user input) and uses `bun -e` with `JSON.stringify` and `encodeURIComponent` to safely build the JSON and URL.
 
-```json
-{
-  "display_information": {
-    "name": "<user's chosen name>",
-    "description": "<user's chosen description>",
-    "background_color": "#1a1a2e"
-  },
-  "features": {
-    "app_home": {
-      "home_tab_enabled": false,
-      "messages_tab_enabled": true,
-      "messages_tab_read_only_enabled": false
-    },
-    "bot_user": {
-      "display_name": "<user's chosen name>",
-      "always_online": true
-    }
-  },
-  "oauth_config": {
-    "scopes": {
-      "bot": [
-        "app_mentions:read",
-        "assistant:write",
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "files:read",
-        "files:write",
-        "groups:history",
-        "groups:read",
-        "im:history",
-        "im:read",
-        "im:write",
-        "mpim:history",
-        "mpim:read",
-        "reactions:read",
-        "reactions:write",
-        "users:read"
-      ]
-    }
-  },
-  "settings": {
-    "event_subscriptions": {
-      "bot_events": [
-        "app_mention",
-        "message.channels",
-        "message.groups",
-        "message.im",
-        "message.mpim",
-        "reaction_added"
-      ]
-    },
-    "interactivity": { "is_enabled": true },
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": true,
-    "token_rotation_enabled": false
-  }
+Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen values:
+
+```
+bash {
+  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  activity: "to generate the Slack app manifest link"
 }
 ```
 
-After generating the manifest, URL-encode it and construct the create-from-manifest link:
+Replace `<user_name>` and `<user_description>` with the user's chosen values inside the single quotes. If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
 
-```
-https://api.slack.com/apps?new_app=1&manifest_json=<url_encoded_manifest>
-```
-
-Present the link to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
+The command outputs a ready-to-click URL. Present it to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
 
 Wait for the user to confirm they've created the app before proceeding.
 
@@ -138,6 +97,8 @@ The `slack_channel` secure prompt already routes through the same Slack settings
 
 Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
 
+**Note:** This app requests user scopes so your assistant can read messages in channels the bot isn't a member of. Some Slack workspaces require admin approval for user-scope installs. If the install page shows "Request approval" instead of "Allow", you'll need your workspace admin to approve it before continuing.
+
 After installation, the **Bot User OAuth Token** will appear on the same Install App page. Collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
@@ -164,6 +125,25 @@ Show the user their setup progress:
 
 Almost there — let's do a quick test!"
 
+## Step 3.5: Collect User OAuth Token (Optional, Recommended)
+
+**This step is optional but recommended.** The User OAuth Token lets the assistant READ messages in every channel the user is in — including channels the bot isn't a member of — for triage purposes. Writes (posting, reacting, editing) always go through the bot token; the assistant will never post, react, or edit as the user.
+
+Tell the user to go back to the **Install App** page in their Slack app settings and scroll down past the Bot User OAuth Token. Look for the **User OAuth Token** (starts with `xoxp-`).
+
+**If there is no User OAuth Token shown on the Install App page**, the workspace admin may have restricted user-scope installs. Skip this step — setup works without it (bot-only visibility). Continue to Step 4.
+
+Otherwise, collect the user token securely:
+
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "Optional — lets the assistant read messages in channels the bot isn't a member of. Writes always go through the bot."`
+
+The handler validates the token against Slack (auth.test) **and** confirms the token is for the same workspace as the bot. Treat the tool result as authoritative:
+
+- If it succeeds, continue to Step 4.
+- If it returns an error (invalid token or workspace mismatch), ask the user to re-copy the User OAuth Token from the Install App page and try again.
+
+If the user explicitly declines to provide a user token, continue to Step 4. They can add it later by re-running this skill.
+
 ## Step 4: Test Your Connection
 
 Now let's test the connection by verifying the user can receive messages from the bot. This confirms everything works and links the user's Slack identity for future message delivery.
@@ -185,9 +165,10 @@ If identity was verified:
 ✅ Tokens configured
 ✅ Connection active
 ✅ Connection tested
+{triage_line}
 
 Connected: @{botUsername} in {workspace}
-Channels: Invite the bot to any channel with `/invite @{botUsername}`. DMs work immediately.
+Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 Identity: verified"
 
 If identity was skipped:
@@ -197,16 +178,22 @@ If identity was skipped:
 ✅ Tokens configured
 ✅ Connection active
 ⬜ Connection tested — you can complete this anytime by saying 'verify me on slack'
+{triage_line}
 
 Connected: @{botUsername} in {workspace}
-Channels: Invite the bot to any channel with `/invite @{botUsername}`. DMs work immediately.
+Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 Identity: skipped"
+
+For `{triage_line}`, use:
+
+- If `user_token` was collected: `✅ Triage visibility: full (can read all your channels)`
+- If `user_token` was skipped: `⬜ Triage visibility: bot-only (only channels the bot is a member of) — you can collect a user token anytime to enable full triage`
 
 ## Troubleshooting
 
 ### Bot not responding in channels
 
-The bot must be invited to each channel where you want it to listen. Use `/invite @{botUsername}` in the channel.
+The bot must be added to each channel where you want it to listen. @mention the bot in the channel — Slack will prompt "Add Them" — or use `/invite @{botUsername}`.
 
 ### Socket Mode disconnects
 

@@ -2,6 +2,7 @@ import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { SecretPattern } from "../security/secret-scanner.js";
 import {
   compileCustomPatterns,
@@ -268,6 +269,39 @@ export class SecretDetectionHandler {
     ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
+
+    if (isPermissionControlsV2Enabled()) {
+      const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Secret-output approval cards are disabled under v2. Ask the user for confirmation conversationally before retrying.`;
+      const durationMs = Date.now() - startTime;
+
+      emitLifecycleEvent(context, {
+        type: "permission_denied",
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel: RiskLevel.High,
+        decision: "deny",
+        reason: "Secret output blocked without deterministic prompt under v2",
+        durationMs,
+      });
+
+      void getHookManager().trigger("post-tool-execute", {
+        toolName: name,
+        input: sanitizeToolInput(name, input),
+        riskLevel,
+        isError: true,
+        durationMs,
+        conversationId: context.conversationId,
+      });
+
+      return {
+        result: { content: blockedContent, isError: true },
+        earlyReturn: true,
+      };
+    }
 
     // Non-interactive sessions: auto-block secret output instead of waiting for prompt
     if (context.isInteractive === false) {

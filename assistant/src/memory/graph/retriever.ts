@@ -25,6 +25,7 @@ import {
   computeTemporalBoost,
   PER_TURN_WEIGHTS,
   scoreCandidate,
+  weightsForContextLoad,
 } from "./scoring.js";
 import { sampleSerendipity } from "./serendipity.js";
 import { getEdgesForNode, getNodesByIds, queryNodes } from "./store.js";
@@ -530,15 +531,19 @@ export async function loadContextMemory(
     const recency = computeRecencyBoost(node, nowMs);
 
     scored.push(
-      scoreCandidate(node, {
-        semanticSimilarity: semanticSim,
-        effectiveSignificance: effectiveSig,
-        emotionalIntensity: node.emotionalCharge.intensity,
-        temporalBoost: normalizedTemporal,
-        recencyBoost: recency,
-        triggerBoost,
-        activationBoost: activation,
-      }),
+      scoreCandidate(
+        node,
+        {
+          semanticSimilarity: semanticSim,
+          effectiveSignificance: effectiveSig,
+          emotionalIntensity: node.emotionalCharge.intensity,
+          temporalBoost: normalizedTemporal,
+          recencyBoost: recency,
+          triggerBoost,
+          activationBoost: activation,
+        },
+        weightsForContextLoad(node),
+      ),
     );
   }
 
@@ -592,15 +597,19 @@ export async function loadContextMemory(
     (node) => {
       const existing = scored.find((s) => s.node.id === node.id);
       if (existing) return existing;
-      return scoreCandidate(node, {
-        semanticSimilarity: semanticCandidateIds.get(node.id) ?? 0,
-        effectiveSignificance: computeEffectiveSignificance(node, nowMs),
-        emotionalIntensity: node.emotionalCharge.intensity,
-        temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
-        recencyBoost: 0,
-        triggerBoost: 0,
-        activationBoost: 0,
-      });
+      return scoreCandidate(
+        node,
+        {
+          semanticSimilarity: semanticCandidateIds.get(node.id) ?? 0,
+          effectiveSignificance: computeEffectiveSignificance(node, nowMs),
+          emotionalIntensity: node.emotionalCharge.intensity,
+          temporalBoost: (computeTemporalBoost(node, now) + 1) / 2,
+          recencyBoost: 0,
+          triggerBoost: 0,
+          activationBoost: 0,
+        },
+        weightsForContextLoad(node),
+      );
     },
   );
 

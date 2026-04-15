@@ -26,13 +26,16 @@ public struct SubagentEventItem: Identifiable {
     public var resultContent: String?
     /// Whether the attached result is an error.
     public var resultIsError: Bool
+    /// Daemon message ID for assistant text events (used for LLM context inspection).
+    public var daemonMessageId: String?
 
-    public init(timestamp: Date, kind: Kind, content: String, resultContent: String? = nil, resultIsError: Bool = false) {
+    public init(timestamp: Date, kind: Kind, content: String, resultContent: String? = nil, resultIsError: Bool = false, daemonMessageId: String? = nil) {
         self.timestamp = timestamp
         self.kind = kind
         self.content = content
         self.resultContent = resultContent
         self.resultIsError = resultIsError
+        self.daemonMessageId = daemonMessageId
     }
 }
 
@@ -96,10 +99,11 @@ public final class SubagentDetailStore {
     /// Staged usage stat updates accumulate here between flushes.
     @ObservationIgnored
     private var stagedUsage: [String: SubagentUsageStats] = [:]
-    /// Subagent IDs that have received a terminal status (completed/failed/aborted).
-    /// Late `.usageUpdate` deltas are skipped for these to prevent double-counting.
+    /// Subagent IDs where `recordStatusChanged` has written cumulative usage stats.
+    /// Late `.usageUpdate` deltas are skipped for these to prevent double-counting
+    /// (usageUpdate uses additive estimatedCost while recordStatusChanged writes cumulative).
     @ObservationIgnored
-    private var terminalSubagentIds: Set<String> = []
+    private var terminalUsageReceivedIds: Set<String> = []
     /// The coalescing flush task; non-nil while a flush is scheduled.
     @ObservationIgnored
     private var flushTask: Task<Void, Never>?
@@ -235,8 +239,8 @@ public final class SubagentDetailStore {
 
     /// Record a status change with optional usage stats.
     public func recordStatusChanged(subagentId: String, status: SubagentStatus, usage: UsageStats?) {
-        if status.isTerminal {
-            terminalSubagentIds.insert(subagentId)
+        if usage != nil, status.isTerminal {
+            terminalUsageReceivedIds.insert(subagentId)
         }
         if let usage {
             stagedUsage[subagentId] = SubagentUsageStats(
@@ -320,10 +324,22 @@ public final class SubagentDetailStore {
             trackMutation()
             #endif
 
+        case .messageComplete(let msg):
+            guard let messageId = msg.messageId else { break }
+            var events = currentEvents(for: subagentId)
+            // Walk backward to find the last text event and attach the daemon message ID.
+            for i in stride(from: events.count - 1, through: 0, by: -1) {
+                if case .text = events[i].kind, events[i].daemonMessageId == nil {
+                    events[i].daemonMessageId = messageId
+                    break
+                }
+            }
+            stageEvents(events, for: subagentId)
+
         case .usageUpdate(let update):
-            // Skip late deltas after terminal status to avoid double-counting
-            // (recordStatusChanged already wrote cumulative stats).
-            guard !terminalSubagentIds.contains(subagentId) else { break }
+            // Skip late deltas after recordStatusChanged has written cumulative stats
+            // to avoid double-counting estimatedCost (which uses additive accumulation).
+            guard !terminalUsageReceivedIds.contains(subagentId) else { break }
             let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
             stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: update.totalInputTokens,
@@ -362,6 +378,14 @@ public final class SubagentDetailStore {
                     subagentId: subagentId,
                     event: .assistantTextDelta(AssistantTextDelta(type: "assistant_text_delta", text: event.content, conversationId: nil))
                 )
+                // Attach daemon message ID from the detail response if available.
+                if let messageId = event.messageId {
+                    var events = currentEvents(for: subagentId)
+                    if let lastIndex = events.indices.last, case .text = events[lastIndex].kind {
+                        events[lastIndex].daemonMessageId = messageId
+                        stageEvents(events, for: subagentId)
+                    }
+                }
             case "tool_use":
                 let input: [String: AnyCodable]
                 if let data = event.content.data(using: .utf8),

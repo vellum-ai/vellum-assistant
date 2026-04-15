@@ -65,8 +65,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var cmdKLocalMonitor: Any?
     var cmdNLocalMonitor: Any?
     var currentConversationLocalMonitor: Any?
+    var markConversationUnreadLocalMonitor: Any?
     var newChatMenuItem: NSMenuItem?
     var currentConversationMenuItem: NSMenuItem?
+    var markConversationUnreadMenuItem: NSMenuItem?
     var fileMenuPatchDelegate: FileMenuPatchDelegate?
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
@@ -74,6 +76,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
+    let appleContainersLauncher: AssistantManagementClient? = {
+        if #available(macOS 26.0, *) {
+            return AppleContainersLauncher()
+        }
+        return nil
+    }()
     public let updateManager = UpdateManager()
     let debugStateWriter = DebugStateWriter()
     private let telemetryClient: any TelemetryClientProtocol = TelemetryClient()
@@ -126,6 +134,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     var windowObserver: Any?
+    var sleepObserver: NSObjectProtocol?
+    var wakeObserver: NSObjectProtocol?
     /// Timestamp of the last `showMainWindow` call that performed work.
     /// Used by the debounce guard in `showMainWindow()`.
     var lastShowMainWindowTime: CFAbsoluteTime = 0
@@ -133,12 +143,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Text that was in the chat input before PTT voice recording started,
     /// so we can prepend it to partial/final transcriptions instead of overwriting.
     var preVoiceInputText: String?
+    /// Set to `true` after the first `onTranscription` delivery for the current
+    /// recording session. Reset to `false` when a new recording starts (via
+    /// `onRecordingStateChanged`). Used to detect duplicate/stale deliveries
+    /// (e.g. the async batch STT fallback completing after the user already sent).
+    var voiceTranscriptionConsumed = false
     var connectionStatusCancellable: AnyCancellable?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
+    /// Cached circular avatar image for the menu bar icon. Invalidated only
+    /// when `AvatarAppearanceManager.avatarDidChangeNotification` fires, so
+    /// connection-status changes, pulse ticks, and thinking-state toggles
+    /// reuse the cached image instead of re-resolving the avatar getter chain.
+    var cachedMenuBarAvatar: NSImage?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
+    /// Cached value of the `multi-platform-assistant` flag, read once when
+    /// the status item is constructed in `setupMenuBar()`. Flag changes
+    /// require relaunch; the status item does not subscribe to live updates
+    /// so it stays cheap and predictable.
+    var multiAssistantSwitcherEnabled: Bool = false
+    /// View model for the menu-bar assistant switcher. Lazily constructed in
+    /// `setupMenuBar()` when `multiAssistantSwitcherEnabled` is true.
+    var assistantSwitcherViewModel: AssistantSwitcherViewModel?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -185,6 +213,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Onboarding state retained during first-launch so post-hatch logic
     /// can access the randomly-generated avatar traits.
     var onboardingState: OnboardingState?
+
+    /// Pre-chat onboarding context collected after hatching. Stored here
+    /// temporarily and forwarded to ConversationManager when the first
+    /// conversation is created, so the first message POST includes it.
+    var pendingPreChatContext: PreChatOnboardingContext?
 
     /// Guards `.appOpen` sound so it fires only once per app session,
     /// even if `proceedToApp()` is called again after assistant switches
@@ -324,8 +357,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // alive.  performRestart() writes a transient sentinel file that
         // the new instance checks here; if the file exists we are the
         // replacement process and should proceed normally.
-        let restartSentinel = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum/restart-in-progress")
+        let restartSentinel = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vellum-restart-in-progress")
         let isRestart: Bool = {
             guard let data = try? Data(contentsOf: restartSentinel),
                   let stamp = String(data: data, encoding: .utf8),
@@ -518,6 +551,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
         }
 
+        // Install the Chrome native messaging host manifest so the
+        // Vellum Chrome extension can spawn the bundled helper binary
+        // via `chrome.runtime.connectNative("com.vellum.daemon")`.
+        // Best-effort and idempotent — see
+        // `AppDelegate+NativeMessaging.swift` for details. Runs off
+        // the main thread because it touches `~/Library` on disk.
+        Task.detached(priority: .utility) {
+            Self.installChromeNativeMessagingHostIfNeeded()
+        }
+
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
 
@@ -614,6 +657,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupToolConfirmationNotifications()
         setupSecretPromptManager()
         setupWindowObserver()
+        setupSleepWakeHandlers()
         setupNotifications()
         setupAutoUpdate()
 
@@ -621,7 +665,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         RandomSoundTimer.shared.start()
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true
-            SoundManager.shared.play(.appOpen)
+            SoundManager.shared.playAppOpen()
         }
 
         // On cold-start reauth (non-first-launch), check for a pending managed
@@ -799,6 +843,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()

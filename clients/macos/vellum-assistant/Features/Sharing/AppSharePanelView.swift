@@ -33,10 +33,6 @@ struct AppSharePanelView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
         .shadow(color: VColor.auxBlack.opacity(0.15), radius: 6, y: 2)
         .task {
             let url = fileURL

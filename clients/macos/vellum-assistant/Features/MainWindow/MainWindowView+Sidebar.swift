@@ -13,7 +13,13 @@ extension MainWindowView {
             // should not dismiss the app panel.
             return
         }
-        windowState.selection = .conversation(conversation.id)
+        // When an app is open, keep it visible and switch the conversation
+        // context instead of navigating away to a full-screen conversation.
+        if let appId = windowState.activeAppId {
+            windowState.setAppEditing(appId: appId, conversationId: conversation.id)
+        } else {
+            windowState.selection = .conversation(conversation.id)
+        }
         conversationManager.selectConversation(id: conversation.id)
 
         // Auto-expand the section containing the selected conversation
@@ -28,7 +34,12 @@ extension MainWindowView {
         conversationManager.createConversation()
         SoundManager.shared.play(.newConversation)
         if let id = conversationManager.activeConversationId {
-            windowState.selection = .conversation(id)
+            // Keep the app visible when starting a new conversation from app mode
+            if let appId = windowState.activeAppId {
+                windowState.setAppEditing(appId: appId, conversationId: id)
+            } else {
+                windowState.selection = .conversation(id)
+            }
         } else {
             // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil
@@ -56,6 +67,31 @@ extension MainWindowView {
     }
 
     var sidebarOuterMargin: CGFloat { 16 }
+
+    /// Small notification-red dot overlaid on the Home sidebar row whenever
+    /// `HomeStore` has observed a background `relationshipStateUpdated` event
+    /// while the user was on some other surface. Hidden when:
+    ///
+    /// - The `home-tab` feature flag is off (Home page not live).
+    /// - `HomeStore.hasUnseenChanges` is false (nothing new, or user has seen it).
+    /// - The user is already sitting on the Home panel.
+    ///
+    /// `home-tab` is a macos-scope flag, resolved via
+    /// `MacOSClientFeatureFlagManager`, not the assistant-scope store.
+    @ViewBuilder
+    var homeUnseenChangesDot: some View {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
+            && homeStore.hasUnseenChanges
+            && windowState.selection != .panel(.home) {
+            Circle()
+                .fill(VColor.systemNegativeStrong)
+                .frame(width: 8, height: 8)
+                .offset(x: 4, y: -4)
+                .transition(.scale.combined(with: .opacity))
+                .allowsHitTesting(false)
+                .accessibilityLabel(Text("Unseen changes"))
+        }
+    }
 
     @ViewBuilder
     var sidebarView: some View {
@@ -90,6 +126,25 @@ extension MainWindowView {
             }
         } message: {
             Text("Enter a new name for this conversation")
+        }
+        .alert("Rename Group", isPresented: Binding(
+            get: { sidebar.renamingGroupId != nil },
+            set: { if !$0 { sidebar.renamingGroupId = nil } }
+        )) {
+            TextField("Name", text: Binding(
+                get: { sidebar.renamingGroupName },
+                set: { sidebar.renamingGroupName = $0 }
+            ))
+            Button("Cancel", role: .cancel) { sidebar.renamingGroupId = nil }
+            Button("Save") {
+                if let groupId = sidebar.renamingGroupId {
+                    let newName = sidebar.renamingGroupName
+                    Task<Void, Never> { await conversationManager.renameGroup(groupId, name: newName) }
+                }
+                sidebar.renamingGroupId = nil
+            }
+        } message: {
+            Text("Enter a new name for this group")
         }
         .onAppear {
             conversationManager.customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
@@ -141,21 +196,9 @@ extension MainWindowView {
             maxCollapsed: isPinned ? .max : 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: countMode,
-            isRenaming: sidebar.renamingGroupId == group.id,
-            renamingName: Binding(
-                get: { sidebar.renamingGroupName },
-                set: { sidebar.renamingGroupName = $0 }
-            ),
             onRename: group.isSystemGroup ? nil : { name in
                 sidebar.renamingGroupId = group.id
                 sidebar.renamingGroupName = name
-            },
-            onCommitRename: { newName in
-                sidebar.renamingGroupId = nil
-                Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
-            },
-            onCancelRename: {
-                sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
                 if conversations.isEmpty {
@@ -273,8 +316,19 @@ extension MainWindowView {
             }
 
             let groupEntries = conversationManager.sidebarGroupEntries
-            ForEach(groupEntries) { entry in
+            let systemEntries = groupEntries.filter { $0.group.isSystemGroup }
+            let customEntries = groupEntries.filter { !$0.group.isSystemGroup }
+
+            ForEach(systemEntries) { entry in
                 makeSectionView(group: entry.group, conversations: entry.conversations)
+            }
+
+            if !customEntries.isEmpty {
+                sidebarLabeledDivider(label: "YOUR GROUPS")
+
+                ForEach(customEntries) { entry in
+                    makeSectionView(group: entry.group, conversations: entry.conversations)
+                }
             }
 
             // Pagination fallback sentinel: when every section fits within its
@@ -350,6 +404,14 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
+            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home)) {
+                    windowState.showPanel(.home)
+                }
+                .overlay(alignment: .topTrailing) {
+                    homeUnseenChangesDot
+                }
+            }
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.showPanel(.intelligence)
             }
@@ -483,6 +545,14 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
+            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home), isExpanded: false) {
+                    windowState.showPanel(.home)
+                }
+                .overlay(alignment: .topTrailing) {
+                    homeUnseenChangesDot
+                }
+            }
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.showPanel(.intelligence)
             }
@@ -583,6 +653,25 @@ extension MainWindowView {
         VColor.surfaceActive
             .frame(height: 1)
             .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
+    }
+
+    @ViewBuilder
+    func sidebarLabeledDivider(label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+                .tracking(1.2)
+                .fixedSize()
+                .accessibilityAddTraits(.isHeader)
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - App View Helpers

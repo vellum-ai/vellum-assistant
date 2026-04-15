@@ -989,7 +989,7 @@ if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/prompts/system-pro
     echo ""
     echo "  • IDENTITY.md    — Name, nature, personality, emoji, role"
     echo "  • SOUL.md        — Core principles, personality, quirks, boundaries"
-    echo "  • USER.md        — User profile and preferences"
+    echo "  • users/<slug>.md — User profile and preferences (per-user persona file)"
     echo "  • LOOKS.md       — Avatar appearance and outfit"
     echo "  • BOOTSTRAP.md   — First-run onboarding ritual instructions"
     echo "  • skills/        — Skill-specific instructions (SKILL.md per skill)"

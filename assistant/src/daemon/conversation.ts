@@ -18,6 +18,7 @@
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
+  InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
@@ -27,6 +28,7 @@ import type { Speed } from "../config/schemas/inference.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
+  getSummaryFromContextMessage,
 } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
@@ -43,12 +45,20 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { updateConversationContextWindow } from "../memory/conversation-crud.js";
+import {
+  updateConversationContextWindow,
+  updateConversationHostAccess,
+} from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
+import {
+  isConversationHostAccessDecision,
+  isConversationHostAccessEnabled,
+  isConversationHostAccessEnablePrompt,
+} from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
@@ -58,6 +68,8 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import type { OnboardingContext } from "../types/onboarding-context.js";
+import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import { runAgentLoopImpl } from "./conversation-agent-loop.js";
@@ -95,6 +107,7 @@ import {
   createSurfaceMutex,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
+  type SurfaceActionResult,
 } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import {
@@ -116,6 +129,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import { isHostProxyTransport } from "./message-types/conversations.js";
 import type {
   AssistantActivityState,
   ConfirmationStateChanged,
@@ -184,6 +198,19 @@ export class Conversation {
   /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /**
+   * Optional override sender used by `restoreBrowserProxyAvailability` so
+   * registry-routed transports can preserve their sender across drain queue
+   * restores. When set, `restoreBrowserProxyAvailability()` uses this
+   * function instead of `sendToClient` so the drain-queue path doesn't
+   * clobber the registry-routed sender with the SSE hub emitter.
+   *
+   * Populated by the POST /messages handler when the guardian has an active
+   * extension connection in the `ChromeExtensionRegistry`, regardless of
+   * interface (chrome-extension, macOS, etc.). Cleared when a turn without
+   * an active extension connection takes over.
+   */
+  /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -245,11 +272,28 @@ export class Conversation {
     data: SurfaceData;
     actions?: Array<{ id: string; label: string; style?: string }>;
     display?: string;
+    persistent?: boolean;
   }> = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
+  /**
+   * Host home directory reported by the client (e.g. macOS
+   * `NSHomeDirectory()`). Populated from `HostProxyTransportMetadata` when
+   * a message arrives from an interface that supports host-proxy tools
+   * (see `supportsHostProxy`). Consumed by the `<workspace>` block renderer
+   * so platform-managed (containerized) daemons show the user's actual
+   * client-side home dir instead of the container's `os.homedir()`.
+   * @internal
+   */
+  hostHomeDir?: string;
+  /**
+   * Host username reported by the client (e.g. macOS `NSUserName()`).
+   * See `hostHomeDir`.
+   * @internal
+   */
+  hostUsername?: string;
   public readonly traceEmitter: TraceEmitter;
-  public readonly hasSystemPromptOverride: boolean;
+  /** @internal */ hasSystemPromptOverride: boolean;
   public memoryPolicy: ConversationMemoryPolicy;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
@@ -258,6 +302,14 @@ export class Conversation {
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
+  /**
+   * Pre-chat onboarding context provided by the native client.
+   * In-memory only — not persisted to the DB. Only relevant for the first
+   * turn of a brand-new conversation so the system prompt can personalize
+   * the opener and skip redundant discovery.
+   * @internal
+   */
+  private onboardingContext?: OnboardingContext;
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
     null;
@@ -389,7 +441,7 @@ export class Conversation {
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
       const resolved = {
-        systemPrompt: hasSystemPromptOverride
+        systemPrompt: this.hasSystemPromptOverride
           ? systemPrompt
           : (() => {
               const persona = resolvePersonaContext(
@@ -401,6 +453,7 @@ export class Conversation {
                 userPersona: persona.userPersona,
                 channelPersona: persona.channelPersona,
                 userSlug: persona.userSlug,
+                onboardingContext: this.getOnboardingContext(),
               });
             })(),
         maxTokens: configuredMaxTokens,
@@ -440,6 +493,16 @@ export class Conversation {
       conversationId: this.conversationId,
       workingDir: this.workingDir,
     });
+  }
+
+  // ── Onboarding context ───────────────────────────────────────────
+
+  setOnboardingContext(ctx: OnboardingContext): void {
+    this.onboardingContext = ctx;
+  }
+
+  getOnboardingContext(): OnboardingContext | undefined {
+    return this.onboardingContext;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -535,14 +598,55 @@ export class Conversation {
     this.hostFileProxy?.updateSender(this.sendToClient, false);
   }
 
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void {
+  /**
+   * Restore host proxy availability based on whether a real client is connected.
+   * When `skipBrowser` is true, the browser proxy is left untouched — use this
+   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
+   * separately with the correct registry-routed sender.
+   */
+  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
-      this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      if (!options?.skipBrowser) {
+        this.hostBrowserProxy?.updateSender(this.sendToClient, true);
+      }
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
     }
+  }
+
+  /**
+   * Restore host browser proxy availability only. Used for interfaces that
+   * support host_browser but not the full desktop proxy set, so calling
+   * restoreProxyAvailability() would incorrectly re-enable bash/file/CU
+   * proxies that should stay disabled. Applicable to chrome-extension turns
+   * (which only support host_browser) and macOS turns with an active
+   * extension connection (which route browser tools through the extension
+   * registry instead of cdp-inspect/local).
+   *
+   * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
+   * `hasNoClient`. The chrome-extension interface is non-interactive (so
+   * `hasNoClient === true`), but it DOES have a connected client that can
+   * service `host_browser_request` events. Gating on `hasNoClient` would
+   * leave the just-constructed proxy unavailable and the only way to make
+   * it available would be to flip `hasNoClient` false, which would
+   * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
+   *
+   * When `hostBrowserSenderOverride` is set, that function is used as the
+   * sender instead of `sendToClient`. This is required for any interface
+   * whose host_browser frames route through the ChromeExtensionRegistry
+   * WebSocket rather than the SSE hub: if the queue-drain path called this
+   * helper with `sendToClient`, the registry-routed sender established at
+   * turn-start would be clobbered by the SSE hub emitter and
+   * host_browser_request frames would stop reaching the extension.
+   *
+   * Callers must only invoke this when they know the current interface
+   * supports host_browser (see `supportsHostProxy(id, "host_browser")`)
+   * or has an active extension connection with a registry-routed sender.
+   */
+  restoreBrowserProxyAvailability(): void {
+    const sender = this.hostBrowserSenderOverride ?? this.sendToClient;
+    this.hostBrowserProxy?.updateSender(sender, true);
   }
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
@@ -551,6 +655,37 @@ export class Conversation {
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  /**
+   * Prepend inherited parent messages into the in-memory message array so that
+   * the AgentLoop includes them in provider calls (enabling KV cache sharing).
+   *
+   * These messages are NOT persisted to the database — they exist only in
+   * memory. When the conversation is later read from DB via getMessages(),
+   * only the conversation's own persisted messages appear.
+   *
+   * Must be called before the first persistUserMessage() call — i.e. while
+   * `this.messages` is still empty.
+   */
+  injectInheritedContext(messages: Message[]): void {
+    if (this.messages.length !== 0) {
+      throw new Error(
+        "injectInheritedContext must be called before any messages have been added",
+      );
+    }
+    this.messages = [...messages];
+    this.contextWindowManager.nonPersistedPrefixCount = messages.length;
+    this.contextWindowManager.summaryIsInjected =
+      getSummaryFromContextMessage(messages[0]) != null;
+  }
+
+  /**
+   * Return the system prompt string set at construction time (or its override).
+   * Fork consumers use this to pass the parent's system prompt to the fork.
+   */
+  getCurrentSystemPrompt(): string {
+    return this.systemPrompt;
   }
 
   isProcessing(): boolean {
@@ -568,8 +703,8 @@ export class Conversation {
     return this.stale;
   }
 
-  abort(): void {
-    abortConversation(this);
+  abort(reason?: AbortReason): void {
+    abortConversation(this, reason);
   }
 
   dispose(): void {
@@ -678,12 +813,35 @@ export class Conversation {
       return;
     }
 
+    const hostAccessEnablePrompt =
+      this.prompter.isHostAccessEnablePrompt(requestId) ||
+      isConversationHostAccessEnablePrompt(
+        pendingInteractions.get(requestId)?.confirmationDetails,
+      );
+    const effectiveDecision =
+      hostAccessEnablePrompt && !isConversationHostAccessDecision(decision)
+        ? "deny"
+        : decision;
+
+    if (
+      hostAccessEnablePrompt &&
+      effectiveDecision === "allow" &&
+      !isConversationHostAccessEnabled(this.conversationId)
+    ) {
+      updateConversationHostAccess(this.conversationId, true);
+      this.sendToClient({
+        type: "conversation_host_access_updated",
+        conversationId: this.conversationId,
+        hostAccess: true,
+      });
+    }
+
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
     this.prompter.resolveConfirmation(
       requestId,
-      decision,
+      effectiveDecision,
       selectedPattern,
       selectedScope,
       decisionContext,
@@ -697,7 +855,7 @@ export class Conversation {
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      decision === "deny" || decision === "always_deny"
+      effectiveDecision === "deny" || effectiveDecision === "always_deny"
         ? ("denied" as const)
         : ("approved" as const);
     this.emitConfirmationStateChanged({
@@ -741,7 +899,12 @@ export class Conversation {
     }
 
     // Cascade to other pending confirmations that match this decision
-    this.cascadePendingApprovals(requestId, decision, selectedPattern);
+    this.cascadePendingApprovals(
+      requestId,
+      effectiveDecision,
+      selectedPattern,
+      hostAccessEnablePrompt,
+    );
   }
 
   /**
@@ -757,9 +920,14 @@ export class Conversation {
     primaryRequestId: string,
     decision: UserDecision,
     selectedPattern?: string,
+    hostAccessEnablePrompt = false,
   ): void {
     // Single-action decisions don't cascade
-    if (decision === "allow" || decision === "deny") return;
+    if (decision === "allow" || decision === "deny") {
+      if (!hostAccessEnablePrompt || decision !== "allow") {
+        return;
+      }
+    }
 
     const pendingRequestIds = this.prompter.getPendingRequestIds();
     if (pendingRequestIds.length === 0) return;
@@ -771,6 +939,28 @@ export class Conversation {
       if (!interaction) continue;
       if (interaction.conversationId !== this.conversationId) continue;
       if (interaction.kind !== "confirmation") continue;
+
+      if (
+        hostAccessEnablePrompt &&
+        (this.prompter.isHostAccessEnablePrompt(candidateId) ||
+          isConversationHostAccessEnablePrompt(interaction.confirmationDetails))
+      ) {
+        // Enabling computer access is conversation-scoped, so sibling host
+        // prompts should resolve immediately once the first approval lands.
+        pendingInteractions.resolve(candidateId);
+        this.handleConfirmationResponse(
+          candidateId,
+          "allow",
+          undefined,
+          undefined,
+          undefined,
+          {
+            source: "system",
+            causedByRequestId: primaryRequestId,
+          },
+        );
+        continue;
+      }
 
       const cascadeResult = this.shouldCascade(
         decision,
@@ -890,7 +1080,7 @@ export class Conversation {
 
   resolveHostFile(
     requestId: string,
-    response: { content: string; isError: boolean },
+    response: { content: string; isError: boolean; imageData?: string },
   ): void {
     this.hostFileProxy?.resolve(requestId, response);
   }
@@ -1004,6 +1194,40 @@ export class Conversation {
     this.transportHints = hints;
   }
 
+  /**
+   * Apply client-reported host environment (home dir, username) from
+   * transport metadata onto the conversation. Only interfaces whose
+   * interfaceId passes `supportsHostProxy()` contribute values — all other
+   * interfaces (CLI, channels, iOS, chrome-extension) clear any previously
+   * stored values so a conversation reused across interfaces doesn't leak
+   * stale paths into later `<workspace>` blocks.
+   *
+   * Gating on `supportsHostProxy` (rather than a specific interface name)
+   * keeps this in lock-step with the capability set defined in
+   * `HostProxyInterfaceId` — adding a new host-capable client only requires
+   * extending those two, not touching this method.
+   *
+   * Invalidates the cached workspace top-level block when values change so
+   * the next render picks up the new host env.
+   */
+  applyHostEnvFromTransport(transport: ConversationTransportMetadata): void {
+    const prevHomeDir = this.hostHomeDir;
+    const prevUsername = this.hostUsername;
+    if (isHostProxyTransport(transport)) {
+      this.hostHomeDir = transport.hostHomeDir;
+      this.hostUsername = transport.hostUsername;
+    } else {
+      this.hostHomeDir = undefined;
+      this.hostUsername = undefined;
+    }
+    if (
+      prevHomeDir !== this.hostHomeDir ||
+      prevUsername !== this.hostUsername
+    ) {
+      this.workspaceTopLevelDirty = true;
+    }
+  }
+
   setAssistantId(assistantId: string | null): void {
     this.assistantId = assistantId ?? undefined;
   }
@@ -1044,6 +1268,16 @@ export class Conversation {
 
   getTurnInterfaceContext(): TurnInterfaceContext | null {
     return this.currentTurnInterfaceContext;
+  }
+
+  /**
+   * Implements the `transportInterface` field of `SkillProjectionContext` so
+   * that `isToolActiveForContext` can gate host tools by per-capability
+   * `supportsHostProxy(transport, capability)`. Derived from the live turn
+   * interface context so it tracks the connected client across turns.
+   */
+  get transportInterface(): InterfaceId | undefined {
+    return this.currentTurnInterfaceContext?.userMessageInterface;
   }
 
   async persistUserMessage(
@@ -1136,8 +1370,8 @@ export class Conversation {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
-  ): void {
-    handleSurfaceActionImpl(this, surfaceId, actionId, data);
+  ): Promise<SurfaceActionResult> {
+    return handleSurfaceActionImpl(this, surfaceId, actionId, data);
   }
 
   handleSurfaceUndo(surfaceId: string): void {

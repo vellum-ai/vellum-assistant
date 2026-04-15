@@ -9,39 +9,102 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let mockPage: {
-  click: ReturnType<typeof mock>;
-  fill: ReturnType<typeof mock>;
-  press: ReturnType<typeof mock>;
-  evaluate: ReturnType<typeof mock>;
-  title: ReturnType<typeof mock>;
-  url: ReturnType<typeof mock>;
-  goto: ReturnType<typeof mock>;
-  screenshot: ReturnType<typeof mock>;
-  selectOption: ReturnType<typeof mock>;
-  hover: ReturnType<typeof mock>;
-  close: () => Promise<void>;
-  isClosed: () => boolean;
-  keyboard: { press: ReturnType<typeof mock> };
-  mouse: { wheel: ReturnType<typeof mock>; move: ReturnType<typeof mock> };
+/**
+ * Fake CDP session used by every interaction tool that has been
+ * migrated to `CdpClient` (click, hover, type, press_key,
+ * select_option, scroll). Each `session.send(method, params)` call is
+ * recorded in `sendCalls` and routed to `sendHandler`, which tests
+ * configure per-case. The handler returns either a CDP response
+ * object or an `Error` to simulate transport failure. `detachCalls`
+ * counts `session.detach()` invocations so tests can assert that
+ * `CdpClient.dispose()` runs in the tool's `finally` block.
+ *
+ * The fake session is exposed via `mockPage.context().newCDPSession(
+ * page)` so the real `LocalCdpClient` drives it. Routing through the
+ * production client (instead of mocking the factory / cdp-client
+ * submodules) avoids polluting the global module cache that the CDP
+ * unit tests rely on.
+ */
+interface SendCall {
+  method: string;
+  params: Record<string, unknown> | undefined;
+}
+
+let sendCalls: SendCall[];
+let sendHandler: (
+  method: string,
+  params: Record<string, unknown> | undefined,
+) => unknown;
+let detachCalls: number;
+
+function resetCdpMock() {
+  sendCalls = [];
+  detachCalls = 0;
+  sendHandler = () => ({});
+}
+
+const fakeCdpSession = {
+  send: async (method: string, params?: Record<string, unknown>) => {
+    sendCalls.push({ method, params });
+    const value = sendHandler(method, params);
+    if (value instanceof Error) throw value;
+    return value;
+  },
+  detach: async () => {
+    detachCalls += 1;
+  },
 };
 
-let snapshotMaps: Map<string, Map<string, string>>;
+/**
+ * The mock page only needs to expose `context().newCDPSession()` so
+ * the real `LocalCdpClient` can obtain a CDP session. All interaction
+ * tools now route through CDP, so no Playwright `page.*` surface is
+ * required.
+ */
+let mockPage: {
+  close: () => Promise<void>;
+  isClosed: () => boolean;
+  context: () => {
+    newCDPSession: (page: unknown) => Promise<typeof fakeCdpSession>;
+  };
+};
+
+let snapshotBackendNodeMaps: Map<string, Map<string, number>>;
+
+const preferredBackendKinds = new Map<string, string>();
 
 mock.module("../tools/browser/browser-manager.js", () => {
-  snapshotMaps = new Map();
+  snapshotBackendNodeMaps = new Map();
+  preferredBackendKinds.clear();
   return {
     browserManager: {
       getOrCreateSessionPage: async () => mockPage,
       closeSessionPage: async () => {},
       closeAllPages: async () => {},
-      storeSnapshotMap: (conversationId: string, map: Map<string, string>) => {
-        snapshotMaps.set(conversationId, map);
+      storeSnapshotBackendNodeMap: (
+        conversationId: string,
+        map: Map<string, number>,
+      ) => {
+        snapshotBackendNodeMaps.set(conversationId, map);
       },
-      resolveSnapshotSelector: (conversationId: string, elementId: string) => {
-        const map = snapshotMaps.get(conversationId);
+      resolveSnapshotBackendNodeId: (
+        conversationId: string,
+        elementId: string,
+      ) => {
+        const map = snapshotBackendNodeMaps.get(conversationId);
         if (!map) return null;
         return map.get(elementId) ?? null;
+      },
+      clearSnapshotBackendNodeMap: (conversationId: string) => {
+        snapshotBackendNodeMaps.delete(conversationId);
+      },
+      getPreferredBackendKind: (conversationId: string) =>
+        preferredBackendKinds.get(conversationId) ?? null,
+      setPreferredBackendKind: (conversationId: string, kind: string) => {
+        preferredBackendKinds.set(conversationId, kind);
+      },
+      clearPreferredBackendKind: (conversationId: string) => {
+        preferredBackendKinds.delete(conversationId);
       },
     },
   };
@@ -63,15 +126,14 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 }));
 
 import {
+  executeBrowserAttach,
   executeBrowserClick,
   executeBrowserClose,
-  executeBrowserExtract,
+  executeBrowserDetach,
   executeBrowserHover,
   executeBrowserPressKey,
-  executeBrowserScreenshot,
   executeBrowserScroll,
   executeBrowserSelectOption,
-  executeBrowserSnapshot,
   executeBrowserType,
 } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
@@ -84,68 +146,234 @@ const ctx: ToolContext = {
 
 function resetMockPage() {
   mockPage = {
-    click: mock(async () => {}),
-    fill: mock(async () => {}),
-    press: mock(async () => {}),
-    evaluate: mock(async () => ""),
-    title: mock(async () => "Test Page"),
-    url: mock(() => "https://example.com/"),
-    goto: mock(async () => ({
-      status: () => 200,
-      url: () => "https://example.com/",
-    })),
-    screenshot: mock(async () => Buffer.from("fake-jpeg-data")),
-    selectOption: mock(async () => []),
-    hover: mock(async () => {}),
     close: async () => {},
     isClosed: () => false,
-    keyboard: { press: mock(async () => {}) },
-    mouse: { wheel: mock(async () => {}), move: mock(async () => {}) },
+    // `LocalCdpClient.ensureSession()` calls `page.context().newCDPSession(
+    // page)` to obtain a CDP session. Return the in-file `fakeCdpSession`
+    // so tests can assert on the exact CDP method sequence.
+    context: () => ({
+      newCDPSession: async (_page: unknown) => fakeCdpSession,
+    }),
+  };
+}
+
+/**
+ * Default CDP send handler that answers the common plumbing calls
+ * used by the migrated tools (querySelectorBackendNodeId, DOM.focus,
+ * DOM.resolveNode, Runtime.callFunctionOn, Input.*, and
+ * Runtime.evaluate for viewport dimensions). Individual tests can
+ * override `sendHandler` to simulate failures or shape responses.
+ */
+function defaultCdpHandler(
+  method: string,
+  _params: Record<string, unknown> | undefined,
+): unknown {
+  switch (method) {
+    case "DOM.getDocument":
+      return { root: { nodeId: 1 } };
+    case "DOM.querySelector":
+      return { nodeId: 42 };
+    case "DOM.describeNode":
+      return { node: { backendNodeId: 100 } };
+    case "DOM.resolveNode":
+      return { object: { objectId: "obj-1" } };
+    case "Runtime.evaluate":
+      return { result: { value: { w: 800, h: 600 } } };
+    case "Runtime.callFunctionOn":
+      // executeBrowserSelectOption invokes a function that returns
+      // a `matched` boolean — default to true so wrapper-contract
+      // tests don't need to know the inner select-option matching
+      // shape. Tests that exercise the no-match path override the
+      // handler explicitly.
+      return { result: { value: true } };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Install a CDP `sendHandler` tuned for the click + hover DOM →
+ * Input.dispatchMouseEvent chain (`DOM.getDocument`,
+ * `DOM.querySelector`, `DOM.describeNode`,
+ * `DOM.scrollIntoViewIfNeeded`, `DOM.getBoxModel`,
+ * `Input.dispatchMouseEvent`). Tests can override `throwFrom` to make
+ * one method reject, or override `backendNodeId` to control what
+ * `querySelectorBackendNodeId` resolves to.
+ */
+function installClickHoverCdpSend(
+  overrides: Partial<{
+    backendNodeId: number;
+    throwFrom: string;
+  }> = {},
+) {
+  const backendNodeId = overrides.backendNodeId ?? 1234;
+  const throwFrom = overrides.throwFrom;
+
+  sendHandler = (method, _params) => {
+    if (throwFrom === method) {
+      return new Error("cdp boom");
+    }
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelector":
+        return { nodeId: 2 };
+      case "DOM.describeNode":
+        return { node: { backendNodeId } };
+      case "DOM.scrollIntoViewIfNeeded":
+        return {};
+      case "DOM.getBoxModel":
+        // Flat 8-number quad: (10,20) (30,20) (30,40) (10,40)
+        // → center (20, 30).
+        return { model: { content: [10, 20, 30, 20, 30, 40, 10, 40] } };
+      case "Input.dispatchMouseEvent":
+        return {};
+      case "Runtime.evaluate":
+        // cdpWaitForSelector (used by click/hover selector branches)
+        // polls Runtime.evaluate with the visible-state probe and
+        // expects { result: { value: boolean } }. Returning true on
+        // the first poll lets the test resolve immediately instead
+        // of timing out after ACTION_TIMEOUT_MS.
+        return { result: { value: true } };
+      default:
+        return {};
+    }
   };
 }
 
 // ── browser_click ────────────────────────────────────────────────────
 
-describe("executeBrowserClick", () => {
+describe("executeBrowserClick (CDP)", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    snapshotBackendNodeMaps.clear();
   });
 
-  test("clicks by element_id via snapshot map", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
-    const result = await executeBrowserClick({ element_id: "e1" }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Clicked element");
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', {
-      timeout: 10000,
-    });
-  });
-
-  test("clicks by raw selector", async () => {
+  test("clicks by selector: runs full DOM → Input.dispatchMouseEvent chain", async () => {
+    installClickHoverCdpSend({ backendNodeId: 5555 });
     const result = await executeBrowserClick({ selector: "#submit-btn" }, ctx);
+
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith("#submit-btn", {
-      timeout: 10000,
+    expect(result.content).toContain("Clicked element: #submit-btn");
+
+    // Expected CDP call sequence for the selector path. The leading
+    // Runtime.evaluate is the visible-state probe issued by
+    // cdpWaitForSelector before resolving the backend node — this
+    // matches Playwright's `page.click(selector, { timeout })`
+    // semantics and lets click work on async-hydrated pages.
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "Runtime.evaluate",
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // The leading Runtime.evaluate is the visible-state probe.
+    const visibleProbe = sendCalls.find(
+      (c) => c.method === "Runtime.evaluate",
+    )!;
+    expect(
+      (visibleProbe.params as { expression: string }).expression,
+    ).toContain("getBoundingClientRect");
+
+    // Arguments threaded through correctly.
+    const qsCall = sendCalls.find((c) => c.method === "DOM.querySelector")!;
+    expect(qsCall.params).toMatchObject({ nodeId: 1, selector: "#submit-btn" });
+    const scrollCall = sendCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 5555 });
+    const boxCall = sendCalls.find((c) => c.method === "DOM.getBoxModel")!;
+    expect(boxCall.params).toMatchObject({ backendNodeId: 5555 });
+
+    // All three mouse events land on the quad midpoint (20, 30).
+    const mouseCalls = sendCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(3);
+    expect(mouseCalls[0]!.params).toMatchObject({
+      type: "mouseMoved",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
     });
+    expect(mouseCalls[1]!.params).toMatchObject({
+      type: "mousePressed",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
+    });
+    expect(mouseCalls[2]!.params).toMatchObject({
+      type: "mouseReleased",
+      x: 20,
+      y: 30,
+      button: "left",
+      clickCount: 1,
+    });
+
+    // CdpClient disposed in finally → session.detach called.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
   });
 
-  test("prefers element_id over selector", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
+  test("clicks by element_id (backend path): skips DOM.querySelector", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 42]]));
+    installClickHoverCdpSend();
+
+    const result = await executeBrowserClick({ element_id: "e1" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Clicked element: eid=e1");
+
+    const methods = sendCalls.map((c) => c.method);
+    // Backend path jumps straight to scrollIntoViewIfNeeded — no
+    // DOM.getDocument / querySelector / describeNode round-trip.
+    expect(methods).not.toContain("DOM.getDocument");
+    expect(methods).not.toContain("DOM.querySelector");
+    expect(methods).not.toContain("DOM.describeNode");
+    expect(methods).toEqual([
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // Backend node id threaded directly from the snapshot map.
+    const scrollCall = sendCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 42 });
+    const boxCall = sendCalls.find((c) => c.method === "DOM.getBoxModel")!;
+    expect(boxCall.params).toMatchObject({ backendNodeId: 42 });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("prefers element_id over selector when both provided", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 77]]));
+    installClickHoverCdpSend();
+
     const result = await executeBrowserClick(
-      { element_id: "e1", selector: "#other" },
+      { element_id: "e1", selector: "#ignored" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', {
-      timeout: 10000,
-    });
+    expect(result.content).toContain("eid=e1");
+
+    // DOM.querySelector must NOT have been called (selector ignored).
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).not.toContain("DOM.querySelector");
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -154,29 +382,89 @@ describe("executeBrowserClick", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    // No CDP session should have been opened at all.
+    expect(sendCalls).toHaveLength(0);
+    expect(detachCalls).toBe(0);
   });
 
   test("errors when element_id not found in snapshot map", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserClick({ element_id: "e99" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
     expect(result.content).toContain("browser_snapshot");
+    // Resolution failed before acquiring a CdpClient.
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("errors when snapshot map is missing for session", async () => {
+  test("errors when snapshot backend-node map is missing for session", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not found");
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("handles click error from page", async () => {
-    mockPage.click = mock(async () => {
-      throw new Error("Element not visible");
-    });
-    const result = await executeBrowserClick({ selector: "#hidden" }, ctx);
+  test("returns error + still disposes CdpClient when cdp.send throws", async () => {
+    installClickHoverCdpSend({ throwFrom: "Input.dispatchMouseEvent" });
+
+    const result = await executeBrowserClick({ selector: "#submit-btn" }, ctx);
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Click failed");
-    expect(result.content).toContain("Element not visible");
+    expect(result.content).toContain("cdp boom");
+
+    // finally { cdp.dispose() } must still fire → detach called.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("waits for selector that initially doesn't exist but becomes visible", async () => {
+    // Simulates a hydrating page: the visible-state probe returns
+    // false for the first 2 polls, then true on the 3rd. The click
+    // tool must wait through these polls (instead of failing
+    // immediately) and then complete the click as normal.
+    let visibleProbeCount = 0;
+    sendHandler = (method, _params) => {
+      switch (method) {
+        case "Runtime.evaluate":
+          visibleProbeCount++;
+          return { result: { value: visibleProbeCount >= 3 } };
+        case "DOM.getDocument":
+          return { root: { nodeId: 1 } };
+        case "DOM.querySelector":
+          return { nodeId: 2 };
+        case "DOM.describeNode":
+          return { node: { backendNodeId: 8888 } };
+        case "DOM.scrollIntoViewIfNeeded":
+          return {};
+        case "DOM.getBoxModel":
+          return { model: { content: [10, 20, 30, 20, 30, 40, 10, 40] } };
+        case "Input.dispatchMouseEvent":
+          return {};
+        default:
+          return {};
+      }
+    };
+
+    const result = await executeBrowserClick({ selector: "#hydrated" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Clicked element: #hydrated");
+    // The visible-state probe was polled at least 3 times before
+    // succeeding, then the rest of the click pipeline ran exactly
+    // once.
+    expect(visibleProbeCount).toBeGreaterThanOrEqual(3);
+    const mouseCalls = sendCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(3);
+    // querySelectorBackendNodeId only ran once at the end (after the
+    // probe returned true) — not on every polling iteration.
+    const describeCalls = sendCalls.filter(
+      (c) => c.method === "DOM.describeNode",
+    );
+    expect(describeCalls).toHaveLength(1);
   });
 });
 
@@ -185,51 +473,68 @@ describe("executeBrowserClick", () => {
 describe("executeBrowserType", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    snapshotBackendNodeMaps.clear();
+    sendHandler = defaultCdpHandler;
   });
 
   test("types with element_id and default clear_first=true", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e3", '[data-vellum-eid="e3"]']]),
-    );
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e3", 555]]));
     const result = await executeBrowserType(
       { element_id: "e3", text: "hello" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Typed into element");
+    expect(result.content).toContain('Typed into element: element_id "e3"');
     expect(result.content).toContain("cleared existing content");
-    expect(mockPage.fill).toHaveBeenCalledWith(
-      '[data-vellum-eid="e3"]',
-      "hello",
-      { timeout: 10000 },
-    );
+
+    // Expected CDP sequence when resolving by backendNodeId + clearFirst:
+    //   DOM.focus → DOM.resolveNode → Runtime.callFunctionOn (clear) →
+    //   DOM.focus → Input.insertText
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.focus",
+      "DOM.resolveNode",
+      "Runtime.callFunctionOn",
+      "DOM.focus",
+      "Input.insertText",
+    ]);
+    const focusCall = sendCalls[0]!;
+    expect(focusCall.params).toEqual({ backendNodeId: 555 });
+    const insertCall = sendCalls[sendCalls.length - 1]!;
+    expect(insertCall.params).toEqual({ text: "hello" });
   });
 
-  test("types with raw selector", async () => {
+  test("types with raw selector (resolves via DOM.querySelector)", async () => {
     const result = await executeBrowserType(
       { selector: 'input[name="email"]', text: "test" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.fill).toHaveBeenCalledWith('input[name="email"]', "test", {
-      timeout: 10000,
-    });
+    expect(result.content).toContain('Typed into element: input[name="email"]');
+    // Raw-selector path must resolve the backendNodeId first.
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods[0]).toBe("DOM.getDocument");
+    expect(methods[1]).toBe("DOM.querySelector");
+    expect(methods[2]).toBe("DOM.describeNode");
+    expect(methods).toContain("Input.insertText");
   });
 
   test("appends text when clear_first=false", async () => {
-    mockPage.evaluate = mock(async () => "existing");
     const result = await executeBrowserType(
       { selector: "#input", text: " more", clear_first: false },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.evaluate).toHaveBeenCalled();
-    expect(mockPage.fill).toHaveBeenCalledWith("#input", "existing more", {
-      timeout: 10000,
-    });
     expect(result.content).not.toContain("cleared");
+    // clear_first=false skips DOM.resolveNode + Runtime.callFunctionOn
+    // and the re-focus call, so we should see focus + insertText only.
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).not.toContain("DOM.resolveNode");
+    expect(methods).not.toContain("Runtime.callFunctionOn");
+    const focusCount = methods.filter((m) => m === "DOM.focus").length;
+    expect(focusCount).toBe(1);
+    expect(methods).toContain("Input.insertText");
   });
 
   test("presses Enter after typing when press_enter=true", async () => {
@@ -239,16 +544,32 @@ describe("executeBrowserType", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("pressed Enter");
-    expect(mockPage.fill).toHaveBeenCalledWith("#search", "query", {
-      timeout: 10000,
-    });
-    expect(mockPage.press).toHaveBeenCalledWith("#search", "Enter");
+    const methods = sendCalls.map((c) => c.method);
+    // Input.insertText must come before the Enter keyDown/char/keyUp.
+    const insertIdx = methods.indexOf("Input.insertText");
+    const keyDownIdx = methods.findIndex(
+      (m, i) =>
+        m === "Input.dispatchKeyEvent" &&
+        (sendCalls[i]!.params as { type: string }).type === "keyDown",
+    );
+    expect(insertIdx).toBeGreaterThanOrEqual(0);
+    expect(keyDownIdx).toBeGreaterThan(insertIdx);
+    // Enter is text-producing → keyDown + char + keyUp.
+    const keyEvents = sendCalls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
+    );
+    expect(keyEvents).toHaveLength(3);
+    expect((keyEvents[0]!.params as { key: string }).key).toBe("Enter");
+    expect((keyEvents[0]!.params as { type: string }).type).toBe("keyDown");
+    expect((keyEvents[1]!.params as { type: string }).type).toBe("char");
+    expect((keyEvents[2]!.params as { type: string }).type).toBe("keyUp");
   });
 
   test("errors when text is missing", async () => {
     const result = await executeBrowserType({ selector: "#input" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("text is required");
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when text is empty string", async () => {
@@ -258,6 +579,7 @@ describe("executeBrowserType", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("text is required");
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -266,6 +588,7 @@ describe("executeBrowserType", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when element_id not found", async () => {
@@ -275,143 +598,33 @@ describe("executeBrowserType", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("handles type error from page", async () => {
-    mockPage.fill = mock(async () => {
-      throw new Error("Element is not an input");
-    });
+  test("surfaces CDP failure as a type error", async () => {
+    sendHandler = () => new Error("focus failed");
     const result = await executeBrowserType(
       { selector: "#div", text: "hello" },
       ctx,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Type failed");
-    expect(result.content).toContain("Element is not an input");
+    expect(result.content).toContain("focus failed");
   });
 });
 
-// ── browser_snapshot ──────────────────────────────────────────────────
+// NOTE: executeBrowserSnapshot tests live in
+// `headless-browser-snapshot.test.ts`.
 
-describe("executeBrowserSnapshot", () => {
-  beforeEach(() => {
-    resetMockPage();
-    snapshotMaps.clear();
-  });
-
-  test("returns element list with eid format", async () => {
-    const sampleElements = [
-      { eid: "e1", tag: "a", attrs: { href: "/about" }, text: "About Us" },
-      { eid: "e2", tag: "button", attrs: { type: "submit" }, text: "Submit" },
-      {
-        eid: "e3",
-        tag: "input",
-        attrs: { type: "text", name: "email", placeholder: "Enter email" },
-        text: "",
-      },
-    ];
-    mockPage.evaluate = mock(async () => sampleElements);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("[e1]");
-    expect(result.content).toContain("[e2]");
-    expect(result.content).toContain("[e3]");
-    expect(result.content).toContain("<a");
-    expect(result.content).toContain("<button");
-    expect(result.content).toContain("<input");
-    expect(result.content).toContain("3 interactive elements found");
-  });
-
-  test("stores snapshot map for later element resolution", async () => {
-    const sampleElements = [
-      { eid: "e1", tag: "a", attrs: { href: "/" }, text: "Home" },
-    ];
-    mockPage.evaluate = mock(async () => sampleElements);
-    await executeBrowserSnapshot({}, ctx);
-    const map = snapshotMaps.get("test-conversation");
-    expect(map).toBeDefined();
-    expect(map!.get("e1")).toBe('[data-vellum-eid="e1"]');
-  });
-
-  test("reports no interactive elements when page is empty", async () => {
-    mockPage.evaluate = mock(async () => []);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("no interactive elements found");
-  });
-
-  test("includes page URL and title", async () => {
-    mockPage.evaluate = mock(async () => []);
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.content).toContain("URL: https://example.com/");
-    expect(result.content).toContain("Title: Test Page");
-  });
-
-  test("handles snapshot error from page", async () => {
-    mockPage.evaluate = mock(async () => {
-      throw new Error("Page crashed");
-    });
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Snapshot failed");
-    expect(result.content).toContain("Page crashed");
-  });
-});
-
-// ── browser_screenshot ───────────────────────────────────────────────
-
-describe("executeBrowserScreenshot", () => {
-  beforeEach(() => {
-    resetMockPage();
-  });
-
-  test("captures and returns image content", async () => {
-    const fakeBuffer = Buffer.from("fake-jpeg-screenshot-data");
-    mockPage.screenshot = mock(async () => fakeBuffer);
-    const result = await executeBrowserScreenshot({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Screenshot captured");
-    expect(result.content).toContain(`${fakeBuffer.length} bytes`);
-    expect(result.content).toContain("viewport");
-    expect(result.contentBlocks).toBeDefined();
-    expect(result.contentBlocks!.length).toBe(1);
-    const imageBlock = result.contentBlocks![0] as {
-      type: string;
-      source: { type: string; media_type: string; data: string };
-    };
-    expect(imageBlock.type).toBe("image");
-    expect(imageBlock.source.media_type).toBe("image/jpeg");
-    expect(imageBlock.source.data).toBe(fakeBuffer.toString("base64"));
-  });
-
-  test("supports full_page mode", async () => {
-    mockPage.screenshot = mock(async () => Buffer.from("full"));
-    const result = await executeBrowserScreenshot({ full_page: true }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("full page");
-    expect(mockPage.screenshot).toHaveBeenCalledWith({
-      type: "jpeg",
-      quality: 80,
-      fullPage: true,
-    });
-  });
-
-  test("handles screenshot error from page", async () => {
-    mockPage.screenshot = mock(async () => {
-      throw new Error("Render failed");
-    });
-    const result = await executeBrowserScreenshot({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Screenshot failed");
-    expect(result.content).toContain("Render failed");
-  });
-});
+// browser_screenshot tests live in headless-browser-read-tools.test.ts
+// (alongside browser_extract / browser_wait_for).
 
 // ── browser_close ────────────────────────────────────────────────────
 
 describe("executeBrowserClose", () => {
   beforeEach(() => {
     resetMockPage();
+    resetCdpMock();
   });
 
   test("closes session page", async () => {
@@ -429,92 +642,93 @@ describe("executeBrowserClose", () => {
   });
 });
 
-// ── browser_extract ──────────────────────────────────────────────────
+// ── browser_attach ──────────────────────────────────────────────────
 
-describe("executeBrowserExtract", () => {
+describe("executeBrowserAttach", () => {
   beforeEach(() => {
     resetMockPage();
+    resetCdpMock();
   });
 
-  test("extracts text content from page", async () => {
-    mockPage.evaluate = mock(
-      async () => "Hello, this is the page text content.",
-    );
-    const result = await executeBrowserExtract({}, ctx);
+  test("returns success on non-extension (local) backend", async () => {
+    const result = await executeBrowserAttach({}, ctx);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("URL: https://example.com/");
-    expect(result.content).toContain("Title: Test Page");
-    expect(result.content).toContain("Hello, this is the page text content.");
-  });
-
-  test("includes links when include_links=true", async () => {
-    // First call returns text content, second returns link list
-    let callCount = 0;
-    mockPage.evaluate = mock(async () => {
-      callCount++;
-      if (callCount === 1) return "Some text";
-      return [
-        { text: "Example Link", href: "https://example.com/link1" },
-        { text: "Another", href: "https://example.com/link2" },
-      ];
-    });
-    const result = await executeBrowserExtract({ include_links: true }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Links:");
-    expect(result.content).toContain(
-      "[Example Link](https://example.com/link1)",
-    );
-    expect(result.content).toContain("[Another](https://example.com/link2)");
-  });
-
-  test("handles empty page", async () => {
-    mockPage.evaluate = mock(async () => "");
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("(empty page)");
-  });
-
-  test("handles extract error from page", async () => {
-    mockPage.evaluate = mock(async () => {
-      throw new Error("Page not loaded");
-    });
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Extract failed");
-    expect(result.content).toContain("Page not loaded");
+    expect(result.content).toContain("Browser session ready");
   });
 });
+
+// ── browser_detach ──────────────────────────────────────────────────
+
+describe("executeBrowserDetach", () => {
+  beforeEach(() => {
+    resetMockPage();
+    resetCdpMock();
+  });
+
+  test("clears snapshot state and returns success on non-extension backend", async () => {
+    const result = await executeBrowserDetach({}, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Browser debugger detached");
+  });
+});
+
+// browser_extract tests live in headless-browser-read-tools.test.ts
+// because it drives CDP via getCdpClient() rather than the
+// Playwright page mock this file uses.
 
 // ── browser_press_key ────────────────────────────────────────────────
 
 describe("executeBrowserPressKey", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    snapshotBackendNodeMaps.clear();
+    sendHandler = defaultCdpHandler;
   });
 
-  test("presses key on page (focused element) when no target", async () => {
+  test("presses key on focused element when no target", async () => {
     const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Enter"');
-    expect(mockPage.keyboard.press).toHaveBeenCalledWith("Enter");
+    // No target => no DOM.focus, no selector resolution. Enter is a
+    // text-producing key (text "\r") so dispatchKeyPress emits
+    // keyDown + char + keyUp.
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+    ]);
+    const keyDown = sendCalls[0]!.params as Record<string, unknown>;
+    const charEvt = sendCalls[1]!.params as Record<string, unknown>;
+    const keyUp = sendCalls[2]!.params as Record<string, unknown>;
+    expect(keyDown.type).toBe("keyDown");
+    expect(keyDown.key).toBe("Enter");
+    expect(keyDown.windowsVirtualKeyCode).toBe(13);
+    expect(charEvt.type).toBe("char");
+    expect(keyUp.type).toBe("keyUp");
+    expect(keyUp.key).toBe("Enter");
   });
 
   test("presses key on targeted element via element_id", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e5", '[data-vellum-eid="e5"]']]),
-    );
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e5", 555]]));
     const result = await executeBrowserPressKey(
       { key: "Tab", element_id: "e5" },
       ctx,
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Tab" on element');
-    expect(mockPage.press).toHaveBeenCalledWith(
-      '[data-vellum-eid="e5"]',
-      "Tab",
-    );
+    expect(result.content).toContain('element_id "e5"');
+    // Backend-resolved path: focus → dispatchKeyEvent × 3 (Tab is
+    // text-producing so we also dispatch a char event).
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.focus",
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+    ]);
+    expect(sendCalls[0]!.params).toEqual({ backendNodeId: 555 });
   });
 
   test("presses key on targeted element via selector", async () => {
@@ -524,13 +738,24 @@ describe("executeBrowserPressKey", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Escape" on element');
-    expect(mockPage.press).toHaveBeenCalledWith("#dialog", "Escape");
+    // Selector path: DOM.getDocument → DOM.querySelector → DOM.describeNode
+    // → DOM.focus → dispatchKeyEvent × 2 (Escape has no text, so no char event).
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.focus",
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+    ]);
   });
 
   test("errors when key is missing", async () => {
     const result = await executeBrowserPressKey({}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("key is required");
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when element_id not found", async () => {
@@ -540,12 +765,11 @@ describe("executeBrowserPressKey", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("handles press key error from page", async () => {
-    mockPage.keyboard.press = mock(async () => {
-      throw new Error("Key not recognized");
-    });
+  test("surfaces CDP failure as a press-key error", async () => {
+    sendHandler = () => new Error("Key not recognized");
     const result = await executeBrowserPressKey({ key: "InvalidKey" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Press key failed");
@@ -558,14 +782,32 @@ describe("executeBrowserPressKey", () => {
 describe("executeBrowserScroll", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    sendHandler = defaultCdpHandler;
   });
 
   test("scrolls down by default amount", async () => {
     const result = await executeBrowserScroll({ direction: "down" }, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Scrolled down by 500px");
-    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(0, 500);
+    // Runtime.evaluate for viewport dimensions, then a single
+    // Input.dispatchMouseEvent mouseWheel at the viewport center.
+    const evaluateCall = sendCalls.find((c) => c.method === "Runtime.evaluate");
+    expect(evaluateCall).toBeDefined();
+    expect((evaluateCall!.params as { expression: string }).expression).toBe(
+      "({ w: window.innerWidth, h: window.innerHeight })",
+    );
+    const wheelCall = sendCalls.find(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(wheelCall).toBeDefined();
+    expect(wheelCall!.params).toEqual({
+      type: "mouseWheel",
+      x: 400,
+      y: 300,
+      deltaX: 0,
+      deltaY: 500,
+    });
   });
 
   test("scrolls up by custom amount", async () => {
@@ -575,7 +817,16 @@ describe("executeBrowserScroll", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Scrolled up by 300px");
-    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(0, -300);
+    const wheelCall = sendCalls.find(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(wheelCall!.params).toEqual({
+      type: "mouseWheel",
+      x: 400,
+      y: 300,
+      deltaX: 0,
+      deltaY: -300,
+    });
   });
 
   test("scrolls left", async () => {
@@ -584,7 +835,16 @@ describe("executeBrowserScroll", () => {
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(-200, 0);
+    const wheelCall = sendCalls.find(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(wheelCall!.params).toEqual({
+      type: "mouseWheel",
+      x: 400,
+      y: 300,
+      deltaX: -200,
+      deltaY: 0,
+    });
   });
 
   test("scrolls right", async () => {
@@ -593,35 +853,79 @@ describe("executeBrowserScroll", () => {
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(200, 0);
+    const wheelCall = sendCalls.find(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(wheelCall!.params).toEqual({
+      type: "mouseWheel",
+      x: 400,
+      y: 300,
+      deltaX: 200,
+      deltaY: 0,
+    });
   });
 
   test("errors when direction is missing", async () => {
     const result = await executeBrowserScroll({}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("direction is required");
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when direction is invalid", async () => {
     const result = await executeBrowserScroll({ direction: "diagonal" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("direction is required");
+    expect(sendCalls).toHaveLength(0);
+  });
+
+  test("surfaces CDP failure as a scroll error", async () => {
+    sendHandler = () => new Error("viewport unavailable");
+    const result = await executeBrowserScroll({ direction: "down" }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Scroll failed");
+    expect(result.content).toContain("viewport unavailable");
   });
 });
 
 // ── browser_select_option ────────────────────────────────────────────
 
+/**
+ * Default handler tuned for select-option tests. The Runtime.callFunctionOn
+ * call now returns whether an option matched; tests assert on this
+ * via `result.value`.
+ */
+function selectOptionHandler(
+  matched = true,
+): (method: string, params?: Record<string, unknown>) => unknown {
+  return (method, _params) => {
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelector":
+        return { nodeId: 42 };
+      case "DOM.describeNode":
+        return { node: { backendNodeId: 100 } };
+      case "DOM.resolveNode":
+        return { object: { objectId: "obj-1" } };
+      case "Runtime.callFunctionOn":
+        return { result: { value: matched } };
+      default:
+        return {};
+    }
+  };
+}
+
 describe("executeBrowserSelectOption", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    snapshotBackendNodeMaps.clear();
+    sendHandler = selectOptionHandler();
   });
 
   test("selects by value via element_id", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e4", '[data-vellum-eid="e4"]']]),
-    );
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e4", 777]]));
     const result = await executeBrowserSelectOption(
       { element_id: "e4", value: "ca" },
       ctx,
@@ -629,10 +933,26 @@ describe("executeBrowserSelectOption", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Selected option");
     expect(result.content).toContain('value="ca"');
-    expect(mockPage.selectOption).toHaveBeenCalledWith(
-      '[data-vellum-eid="e4"]',
+    expect(result.content).toContain('element_id "e4"');
+
+    // Expected CDP sequence: DOM.resolveNode → Runtime.callFunctionOn
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual(["DOM.resolveNode", "Runtime.callFunctionOn"]);
+    expect(sendCalls[0]!.params).toEqual({ backendNodeId: 777 });
+    const callFn = sendCalls[1]!.params as {
+      objectId: string;
+      arguments: Array<{ value: unknown }>;
+      returnByValue?: boolean;
+    };
+    expect(callFn.objectId).toBe("obj-1");
+    expect(callFn.arguments).toEqual([
       { value: "ca" },
-    );
+      { value: null },
+      { value: null },
+    ]);
+    // returnByValue must be true so the matched boolean comes back
+    // primitive instead of as a RemoteObject reference.
+    expect(callFn.returnByValue).toBe(true);
   });
 
   test("selects by label", async () => {
@@ -642,9 +962,23 @@ describe("executeBrowserSelectOption", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain('label="California"');
-    expect(mockPage.selectOption).toHaveBeenCalledWith("#state", {
-      label: "California",
-    });
+    // Selector path: querySelectorBackendNodeId sequence + DOM.resolveNode + Runtime.callFunctionOn
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.resolveNode",
+      "Runtime.callFunctionOn",
+    ]);
+    const callFn = sendCalls[4]!.params as {
+      arguments: Array<{ value: unknown }>;
+    };
+    expect(callFn.arguments).toEqual([
+      { value: null },
+      { value: "California" },
+      { value: null },
+    ]);
   });
 
   test("selects by index", async () => {
@@ -654,7 +988,39 @@ describe("executeBrowserSelectOption", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("index=2");
-    expect(mockPage.selectOption).toHaveBeenCalledWith("#state", { index: 2 });
+    const callFn = sendCalls.find((c) => c.method === "Runtime.callFunctionOn")!
+      .params as { arguments: Array<{ value: unknown }> };
+    expect(callFn.arguments).toEqual([
+      { value: null },
+      { value: null },
+      { value: 2 },
+    ]);
+  });
+
+  test("returns error when no option matches", async () => {
+    sendHandler = selectOptionHandler(false);
+    const result = await executeBrowserSelectOption(
+      { selector: "#state", value: "nope" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Select option failed");
+    expect(result.content).toContain("no option matched");
+    expect(result.content).toContain('value="nope"');
+  });
+
+  test("dispatches input + change events via the function declaration", async () => {
+    await executeBrowserSelectOption({ selector: "#state", value: "ca" }, ctx);
+    const callFn = sendCalls.find((c) => c.method === "Runtime.callFunctionOn")!
+      .params as { functionDeclaration: string };
+    // The function body must dispatch BOTH input and change events
+    // (HTML spec order: input fires before change for <select>).
+    expect(callFn.functionDeclaration).toContain('new Event("input"');
+    expect(callFn.functionDeclaration).toContain('new Event("change"');
+    const inputIdx = callFn.functionDeclaration.indexOf('new Event("input"');
+    const changeIdx = callFn.functionDeclaration.indexOf('new Event("change"');
+    expect(inputIdx).toBeGreaterThanOrEqual(0);
+    expect(changeIdx).toBeGreaterThan(inputIdx);
   });
 
   test("errors when no option specifier provided", async () => {
@@ -666,6 +1032,7 @@ describe("executeBrowserSelectOption", () => {
     expect(result.content).toContain(
       "One of value, label, or index is required",
     );
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -674,12 +1041,11 @@ describe("executeBrowserSelectOption", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("handles select option error from page", async () => {
-    mockPage.selectOption = mock(async () => {
-      throw new Error("Not a select element");
-    });
+  test("surfaces CDP failure as a select-option error", async () => {
+    sendHandler = () => new Error("Not a select element");
     const result = await executeBrowserSelectOption(
       { selector: "#div", value: "x" },
       ctx,
@@ -692,34 +1058,72 @@ describe("executeBrowserSelectOption", () => {
 
 // ── browser_hover ────────────────────────────────────────────────────
 
-describe("executeBrowserHover", () => {
+describe("executeBrowserHover (CDP)", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    snapshotBackendNodeMaps.clear();
   });
 
-  test("hovers by element_id via snapshot map", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e2", '[data-vellum-eid="e2"]']]),
-    );
-    const result = await executeBrowserHover({ element_id: "e2" }, ctx);
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Hovered element");
-    expect(mockPage.hover).toHaveBeenCalledWith('[data-vellum-eid="e2"]', {
-      timeout: 10000,
-    });
-  });
-
-  test("hovers by raw selector", async () => {
+  test("hovers by selector: emits a single mouseMoved event", async () => {
+    installClickHoverCdpSend({ backendNodeId: 9000 });
     const result = await executeBrowserHover(
       { selector: ".menu-trigger" },
       ctx,
     );
     expect(result.isError).toBe(false);
-    expect(mockPage.hover).toHaveBeenCalledWith(".menu-trigger", {
-      timeout: 10000,
+    expect(result.content).toContain("Hovered element: .menu-trigger");
+
+    // Selector path waits for the element to become visible via
+    // cdpWaitForSelector before resolving the backend node.
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).toEqual([
+      "Runtime.evaluate",
+      "DOM.getDocument",
+      "DOM.querySelector",
+      "DOM.describeNode",
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    // Exactly ONE mouseMoved event (no press/release) → hover semantics.
+    const mouseCalls = sendCalls.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(mouseCalls).toHaveLength(1);
+    expect(mouseCalls[0]!.params).toMatchObject({
+      type: "mouseMoved",
+      x: 20,
+      y: 30,
+      button: "none",
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
+  });
+
+  test("hovers by element_id (backend path): skips DOM.querySelector", async () => {
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e2", 12]]));
+    installClickHoverCdpSend();
+
+    const result = await executeBrowserHover({ element_id: "e2" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Hovered element: eid=e2");
+
+    const methods = sendCalls.map((c) => c.method);
+    expect(methods).not.toContain("DOM.querySelector");
+    expect(methods).toEqual([
+      "DOM.scrollIntoViewIfNeeded",
+      "DOM.getBoxModel",
+      "Input.dispatchMouseEvent",
+    ]);
+
+    const scrollCall = sendCalls.find(
+      (c) => c.method === "DOM.scrollIntoViewIfNeeded",
+    )!;
+    expect(scrollCall.params).toMatchObject({ backendNodeId: 12 });
   });
 
   test("errors when neither element_id nor selector provided", async () => {
@@ -728,22 +1132,28 @@ describe("executeBrowserHover", () => {
     expect(result.content).toContain(
       "Either element_id or selector is required",
     );
+    expect(sendCalls).toHaveLength(0);
   });
 
   test("errors when element_id not found in snapshot map", async () => {
+    installClickHoverCdpSend();
     const result = await executeBrowserHover({ element_id: "e99" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
+    expect(sendCalls).toHaveLength(0);
   });
 
-  test("handles hover error from page", async () => {
-    mockPage.hover = mock(async () => {
-      throw new Error("Element detached");
-    });
+  test("returns error + still disposes CdpClient when cdp.send throws", async () => {
+    installClickHoverCdpSend({ throwFrom: "DOM.getBoxModel" });
+
     const result = await executeBrowserHover({ selector: "#gone" }, ctx);
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Hover failed");
-    expect(result.content).toContain("Element detached");
+    expect(result.content).toContain("cdp boom");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(detachCalls).toBe(1);
   });
 });
 
@@ -754,14 +1164,14 @@ describe("executeBrowserHover", () => {
 describe("browser execution wrapper contract", () => {
   beforeEach(() => {
     resetMockPage();
-    snapshotMaps.clear();
+    resetCdpMock();
+    sendHandler = defaultCdpHandler;
+    snapshotBackendNodeMaps.clear();
   });
 
   test("executeBrowserClick matches wrapper contract (input, context) → result", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e1", '[data-vellum-eid="e1"]']]),
-    );
+    installClickHoverCdpSend();
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 1]]));
     const result = await executeBrowserClick({ element_id: "e1" }, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");
@@ -771,10 +1181,7 @@ describe("browser execution wrapper contract", () => {
   });
 
   test("executeBrowserType matches wrapper contract", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e3", '[data-vellum-eid="e3"]']]),
-    );
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e3", 555]]));
     const result = await executeBrowserType(
       { element_id: "e3", text: "hello" },
       ctx,
@@ -784,38 +1191,15 @@ describe("browser execution wrapper contract", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("executeBrowserSnapshot matches wrapper contract", async () => {
-    mockPage.evaluate = mock(async () => [
-      { eid: "e1", tag: "button", attrs: {}, text: "Click me" },
-    ]);
-    mockPage.title = mock(async () => "Test");
-    mockPage.url = mock(() => "https://example.com");
-    const result = await executeBrowserSnapshot({}, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
+  // executeBrowserSnapshot wrapper-contract check lives in
+  // `headless-browser-snapshot.test.ts`.
 
-  test("executeBrowserExtract matches wrapper contract", async () => {
-    mockPage.evaluate = mock(async () => "Page text content");
-    mockPage.title = mock(async () => "Test");
-    mockPage.url = mock(() => "https://example.com");
-    const result = await executeBrowserExtract({}, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
+  // wrapper contract for executeBrowserExtract and
+  // executeBrowserScreenshot lives in
+  // headless-browser-read-tools.test.ts.
 
   test("executeBrowserPressKey matches wrapper contract", async () => {
     const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
-    expect(result).toHaveProperty("content");
-    expect(result).toHaveProperty("isError");
-    expect(result.isError).toBe(false);
-  });
-
-  test("executeBrowserScreenshot matches wrapper contract", async () => {
-    mockPage.screenshot = mock(async () => Buffer.from("fake-image"));
-    const result = await executeBrowserScreenshot({}, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");
     expect(result.isError).toBe(false);
@@ -836,10 +1220,7 @@ describe("browser execution wrapper contract", () => {
   });
 
   test("executeBrowserSelectOption matches wrapper contract", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e4", '[data-vellum-eid="e4"]']]),
-    );
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e4", 777]]));
     const result = await executeBrowserSelectOption(
       { element_id: "e4", value: "opt1" },
       ctx,
@@ -850,10 +1231,8 @@ describe("browser execution wrapper contract", () => {
   });
 
   test("executeBrowserHover matches wrapper contract", async () => {
-    snapshotMaps.set(
-      "test-conversation",
-      new Map([["e2", '[data-vellum-eid="e2"]']]),
-    );
+    installClickHoverCdpSend();
+    snapshotBackendNodeMaps.set("test-conversation", new Map([["e2", 2]]));
     const result = await executeBrowserHover({ element_id: "e2" }, ctx);
     expect(result).toHaveProperty("content");
     expect(result).toHaveProperty("isError");

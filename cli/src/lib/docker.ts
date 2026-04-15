@@ -45,7 +45,11 @@ export const GATEWAY_INTERNAL_PORT = 7830;
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
+/** Default memory (GiB) allocated to the Colima VM. */
+const COLIMA_DEFAULT_MEMORY_GIB = 8;
+
 /** Directory for user-local binary installs (no sudo required). */
+
 const LOCAL_BIN_DIR = join(
   process.env.HOME || process.env.USERPROFILE || ".",
   ".local",
@@ -294,7 +298,11 @@ async function ensureDockerInstalled(): Promise<void> {
 
     console.log("🚀 Docker daemon not running. Starting Colima...");
     try {
-      await exec("colima", ["start"]);
+      await exec("colima", [
+        "start",
+        "--memory",
+        String(COLIMA_DEFAULT_MEMORY_GIB),
+      ]);
     } catch {
       // Colima may fail if a previous VM instance is in a corrupt state.
       // Attempt to delete the stale instance and retry once.
@@ -311,7 +319,11 @@ async function ensureDockerInstalled(): Promise<void> {
 
       try {
         console.log("🔄 Retrying colima start...");
-        await exec("colima", ["start"]);
+        await exec("colima", [
+          "start",
+          "--memory",
+          String(COLIMA_DEFAULT_MEMORY_GIB),
+        ]);
       } catch (retryErr) {
         const message =
           retryErr instanceof Error ? retryErr.message : String(retryErr);
@@ -575,6 +587,10 @@ export function serviceDockerRunArgs(opts: {
         "-e",
         "VELLUM_WORKSPACE_DIR=/workspace",
         "-e",
+        "VELLUM_BACKUP_DIR=/workspace/.backups",
+        "-e",
+        "VELLUM_BACKUP_KEY_PATH=/workspace/.backup.key",
+        "-e",
         "CES_CREDENTIAL_URL=http://localhost:8090",
         "-e",
         `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
@@ -596,6 +612,7 @@ export function serviceDockerRunArgs(opts: {
       }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
       ]) {
         if (process.env[envVar]) {
@@ -643,6 +660,12 @@ export function serviceDockerRunArgs(opts: {
         : []),
       ...(opts.bootstrapSecret
         ? ["-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`]
+        : []),
+      ...(process.env.VELLUM_ENVIRONMENT
+        ? ["-e", `VELLUM_ENVIRONMENT=${process.env.VELLUM_ENVIRONMENT}`]
+        : []),
+      ...(process.env.VELLUM_PLATFORM_URL
+        ? ["-e", `VELLUM_PLATFORM_URL=${process.env.VELLUM_PLATFORM_URL}`]
         : []),
       imageTags.gateway,
     ],
@@ -1162,7 +1185,6 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
-      serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
       containerInfo: {
         assistantImage: imageTags.assistant,
         gatewayImage: imageTags.gateway,

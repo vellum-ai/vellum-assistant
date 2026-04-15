@@ -11,7 +11,6 @@ final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var groups: [ConversationGroup] = []
     var daemonSupportsGroups: Bool = false
     var restoreRecentConversations: Bool = true
-    var lastActiveConversationIdString: String?
     var isLoadingMoreConversations: Bool = false
     var hasMoreConversations: Bool = false
     var serverOffset: Int = 0
@@ -365,8 +364,8 @@ struct ConversationRestorerTests {
         #expect(delegate.viewModels[delegate.conversations[0].id] == nil)
         #expect(delegate.viewModels[delegate.conversations[1].id] == nil)
 
-        // Most recent conversation should be activated
-        #expect(delegate.activatedConversationId == delegate.conversations[0].id)
+        // Cold launch stays on the draft VM — no auto-activation from the restored list.
+        #expect(delegate.activatedConversationId == nil)
     }
 
     @Test @MainActor

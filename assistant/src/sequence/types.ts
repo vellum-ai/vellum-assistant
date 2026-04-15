@@ -26,7 +26,7 @@ export interface Sequence {
   id: string;
   name: string;
   description: string | null;
-  channel: string; // messaging channel (gmail, agentmail, slack)
+  channel: string; // messaging channel (gmail, email, slack)
   steps: SequenceStep[];
   exitOnReply: boolean;
   status: SequenceStatus;

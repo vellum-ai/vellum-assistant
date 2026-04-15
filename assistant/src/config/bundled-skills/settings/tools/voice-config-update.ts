@@ -10,9 +10,12 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.
+ *
+ * All config paths are canonical (`services.tts.*`).
  */
 const VOICE_SETTINGS = {
   activation_key: {
@@ -23,8 +26,8 @@ const VOICE_SETTINGS = {
     userDefaultsKey: "voiceConversationTimeoutSeconds",
     type: "number" as const,
   },
-  tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" as const },
   tts_provider: { userDefaultsKey: "ttsProvider", type: "string" as const },
+  tts_voice_id: { userDefaultsKey: "ttsVoiceId", type: "string" as const },
   fish_audio_reference_id: {
     userDefaultsKey: "fishAudioReferenceId",
     type: "string" as const,
@@ -40,8 +43,8 @@ const VALID_TIMEOUTS: readonly number[] = VALID_CONVERSATION_TIMEOUTS;
 const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   activation_key: "PTT activation key",
   conversation_timeout: "Conversation timeout",
-  tts_voice_id: "ElevenLabs voice",
   tts_provider: "TTS provider",
+  tts_voice_id: "ElevenLabs voice",
   fish_audio_reference_id: "Fish Audio voice",
 };
 
@@ -105,11 +108,11 @@ function validateSetting(
       return { ok: true, coerced: trimmed };
     }
     case "tts_provider": {
-      const valid = ["elevenlabs", "fish-audio"];
-      if (typeof value !== "string" || !valid.includes(value.trim())) {
+      const catalogIds = listCatalogProviderIds();
+      if (typeof value !== "string" || !catalogIds.includes(value.trim())) {
         return {
           ok: false,
-          error: `tts_provider must be one of: ${valid.join(", ")}`,
+          error: `tts_provider must be one of: ${catalogIds.join(", ")}`,
         };
       }
       return { ok: true, coerced: value.trim() };
@@ -170,40 +173,41 @@ export async function run(
     });
   }
 
-  // For tts_voice_id, also persist to the config file (elevenlabs.voiceId)
-  // so phone calls and other consumers pick it up.
-  if (setting === "tts_voice_id") {
-    const raw = loadRawConfig();
-    setNestedValue(raw, "elevenlabs.voiceId", validation.coerced);
+  // Persist to canonical config paths under services.tts.*
+  const raw = loadRawConfig();
+
+  if (setting === "tts_provider") {
+    setNestedValue(raw, "services.tts.provider", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }
 
-  // For conversation_timeout, persist to the config file
-  // (elevenlabs.conversationTimeoutSeconds).
-  if (setting === "conversation_timeout") {
-    const raw = loadRawConfig();
+  if (setting === "tts_voice_id") {
     setNestedValue(
       raw,
-      "elevenlabs.conversationTimeoutSeconds",
+      "services.tts.providers.elevenlabs.voiceId",
       validation.coerced,
     );
     saveRawConfig(raw);
     invalidateConfigCache();
   }
 
-  // For tts_provider, persist to config file (calls.voice.ttsProvider).
-  if (setting === "tts_provider") {
-    const raw = loadRawConfig();
-    setNestedValue(raw, "calls.voice.ttsProvider", validation.coerced);
+  if (setting === "conversation_timeout") {
+    setNestedValue(
+      raw,
+      "services.tts.providers.elevenlabs.conversationTimeoutSeconds",
+      validation.coerced,
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }
 
-  // For fish_audio_reference_id, persist to config file (fishAudio.referenceId).
   if (setting === "fish_audio_reference_id") {
-    const raw = loadRawConfig();
-    setNestedValue(raw, "fishAudio.referenceId", validation.coerced);
+    setNestedValue(
+      raw,
+      "services.tts.providers.fish-audio.referenceId",
+      validation.coerced,
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

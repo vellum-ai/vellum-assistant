@@ -2,134 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 import Dispatch
 
-// MARK: - Progress Phase
-
-/// Internal enum representing the current phase of assistant progress.
-/// Derived from the combination of tool calls, streaming state, and text output.
-private enum ProgressPhase: Equatable {
-    case thinking
-    case toolRunning
-    case streamingCode
-    case toolsCompleteThinking
-    case processing
-    case complete
-    case denied
-}
-
-// MARK: - Derived Progress State
-
-/// Collects all O(n) derived properties from `toolCalls` in a single pass.
-/// The result is pure value data with no SwiftUI-owned storage so transcript
-/// updates can't feed back into the view tree through `@State`.
-private struct DerivedProgressState: Equatable {
-    var allComplete: Bool = true
-    var hasTools: Bool = false
-    var completedToolCount: Int = 0
-    var deniedCount: Int = 0
-    var hasDeniedToolCalls: Bool = false
-    var hasPendingConfirmation: Bool = false
-    var groupId: String = "no-tools"
-    var currentCall: ToolCallData? = nil
-    var lastToolCall: ToolCallData? = nil
-    var lastIncompleteCall: ToolCallData? = nil
-    var skillExecuteLabel: String = "Using a skill"
-    var uniqueToolNamesSorted: [String] = []
-    var earliestStartedAt: Date? = nil
-    var latestCompletedAt: Date? = nil
-    var totalToolCount: Int = 0
-
-    /// Computes all derived values in a single O(n) pass over toolCalls.
-    static func compute(
-        toolCalls: [ToolCallData],
-        decidedConfirmations: [ToolConfirmationData]
-    ) -> DerivedProgressState {
-        var state = DerivedProgressState()
-        state.totalToolCount = toolCalls.count
-        state.hasTools = !toolCalls.isEmpty
-
-        var allComplete = true
-        var foundFirstIncomplete = false
-        var lastSkillLoad: ToolCallData? = nil
-        var toolNameSet = Set<String>()
-        var earliestStart: Date? = nil
-        var latestEnd: Date? = nil
-
-        for toolCall in toolCalls {
-            // Track completion
-            if toolCall.isComplete {
-                state.completedToolCount += 1
-            } else {
-                allComplete = false
-                if !foundFirstIncomplete {
-                    state.currentCall = toolCall
-                    foundFirstIncomplete = true
-                }
-                state.lastIncompleteCall = toolCall
-            }
-
-            // Track denied/timed-out
-            if toolCall.confirmationDecision == .denied || toolCall.confirmationDecision == .timedOut {
-                state.deniedCount += 1
-                state.hasDeniedToolCalls = true
-            }
-
-            // Track pending confirmations
-            if toolCall.pendingConfirmation != nil {
-                state.hasPendingConfirmation = true
-            }
-
-            // Track unique tool names
-            toolNameSet.insert(toolCall.toolName)
-
-            // Track skill_load (last completed one)
-            if toolCall.toolName == "skill_load" && toolCall.isComplete {
-                lastSkillLoad = toolCall
-            }
-
-            // Track timestamps
-            if let started = toolCall.startedAt {
-                if earliestStart == nil || started < earliestStart! {
-                    earliestStart = started
-                }
-            }
-            if let completed = toolCall.completedAt {
-                if latestEnd == nil || completed > latestEnd! {
-                    latestEnd = completed
-                }
-            }
-        }
-
-        state.allComplete = !toolCalls.isEmpty && allComplete
-        state.lastToolCall = toolCalls.last
-        state.groupId = toolCalls.first?.id.uuidString ?? "no-tools"
-        state.earliestStartedAt = earliestStart
-        state.latestCompletedAt = latestEnd
-        state.uniqueToolNamesSorted = toolNameSet.sorted()
-
-        // Derive skill execute label
-        if let skillLoad = lastSkillLoad,
-           let skillId = skillLoad.inputRawDict?["skill"]?.value as? String,
-           !skillId.isEmpty {
-            let display = skillId
-                .replacingOccurrences(of: "-", with: " ")
-                .replacingOccurrences(of: "_", with: " ")
-            state.skillExecuteLabel = "Using my \(display) skill"
-        }
-
-        // Check decidedConfirmations for denied state
-        if !state.hasDeniedToolCalls {
-            for confirmation in decidedConfirmations {
-                if confirmation.state == .denied || confirmation.state == .timedOut {
-                    state.hasDeniedToolCalls = true
-                    break
-                }
-            }
-        }
-
-        return state
-    }
-}
-
 // MARK: - AssistantProgressView
 
 /// Unified container that handles all tool progress states through a single component
@@ -152,14 +24,11 @@ struct AssistantProgressView: View {
     var onTemporaryAllow: ((String, String) -> Void)? = nil
     var activeConfirmationRequestId: String? = nil  // For keyboard focus
 
-    /// Step detail expansion state lifted from StepDetailRow to survive
-    /// the trailing→interleaved rendering path switch in ChatBubble.
-    @Binding var expandedStepIds: Set<UUID>
-    /// Card-level expansion overrides lifted from this view's @State to
-    /// survive view recreation. Keyed by first tool call UUID in the group.
-    @Binding var cardExpansionOverrides: [UUID: Bool]
+    /// Interaction state that must outlive lazy row churn. Owned by the parent
+    /// (ChatBubble or MessageListContentView) and passed as a binding so
+    /// expansion, override, and rehydration tracking survive view recycling.
+    @Binding var progressUIState: ProgressCardUIState
 
-    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool
     @State private var startDate: Date
     @State private var processingStartDate: Date?
@@ -183,8 +52,7 @@ struct AssistantProgressView: View {
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onTemporaryAllow: ((String, String) -> Void)? = nil,
         activeConfirmationRequestId: String? = nil,
-        expandedStepIds: Binding<Set<UUID>>,
-        cardExpansionOverrides: Binding<[UUID: Bool]>
+        progressUIState: Binding<ProgressCardUIState>
     ) {
         self.toolCalls = toolCalls
         self.isStreaming = isStreaming
@@ -200,113 +68,65 @@ struct AssistantProgressView: View {
         self.onAlwaysAllow = onAlwaysAllow
         self.onTemporaryAllow = onTemporaryAllow
         self.activeConfirmationRequestId = activeConfirmationRequestId
-        self._expandedStepIds = expandedStepIds
-        self._cardExpansionOverrides = cardExpansionOverrides
-        let derived = DerivedProgressState.compute(
+        self._progressUIState = progressUIState
+        let model = ProgressCardPresentationModel.build(
             toolCalls: toolCalls,
-            decidedConfirmations: decidedConfirmations
+            decidedConfirmations: decidedConfirmations,
+            context: ProgressCardPresentationModel.StreamingContext(
+                isStreaming: isStreaming,
+                hasText: hasText,
+                isProcessing: isProcessing,
+                streamingCodePreview: streamingCodePreview
+            ),
+            expandCompletedStepsFlag: MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         )
-        let isComplete = derived.hasTools && derived.allComplete
-        let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
-        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
-        let shouldAutoExpand = (isComplete || isDenied) && expandFlag
-        let initialStartDate = derived.earliestStartedAt ?? Date()
-        let initialProcessingStartDate: Date? = if isProcessing && (derived.allComplete || !derived.hasTools) {
+        let initialStartDate = model.earliestStartedAt ?? Date()
+        let initialProcessingStartDate: Date? = if isProcessing && (model.allComplete || !model.hasTools) {
             Date()
         } else {
             nil
         }
-        // Seed from user override if one exists, otherwise use auto-expand logic.
-        if let key = toolCalls.first?.id,
-           let override = cardExpansionOverrides.wrappedValue[key] {
-            _isExpanded = State(initialValue: override)
-        } else {
-            _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
-        }
+        // Seed from user override via ProgressCardUIState if one exists, otherwise use model's auto-expand.
+        let cardKey = toolCalls.first?.id
+        let resolved = progressUIState.wrappedValue.resolveCardExpanded(cardKey: cardKey, model: model)
+        _isExpanded = State(initialValue: resolved)
         _startDate = State(initialValue: initialStartDate)
         _processingStartDate = State(initialValue: initialProcessingStartDate)
     }
 
-    /// Stable key for this progress card in `cardExpansionOverrides`.
+    /// Stable key for this progress card in `progressUIState.cardExpansionOverrides`.
     private var cardKey: UUID? { toolCalls.first?.id }
 
-    // MARK: - Derived State
+    // MARK: - Projected Presentation Model
 
-    private var derived: DerivedProgressState {
-        DerivedProgressState.compute(
+    /// Builds the presentation model from current inputs. This replaces the old
+    /// `DerivedProgressState.compute(...)` path — all O(n) aggregation now goes
+    /// through the standalone, testable `ProgressCardPresentationModel.build`.
+    private var model: ProgressCardPresentationModel {
+        ProgressCardPresentationModel.build(
             toolCalls: toolCalls,
-            decidedConfirmations: decidedConfirmations
+            decidedConfirmations: decidedConfirmations,
+            context: ProgressCardPresentationModel.StreamingContext(
+                isStreaming: isStreaming,
+                hasText: hasText,
+                isProcessing: isProcessing,
+                streamingCodePreview: streamingCodePreview
+            ),
+            expandCompletedStepsFlag: MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         )
     }
 
-    private var phase: ProgressPhase {
-        let hasIncompleteTools = derived.hasTools && !derived.allComplete
-
-        // If confirmation was denied/timed out and tools are incomplete, those tools
-        // will never finish — show the denied state instead of an indefinite spinner.
-        if derived.hasDeniedToolCalls && hasIncompleteTools {
-            return .denied
-        }
-
-        // Streaming code preview active
-        if isStreaming, let preview = streamingCodePreview, !preview.isEmpty {
-            return .streamingCode
-        }
-
-        // At least one tool still running
-        if derived.hasTools && !derived.allComplete {
-            return .toolRunning
-        }
-
-        // All tools done, model composing response (daemon sent activity_state "thinking").
-        // Check this before toolsCompleteThinking so the "Processing results" label
-        // is shown instead of the stale last-tool label during extended thinking gaps.
-        if derived.allComplete && isProcessing {
-            return .processing
-        }
-
-        // All tools done but message still streaming with no text yet — more tools
-        // may come. Show active "Thinking" state rather than premature "Completed N steps".
-        // Once text appears, fall through to .complete (which shows warning icon if denied).
-        if derived.allComplete && isStreaming && !hasText {
-            return .toolsCompleteThinking
-        }
-
-        // All done — either message finished (!isStreaming && !isProcessing) or
-        // text is already visible while streaming (user can see the response).
-        // Uses warning icon + "Completed with N blocked permission(s)" if any tools were denied.
-        if derived.allComplete && (!isStreaming || hasText) && !isProcessing {
-            return .complete
-        }
-
-        // No tools, model working
-        if !derived.hasTools && (isStreaming || isProcessing) {
-            return .processing
-        }
-
-        return .thinking
-    }
-
-    private var isActive: Bool {
-        switch phase {
-        case .thinking, .toolRunning, .streamingCode, .toolsCompleteThinking, .processing:
-            return true
-        case .complete, .denied:
-            return false
-        }
-    }
-
-    private var headlineText: String {
-        switch phase {
+    private func headlineText(for model: ProgressCardPresentationModel) -> String {
+        switch model.phase {
         case .thinking:
             return "Thinking..."
         case .toolRunning:
-            if let current = derived.currentCall {
+            if let current = model.currentCall {
                 if let reason = current.reasonDescription, !reason.isEmpty {
                     return reason
                 }
                 if current.toolName == "skill_execute" {
-                    return derived.skillExecuteLabel
+                    return model.skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     current.toolName,
@@ -317,15 +137,15 @@ struct AssistantProgressView: View {
             return "Working"
         case .streamingCode:
             let rawName = streamingCodeToolName ?? ""
-            let activeBuildingStatus = derived.lastIncompleteCall?.buildingStatus
+            let activeBuildingStatus = model.lastIncompleteCall?.buildingStatus
             return ChatBubble.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus)
         case .toolsCompleteThinking:
-            if let lastTool = derived.lastToolCall {
+            if let lastTool = model.lastToolCall {
                 if let reason = lastTool.reasonDescription, !reason.isEmpty {
                     return reason
                 }
                 if lastTool.toolName == "skill_execute" {
-                    return derived.skillExecuteLabel
+                    return model.skillExecuteLabel
                 }
                 return ChatBubble.friendlyRunningLabel(
                     lastTool.toolName,
@@ -337,33 +157,34 @@ struct AssistantProgressView: View {
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
-            if derived.hasDeniedToolCalls {
-                if derived.deniedCount > 0 {
-                    return "Completed with \(derived.deniedCount) blocked permission\(derived.deniedCount == 1 ? "" : "s")"
+            if model.hasDeniedToolCalls {
+                if model.deniedCount > 0 {
+                    return "Completed with \(model.deniedCount) blocked permission\(model.deniedCount == 1 ? "" : "s")"
                 }
                 return "Completed with blocked permissions"
             }
-            return "Completed \(derived.totalToolCount) step\(derived.totalToolCount == 1 ? "" : "s")"
+            return "Completed \(model.totalToolCount) step\(model.totalToolCount == 1 ? "" : "s")"
         case .denied:
-            let primary = derived.uniqueToolNamesSorted.first ?? "Tool"
+            let primary = model.uniqueToolNamesSorted.first ?? "Tool"
             return ChatBubble.friendlyRunningLabel(primary) + " denied"
         }
-    }
-
-    private var hasChevron: Bool {
-        derived.hasTools
     }
 
     // MARK: - Body
 
     var body: some View {
+        // Build the presentation model once per body evaluation. All rendering
+        // sub-views receive this cached value instead of recomputing it.
+        let model = self.model
+        let phase = model.phase
+
         VStack(alignment: .leading, spacing: 0) {
             // Header row (always visible)
-            headerRow
+            headerRow(model: model, phase: phase)
 
             // Expanded content
             if isExpanded {
-                expandedContent
+                expandedContent(model: model, phase: phase)
                     .padding(.bottom, VSpacing.xs)
             }
 
@@ -375,6 +196,7 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .animation(VAnimation.fast, value: isExpanded)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
@@ -387,7 +209,7 @@ struct AssistantProgressView: View {
         .onChange(of: isExpanded) { _, expanded in
             handleExpansionChange(expanded)
         }
-        .onChange(of: derived.hasPendingConfirmation) { _, pending in
+        .onChange(of: model.hasPendingConfirmation) { _, pending in
             handlePendingConfirmationChange(pending)
         }
         .onAppear {
@@ -400,42 +222,45 @@ struct AssistantProgressView: View {
     private func handleToolCallsChange(_ newToolCalls: [ToolCallData]) {
         guard !newToolCalls.isEmpty else { return }
         deferProgressStateMutation {
-            syncStartDateFromDerivedIfNeeded()
+            syncStartDateFromModelIfNeeded()
         }
     }
 
     private func handleConfirmationsChange(_ newConfirmations: [ToolConfirmationData]) {
-        guard !newConfirmations.isEmpty || derived.earliestStartedAt != nil else { return }
+        guard !newConfirmations.isEmpty || model.earliestStartedAt != nil else { return }
         deferProgressStateMutation {
-            syncStartDateFromDerivedIfNeeded()
+            syncStartDateFromModelIfNeeded()
         }
     }
 
-    private func handlePhaseChange(_ newPhase: ProgressPhase) {
+    private func handlePhaseChange(_ newPhase: ProgressCardPhase) {
         let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
             kind: .progressCardTransition,
-            reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-            toolCallCount: derived.totalToolCount
+            reason: "phase_change:\(newPhase) group=\(model.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(model.completedToolCount)/\(model.totalToolCount) denied=\(model.deniedCount) pending_confirm=\(model.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+            toolCallCount: model.totalToolCount
         ))
         // Auto-expand when a step group completes, if the flag is enabled.
         // Skip if the user has explicitly set a preference for this card.
-        let hasUserCardPreference = cardKey != nil && cardExpansionOverrides[cardKey!] != nil
+        let hasUserCardPreference: Bool = {
+            guard let key = cardKey else { return false }
+            return progressUIState.cardExpansionOverride(for: key) != nil
+        }()
         let shouldAutoExpandOnPhaseChange = (newPhase == .complete || newPhase == .denied)
             && !hasUserCardPreference
             && MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         deferProgressStateMutation {
-            if newPhase == .processing, phase == .processing {
+            if newPhase == .processing, model.phase == .processing {
                 processingStartDate = Date()
-                if derived.earliestStartedAt == nil {
+                if model.earliestStartedAt == nil {
                     startDate = Date()
                 }
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
-                    reason: "auto_expand:completed_steps_flag group=\(derived.groupId) phase=\(newPhase) expand_flag=true completed=\(derived.completedToolCount)/\(derived.totalToolCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
-                    toolCallCount: derived.totalToolCount
+                    reason: "auto_expand:completed_steps_flag group=\(model.groupId) phase=\(newPhase) expand_flag=true completed=\(model.completedToolCount)/\(model.totalToolCount) pending_confirm=\(model.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
+                    toolCallCount: model.totalToolCount
                 ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
@@ -448,7 +273,11 @@ struct AssistantProgressView: View {
         if expanded, onRehydrate != nil {
             // Trigger rehydrate when expanding if any complete tool call
             // has been stripped (all detail fields cleared by stripHeavyContent).
-            if hasStrippedToolCalls {
+            if model.hasStrippedToolCalls {
+                // Track rehydration in ProgressCardUIState to prevent redundant calls
+                if let key = cardKey {
+                    progressUIState.markRehydrated(groupId: key)
+                }
                 onRehydrate?()
             }
         }
@@ -459,11 +288,11 @@ struct AssistantProgressView: View {
         // see and interact with the approval UI.
         guard pending else { return }
         deferProgressStateMutation {
-            guard derived.hasPendingConfirmation, !isExpanded else { return }
+            guard model.hasPendingConfirmation, !isExpanded else { return }
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
                 reason: "auto_expand:pending_confirmation",
-                toolCallCount: derived.totalToolCount
+                toolCallCount: model.totalToolCount
             ))
             withAnimation(VAnimation.fast) {
                 isExpanded = true
@@ -473,23 +302,23 @@ struct AssistantProgressView: View {
 
     private func handleOnAppear() {
         let wasExpandedOnEntry = isExpanded
-        let shouldAutoExpandPendingOnAppear = derived.hasPendingConfirmation && !isExpanded
-        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && hasStrippedToolCalls
+        let shouldAutoExpandPendingOnAppear = model.hasPendingConfirmation && !isExpanded
+        let shouldRehydrateOnAppear = wasExpandedOnEntry && onRehydrate != nil && model.hasStrippedToolCalls
 
         deferProgressStateMutation {
-            syncStartDateFromDerivedIfNeeded()
-            if phase == .processing && processingStartDate == nil {
+            syncStartDateFromModelIfNeeded()
+            if model.phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
-                if derived.earliestStartedAt == nil {
+                if model.earliestStartedAt == nil {
                     startDate = Date()
                 }
             }
 
-            if shouldAutoExpandPendingOnAppear && derived.hasPendingConfirmation && !isExpanded {
+            if shouldAutoExpandPendingOnAppear && model.hasPendingConfirmation && !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                     kind: .progressCardTransition,
                     reason: "auto_expand:pending_confirmation_on_appear",
-                    toolCallCount: derived.totalToolCount
+                    toolCallCount: model.totalToolCount
                 ))
                 withAnimation(VAnimation.fast) {
                     isExpanded = true
@@ -497,19 +326,11 @@ struct AssistantProgressView: View {
             }
 
             if shouldRehydrateOnAppear {
+                if let key = cardKey {
+                    progressUIState.markRehydrated(groupId: key)
+                }
                 onRehydrate?()
             }
-        }
-    }
-
-    /// Whether any completed tool call has been stripped of its heavy content.
-    private var hasStrippedToolCalls: Bool {
-        toolCalls.contains { tc in
-            tc.isComplete
-                && tc.inputFull.isEmpty
-                && tc.result == nil
-                && tc.inputRawDict == nil
-                && tc.cachedImages.isEmpty
         }
     }
 
@@ -522,58 +343,56 @@ struct AssistantProgressView: View {
     }
 
     @MainActor
-    private func syncStartDateFromDerivedIfNeeded() {
-        if let earliest = derived.earliestStartedAt, startDate != earliest {
+    private func syncStartDateFromModelIfNeeded() {
+        if let earliest = model.earliestStartedAt, startDate != earliest {
             startDate = earliest
         }
     }
 
     // MARK: - Header Row
 
-    private var headerRow: some View {
+    private func headerRow(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         Button(action: {
             if suppressNextExpand {
                 suppressNextExpand = false
                 return
             }
-            guard hasChevron else { return }
+            guard model.hasTools else { return }
             // Prevent collapsing while a confirmation is pending — the inline
             // bubble is the only visible approval UI when the standalone is suppressed.
-            if isExpanded && derived.hasPendingConfirmation { return }
+            if isExpanded && model.hasPendingConfirmation { return }
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
                 reason: "manual_toggle:\(isExpanded ? "collapse" : "expand")",
-                toolCallCount: derived.totalToolCount
+                toolCallCount: model.totalToolCount
             ))
-            suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
-            if let key = cardKey { cardExpansionOverrides[key] = isExpanded }
+            if let key = cardKey { progressUIState.setCardExpansionOverride(cardKey: key, expanded: isExpanded) }
         }) {
             // Let SwiftUI choose the compact variant instead of toggling local
             // state from a geometry callback, which can create layout feedback
             // loops while the progress card is updating mid-send.
             ViewThatFits(in: .horizontal) {
-                headerRowContent(showInlinePermissionChips: !isExpanded)
-                headerRowContent(showInlinePermissionChips: false)
+                headerRowContent(model: model, phase: phase, showInlinePermissionChips: !isExpanded)
+                headerRowContent(model: model, phase: phase, showInlinePermissionChips: false)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .environment(\.isEnabled, true)
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func headerRowContent(showInlinePermissionChips: Bool) -> some View {
+    private func headerRowContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase, showInlinePermissionChips: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
             // Status icon
-            statusIcon
+            statusIcon(model: model, phase: phase)
 
             // Headline text with cross-fade
-            headlineLabel
+            headlineLabel(model: model, phase: phase)
 
             if showInlinePermissionChips {
                 inlinePermissionChips
@@ -582,14 +401,14 @@ struct AssistantProgressView: View {
             Spacer()
 
             // Elapsed time: live counter when active, final duration when complete
-            if isActive {
-                elapsedTimeLabel
-            } else if derived.hasTools {
-                completedDurationLabel
+            if model.isActive {
+                ElapsedTimeLabel(startDate: startDate)
+            } else if model.hasTools {
+                completedDurationLabel(model: model)
             }
 
             // Chevron (only if tools exist)
-            if hasChevron {
+            if model.hasTools {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -599,11 +418,11 @@ struct AssistantProgressView: View {
     // MARK: - Status Icon
 
     @ViewBuilder
-    private var statusIcon: some View {
+    private func statusIcon(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         switch phase {
         case .complete:
-            VIconView(derived.hasDeniedToolCalls ? .triangleAlert : .circleCheck, size: 12)
-                .foregroundStyle(derived.hasDeniedToolCalls ? VColor.systemNegativeHover : VColor.primaryBase)
+            VIconView(model.hasDeniedToolCalls ? .triangleAlert : .circleCheck, size: 12)
+                .foregroundStyle(model.hasDeniedToolCalls ? VColor.systemNegativeHover : VColor.primaryBase)
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 VIconView(.clock, size: 12)
@@ -619,65 +438,21 @@ struct AssistantProgressView: View {
 
     // MARK: - Headline Label
 
-    private var headlineLabel: some View {
-        Group {
+    private func headlineLabel(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
+        let text = headlineText(for: model)
+        return Group {
             if phase == .processing {
-                processingLabel
+                ProcessingDotsLabel(
+                    processingStatusText: processingStatusText,
+                    anchor: processingStartDate ?? Date()
+                )
             } else {
-                Text(headlineText)
+                Text(ToolCallData.displaySafe(text))
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .animation(.easeInOut(duration: 0.3), value: headlineText)
-            }
-        }
-    }
-
-    /// Progressive labels for the processing phase that cycle through at 8-second intervals.
-    /// Uses `processingStartDate` (set when entering `.processing`) so label cycling starts
-    /// from zero regardless of how long the view has been alive.
-    private var processingLabel: some View {
-        let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
-        // Pin the label when compacting — don't cycle to generic labels.
-        let pinLabel = processingStatusText?.lowercased().contains("compacting") == true
-        let labels: [String] = pinLabel ? [initialLabel] : [
-            initialLabel,
-            "Putting this together",
-            "Finalizing your response",
-        ]
-        let anchor = processingStartDate ?? Date()
-
-        return TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(anchor))
-            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
-            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
-
-            HStack(spacing: VSpacing.xs) {
-                Text(labels[labelIndex])
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
-
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(dotPhase == index ? 1.0 : 0.4)
-                }
-            }
-        }
-    }
-
-    // MARK: - Elapsed Time
-
-    private var elapsedTimeLabel: some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(startDate))
-            if elapsed >= 5 {
-                Text(RunningIndicator.formatElapsed(elapsed))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
+                    .animation(.easeInOut(duration: 0.3), value: text)
             }
         }
     }
@@ -685,8 +460,8 @@ struct AssistantProgressView: View {
     // MARK: - Completed Duration
 
     @ViewBuilder
-    private var completedDurationLabel: some View {
-        if let start = derived.earliestStartedAt, let end = derived.latestCompletedAt {
+    private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
+        if let start = model.earliestStartedAt, let end = model.latestCompletedAt {
             let seconds = end.timeIntervalSince(start)
             Text(seconds < 60
                 ? String(format: "%.1fs", seconds)
@@ -699,27 +474,26 @@ struct AssistantProgressView: View {
     // MARK: - Expanded Content
 
     /// Derives a `Binding<Bool>` for a single step's expansion state from the
-    /// shared `expandedStepIds` set. The binding is scoped to one tool call ID
+    /// shared `ProgressCardUIState`. The binding is scoped to one tool call ID
     /// so StepDetailRow can use it as a drop-in replacement for `@State`.
     private func isStepExpanded(_ id: UUID) -> Binding<Bool> {
         Binding(
-            get: { expandedStepIds.contains(id) },
+            get: { progressUIState.isStepExpanded(id) },
             set: { newValue in
-                if newValue { expandedStepIds.insert(id) }
-                else { expandedStepIds.remove(id) }
+                progressUIState.setStepExpanded(id, expanded: newValue)
             }
         )
     }
 
     @ViewBuilder
-    private var expandedContent: some View {
+    private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 StepDetailRow(
                     toolCall: toolCall,
                     phase: phase,
                     isDetailExpanded: isStepExpanded(toolCall.id),
-                    skillLabel: toolCall.toolName == "skill_execute" ? derived.skillExecuteLabel : nil,
+                    skillLabel: toolCall.toolName == "skill_execute" ? model.skillExecuteLabel : nil,
                     onRehydrate: onRehydrate
                 )
 
@@ -792,32 +566,54 @@ struct AssistantProgressView: View {
 
 // MARK: - Step Detail Row
 
+private final class StepDetailAttributedStringCacheEntry: NSObject {
+    let value: AttributedString
+
+    init(_ value: AttributedString) {
+        self.value = value
+    }
+}
+
 /// Unified row for tool call steps — handles completed, running, and blocked states.
 /// Completed rows are expandable to show technical details, screenshots, and output.
 private struct StepDetailRow: View {
     let toolCall: ToolCallData
-    let phase: ProgressPhase
+    let phase: ProgressCardPhase
     /// Expansion state lifted to ChatBubble so it survives the
     /// trailing→interleaved rendering path switch mid-stream.
     @Binding var isDetailExpanded: Bool
     /// Human-friendly label for skill_execute rows (e.g. "Using my frontend design skill").
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
-    @State private var isHovered = false
-    /// Cached colored AttributedString for the tool call result — computed once
-    /// on first expand / result change to avoid rebuilding on every render.
-    @State private var cachedColoredResult: AttributedString?
-    /// Cached line count + isLong flag for resolvedInputFull — avoids O(n)
-    /// byte scan in the view body on every render.
-    @State private var cachedInputIsLong: Bool?
-    @Environment(\.displayScale) private var displayScale
-    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
+
+    private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
+        let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
+        cache.countLimit = 128
+        return cache
+    }()
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
         if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
         if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
         return ""
+    }
+
+    /// Render-time memoization that stays off SwiftUI-owned state.
+    private var cachedColoredResult: AttributedString? {
+        guard let result = toolCall.result, !result.isEmpty else { return nil }
+        let key = Self.coloredOutputCacheKey(
+            toolCallID: toolCall.id.uuidString,
+            resultRevision: toolCall.resultRevision,
+            isError: toolCall.isError
+        )
+        if let cached = Self.coloredOutputCache.object(forKey: key) {
+            return cached.value
+        }
+
+        let colored = coloredOutput(result, isError: toolCall.isError)
+        Self.coloredOutputCache.setObject(StepDetailAttributedStringCacheEntry(colored), forKey: key)
+        return colored
     }
 
     /// Whether this tool has detail content to show (running or completed).
@@ -863,7 +659,6 @@ private struct StepDetailRow: View {
             // Row header
             Button {
                 guard hasDetails else { return }
-                suppressAutoScroll?()
                 withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {
@@ -882,13 +677,11 @@ private struct StepDetailRow: View {
                     }
 
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Text(stepTitle)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(stepTitleColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    Text(ToolCallData.displaySafe(stepTitle))
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(stepTitleColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     Spacer()
 
@@ -920,12 +713,7 @@ private struct StepDetailRow: View {
             .buttonStyle(.plain)
             .environment(\.isEnabled, true)
             .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isHovered && hasDetails ? VColor.borderBase.opacity(0.5) : .clear)
-            )
             .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
-            .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
             if isDetailExpanded {
@@ -935,20 +723,9 @@ private struct StepDetailRow: View {
         }
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
-            if newValue {
-                // Eagerly populate caches before the expanded body evaluates
-                // so the first render has colored output and correct input sizing.
-                if cachedColoredResult == nil,
-                   let result = toolCall.result, !result.isEmpty {
-                    cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-                }
-                if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
-                    let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
-                    cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
-                }
-                Task { @MainActor in
-                    onRehydrate?()
-                }
+            guard newValue else { return }
+            DispatchQueue.main.async {
+                onRehydrate?()
             }
         }
     }
@@ -967,33 +744,21 @@ private struct StepDetailRow: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .textCase(.uppercase)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                        Text(toolCall.actionDescription)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                    }
-                    Text(toolCall.friendlyName)
+                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                    Text(toolCall.actionDescription)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    if !resolvedInputFull.isEmpty {
-                        let inputIsLong = cachedInputIsLong ?? false
-
-                        if inputIsLong {
-                            ScrollView {
-                                Text(resolvedInputFull)
-                                    .font(VFont.bodySmallDefault)
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .frame(height: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        } else {
-                            Text(resolvedInputFull)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
-                    }
+                }
+                Text(toolCall.friendlyName)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                if !resolvedInputFull.isEmpty {
+                    outputBlock(
+                        text: resolvedInputFull,
+                        attributedText: nil,
+                        copyText: resolvedInputFull,
+                        copyLabel: "Copy input"
+                    )
                 }
             }
             .padding(.horizontal, VSpacing.lg)
@@ -1028,8 +793,8 @@ private struct StepDetailRow: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .textCase(.uppercase)
 
-                    // Cached colored output — populated eagerly in
-                    // .onChange(of: isDetailExpanded) or .onAppear.
+                    // Cached diff coloring now lives in a non-observable
+                    // cache so expansion no longer mutates SwiftUI state.
                     outputBlock(
                         text: cachedColoredResult == nil ? result : nil,
                         attributedText: cachedColoredResult,
@@ -1043,30 +808,13 @@ private struct StepDetailRow: View {
         }
         .padding(.bottom, VSpacing.sm)
         .textSelection(.enabled)
-        .onAppear {
-            if cachedColoredResult == nil,
-               let result = toolCall.result, !result.isEmpty {
-                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-            }
-            if cachedInputIsLong == nil && !resolvedInputFull.isEmpty {
-                let lines = resolvedInputFull.utf8.reduce(1) { c, b in b == 0x0A ? c + 1 : c }
-                cachedInputIsLong = lines > 30 || (lines == 1 && resolvedInputFull.utf8.count > 50_000)
-            }
-        }
-        .onChange(of: toolCall.result) { _, newResult in
-            if let result = newResult, !result.isEmpty {
-                cachedColoredResult = coloredOutput(result, isError: toolCall.isError)
-            } else {
-                cachedColoredResult = nil
-            }
-        }
     }
 
     // MARK: - Output Block
 
     /// Reusable output block with copy button.
-    /// Long content (>30 lines) gets a definite-height ScrollView so LazyVStack
-    /// skips content measurement. Short content renders directly with no ScrollView.
+    /// The outer transcript owns vertical scrolling to avoid nested scroll-view
+    /// hit-testing and responder churn inside expanded tool rows.
     @ViewBuilder
     private func outputBlock(
         text: String?,
@@ -1075,24 +823,17 @@ private struct StepDetailRow: View {
         copyLabel: String,
         isError: Bool = false
     ) -> some View {
-        let lines = copyText.utf8.reduce(1) { count, byte in byte == 0x0A ? count + 1 : count }
-        let isLong = lines > 30 || (lines == 1 && copyText.utf8.count > 50_000)
-
         ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if isLong {
-                    // Definite height — LazyVStack never measures content inside.
-                    ScrollView {
-                        outputTextView(text: text, attributedText: attributedText, isError: isError)
-                    }
-                    .frame(height: 400)
-                } else {
-                    outputTextView(text: text, attributedText: attributedText, isError: isError)
-                }
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            HStack(spacing: 0) {
+                outputTextView(text: text, attributedText: attributedText, isError: isError)
+                Spacer(minLength: 0)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm + VSpacing.xl))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.surfaceOverlay.opacity(0.6))
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceOverlay.opacity(0.6))
+            )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
@@ -1120,26 +861,45 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Text view for output content, used by both the ScrollView (long) and direct (short) paths.
+    /// Shared text view used by the detail blocks.
     @ViewBuilder
     private func outputTextView(
         text: String?,
         attributedText: AttributedString?,
         isError: Bool = false
     ) -> some View {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
         if let attrText = attributedText {
-            Text(attrText)
-                .font(VFont.bodySmallDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 0) {
+                Text(attrText)
+                    .font(VFont.bodySmallDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         } else if let plainText = text {
-            Text(plainText)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 0) {
+                Text(plainText)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
         }
     }
 
     // MARK: - Helpers
+
+    private static func coloredOutputCacheKey(
+        toolCallID: String,
+        resultRevision: Int,
+        isError: Bool
+    ) -> NSString {
+        // O(1) cache key. `resultRevision` is a monotonic counter bumped on every
+        // write to `toolCall.result` (see ToolCallData), so it detects in-place
+        // mutations (replay / correction / rehydration) without touching the
+        // string contents on every SwiftUI re-render.
+        return "\(toolCallID)|\(resultRevision)|\(isError ? "err" : "ok")" as NSString
+    }
 
     private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
         let lines = result.components(separatedBy: "\n")
@@ -1178,6 +938,66 @@ private struct StepDetailRow: View {
 
 }
 
+// MARK: - Processing Dots Label (Isolated TimelineView)
+
+/// Self-contained view for the processing phase label with animated dots.
+/// Extracted so the TimelineView's periodic ticks (every 0.4s) only
+/// re-evaluate this small subtree, not the entire progress card.
+private struct ProcessingDotsLabel: View {
+    let processingStatusText: String?
+    let anchor: Date
+
+    var body: some View {
+        let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
+        let pinLabel = processingStatusText?.lowercased().contains("compacting") == true
+        let labels: [String] = pinLabel ? [initialLabel] : [
+            initialLabel,
+            "Putting this together",
+            "Finalizing your response",
+        ]
+
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(anchor))
+            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
+            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
+
+            HStack(spacing: VSpacing.xs) {
+                Text(labels[labelIndex])
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(VColor.contentSecondary)
+                        .frame(width: 5, height: 5)
+                        .opacity(dotPhase == index ? 1.0 : 0.4)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Elapsed Time Label (Isolated TimelineView)
+
+/// Self-contained view for the elapsed time counter.
+/// Extracted so the TimelineView's periodic ticks (every 1.0s) only
+/// re-evaluate this small subtree, not the entire progress card.
+private struct ElapsedTimeLabel: View {
+    let startDate: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(startDate))
+            if elapsed >= 5 {
+                Text(RunningIndicator.formatElapsed(elapsed))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
+}
+
 // MARK: - Compact Permission Chip
 
 /// Shared permission chip used in both the collapsed header (inline chips)
@@ -1196,20 +1016,18 @@ private struct CompactPermissionChip: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xxs) {
-            Group {
-                switch state {
-                case .approved:
-                    VIconView(.circleCheck, size: 10)
-                        .foregroundStyle(chipColor)
-                case .denied:
-                    VIconView(.circleAlert, size: 10)
-                        .foregroundStyle(chipColor)
-                case .timedOut:
-                    VIconView(.clock, size: 10)
-                        .foregroundStyle(chipColor)
-                default:
-                    EmptyView()
-                }
+            switch state {
+            case .approved:
+                VIconView(.circleCheck, size: 10)
+                    .foregroundStyle(chipColor)
+            case .denied:
+                VIconView(.circleAlert, size: 10)
+                    .foregroundStyle(chipColor)
+            case .timedOut:
+                VIconView(.clock, size: 10)
+                    .foregroundStyle(chipColor)
+            default:
+                EmptyView()
             }
 
             Text(state == .approved || state == .denied ? label : "Timed Out")

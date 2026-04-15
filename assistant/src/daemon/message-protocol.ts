@@ -22,6 +22,7 @@ export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
 export * from "./message-types/documents.js";
 export * from "./message-types/guardian-actions.js";
+export * from "./message-types/home.js";
 export * from "./message-types/host-bash.js";
 export * from "./message-types/host-browser.js";
 export * from "./message-types/host-cu.js";
@@ -77,8 +78,12 @@ import type {
   _GuardianActionsClientMessages,
   _GuardianActionsServerMessages,
 } from "./message-types/guardian-actions.js";
+import type { _HomeServerMessages } from "./message-types/home.js";
 import type { _HostBashServerMessages } from "./message-types/host-bash.js";
-import type { _HostBrowserServerMessages } from "./message-types/host-browser.js";
+import type {
+  _HostBrowserClientMessages,
+  _HostBrowserServerMessages,
+} from "./message-types/host-browser.js";
 import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type {
@@ -159,6 +164,7 @@ export type ClientMessage =
   | _ContactsClientMessages
   | _WorkItemsClientMessages
   | _BrowserClientMessages
+  | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
   | _GuardianActionsClientMessages
@@ -187,6 +193,7 @@ export type ServerMessage =
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _GuardianActionsServerMessages
+  | _HomeServerMessages
   | _HostBashServerMessages
   | _HostBrowserServerMessages
   | _HostCuServerMessages

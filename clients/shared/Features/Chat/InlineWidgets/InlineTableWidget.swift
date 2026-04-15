@@ -114,7 +114,6 @@ public struct InlineTableWidget: View {
     @State private var columnOverrides: [String: CGFloat] = [:]
     /// Baseline width captured at drag start for each column.
     @State private var resizeDragStartWidths: [String: CGFloat] = [:]
-    @State private var hoveredResizeHandleIndex: Int?
     @State private var activeResizeHandleIndex: Int?
 
     public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
@@ -195,7 +194,6 @@ public struct InlineTableWidget: View {
                     .padding(.top, VSpacing.xs)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
             if hasSelection {
@@ -204,7 +202,6 @@ public struct InlineTableWidget: View {
         }
         .coordinateSpace(name: resizeGestureCoordinateSpaceName)
         .onDisappear {
-            hoveredResizeHandleIndex = nil
             activeResizeHandleIndex = nil
         }
     }
@@ -217,7 +214,6 @@ public struct InlineTableWidget: View {
             horizontalScrollableTable
         } else {
             tableContent
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -227,7 +223,7 @@ public struct InlineTableWidget: View {
                 .frame(width: minimumTableWidth, alignment: .leading)
         }
         .scrollDisabled(isResizingColumn)
-        .frame(maxWidth: maxTableViewportWidth, alignment: .leading)
+        .frame(width: maxTableViewportWidth)
         .overlay(alignment: .trailing) {
             if shouldShowHorizontalHint {
                 overflowHint
@@ -242,7 +238,6 @@ public struct InlineTableWidget: View {
             endPoint: .trailing
         )
         .frame(width: 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -295,7 +290,6 @@ public struct InlineTableWidget: View {
                             .textSelection(.enabled)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         // Resize handle (between columns, not after the last one)
                         if index < data.columns.count - 1 {
@@ -335,7 +329,6 @@ public struct InlineTableWidget: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
@@ -365,10 +358,8 @@ public struct InlineTableWidget: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.trailing, VSpacing.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Resize Handle
@@ -388,13 +379,6 @@ public struct InlineTableWidget: View {
             .overlay {
                 HorizontalResizeHandleTrackingView(
                     isDragging: activeResizeHandleIndex == columnIndex,
-                    onHoverChanged: { hovering in
-                        if hovering {
-                            hoveredResizeHandleIndex = columnIndex
-                        } else if hoveredResizeHandleIndex == columnIndex {
-                            hoveredResizeHandleIndex = nil
-                        }
-                    },
                     onDragBegan: {
                         beginResize(for: columnIndex)
                     },
@@ -424,7 +408,7 @@ public struct InlineTableWidget: View {
     }
 
     private func isResizeHandleHighlighted(_ columnIndex: Int) -> Bool {
-        hoveredResizeHandleIndex == columnIndex || activeResizeHandleIndex == columnIndex
+        activeResizeHandleIndex == columnIndex
     }
 
     private func resizeHandleIndicatorOpacity(isHighlighted: Bool) -> Double {
@@ -479,9 +463,7 @@ public struct InlineTableWidget: View {
         resizeDragStartWidths[column.id] = nil
         activeResizeHandleIndex = nil
         #if os(macOS)
-        if hoveredResizeHandleIndex == nil {
-            NSCursor.arrow.set()
-        }
+        NSCursor.arrow.set()
         #endif
     }
 
@@ -550,24 +532,20 @@ public struct InlineTableWidget: View {
 #if os(macOS)
 private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
     let isDragging: Bool
-    let onHoverChanged: (Bool) -> Void
     let onDragBegan: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: () -> Void
 
     final class Coordinator {
-        var onHoverChanged: (Bool) -> Void
         var onDragBegan: () -> Void
         var onDragChanged: (CGFloat) -> Void
         var onDragEnded: () -> Void
 
         init(
-            onHoverChanged: @escaping (Bool) -> Void,
             onDragBegan: @escaping () -> Void,
             onDragChanged: @escaping (CGFloat) -> Void,
             onDragEnded: @escaping () -> Void
         ) {
-            self.onHoverChanged = onHoverChanged
             self.onDragBegan = onDragBegan
             self.onDragChanged = onDragChanged
             self.onDragEnded = onDragEnded
@@ -576,7 +554,6 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
-            onHoverChanged: onHoverChanged,
             onDragBegan: onDragBegan,
             onDragChanged: onDragChanged,
             onDragEnded: onDragEnded
@@ -585,9 +562,6 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> HorizontalResizeHandleTrackingNSView {
         let view = HorizontalResizeHandleTrackingNSView()
-        view.onHoverChanged = { hovering in
-            context.coordinator.onHoverChanged(hovering)
-        }
         view.onDragBegan = {
             context.coordinator.onDragBegan()
         }
@@ -601,13 +575,9 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: HorizontalResizeHandleTrackingNSView, context: Context) {
-        context.coordinator.onHoverChanged = onHoverChanged
         context.coordinator.onDragBegan = onDragBegan
         context.coordinator.onDragChanged = onDragChanged
         context.coordinator.onDragEnded = onDragEnded
-        nsView.onHoverChanged = { hovering in
-            context.coordinator.onHoverChanged(hovering)
-        }
         nsView.onDragBegan = {
             context.coordinator.onDragBegan()
         }
@@ -626,7 +596,6 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
 }
 
 private final class HorizontalResizeHandleTrackingNSView: NSView {
-    var onHoverChanged: ((Bool) -> Void)?
     var onDragBegan: (() -> Void)?
     var onDragChanged: ((CGFloat) -> Void)?
     var onDragEnded: (() -> Void)?
@@ -644,7 +613,6 @@ private final class HorizontalResizeHandleTrackingNSView: NSView {
             removeTrackingArea(trackingAreaRef)
         }
         let options: NSTrackingArea.Options = [
-            .mouseEnteredAndExited,
             .activeInKeyWindow,
             .enabledDuringMouseDrag,
             .inVisibleRect,
@@ -662,18 +630,6 @@ private final class HorizontalResizeHandleTrackingNSView: NSView {
 
     override func cursorUpdate(with event: NSEvent) {
         NSCursor.resizeLeftRight.set()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        onHoverChanged?(true)
-        NSCursor.resizeLeftRight.set()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onHoverChanged?(false)
-        if !isDragging {
-            NSCursor.arrow.set()
-        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

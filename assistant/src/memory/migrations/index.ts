@@ -155,6 +155,16 @@ export { migrateScheduleReuseConversation } from "./210-schedule-reuse-conversat
 export { migrateMemoryRecallLogsQueryContext } from "./211-memory-recall-logs-query-context.js";
 export { migrateLlmRequestLogsCreatedAtIndex } from "./212-llm-request-logs-created-at-index.js";
 export { migrateOAuthProvidersScopeSeparator } from "./213-oauth-providers-scope-separator.js";
+export { migrateOAuthProvidersRefreshUrl } from "./214-oauth-providers-refresh-url.js";
+export { migrateOAuthProvidersRevoke } from "./215-oauth-providers-revoke.js";
+export { migrateOAuthProvidersTokenAuthMethodDefault } from "./216-oauth-providers-token-auth-method.js";
+export { migrateConversationHostAccess } from "./217-conversation-host-access.js";
+export { migrateOAuthProvidersLogoUrl } from "./218-oauth-providers-logo-url.js";
+export { migrateOAuthProvidersTokenExchangeBodyFormat } from "./219-oauth-providers-token-exchange-body-format.js";
+export {
+  downNormalizeUserFileByPrincipal,
+  migrateNormalizeUserFileByPrincipal,
+} from "./220-normalize-user-file-by-principal.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

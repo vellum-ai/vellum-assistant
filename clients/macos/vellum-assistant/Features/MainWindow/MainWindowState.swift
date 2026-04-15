@@ -62,6 +62,10 @@ public final class MainWindowState: ObservableObject {
 
     @Published var selectedSubagentId: String?
 
+    /// Daemon message ID for the LLM context inspector overlay. Shared so both
+    /// the main chat and the subagent detail panel can trigger the inspector.
+    @Published var inspectorMessageId: String?
+
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
     @Published var pendingMemoryId: String?

@@ -162,9 +162,18 @@ enum MessageInspectorSummaryFormatters {
         return "\(visible) +\(cleanedNames.count - maxVisible) more"
     }
 
+    private static let createdAtFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateStyle = .medium
+        f.timeStyle = .medium
+        return f
+    }()
+
     static func formattedCreatedAt(_ epochMs: Int) -> String {
-        Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .standard)
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        createdAtFormatter.timeZone = ChatTimestampTimeZone.resolve()
+        return createdAtFormatter.string(from: date)
     }
 
     static func isProviderOnlySummary(_ summary: LLMCallSummary) -> Bool {

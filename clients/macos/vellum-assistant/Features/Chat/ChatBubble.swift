@@ -35,8 +35,10 @@ struct ChatBubble: View, Equatable {
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.activeConfirmationRequestId == rhs.activeConfirmationRequestId
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.isStreamingContinuation == rhs.isStreamingContinuation
             && lhs.isTTSEnabled == rhs.isTTSEnabled
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.activeSurfaceId == rhs.activeSurfaceId
@@ -67,6 +69,15 @@ struct ChatBubble: View, Equatable {
     var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
+    var typographyGeneration: Int = 0
+    @State private var isUserMessageExpanded: Bool = false
+    @State private var userMessageIntrinsicHeight: CGFloat = 0
+    private let userMessageMaxCollapsedHeight: CGFloat = 150
+    private static let heuristicUserCollapseCharacterThreshold = 3_000
+    private static let heuristicUserCollapseLineThreshold = 40
+    private static let heuristicUserPreviewCharacterLimit = 1_200
+    private static let heuristicUserPreviewLineLimit = 24
+
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -74,6 +85,9 @@ struct ChatBubble: View, Equatable {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
+    /// When true, the assistant is streaming and has already produced text.
+    /// Shows a subtle inline indicator so the user knows more content is coming.
+    var isStreamingContinuation: Bool = false
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
     /// When true, suppress the inline avatar on this bubble because
@@ -82,6 +96,10 @@ struct ChatBubble: View, Equatable {
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
+    /// Raw pointer presence — always updated by onHover regardless of
+    /// `supportsOverflowHover`, so we can re-derive hover state when
+    /// the property transitions (e.g. streaming ends while cursor is over bubble).
+    @State private var pointerIsOverBubble = false
     @Environment(\.bubbleMaxWidth) var bubbleMaxWidth
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
@@ -97,13 +115,12 @@ struct ChatBubble: View, Equatable {
     /// Set of stableIds for tool-call groups that have non-empty text after them.
     @State var cachedToolGroupsWithTrailingText: Set<String>
 
-    /// Tracks which step detail rows the user has expanded (keyed by ToolCallData.id).
-    /// Lives here (not in AssistantProgressView) so it survives the trailing→interleaved
-    /// rendering path switch that destroys and recreates AssistantProgressView mid-stream.
-    @State var expandedStepIds: Set<UUID> = []
-    /// Tracks user-initiated card expansion/collapse (keyed by first tool call UUID in group).
-    /// `nil` = no user interaction (auto-expand logic applies); `true`/`false` = user override.
-    @State var cardExpansionOverrides: [UUID: Bool] = [:]
+    /// Interaction state for progress cards that must outlive lazy row churn.
+    /// Consolidates step expansion, card expansion overrides, and rehydration
+    /// tracking into a single `ProgressCardUIState` value. Lives here (not in
+    /// AssistantProgressView) so it survives the trailing→interleaved rendering
+    /// path switch that destroys and recreates AssistantProgressView mid-stream.
+    @State var progressUIState: ProgressCardUIState = ProgressCardUIState()
 
     init(
         message: ChatMessage,
@@ -126,8 +143,10 @@ struct ChatBubble: View, Equatable {
         onRetryFailedMessage: ((UUID) -> Void)? = nil,
         onRetryConversationError: (() -> Void)? = nil,
         isLatestAssistantMessage: Bool = false,
+        typographyGeneration: Int = 0,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
+        isStreamingContinuation: Bool = false,
         activeSurfaceId: String? = nil,
         hideInlineAvatar: Bool = false
     ) {
@@ -151,8 +170,10 @@ struct ChatBubble: View, Equatable {
         self.onRetryFailedMessage = onRetryFailedMessage
         self.onRetryConversationError = onRetryConversationError
         self.isLatestAssistantMessage = isLatestAssistantMessage
+        self.typographyGeneration = typographyGeneration
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
+        self.isStreamingContinuation = isStreamingContinuation
         self.activeSurfaceId = activeSurfaceId
         self.hideInlineAvatar = hideInlineAvatar
 
@@ -212,8 +233,20 @@ struct ChatBubble: View, Equatable {
     var activeSurfaceId: String?
 
     var isUser: Bool { message.role == .user }
+    var hasCopyableText: Bool {
+        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var canForkFromMessage: Bool {
-        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
+        onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming && MacOSClientFeatureFlagManager.shared.isEnabled("fork-from-message")
+    }
+
+    var canInspectMessage: Bool {
+        showInspectButton && !isUser && message.daemonMessageId != nil
+    }
+
+    var supportsOverflowHover: Bool {
+        !message.isStreaming && (hasCopyableText || canInspectMessage || canForkFromMessage)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -247,22 +280,21 @@ struct ChatBubble: View, Equatable {
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
         if message.isError {
-            // Error: chrome padding + full-width inner expansion frame.
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            // .containerRelativeFrame resolves against the ScrollView for full-width error background.
             content()
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg,
                                     bottom: VSpacing.md, trailing: VSpacing.lg))
-                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.horizontal)
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         } else if isPlainAssistant {
             // Plain assistant: no chrome padding, no inner frame.
             content()
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
         } else {
             // User messages (non-error): chrome padding, no inner frame.
             content()
@@ -271,7 +303,6 @@ struct ChatBubble: View, Equatable {
                 .background {
                     bubbleChromeBackground
                 }
-                .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
         }
     }
 
@@ -322,12 +353,15 @@ struct ChatBubble: View, Equatable {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
         #endif
-        // Outer VStack ensures a single resolved subview for the parent
-        // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
-        // that caused incorrect width proposals at narrow window sizes (LUM-688).
-        // The avatar sits outside the inner .compositingGroup() scope so
-        // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
-        VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            if isUser { Spacer(minLength: 0) }
+            // Outer VStack ensures a single resolved subview for the parent
+            // LazyVStack, avoiding duplicate .id(message.id) from MessageCellView
+            // that caused incorrect width proposals at narrow window sizes (LUM-688).
+            // The avatar sits outside the inner .compositingGroup() scope so
+            // CAShapeLayer animations (breathing, blink, twitch) are unaffected.
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
             // --- Message content (composited) ---
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 if !isUser && cachedHasInterleavedContent {
@@ -340,7 +374,13 @@ struct ChatBubble: View, Equatable {
                             onRetry: onRetryConversationError
                         )
                     } else if shouldShowBubble {
-                        bubbleContent
+                        if !isUser,
+                           containsInlineThinkingTag(message.text),
+                           MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") {
+                            bubbleContentWithInlineThinking
+                        } else {
+                            bubbleContent
+                        }
                     }
 
                     // Inline surfaces render below the bubble as full-width cards
@@ -406,13 +446,24 @@ struct ChatBubble: View, Equatable {
             if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
                 inlineAvatar
             }
+            }
+            if !isUser { Spacer(minLength: 0) }
         }
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .contentShape(Rectangle())
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
-            hoverState.isHovered = hovering
+            pointerIsOverBubble = hovering
+            let shouldHover = hovering && supportsOverflowHover
+            if hoverState.isHovered != shouldHover {
+                hoverState.isHovered = shouldHover
+            }
+        }
+        .onChange(of: supportsOverflowHover) { _, supports in
+            let shouldHover = pointerIsOverBubble && supports
+            if hoverState.isHovered != shouldHover {
+                hoverState.isHovered = shouldHover
+            }
         }
         .task(id: mediaEmbedTaskID) {
             guard !message.isStreaming else { return }
@@ -433,24 +484,36 @@ struct ChatBubble: View, Equatable {
         let appearance = AvatarAppearanceManager.shared
         let avatarSize = ConversationAvatarFollower.avatarSize
 
-        if appearance.customAvatarImage != nil {
-            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
-        } else if let bodyShape = appearance.characterBodyShape,
-                  let eyeStyle = appearance.characterEyeStyle,
-                  let color = appearance.characterColor {
-            AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
-                               size: avatarSize, blinkEnabled: true, pokeEnabled: true,
-                               isStreaming: message.isStreaming)
-                .frame(width: avatarSize, height: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
-        } else {
-            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
-                .scaleEffect(avatarBounceScale)
-                .onTapGesture { triggerBounce() }
+        Group {
+            if appearance.customAvatarImage != nil {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture {
+                        SoundManager.shared.play(.characterPoke)
+                        triggerBounce()
+                    }
+            } else if let bodyShape = appearance.characterBodyShape,
+                      let eyeStyle = appearance.characterEyeStyle,
+                      let color = appearance.characterColor {
+                // Sound is played by AnimatedAvatarView.mouseDown; don't double up here.
+                AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: message.isStreaming)
+                    .frame(width: avatarSize, height: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture { triggerBounce() }
+            } else {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                    .scaleEffect(avatarBounceScale)
+                    .onTapGesture {
+                        SoundManager.shared.play(.characterPoke)
+                        triggerBounce()
+                    }
+            }
         }
+        // Ensure the tap-triggered bounce animation is preserved despite the
+        // parent LazyVStack's .transaction { $0.animation = nil } suppression.
+        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
     }
 
     private func triggerBounce() {
@@ -487,12 +550,230 @@ struct ChatBubble: View, Equatable {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Extremely large user messages are collapsed via a cheap text heuristic
+    /// instead of intrinsic-height measurement. Measuring the full content just
+    /// to decide whether to collapse forces giant tool-result bubbles to fully
+    /// lay out when they first materialize during upward scroll.
+    private var shouldUseHeuristicUserCollapse: Bool {
+        guard isUser, !message.isStreaming else { return false }
+        return message.text.count > Self.heuristicUserCollapseCharacterThreshold
+            || Self.exceedsLineLimit(message.text, limit: Self.heuristicUserCollapseLineThreshold)
+    }
+
+    private var collapsedUserMessagePreviewText: String {
+        Self.collapsedPreviewText(from: message.text)
+    }
+
+    private static func exceedsLineLimit(_ text: String, limit: Int) -> Bool {
+        guard limit > 0 else { return !text.isEmpty }
+        var lineCount = 1
+        for character in text {
+            guard character.isNewline else { continue }
+            lineCount += 1
+            if lineCount > limit {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func collapsedPreviewText(from text: String) -> String {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return text }
+
+        let charLimitedEnd = text.index(
+            text.startIndex,
+            offsetBy: min(text.count, heuristicUserPreviewCharacterLimit)
+        )
+        let charLimited = String(text[..<charLimitedEnd])
+        let previewLines = charLimited
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let preview = previewLines
+            .prefix(heuristicUserPreviewLineLimit)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !preview.isEmpty else { return trimmedText }
+        return preview == trimmedText ? preview : "\(preview)\n\n..."
+    }
+
+    /// Estimates whether the user message text will exceed the collapse
+    /// threshold when rendered. Used on the first frame before
+    /// `onGeometryChange` has fired to avoid a full-height flash.
+    private var estimatedTextExceedsCollapseThreshold: Bool {
+        guard isUser, !message.isStreaming else { return false }
+        let text = message.text as NSString
+        let contentWidth = max(bubbleMaxWidth - 2 * VSpacing.lg, 0)
+        let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        let textRect = text.boundingRect(
+            with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return ceil(textRect.height) > userMessageMaxCollapsedHeight
+    }
+
+    // MARK: - User Message Collapse / Expand
+    //
+    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
+    // children and resolves explicitAlignment through the entire LazyVStack
+    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    //
+    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
+    // When height is nil (expanded / short), _FrameLayout passes through the
+    // child's natural height. Single view identity is preserved (no
+    // _ConditionalContent), so withAnimation still drives a smooth height
+    // transition on expand/collapse.
+
+    @ViewBuilder
+    private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let isCollapsible = userMessageIntrinsicHeight > 0
+            ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
+            : estimatedTextExceedsCollapseThreshold
+        let needsCollapse = isCollapsible && !isUserMessageExpanded
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    userMessageIntrinsicHeight = height
+                }
+                .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
+                .clipped()
+                .overlay(alignment: .bottom) {
+                    if needsCollapse {
+                        LinearGradient(
+                            colors: [
+                                VColor.surfaceLift.opacity(0),
+                                VColor.surfaceLift
+                            ],
+                            startPoint: .init(x: 0.5, y: 0),
+                            endPoint: .init(x: 0.5, y: 1)
+                        )
+                        .frame(height: 40)
+                        .allowsHitTesting(false)
+                    }
+                }
+
+            if isCollapsible {
+                collapseToggleButton
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.sm)
+            }
+        }
+        .if(isCollapsible) { view in
+            view
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceLift)
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func heuristicUserMessageCollapseWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+                // Clip to same height as the measurement-based collapse path
+                // so both produce a consistent collapsed height.
+                .frame(height: isUserMessageExpanded ? nil : userMessageMaxCollapsedHeight, alignment: .top)
+                .clipped()
+                .overlay(alignment: .bottom) {
+                    if !isUserMessageExpanded {
+                        LinearGradient(
+                            colors: [
+                                VColor.surfaceLift.opacity(0),
+                                VColor.surfaceLift
+                            ],
+                            startPoint: .init(x: 0.5, y: 0),
+                            endPoint: .init(x: 0.5, y: 1)
+                        )
+                        .frame(height: 40)
+                        .allowsHitTesting(false)
+                    }
+                }
+            collapseToggleButton
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.sm)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceLift)
+        )
+    }
+
+    private var collapseToggleButton: some View {
+        HStack {
+            VButton(
+                label: isUserMessageExpanded ? "Show less" : "Show more",
+                style: .ghost,
+                size: .compact,
+                tintColor: VColor.contentTertiary
+            ) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isUserMessageExpanded.toggle()
+                }
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
     private var bubbleContent: some View {
+        bubbleContent(renderingText: message.text)
+    }
+
+    /// Assistant-only wrapper that lifts inline `<thinking>...</thinking>`
+    /// tags out of `message.text` into collapsible `ThinkingBlockView`s
+    /// rendered alongside a bubble that contains the remaining content.
+    /// This keeps the transformation at the presentation layer — the
+    /// streaming pipeline and `ChatMessage` data model are unchanged.
+    @ViewBuilder
+    private var bubbleContentWithInlineThinking: some View {
+        let chunks = parseInlineThinkingTags(message.text)
+        let thinkingChunks: [String] = chunks.compactMap { chunk in
+            if case .thinking(let body) = chunk { return body }
+            return nil
+        }
+        let textChunks: [String] = chunks.compactMap { chunk in
+            if case .text(let body) = chunk { return body }
+            return nil
+        }
+        let joinedText = textChunks
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasRenderedText = !joinedText.isEmpty
+        let hasAttachments = !message.attachments.isEmpty
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            ForEach(Array(thinkingChunks.enumerated()), id: \.offset) { offset, content in
+                ThinkingBlockView(
+                    content: content,
+                    isStreaming: message.isStreaming,
+                    expansionKey: "\(message.id.uuidString)-inline-\(offset)",
+                    typographyGeneration: typographyGeneration
+                )
+            }
+            if hasRenderedText || hasAttachments {
+                bubbleContent(renderingText: joinedText)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleContent(renderingText: String) -> some View {
         let partitioned = partitionedAttachments
-        return bubbleChrome {
+        let shouldUseHeuristicCollapse = isUser && shouldUseHeuristicUserCollapse
+        let effectiveRenderingText = shouldUseHeuristicCollapse && !isUserMessageExpanded
+            ? collapsedUserMessagePreviewText
+            : renderingText
+        let effectiveHasRenderedText = !effectiveRenderingText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        let chrome = bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if hasText {
-                    let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
+                if effectiveHasRenderedText {
+                    let segments = resolveSegments(for: effectiveRenderingText, isStreaming: message.isStreaming)
                     // Always render through MarkdownSegmentView to keep view
                     // identity stable across async segment parsing transitions.
                     // When a large message first renders, resolveSegments returns
@@ -505,6 +786,7 @@ struct ChatBubble: View, Equatable {
                     MarkdownSegmentView(
                         segments: segments,
                         isStreaming: message.isStreaming,
+                        typographyGeneration: typographyGeneration,
                         maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
@@ -545,7 +827,15 @@ struct ChatBubble: View, Equatable {
                 if !partitioned.files.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(partitioned.files) { attachment in
-                            fileAttachmentChip(attachment)
+                            if attachment.isTextPreviewable {
+                                InlineFilePreviewView(
+                                    attachment: attachment,
+                                    isUser: isUser,
+                                    messageId: message.id
+                                )
+                            } else {
+                                fileAttachmentChip(attachment)
+                            }
                         }
                     }
                 }
@@ -559,6 +849,15 @@ struct ChatBubble: View, Equatable {
                     }
                 }
             }
+        }
+        if isUser {
+            if shouldUseHeuristicCollapse {
+                heuristicUserMessageCollapseWrapper { chrome }
+            } else {
+                userMessageHeightWrapper { chrome }
+            }
+        } else {
+            chrome
         }
         // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
         // async parsing for each individual text segment. A prior whole-message
@@ -647,50 +946,4 @@ struct ChatBubble: View, Equatable {
 final class SegmentCacheEntry: NSObject {
     let segments: [MarkdownSegment]
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
-}
-
-
-// MARK: - Avatar Wiggle Modifier
-
-/// Applies a gentle wiggle animation (rotation + scale breathing) while active,
-/// signaling the assistant is streaming/thinking.
-struct AvatarWiggleModifier: ViewModifier {
-    let isActive: Bool
-
-    @State private var wiggleAngle: Double = 0
-    @State private var breathScale: CGFloat = 1.0
-
-    func body(content: Content) -> some View {
-        content
-            .rotationEffect(.degrees(wiggleAngle))
-            .scaleEffect(breathScale)
-            .onChange(of: isActive) {
-                if isActive {
-                    startWiggle()
-                } else {
-                    stopWiggle()
-                }
-            }
-            .onAppear {
-                if isActive {
-                    startWiggle()
-                }
-            }
-    }
-
-    private func startWiggle() {
-        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-            wiggleAngle = 3
-        }
-        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-            breathScale = 1.03
-        }
-    }
-
-    private func stopWiggle() {
-        withAnimation(.easeOut(duration: 0.3)) {
-            wiggleAngle = 0
-            breathScale = 1.0
-        }
-    }
 }

@@ -23,6 +23,10 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
+import {
+  type AbortReason,
+  createAbortReason,
+} from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   unregisterCallNotifiers,
@@ -261,13 +265,23 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
 // ── abort ─────────────────────────────────────────────────────────────
 
-export function abortConversation(ctx: AbortContext): void {
+export function abortConversation(
+  ctx: AbortContext,
+  reason?: AbortReason,
+): void {
   if (ctx.processing) {
+    const effectiveReason =
+      reason ??
+      createAbortReason(
+        "preempted_by_new_message",
+        "abortConversation:default",
+        ctx.conversationId,
+      );
     log.info(
-      { conversationId: ctx.conversationId },
+      { conversationId: ctx.conversationId, abortReason: effectiveReason },
       "Aborting in-flight processing",
     );
-    ctx.abortController?.abort();
+    ctx.abortController?.abort(effectiveReason);
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();
     ctx.pendingSurfaceActions.clear();
@@ -309,7 +323,14 @@ export function disposeConversation(ctx: DisposeContext): void {
     }
   }
 
-  ctx.abort();
+  abortConversation(
+    ctx,
+    createAbortReason(
+      "conversation_disposed",
+      "disposeConversation",
+      ctx.conversationId,
+    ),
+  );
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);

@@ -41,6 +41,8 @@ import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.j
 import { migrateStripIntegrationPrefixFromProviderKeysDown } from "./196-strip-integration-prefix-from-provider-keys.js";
 import { migrateRenameMemoryGraphTypeValuesDown } from "./204-rename-memory-graph-type-values.js";
 import { migrateScrubCorruptedImageAttachmentsDown } from "./206-scrub-corrupted-image-attachments.js";
+import { downConversationHostAccess } from "./217-conversation-host-access.js";
+import { downNormalizeUserFileByPrincipal } from "./220-normalize-user-file-by-principal.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -356,6 +358,20 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Remove image attachments containing HTML error pages instead of image data",
     down: migrateScrubCorruptedImageAttachmentsDown,
+  },
+  {
+    key: "migration_conversation_host_access_v1",
+    version: 41,
+    description:
+      "Add a host_access column to conversations so computer access is persisted per conversation with a safe default of disabled",
+    down: downConversationHostAccess,
+  },
+  {
+    key: "migration_normalize_user_file_by_principal_v1",
+    version: 42,
+    description:
+      "Normalize contacts.user_file across rows sharing the same principal_id so every channel for one principal loads the same users/<slug>.md persona and journal directory",
+    down: downNormalizeUserFileByPrincipal,
   },
 ];
 

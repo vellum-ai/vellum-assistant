@@ -596,6 +596,14 @@ export function parseExtractionResponse(
       node.stability = 5;
     }
 
+    // Procedural nodes (learned skills, how-to knowledge — "ffmpeg needs -ac 2
+    // for stereo") encode facts that stay useful long after the moment they
+    // were learned. Higher initial stability slows Ebbinghaus decay so they
+    // remain retrievable months later without needing explicit reinforcement.
+    if (node.type === "procedural") {
+      node.stability = 60;
+    }
+
     diff.createNodes.push(node);
     const nodeIndex = diff.createNodes.length - 1;
 

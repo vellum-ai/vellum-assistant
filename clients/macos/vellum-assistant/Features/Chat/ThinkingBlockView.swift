@@ -4,27 +4,40 @@ import VellumAssistantShared
 /// A collapsible card that displays LLM thinking/reasoning content.
 /// Starts collapsed by default. Shows "Thinking..." during streaming
 /// and "Thought process" when complete.
+///
+/// Expansion state lives in a `ThinkingBlockExpansionStore` injected via
+/// `@Environment` rather than local `@State`, so manual expansion survives
+/// the view-tree destruction that happens when `MessageListContentView`
+/// flips its `.if` min-height wrapper at the start/end of an active turn.
 struct ThinkingBlockView: View {
     let content: String
     let isStreaming: Bool
+    let expansionKey: String
+    var typographyGeneration: Int = 0
 
-    @State private var isExpanded: Bool
+    @Environment(\.thinkingBlockExpansionStore) private var expansionStore
+
     /// Cached parsed markdown segments — parsed lazily only when the block is
     /// expanded, avoiding synchronous O(n) work while collapsed (the default).
-    @State private var cachedSegments: [MarkdownSegment]
-    @State private var cachedContent: String
+    @State private var cachedSegments: [MarkdownSegment] = []
+    @State private var cachedContent: String = ""
 
-    init(content: String, isStreaming: Bool, initiallyExpanded: Bool = false) {
-        self.content = content
-        self.isStreaming = isStreaming
-        _isExpanded = State(initialValue: initiallyExpanded)
-        if initiallyExpanded {
-            _cachedSegments = State(initialValue: parseMarkdownSegments(content))
-            _cachedContent = State(initialValue: content)
-        } else {
-            _cachedSegments = State(initialValue: [])
-            _cachedContent = State(initialValue: "")
-        }
+    private var isExpanded: Bool {
+        expansionStore.isExpanded(expansionKey)
+    }
+
+    /// Seed the segment cache when the block is (or becomes) expanded and the
+    /// content has drifted from the cache. Called from `onAppear` as well as
+    /// `onChange` — `onAppear` is the critical one: when `MessageListContentView`
+    /// tears down and rebuilds the view subtree at the end of an active turn,
+    /// the view is recreated with `isExpanded == true` (from the store) but
+    /// empty `@State` caches, and neither `onChange` handler fires on initial
+    /// values. Without this, expanded blocks go blank at turn end until the
+    /// user collapses and re-expands them.
+    private func syncCacheIfExpanded() {
+        guard isExpanded, cachedContent != content else { return }
+        cachedContent = content
+        cachedSegments = parseMarkdownSegments(content)
     }
 
     var body: some View {
@@ -35,9 +48,11 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
+                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
+                    typographyGeneration: typographyGeneration,
                     maxContentWidth: nil,
                     textColor: VColor.contentSecondary,
                     secondaryTextColor: VColor.contentTertiary,
@@ -46,23 +61,16 @@ struct ThinkingBlockView: View {
                     codeTextColor: VColor.contentDefault,
                     codeBackgroundColor: VColor.surfaceBase
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
                 .transition(.opacity)
             }
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .onChange(of: content) { _, newContent in
-            guard isExpanded, newContent != cachedContent else { return }
-            cachedContent = newContent
-            cachedSegments = parseMarkdownSegments(newContent)
-        }
-        .onChange(of: isExpanded) { _, expanded in
-            guard expanded, cachedContent != content else { return }
-            cachedContent = content
-            cachedSegments = parseMarkdownSegments(content)
-        }
+        .animation(VAnimation.fast, value: isExpanded)
+        .onAppear { syncCacheIfExpanded() }
+        .onChange(of: content) { _, _ in syncCacheIfExpanded() }
+        .onChange(of: isExpanded) { _, _ in syncCacheIfExpanded() }
     }
 
     // MARK: - Header
@@ -70,7 +78,7 @@ struct ThinkingBlockView: View {
     private var headerRow: some View {
         Button(action: {
             withAnimation(VAnimation.fast) {
-                isExpanded.toggle()
+                expansionStore.toggle(expansionKey)
             }
         }) {
             HStack(spacing: VSpacing.sm) {

@@ -44,6 +44,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
 @MainActor
 public protocol ManagedAssistantBootstrapAuthServicing: AnyObject {
     func getOrganizations() async throws -> [PlatformOrganization]
+    func resolveOrganizationId() async throws -> String
     func getAssistant(id: String, organizationId: String) async throws -> PlatformAssistantResult
     func listAssistants(organizationId: String) async throws -> [PlatformAssistant]
     func hatchAssistant(
@@ -81,15 +82,19 @@ public final class LockfileActiveAssistantIdStore: ActiveAssistantIdStoring {
 
 /// Orchestrates discovery or creation of a managed assistant on the platform.
 ///
-/// The bootstrap flow:
+/// The bootstrap flow on macOS:
 /// 1. If a `connectedAssistantId` exists, fetch that specific assistant via GET /assistants/{id}/.
+///    - 200: return it directly.
 ///    - 404 (deleted): clear the stale ID and fall through to step 2.
 ///    - 403 (access revoked): surface an `accessRevoked` error so the user knows.
-/// 2. With `multiAssistantEnabled == true` and the stale ID just cleared via a 404,
-///    call GET /assistants/ first and reuse the most recently created assistant when
-///    one exists. Only fall through to hatch when the list is empty (first-run UX).
-/// 3. Call POST /assistants/hatch/ (idempotent — returns existing or creates new).
+/// 2. List platform assistants (GET /assistants/) and reuse the first
+///    result when the list is non-empty. The backend already scopes the
+///    response to platform assistants, so no filter parameter is needed.
+/// 3. Only when the list is empty (first-run UX), call POST /assistants/hatch/
+///    (idempotent — returns existing or creates new).
 /// 4. Any other error is surfaced as a typed `ManagedBootstrapError`.
+///
+/// On non-macOS platforms, steps 1–2 are skipped and hatch is called directly.
 @MainActor
 public final class ManagedAssistantBootstrapService {
     public static let shared = ManagedAssistantBootstrapService()
@@ -116,8 +121,7 @@ public final class ManagedAssistantBootstrapService {
     public func ensureManagedAssistant(
         name: String? = nil,
         description: String? = nil,
-        anthropicApiKey: String? = nil,
-        multiAssistantEnabled: Bool = false
+        anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
         let organizationId = try await resolveOrganizationId()
 
@@ -137,35 +141,30 @@ public final class ManagedAssistantBootstrapService {
                 log.info("Retrieved connected assistant: \(assistant.id, privacy: .public)")
                 return .reusedExisting(assistant)
             case .notFound:
-                // Clear the stale ID. When the multi-assistant flag is on, try to
-                // reuse an existing assistant from the org's list before falling
-                // through to hatch — we don't want to silently create a second
-                // assistant when the user already has one.
                 log.warning("Connected assistant \(connectedId, privacy: .public) not found — clearing stale ID")
                 activeAssistantIdStore.clearActiveAssistantId()
-                if multiAssistantEnabled {
-                    do {
-                        // Assumes the platform returns assistants newest-first.
-                        // With the 5-assistant-per-org cap, a wrong order would
-                        // at worst reuse a slightly-older-but-still-valid
-                        // assistant instead of the newest — acceptable.
-                        let existing = try await authService.listAssistants(organizationId: organizationId)
-                        if let first = existing.first {
-                            log.info("multi-assistant flag on: reusing first assistant \(first.id, privacy: .public) from list")
-                            return .reusedExisting(first)
-                        }
-                        log.info("multi-assistant flag on: list returned empty, falling through to hatch (first-run UX)")
-                    } catch let error as PlatformAPIError {
-                        throw mapPlatformError(error)
-                    }
-                } else {
-                    log.info("multi-assistant flag off: falling through to hatch")
-                }
+                // Fall through to list-then-hatch below.
             case .accessDenied:
                 log.error("Access to connected assistant \(connectedId, privacy: .public) has been revoked")
                 activeAssistantIdStore.clearActiveAssistantId()
                 throw ManagedBootstrapError.accessRevoked(connectedId)
             }
+        }
+
+        // List platform assistants first; only fall through to hatch when the
+        // list is empty (first-run UX). This avoids creating a duplicate
+        // assistant when the user already has one on the platform.
+        do {
+            let existing = try await authService.listAssistants(
+                organizationId: organizationId
+            )
+            if let first = existing.first {
+                log.info("Reusing existing platform assistant \(first.id, privacy: .public) from list")
+                return .reusedExisting(first)
+            }
+            log.info("Platform assistant list returned empty, falling through to hatch")
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error)
         }
         #endif
 
@@ -246,30 +245,20 @@ public final class ManagedAssistantBootstrapService {
         log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
-    /// Resolve the organization ID, validating any persisted value against the
-    /// user's actual org list to prevent stale cross-environment IDs.
-    private func resolveOrganizationId() async throws -> String {
+    /// Resolves the organization ID for the current user, translating
+    /// `AuthService` errors into the bootstrap's `ManagedBootstrapError`
+    /// shape so existing UI messages keep working.
+    ///
+    /// Public so callers that only need org resolution (e.g. the managed
+    /// assistant switch path in `AppDelegate+AuthLifecycle`) can call this
+    /// directly without the overhead of `ensureManagedAssistant()`.
+    public func resolveOrganizationId() async throws -> String {
         do {
-            let orgs = try await authService.getOrganizations()
-            let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
-            if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
-                log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
-                return persistedOrgId
-            }
-            if persistedOrgId != nil {
-                log.warning("Persisted organization ID not found in user's orgs — re-resolving")
-            }
-            switch orgs.count {
-            case 0:
-                throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
-            case 1:
-                let orgId = orgs[0].id
-                UserDefaults.standard.set(orgId, forKey: "connectedOrganizationId")
-                log.info("Resolved organization: \(orgId, privacy: .public)")
-                return orgId
-            default:
-                throw ManagedBootstrapError.multipleOrganizations
-            }
+            return try await authService.resolveOrganizationId()
+        } catch AuthService.OrganizationResolutionError.noOrganizations {
+            throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+        } catch AuthService.OrganizationResolutionError.multipleOrganizations {
+            throw ManagedBootstrapError.multipleOrganizations
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }

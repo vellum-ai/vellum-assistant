@@ -724,7 +724,8 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   test("orphaned server_tool_use gets synthetic web_search_tool_result injected", async () => {
     // When stream is interrupted, server_tool_use may be stored without its
     // paired web_search_tool_result. repairOrphanedServerToolUse should inject
-    // a synthetic empty-content web_search_tool_result after the orphan.
+    // a synthetic error web_search_tool_result after the orphan so the model
+    // knows the search failed (rather than silently returning zero results).
     const messages: Message[] = [
       userMsg("Search for something"),
       {
@@ -757,7 +758,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[1].content[0].type).toBe("server_tool_use");
     expect(sent[1].content[1].type).toBe("web_search_tool_result");
     expect(sent[1].content[1].tool_use_id).toBe("srvtoolu_abc123");
-    expect(sent[1].content[1].content).toEqual([]);
+    expect(sent[1].content[1].content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    });
     expect(sent[2].role).toBe("user");
     expect(sent[2].content[0].type).toBe("text");
   });
@@ -1037,7 +1041,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         b.tool_use_id === "srvtoolu_interrupted",
     );
     expect(syntheticResults).toHaveLength(1);
-    expect(syntheticResults[0].content).toEqual([]);
+    expect(syntheticResults[0].content).toEqual({
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    });
   });
 
   test("paired server_tool_use is not modified by repair", async () => {
@@ -1691,5 +1698,68 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
       type: "ephemeral",
       ttl: "1h",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Orphaned UTF-16 surrogate sanitization
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider — surrogate sanitization", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+  });
+
+  test("strips orphaned high surrogate from a tool result before sending", async () => {
+    // An orphaned high surrogate — the exact shape that triggers Anthropic's
+    // "no low surrogate in string" 400. The mock's JSON.parse(JSON.stringify)
+    // on line ~44 would throw if sanitization didn't happen.
+    const LONE_HIGH = "\uD83C";
+    const messages: Message[] = [
+      toolUseMsg("tu1", "bash"),
+      toolResultMsg("tu1", `shell output ${LONE_HIGH} more output`),
+      userMsg("what happened?"),
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; content?: string; text?: string }>;
+    }>;
+    // Find the tool_result block in the captured payload and assert no orphans.
+    const toolResult = sent
+      .flatMap((m) => m.content)
+      .find((b) => b.type === "tool_result");
+    expect(toolResult).toBeDefined();
+    expect(toolResult!.content).toBeDefined();
+    const content = toolResult!.content as string;
+    for (let i = 0; i < content.length; i++) {
+      const code = content.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = i + 1 < content.length ? content.charCodeAt(i + 1) : 0;
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+        i++;
+      } else {
+        expect(code < 0xdc00 || code > 0xdfff).toBe(true);
+      }
+    }
+  });
+
+  test("clean payloads are not copied unnecessarily", async () => {
+    // When there are no orphans, the sanitizer should be a no-op. We can't
+    // easily assert reference equality through the mock boundary (the mock
+    // JSON-round-trips params for capture), but we can at least confirm the
+    // call succeeds without error on ordinary payloads containing valid
+    // surrogate pairs (emoji).
+    const EMOJI = "\uD83C\uDF89";
+    await provider.sendMessage([userMsg(`hello ${EMOJI} world`)]);
+    const sent = lastStreamParams!.messages as Array<{
+      content: Array<{ text?: string }>;
+    }>;
+    expect(sent[0].content[0].text).toContain(EMOJI);
   });
 });

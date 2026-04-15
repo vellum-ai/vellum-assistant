@@ -1,7 +1,10 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Full-page detail view for an installed skill, showing metadata and a two-pane file browser.
+/// Full-page detail view for a skill, showing metadata and a two-pane file
+/// browser. Works for both installed skills (file contents delivered inline
+/// with the file list) and uninstalled catalog skills (file contents fetched
+/// lazily on click).
 struct SkillDetailView: View {
     let skill: SkillInfo
     var skillsManager: SkillsManager
@@ -13,9 +16,20 @@ struct SkillDetailView: View {
     @State private var didSeedExpandedPaths: Bool = false
     @State private var skillFileViewMode: FileViewMode = .source
     @State private var browserNodes: [VFileBrowserNode] = []
+    /// Tracks the previously observed `skill.kind` so an install-from-preview
+    /// transition (catalog → installed/bundled) can be detected and drive a
+    /// refresh of the file tree with eagerly-loaded content.
+    @State private var lastObservedKind: String = ""
+
+    /// True when the skill is not installed locally, so file contents must be
+    /// fetched lazily rather than delivered inline with the file list.
+    private var isPreview: Bool { !skill.isInstalled }
 
     private var hasViewableFiles: Bool {
         guard let files = skillsManager.selectedSkillFiles else { return true }
+        if isPreview {
+            return files.files.contains { !$0.isBinary }
+        }
         return files.files.contains { !$0.isBinary && $0.content != nil }
     }
 
@@ -23,8 +37,10 @@ struct SkillDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             SkillDetailTitleRow(
                 skill: skill,
+                isInstalling: skillsManager.installingSkillId == skill.id,
                 onBack: onBack,
-                onDelete: { onDelete(skill) }
+                onDelete: { onDelete(skill) },
+                onInstall: { skillsManager.installSkill(slug: skill.id) }
             )
 
             if !skill.description.isEmpty {
@@ -39,19 +55,40 @@ struct SkillDetailView: View {
             skillDetailFileBrowser
         }
         .onAppear {
-            // Only fetch files for locally available skills (bundled or installed).
-            // Remote catalog search results are not in the local resolved catalog, so
-            // GET /skills/:id/files would 404 for them.
-            if skill.isInstalled {
+            // Seed `lastObservedKind` with the current kind so a later flip
+            // into "installed"/"bundled" is detected as a true transition
+            // rather than as the initial layout for an already-installed skill.
+            lastObservedKind = skill.kind
+            skillsManager.fetchSkillFiles(skillId: skill.id)
+        }
+        .onChange(of: skill.kind) { _, newKind in
+            // Detect an install-from-preview transition: when the kind flips
+            // from "catalog" to "installed"/"bundled", the preview file list
+            // (which has nil `content` fields served lazily) is now stale —
+            // the backend now holds eagerly-loaded inline content for this
+            // skill. Drop the lazy content cache and re-fetch so the file
+            // tree transparently swaps in the full content without the user
+            // having to navigate away and back.
+            let becameInstalled = newKind == "installed" || newKind == "bundled"
+            if becameInstalled && lastObservedKind == "catalog" {
+                skillsManager.clearLoadedFileContents()
                 skillsManager.fetchSkillFiles(skillId: skill.id)
             }
+            lastObservedKind = newKind
         }
-        .onChange(of: skillsManager.selectedSkillFiles?.files.map(\.path)) {
+        .onChange(of: skillsManager.selectedSkillFiles?.files.map { "\($0.path):\($0.content == nil)" }) {
             // 1. Rebuild the browser node tree from the latest file list (moved out of
             //    view body per clients/AGENTS.md: no heavy transformation in body).
+            //    In preview mode the `content` field is always nil — files are
+            //    fetched lazily on click — so the tree filter must tolerate that.
+            //    The key includes each file's content-nullness so the rebuild
+            //    fires after an install-from-preview refresh, where the path
+            //    list is unchanged but content transitions from null to inline.
             let textFiles: [SkillFileEntry]
             if let files = skillsManager.selectedSkillFiles?.files {
-                textFiles = files.filter { !$0.isBinary && $0.content != nil }
+                textFiles = files.filter { file in
+                    isPreview ? !file.isBinary : (!file.isBinary && file.content != nil)
+                }
                 browserNodes = Self.buildSkillNodeTree(from: textFiles)
             } else {
                 textFiles = []
@@ -60,8 +97,11 @@ struct SkillDetailView: View {
 
             // 2. Auto-select SKILL.md (or the first text file) on first load.
             if expandedFilePath == nil, let files = skillsManager.selectedSkillFiles?.files {
-                let skillMd = files.first { $0.path == "SKILL.md" && !$0.isBinary && $0.content != nil }
-                let firstText = files.first { !$0.isBinary && $0.content != nil }
+                let matchesTextFilter: (SkillFileEntry) -> Bool = { file in
+                    isPreview ? !file.isBinary : (!file.isBinary && file.content != nil)
+                }
+                let skillMd = files.first { $0.path == "SKILL.md" && matchesTextFilter($0) }
+                let firstText = files.first(where: matchesTextFilter)
                 if let selectedFile = skillMd ?? firstText {
                     expandedFilePath = selectedFile.path
                     let autoModes = availableViewModes(for: selectedFile.path, mimeType: selectedFile.mimeType)
@@ -95,6 +135,17 @@ struct SkillDetailView: View {
                 expandedPaths.formUnion(Self.ancestorPaths(of: selectedPath))
                 let selectedModes = availableViewModes(for: file.path, mimeType: file.mimeType)
                 skillFileViewMode = selectedModes.first ?? .source
+
+                // In preview mode the file list is served without inline
+                // content, so kick off a lazy content fetch the first time a
+                // text file is selected.
+                if isPreview,
+                   !file.isBinary,
+                   skillsManager.loadedFileContents[selectedPath] == nil,
+                   !skillsManager.loadingFilePaths.contains(selectedPath),
+                   skillsManager.fileContentErrors[selectedPath] == nil {
+                    skillsManager.loadSkillFileContent(skillId: skill.id, path: selectedPath)
+                }
             }
         }
         .onDisappear {
@@ -102,6 +153,7 @@ struct SkillDetailView: View {
             expandedPaths = []
             didSeedExpandedPaths = false
             browserNodes = []
+            lastObservedKind = ""
             skillsManager.clearSkillDetail()
         }
     }
@@ -127,21 +179,16 @@ struct SkillDetailView: View {
         switch skill.originMeta {
         case .clawhub(let meta):
             HStack(spacing: VSpacing.lg) {
-                if !meta.author.isEmpty {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.user, size: 12)
-                        Text(meta.author)
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.gitBranch, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                    if let url = meta.hubURL {
+                        VLink(meta.sourceLabel, destination: url)
+                    } else {
+                        Text(meta.sourceLabel)
                             .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
-                    .foregroundStyle(VColor.contentTertiary)
-                }
-                if meta.stars > 0 {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.star, size: 12)
-                        Text("\(meta.stars)")
-                            .font(VFont.labelDefault)
-                    }
-                    .foregroundStyle(VColor.contentTertiary)
                 }
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {
@@ -157,10 +204,15 @@ struct SkillDetailView: View {
                 if !meta.sourceRepo.isEmpty {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.gitBranch, size: 12)
-                        Text(meta.sourceRepo)
-                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        if let url = meta.hubURL {
+                            VLink(meta.sourceRepo, destination: url)
+                        } else {
+                            Text(meta.sourceRepo)
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
                     }
-                    .foregroundStyle(VColor.contentTertiary)
                 }
                 if meta.installs > 0 {
                     HStack(spacing: VSpacing.xs) {
@@ -237,43 +289,110 @@ struct SkillDetailView: View {
     @ViewBuilder
     private var skillDetailFileBrowser: some View {
         if skillsManager.isLoadingSkillFiles {
-            VEmptyState(
-                title: "Loading files...",
-                icon: VIcon.fileText.rawValue
-            )
+            VStack(spacing: VSpacing.lg) {
+                VEmptyState(
+                    title: "Loading files...",
+                    icon: VIcon.fileText.rawValue
+                )
+                ProgressView()
+                    .controlSize(.small)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay { ProgressView().controlSize(.small) }
-        } else if let error = skillsManager.skillFilesError {
-            VEmptyState(
-                title: "Failed to load files",
-                subtitle: error,
-                icon: VIcon.circleAlert.rawValue
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if skillsManager.skillFilesError != nil {
+            VStack(spacing: VSpacing.md) {
+                VEmptyState(
+                    title: "Failed to load files",
+                    icon: VIcon.circleAlert.rawValue
+                )
+                retryButton(label: "Retry") {
+                    skillsManager.fetchSkillFiles(skillId: skill.id)
+                }
+            }
+            .frame(maxWidth: .infinity)
         } else {
             VFileBrowser(
                 rootNodes: browserNodes,
                 expandedPaths: $expandedPaths,
                 selectedPath: $expandedFilePath
             ) { selectedNode in
-                if let selectedNode,
-                   let file = skillsManager.selectedSkillFiles?.files.first(where: { $0.path == selectedNode.path }),
-                   let content = file.content {
-                    FileContentView(
-                        fileName: file.path,
-                        mimeType: file.mimeType,
-                        content: .constant(content),
-                        viewMode: $skillFileViewMode,
-                        isActivelyEditing: .constant(false)
-                    )
-                } else {
-                    VEmptyState(
-                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                        icon: VIcon.fileText.rawValue
-                    )
-                }
+                fileContentPane(for: selectedNode)
             }
         }
+    }
+
+    @ViewBuilder
+    private func fileContentPane(for selectedNode: VFileBrowserNode?) -> some View {
+        if let selectedNode,
+           let file = skillsManager.selectedSkillFiles?.files.first(where: { $0.path == selectedNode.path }) {
+            if isPreview && !file.isBinary {
+                previewFileContent(for: file, nodePath: selectedNode.path)
+            } else if let content = file.content {
+                FileContentView(
+                    fileName: file.path,
+                    mimeType: file.mimeType,
+                    content: .constant(content),
+                    viewMode: $skillFileViewMode,
+                    isActivelyEditing: .constant(false)
+                )
+            } else {
+                VEmptyState(
+                    title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                    icon: VIcon.fileText.rawValue
+                )
+            }
+        } else {
+            VEmptyState(
+                title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                icon: VIcon.fileText.rawValue
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func previewFileContent(for file: SkillFileEntry, nodePath: String) -> some View {
+        if let content = skillsManager.loadedFileContents[nodePath] {
+            FileContentView(
+                fileName: file.path,
+                mimeType: file.mimeType,
+                content: .constant(content),
+                viewMode: $skillFileViewMode,
+                isActivelyEditing: .constant(false)
+            )
+        } else if skillsManager.loadingFilePaths.contains(nodePath) {
+            VEmptyState(
+                title: "Loading file...",
+                icon: VIcon.fileText.rawValue
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { ProgressView().controlSize(.small) }
+        } else if let error = skillsManager.fileContentErrors[nodePath] {
+            VStack(spacing: VSpacing.md) {
+                VEmptyState(
+                    title: "Failed to load file",
+                    subtitle: error,
+                    icon: VIcon.circleAlert.rawValue
+                )
+                retryButton(label: "Retry") {
+                    skillsManager.loadSkillFileContent(skillId: skill.id, path: nodePath)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VEmptyState(
+                title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                icon: VIcon.fileText.rawValue
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func retryButton(label: String, action: @escaping () -> Void) -> some View {
+        VButton(
+            label: label,
+            leftIcon: VIcon.refreshCw.rawValue,
+            style: .outlined,
+            action: action
+        )
     }
 }
 
@@ -281,8 +400,10 @@ struct SkillDetailView: View {
 
 struct SkillDetailTitleRow: View {
     let skill: SkillInfo
+    var isInstalling: Bool = false
     let onBack: () -> Void
     let onDelete: () -> Void
+    let onInstall: () -> Void
 
     var body: some View {
         HStack {
@@ -301,6 +422,9 @@ struct SkillDetailTitleRow: View {
                     if let emoji = skill.emoji, !emoji.isEmpty {
                         Text(emoji)
                             .font(.system(size: 20))
+                    } else {
+                        VIconView(.puzzle, size: 20)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     Text(skill.name)
@@ -318,6 +442,15 @@ struct SkillDetailTitleRow: View {
             if skill.kind == "installed" {
                 VButton(label: "Remove", leftIcon: VIcon.trash.rawValue, style: .dangerOutline) {
                     onDelete()
+                }
+            } else if skill.kind == "catalog" {
+                if isInstalling {
+                    VLoadingIndicator()
+                        .accessibilityLabel("Installing skill")
+                } else {
+                    VButton(label: "Install", leftIcon: VIcon.arrowDownToLine.rawValue, style: .primary) {
+                        onInstall()
+                    }
                 }
             }
         }

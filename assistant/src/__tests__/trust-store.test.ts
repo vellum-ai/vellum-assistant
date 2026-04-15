@@ -740,8 +740,10 @@ describe("Trust Store", () => {
       ].sort();
       expect(defaultTools).toEqual([
         "bash",
+        "browser_attach",
         "browser_click",
         "browser_close",
+        "browser_detach",
         "browser_extract",
         "browser_fill_credential",
         "browser_hover",
@@ -751,6 +753,7 @@ describe("Trust Store", () => {
         "browser_scroll",
         "browser_select_option",
         "browser_snapshot",
+        "browser_status",
         "browser_type",
         "browser_wait_for",
         "browser_wait_for_download",
@@ -1078,13 +1081,15 @@ describe("Trust Store", () => {
 
     // ── default allow: browser tools ────────────────────────────
 
-    test("all 14 browser tools have default allow rules", () => {
+    test("all browser tools have default allow rules", () => {
       const templates = getDefaultRuleTemplates();
       const browserTools = [
         "browser_navigate",
         "browser_snapshot",
         "browser_screenshot",
         "browser_close",
+        "browser_attach",
+        "browser_detach",
         "browser_click",
         "browser_type",
         "browser_press_key",
@@ -1095,6 +1100,7 @@ describe("Trust Store", () => {
         "browser_extract",
         "browser_wait_for_download",
         "browser_fill_credential",
+        "browser_status",
       ];
 
       for (const tool of browserTools) {

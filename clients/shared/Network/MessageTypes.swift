@@ -22,6 +22,8 @@ import Foundation
 // │                                 │ via string `kind`; contract type skipped │
 // │ ConversationErrorMessage        │ References hand-maintained               │
 // │                                 │ ConversationErrorCode enum               │
+// │ ConversationHostAccessUpdated   │ Small client-only wire type added ahead  │
+// │ Message                         │ of generated contract coverage            │
 // │ ConversationErrorCode (enum)    │ String enum with fallback decoding;      │
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
@@ -42,6 +44,10 @@ import Foundation
 // │                                 │ code generator cannot express it        │
 // │ HostCuResultPayload             │ Posted back to daemon; hand-maintained  │
 // │                                 │ alongside HostCuRequest                 │
+// │ HostBrowserRequest              │ Uses AnyCodable for `cdpParams`; client │
+// │                                 │ decodes only to keep SSE healthy        │
+// │ HostBrowserCancelRequest        │ Hand-maintained alongside               │
+// │                                 │ HostBrowserRequest                      │
 // │ SkillSearchResult               │ Client-only result wrapper for search;  │
 // │                                 │ not a wire type                         │
 // │ SkillOperationResult            │ Client-only result wrapper for skill    │
@@ -702,8 +708,8 @@ extension AssistantThinkingDelta {
 public typealias MessageCompleteMessage = MessageComplete
 
 extension MessageComplete {
-    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
-        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId)
+    public init(conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
+        self.init(type: "message_complete", conversationId: conversationId, attachments: attachments, attachmentWarnings: attachmentWarnings, messageId: messageId, source: source)
     }
 }
 
@@ -712,9 +718,14 @@ extension MessageComplete {
 public typealias ConversationInfoMessage = ConversationInfo
 
 extension ConversationInfo {
-    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
-        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType)
+    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
+        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType, hostAccess: hostAccess)
     }
+}
+
+public struct ConversationHostAccessUpdatedMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let hostAccess: Bool
 }
 
 /// Conversation title update push message emitted after first-turn auto-titling.
@@ -801,8 +812,11 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let display: String?
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card
+    /// visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
-    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(conversationId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?, persistent: Bool? = nil) {
         self.conversationId = conversationId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -811,6 +825,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
         self.actions = actions
         self.display = display
         self.messageId = messageId
+        self.persistent = persistent
     }
 }
 
@@ -956,7 +971,7 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `status`, preserving all other fields including `id`.
     public func withStatus(_ newStatus: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, sourceRepo: sourceRepo)
+        Self(id: id, name: name, description: description, emoji: emoji, kind: kind, origin: origin, status: newStatus, slug: slug, installs: installs, author: author, stars: stars, reports: reports, publishedAt: publishedAt, version: version, sourceRepo: sourceRepo, audit: audit)
     }
 
     /// Whether the skill is available from the catalog but not yet installed.
@@ -976,8 +991,20 @@ extension SkillsListResponseSkill {
 }
 
 /// Response containing the list of available skills.
-/// Backed by generated `SkillsListResponse`.
-public typealias SkillsListResponseMessage = SkillsListResponse
+/// Wraps the generated `SkillsListResponse` with additional server-side filter metadata.
+public struct SkillsListResponseMessage: Codable, Sendable {
+    public let type: String
+    public let skills: [SkillsListResponseSkill]
+    public let categoryCounts: [String: Int]?
+    public let totalCount: Int?
+
+    public init(type: String, skills: [SkillsListResponseSkill], categoryCounts: [String: Int]? = nil, totalCount: Int? = nil) {
+        self.type = type
+        self.skills = skills
+        self.categoryCounts = categoryCounts
+        self.totalCount = totalCount
+    }
+}
 
 /// Response containing the full body of a specific skill.
 /// Backed by generated `SkillDetailResponse`.
@@ -1054,9 +1081,13 @@ public typealias SkillStateChangedMessage = SkillStateChanged
 public struct SkillOperationResult: Sendable {
     public let success: Bool
     public let error: String?
-    public init(success: Bool, error: String? = nil) {
+    /// The actual installed skill ID, which may differ from the slug sent in
+    /// the request (e.g. skills.sh resolves "owner/repo/skill" to just "skill").
+    public let skillId: String?
+    public init(success: Bool, error: String? = nil, skillId: String? = nil) {
         self.success = success
         self.error = error
+        self.skillId = skillId
     }
 }
 
@@ -1070,6 +1101,26 @@ public struct ClawhubOriginMeta: Codable, Sendable, Equatable {
     public let installs: Int
     public let reports: Int
     public let publishedAt: String?
+    public let version: String?
+
+    /// Display label for the source row (e.g. "pskoett/self-improving-agent").
+    public var sourceLabel: String {
+        author.isEmpty ? slug : "\(author)/\(slug)"
+    }
+
+    /// URL to this skill's page on clawhub.ai.
+    /// Namespaced slugs (e.g. "author/skill") use the root path directly;
+    /// simple slugs use the `/skills/` prefix.
+    public var hubURL: URL? {
+        if slug.contains("/") {
+            let encoded = slug.split(separator: "/").map {
+                String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+            }.joined(separator: "/")
+            return URL(string: "https://clawhub.ai/\(encoded)")
+        }
+        let encodedSlug = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? slug
+        return URL(string: "https://clawhub.ai/skills/\(encodedSlug)")
+    }
 }
 
 /// Origin-specific metadata for a skill sourced from Skills.sh.
@@ -1077,6 +1128,19 @@ public struct SkillsshOriginMeta: Codable, Sendable, Equatable {
     public let slug: String
     public let sourceRepo: String
     public let installs: Int
+    public let audit: [String: PartnerAudit]?
+
+    /// URL to this skill's page on skills.sh.
+    public var hubURL: URL? {
+        guard !sourceRepo.isEmpty else { return nil }
+        let skillName = slug.split(separator: "/").last.map(String.init) ?? slug
+        // Encode each path segment separately to preserve the separator slash in sourceRepo.
+        let encodedPath = sourceRepo.split(separator: "/").map {
+            String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0)
+        }.joined(separator: "/")
+        let encodedSkillName = skillName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? skillName
+        return URL(string: "https://skills.sh/\(encodedPath)/\(encodedSkillName)")
+    }
 }
 
 /// Discriminated union over the `origin` field of a skill.
@@ -1099,13 +1163,15 @@ extension SkillsListResponseSkill {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum
@@ -1126,13 +1192,15 @@ extension SkillDetailHTTPResponse {
                 stars: stars ?? 0,
                 installs: installs ?? 0,
                 reports: reports ?? 0,
-                publishedAt: publishedAt
+                publishedAt: publishedAt,
+                version: latestVersion?.version
             ))
         case "skillssh":
             return .skillssh(SkillsshOriginMeta(
                 slug: slug ?? id,
                 sourceRepo: sourceRepo ?? "",
-                installs: installs ?? 0
+                installs: installs ?? 0,
+                audit: audit
             ))
         case "vellum":
             return .vellum
@@ -1562,11 +1630,13 @@ public struct HostFileResultPayload: Codable, Sendable {
     public let requestId: String
     public let content: String
     public let isError: Bool
+    public let imageData: String?
 
-    public init(requestId: String, content: String, isError: Bool) {
+    public init(requestId: String, content: String, isError: Bool, imageData: String? = nil) {
         self.requestId = requestId
         self.content = content
         self.isError = isError
+        self.imageData = imageData
     }
 }
 
@@ -1598,6 +1668,47 @@ public struct HostCuRequest: Decodable, Sendable {
 /// Cancellation signal from the daemon telling the client to abort an in-flight
 /// host computer-use action identified by `requestId`.
 public struct HostCuCancelRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+}
+
+// MARK: - Host Browser Proxy
+
+/// Request from the daemon to execute a Chrome DevTools Protocol (CDP) command on
+/// the host browser. The desktop client decodes this so the SSE stream does not
+/// fail-closed; the actual CDP execution lives in the Chrome extension and is not
+/// handled directly by the macOS client.
+public struct HostBrowserRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let cdpMethod: String
+    public let cdpParams: [String: AnyCodable]?
+    public let cdpSessionId: String?
+    // Modeled as Double? to match the daemon's `timeout_seconds?: number` wire
+    // contract (which permits fractional values such as 0.01) and to mirror
+    // `HostBashRequest.timeoutSeconds`. Using Int? here would cause
+    // JSONDecoder to throw a type-mismatch on fractional timeouts and drop the
+    // entire host_browser_request event from the SSE stream.
+    public let timeoutSeconds: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case conversationId
+        case cdpMethod
+        case cdpParams
+        case cdpSessionId
+        // The daemon wire format for this field is snake_case while the
+        // sibling fields above are camelCase, so map it explicitly.
+        case timeoutSeconds = "timeout_seconds"
+    }
+}
+
+/// Cancellation signal from the daemon telling the host browser to abort an
+/// in-flight CDP command identified by `requestId`. As with `HostBrowserRequest`
+/// the macOS client only decodes this to keep the SSE stream healthy.
+public struct HostBrowserCancelRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
 }
@@ -2143,6 +2254,7 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
+    case conversationHostAccessUpdated(ConversationHostAccessUpdatedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case historyResponse(HistoryResponse)
@@ -2219,6 +2331,7 @@ public enum ServerMessage: Decodable, Sendable {
     case documentListResponse(DocumentListResponseMessage)
     case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
+    case openConversation(OpenConversation)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
     case platformDisconnected(PlatformDisconnected)
@@ -2279,17 +2392,31 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
-    case permissionModeUpdate(PermissionModeUpdateMessage)
+    case hostBrowserRequest(HostBrowserRequest)
+    case hostBrowserCancel(HostBrowserCancelRequest)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case conversationIdResolved(localId: String, serverId: String)
+    /// Synthetic client-side event: daemon confirmed a user message was persisted
+    /// (HTTP 202 with messageId). Broadcast so the per-conversation ChatActionHandler
+    /// can tag the optimistic row with the daemon-assigned ID.
+    case userMessagePersisted(conversationId: String, content: String, messageId: String)
+    case relationshipStateUpdated(updatedAt: String)
+    case homeFeedUpdated(updatedAt: String, newItemCount: Int)
     case pong
     case unknown(String)
 
     private enum CodingKeys: String, CodingKey {
         case type
+    }
+
+    /// Keys for hand-decoded inline payload cases that don't wrap a
+    /// codegen'd struct (e.g. `relationshipStateUpdated`).
+    private enum InlinePayloadKeys: String, CodingKey {
+        case updatedAt
+        case newItemCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -2321,6 +2448,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_info":
             let message = try ConversationInfoMessage(from: decoder)
             self = .conversationInfo(message)
+        case "conversation_host_access_updated":
+            let message = try ConversationHostAccessUpdatedMessage(from: decoder)
+            self = .conversationHostAccessUpdated(message)
         case "conversation_title_updated":
             let message = try ConversationTitleUpdatedMessage(from: decoder)
             self = .conversationTitleUpdated(message)
@@ -2540,6 +2670,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "open_conversation":
+            let message = try OpenConversation(from: decoder)
+            self = .openConversation(message)
         case "navigate_settings":
             let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
@@ -2733,9 +2866,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
-        case "permission_mode_update":
-            let message = try PermissionModeUpdateMessage(from: decoder)
-            self = .permissionModeUpdate(message)
+        case "host_browser_request":
+            let message = try HostBrowserRequest(from: decoder)
+            self = .hostBrowserRequest(message)
+        case "host_browser_cancel":
+            let message = try HostBrowserCancelRequest(from: decoder)
+            self = .hostBrowserCancel(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
@@ -2748,21 +2884,21 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)
+        case "relationship_state_updated":
+            let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
+            let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
+            self = .relationshipStateUpdated(updatedAt: updatedAt)
+        case "home_feed_updated":
+            let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
+            let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)
+            let newItemCount = try payloadContainer.decode(Int.self, forKey: .newItemCount)
+            self = .homeFeedUpdated(updatedAt: updatedAt, newItemCount: newItemCount)
         case "pong":
             self = .pong
         default:
             self = .unknown(type)
         }
     }
-}
-
-
-// MARK: - Permission Mode
-
-/// Two-axis permission mode state broadcast via SSE or returned by GET /v1/permission-mode.
-public struct PermissionModeUpdateMessage: Decodable, Sendable {
-    public let askBeforeActing: Bool
-    public let hostAccess: Bool
 }
 
 // MARK: - Token Rotation
@@ -3030,4 +3166,25 @@ extension WorkItemsListResponseItem {
     public func withPriorityTier(_ newTier: Double) -> Self {
         Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
     }
+}
+
+// MARK: - Open Conversation Helpers
+
+extension OpenConversation {
+    /// Whether the client should switch focus to this conversation.
+    ///
+    /// The daemon emits `focus: false` for fan-out flows (e.g. surface-action
+    /// launches that spawn a background conversation) so the new conversation
+    /// appears in the sidebar without stealing focus from the origin surface.
+    /// Any other value — `true` or absent — defaults to switching focus to
+    /// preserve existing single-target behavior.
+    public var shouldSwitchFocus: Bool {
+        focus != false
+    }
+}
+
+/// Pure helper for the `.openConversation` handler's focus decision.
+/// Extracted so it can be unit-tested without spinning up AppDelegate.
+public func shouldFocusForOpenConversation(_ msg: OpenConversation) -> Bool {
+    msg.shouldSwitchFocus
 }

@@ -39,25 +39,23 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(VFont.displayLarge)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
         // Subtitle
-        Text("Your personal AI assistant,\nrunning on your terms.")
-            .font(VFont.titleSmall)
+        Text("The safest way to create your personal assistant.")
+            .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
 
-        Color.clear.frame(height: VSpacing.xxl)
-
         // Buttons
-        VStack(spacing: VSpacing.md) {
+        VStack(spacing: VSpacing.sm) {
             if authManager?.isLoading == true {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -83,7 +81,7 @@ struct WakeUpStepView: View {
                     onContinueWithVellum()
                 }
 
-                VButton(label: "Continue without account", style: .ghost) {
+                VButton(label: "Continue Without Account", style: .outlined, isFullWidth: true) {
                     state?.skippedAuth = true
                     onStartWithAPIKey()
                 }
@@ -101,7 +99,8 @@ struct WakeUpStepView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .frame(maxWidth: 280)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, VSpacing.xxl)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing || authManager?.isSubmitting == true)
@@ -119,9 +118,9 @@ struct WakeUpStepView: View {
 
         Spacer()
 
-        Text("\u{00A9} 2026 Vellum Inc.")
+        Text("2026 Vellum Inc.")
             .font(VFont.bodySmallDefault)
-            .foregroundStyle(VColor.contentTertiary.opacity(0.5))
+            .foregroundStyle(VColor.borderElement)
             .padding(.bottom, VSpacing.sm)
 
         // Characters peeking up from the bottom — single composed image

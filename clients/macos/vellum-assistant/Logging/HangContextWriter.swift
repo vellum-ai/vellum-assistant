@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import os
 
 private let log = Logger(
@@ -69,7 +70,7 @@ final class HangContextWriter: @unchecked Sendable {
                 in: .userDomainMask
             ).first ?? FileManager.default.temporaryDirectory
             self.outputDirectory = appSupport
-                .appendingPathComponent("vellum-assistant", isDirectory: true)
+                .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
         }
         self.diagnosticsProvider = diagnosticsProvider
         self.lastKnownProvider = lastKnownProvider

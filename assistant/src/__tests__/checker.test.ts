@@ -12,12 +12,14 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -66,6 +68,25 @@ mock.module("../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
 }));
+
+// Mutable guardian persona path so tests can toggle whether
+// getDefaultRuleTemplates emits the dynamic guardian-persona allow rules.
+// Defaults to null so existing tests see no extra rules, matching the
+// behaviour on a fresh install without a resolved guardian.
+let mockGuardianPersonaPath: string | null = null;
+
+// Spy on the namespace import rather than using `mock.module`. Bun's
+// `mock.module` is a persistent process-wide override that would clobber
+// every other export (e.g. `ensureGuardianPersonaFile`,
+// `isGuardianPersonaCustomized`) and break unrelated test files
+// (persona-resolver.test.ts) when run in the same bun test invocation.
+// `spyOn` with `mockRestore()` in afterAll restores the original
+// implementation so other test files see the real exports.
+import * as personaResolver from "../prompts/persona-resolver.js";
+const guardianPathSpy = spyOn(
+  personaResolver,
+  "resolveGuardianPersonaPath",
+).mockImplementation(() => mockGuardianPersonaPath);
 
 import {
   check,
@@ -140,6 +161,13 @@ function writeSkill(
   );
 }
 
+// Restore the guardian persona spy at the end of this file's run so
+// subsequent test files (e.g. persona-resolver.test.ts) see the real
+// implementation when they import from the module namespace.
+afterAll(() => {
+  guardianPathSpy.mockRestore();
+});
+
 describe("Permission Checker", () => {
   beforeAll(async () => {
     // Warm up the shell parser (loads WASM)
@@ -152,6 +180,8 @@ describe("Permission Checker", () => {
     // Reset permissions mode to workspace (default) so existing tests are not affected
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
+    // Reset guardian persona mock so each test opts in explicitly
+    mockGuardianPersonaPath = null;
     loggerWarnCalls.length = 0;
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
@@ -1473,14 +1503,6 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.id).toBe("default:allow-file_edit-identity");
     });
 
-    test("file_read of workspace USER.md is auto-allowed", async () => {
-      const userPath = join(checkerTestDir, "USER.md");
-      const result = await check("file_read", { path: userPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.id).toBe("default:allow-file_read-user");
-    });
-
     test("file_write of workspace SOUL.md is auto-allowed", async () => {
       const soulPath = join(checkerTestDir, "SOUL.md");
       const result = await check("file_write", { path: soulPath }, "/tmp");
@@ -1527,6 +1549,106 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: otherPath }, "/home");
       // Low risk → auto-allowed even outside workspace
       expect(result.decision).toBe("allow");
+    });
+
+    // ── guardian persona file (users/<slug>.md) ──────────────────
+    // The per-user persona file lives at `users/<guardian-slug>.md`.
+    // Dynamic guardian-persona default rules auto-allow reads and
+    // edits of this file.
+
+    test("file_edit of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_edit", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
+    });
+
+    test("file_read of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_read", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_read-guardian-persona",
+      );
+    });
+
+    test("file_write of guardian users/<slug>.md is auto-allowed", async () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const result = await check("file_write", { path: guardianPath }, "/tmp");
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:allow-file_write-guardian-persona",
+      );
+    });
+
+    test("getDefaultRuleTemplates emits guardian persona rules when guardian is resolved", () => {
+      const guardianPath = join(checkerTestDir, "users", "alice.md");
+      mockGuardianPersonaPath = guardianPath;
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      // One rule each for file_read, file_write, file_edit.
+      expect(guardianRules).toHaveLength(3);
+      for (const rule of guardianRules) {
+        expect(rule.decision).toBe("allow");
+        expect(rule.priority).toBe(100);
+        expect(rule.scope).toBe("everywhere");
+        expect(rule.pattern).toBe(`${rule.tool}:${guardianPath}`);
+      }
+    });
+
+    test("getDefaultRuleTemplates emits no guardian persona rules when unresolved", () => {
+      mockGuardianPersonaPath = null;
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      expect(guardianRules).toHaveLength(0);
+    });
+
+    test("glob metacharacters in guardian path are escaped and match only the literal file", async () => {
+      // A legacy/imported contact whose userFile contains glob metacharacters
+      // must not broaden the auto-allow rule into a wildcard match.
+      const weirdDir = join(checkerTestDir, "users");
+      const guardianPath = join(weirdDir, "weird[slug]*.md");
+      const siblingPath = join(weirdDir, "weirdX.md");
+      mockGuardianPersonaPath = guardianPath;
+
+      const templates = getDefaultRuleTemplates();
+      const guardianRules = templates.filter((t) =>
+        t.id.endsWith("-guardian-persona"),
+      );
+      expect(guardianRules).toHaveLength(3);
+      for (const rule of guardianRules) {
+        // Pattern must contain escaped metacharacters, not bare wildcards.
+        expect(rule.pattern).not.toBe(`${rule.tool}:${guardianPath}`);
+        expect(rule.pattern).toContain("\\[");
+        expect(rule.pattern).toContain("\\]");
+        expect(rule.pattern).toContain("\\*");
+      }
+
+      // Literal guardian path is auto-allowed.
+      const literal = await check("file_edit", { path: guardianPath }, "/tmp");
+      expect(literal.decision).toBe("allow");
+      expect(literal.matchedRule?.id).toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
+
+      // A sibling file that would match if `*` / `[...]` were treated as
+      // wildcards must NOT match the dynamic guardian-persona rule.
+      const sibling = await check("file_edit", { path: siblingPath }, "/tmp");
+      expect(sibling.matchedRule?.id).not.toBe(
+        "default:allow-file_edit-guardian-persona",
+      );
     });
   });
 
@@ -4252,8 +4374,8 @@ describe("Permission Checker", () => {
   });
 
   // ── browser tool permission baselines ─────────────────────────────
-  // All 10 browser tools are core-registered and RiskLevel.Low by default.
-  // These tests lock that baseline so the migration can verify it's preserved.
+  // Representative browser tools are RiskLevel.Low and auto-allowed by
+  // default rules in strict mode.
 
   describe("browser tool permission baselines", () => {
     const browserToolNames = [
@@ -4261,12 +4383,15 @@ describe("Permission Checker", () => {
       "browser_snapshot",
       "browser_screenshot",
       "browser_close",
+      "browser_attach",
+      "browser_detach",
       "browser_click",
       "browser_type",
       "browser_press_key",
       "browser_wait_for",
       "browser_extract",
       "browser_fill_credential",
+      "browser_status",
     ] as const;
 
     // Register mock browser tools with the correct metadata so classifyRisk
@@ -4357,12 +4482,15 @@ describe("Permission Checker", () => {
         "browser_snapshot",
         "browser_screenshot",
         "browser_close",
+        "browser_attach",
+        "browser_detach",
         "browser_click",
         "browser_type",
         "browser_press_key",
         "browser_wait_for",
         "browser_extract",
         "browser_fill_credential",
+        "browser_status",
       ];
 
       for (const tool of browserTools) {

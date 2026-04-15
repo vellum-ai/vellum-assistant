@@ -4,6 +4,7 @@ import VellumAssistantShared
 enum SettingsTab: String {
     case general = "General"
     case modelsAndServices = "Models & Services"
+    case integrations = "Integrations"
     case voice = "Voice"
     case sounds = "Sounds"
     case permissionsAndPrivacy = "Permissions & Privacy"
@@ -16,6 +17,7 @@ enum SettingsTab: String {
         switch self {
         case .general: return .slidersHorizontal
         case .modelsAndServices: return .cpu
+        case .integrations: return .puzzle
         case .voice: return .mic
         case .sounds: return .volume2
         case .permissionsAndPrivacy: return .shieldCheck
@@ -28,7 +30,8 @@ enum SettingsTab: String {
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
     static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
-        var tabs: [SettingsTab] = [.general, .modelsAndServices, .voice]
+        var tabs: [SettingsTab] = [.general, .modelsAndServices, .integrations]
+        tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
@@ -47,6 +50,7 @@ struct SettingsPanel: View {
     var authManager: AuthManager
     @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
+    var onEnableIntegration: (() -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     // MARK: - Init
@@ -59,6 +63,7 @@ struct SettingsPanel: View {
         authManager: AuthManager,
         assistantFeatureFlagStore: AssistantFeatureFlagStore,
         showToast: @escaping (String, ToastInfo.Style) -> Void,
+        onEnableIntegration: (() -> Void)? = nil,
         featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     ) {
         self.onClose = onClose
@@ -68,6 +73,7 @@ struct SettingsPanel: View {
         self.authManager = authManager
         self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
         self.showToast = showToast
+        self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient
 
         // Pre-compute the billing flag so the first render already has the
@@ -128,7 +134,7 @@ struct SettingsPanel: View {
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
-    @State private var isIntegrationsGridEnabled: Bool = false
+    @State private var isEmailChannelEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
     @State private var devUnlockMonitor: Any?
@@ -138,8 +144,8 @@ struct SettingsPanel: View {
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
+    private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
-    private static let integrationsGridFeatureFlagKey = "settings-integrations-grid"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -197,7 +203,6 @@ struct SettingsPanel: View {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
             isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
-            isIntegrationsGridEnabled = assistantFeatureFlagStore.isEnabled(Self.integrationsGridFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -261,8 +266,6 @@ struct SettingsPanel: View {
                     if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
-                } else if key == Self.integrationsGridFeatureFlagKey {
-                    isIntegrationsGridEnabled = enabled
                 }
             }
         }
@@ -402,7 +405,14 @@ struct SettingsPanel: View {
                 }
             })
         case .modelsAndServices:
-            integrationsContent
+            modelsAndServicesContent
+        case .integrations:
+            IntegrationsPanelContent(
+                store: store,
+                authManager: authManager,
+                showToast: showToast,
+                onEnableIntegration: onEnableIntegration
+            )
         case .voice:
             VoiceSettingsView(store: store)
         case .sounds:
@@ -420,9 +430,9 @@ struct SettingsPanel: View {
         }
     }
 
-    // MARK: - Integrations Tab
+    // MARK: - Models & Services Tab
 
-    private var integrationsContent: some View {
+    private var modelsAndServicesContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Managed services billing info banner
             HStack(spacing: VSpacing.sm) {
@@ -490,23 +500,11 @@ struct SettingsPanel: View {
                 )
             }
 
-            // OAUTH PROVIDERS (dynamic from API)
-            if !isIntegrationsGridEnabled {
-                ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
-                    OAuthProviderServiceCard(
-                        store: store,
-                        authManager: authManager,
-                        showToast: showToast,
-                        providerKey: provider.provider_key
-                    )
-                }
-            } else {
-                IntegrationsGridView(
-                    store: store,
-                    authManager: authManager,
-                    showToast: showToast
-                )
+            // EMAIL (feature-flagged)
+            if isEmailChannelEnabled {
+                EmailServiceCard(store: store)
             }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
@@ -514,7 +512,9 @@ struct SettingsPanel: View {
             store.refreshModelInfo()
             store.loadProviderRoutingSources()
             store.refreshEmbeddingConfig()
-            store.fetchManagedOAuthProviders()
+            if isEmailChannelEnabled {
+                store.refreshAssistantEmail()
+            }
         }
     }
 
@@ -651,14 +651,14 @@ struct SettingsPanel: View {
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
+                if let emailChannelFlag = flags.first(where: { $0.key == Self.emailChannelFeatureFlagKey }) {
+                    isEmailChannelEnabled = emailChannelFlag.enabled
+                }
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
                 if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
                     isSchedulesEnabled = schedulesFlag.enabled
-                }
-                if let integrationsGridFlag = flags.first(where: { $0.key == Self.integrationsGridFeatureFlagKey }) {
-                    isIntegrationsGridEnabled = integrationsGridFlag.enabled
                 }
                 consumeDeferredDeepLinkIfVisible()
                 return
@@ -677,16 +677,15 @@ struct SettingsPanel: View {
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
         }
+        if let emailChannelEnabled = resolved[Self.emailChannelFeatureFlagKey] {
+            isEmailChannelEnabled = emailChannelEnabled
+        }
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled
         }
         if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
             isSchedulesEnabled = schedulesEnabled
         }
-        if let integrationsGridEnabled = resolved[Self.integrationsGridFeatureFlagKey] {
-            isIntegrationsGridEnabled = integrationsGridEnabled
-        }
-
         consumeDeferredDeepLinkIfVisible()
     }
 

@@ -190,6 +190,26 @@ export class CesCredentialBackend implements CredentialBackend {
     }
   }
 
+  async bulkSet(
+    credentials: Array<{ account: string; value: string }>,
+  ): Promise<Array<{ account: string; ok: boolean }>> {
+    try {
+      const res = await cesRequest("POST", "/v1/credentials/bulk", {
+        credentials,
+      });
+      if (!res?.ok) {
+        return credentials.map((c) => ({ account: c.account, ok: false }));
+      }
+      const data = (await res.json()) as {
+        results: Array<{ account: string; ok: boolean }>;
+      };
+      return data.results;
+    } catch (err) {
+      log.warn({ err }, "CES credential bulk set threw unexpectedly");
+      return credentials.map((c) => ({ account: c.account, ok: false }));
+    }
+  }
+
   async list(): Promise<CredentialListResult> {
     try {
       const res = await cesRequest("GET", "/v1/credentials");

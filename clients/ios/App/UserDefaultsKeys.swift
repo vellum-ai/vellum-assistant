@@ -4,7 +4,6 @@ import Foundation
 enum UserDefaultsKeys {
     static let developerModeEnabled = "developer_mode_enabled"
     static let appearanceMode = "appearance_mode"
-    static let authServiceBaseURL = "authServiceBaseURL"
     static let gatewayBaseURL = "gateway_base_url"
     static let conversationKey = "conversation_key"
 

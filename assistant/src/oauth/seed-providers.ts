@@ -5,30 +5,36 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authorizeUrl, tokenExchangeUrl,
- * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
+ * pingUrl, pingMethod, pingHeaders, pingBody, revokeUrl, revokeBodyTemplate,
+ * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
  * scopeSeparator)
  * and display metadata (displayLabel,
- * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
+ * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret,
+ * logoUrl)
  * are overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy) are only
  * written on initial insert and preserved across restarts.
  */
-const PROVIDER_SEED_DATA: Record<
+export const PROVIDER_SEED_DATA: Record<
   string,
   {
     provider: string;
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
+    tokenExchangeBodyFormat?: string;
     userinfoUrl?: string;
     pingUrl?: string;
     pingMethod?: string;
     pingHeaders?: Record<string, string>;
     pingBody?: unknown;
+    revokeUrl?: string;
+    revokeBodyTemplate?: Record<string, string>;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: {
@@ -61,6 +67,7 @@ const PROVIDER_SEED_DATA: Record<
     identityFormat?: string;
     identityOkField?: string;
     featureFlag?: string;
+    logoUrl?: string;
   }
 > = {
   google: {
@@ -74,6 +81,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Gmail, Calendar, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
+    logoUrl: "https://cdn.simpleicons.org/google",
     defaultScopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.modify",
@@ -114,6 +122,8 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://oauth2.googleapis.com/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
     appType: "Desktop app",
     identityUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     identityResponsePaths: ["email"],
@@ -129,7 +139,9 @@ const PROVIDER_SEED_DATA: Record<
     description: "Workspace messaging",
     dashboardUrl: "https://api.slack.com/apps",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/slack",
     defaultScopes: [
+      "channels:join",
       "channels:read",
       "channels:history",
       "groups:read",
@@ -180,6 +192,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Pages and databases",
     dashboardUrl: "https://www.notion.so/my-integrations",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/notion",
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -188,6 +201,8 @@ const PROVIDER_SEED_DATA: Record<
     },
     authorizeParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
+    tokenExchangeBodyFormat: "json",
+    managedServiceConfigKey: "notion-oauth",
     loopbackPort: 17323,
     injectionTemplates: [
       {
@@ -213,6 +228,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Posts and direct messages",
     dashboardUrl: "https://developer.twitter.com/en/portal/dashboard",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/x",
     defaultScopes: [
       "tweet.read",
       "tweet.write",
@@ -226,6 +242,8 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17335,
+    managedServiceConfigKey: "twitter-oauth",
+    featureFlag: "managed-x-oauth-integration",
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
@@ -234,6 +252,12 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://api.x.com/2/oauth2/revoke",
+    revokeBodyTemplate: {
+      token: "{access_token}",
+      token_type_hint: "access_token",
+      client_id: "{client_id}",
+    },
     appType: "App",
     identityUrl: "https://api.x.com/2/users/me",
     identityResponsePaths: ["data.username"],
@@ -250,6 +274,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Repositories and issues",
     dashboardUrl: "https://github.com/settings/developers",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/github",
     defaultScopes: ["repo", "read:user", "notifications"],
     scopePolicy: {
       allowAdditionalScopes: true,
@@ -261,6 +286,7 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: ["delete_repo", "admin:org"],
     },
+    managedServiceConfigKey: "github-oauth",
     loopbackPort: 17332,
     injectionTemplates: [
       {
@@ -289,6 +315,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Issues and projects",
     dashboardUrl: "https://linear.app/settings/api",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/linear",
     defaultScopes: ["read", "write", "issues:create"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -307,6 +334,8 @@ const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+    revokeUrl: "https://api.linear.app/oauth/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
     appType: "OAuth application",
     identityUrl: "https://api.linear.app/graphql",
     identityMethod: "POST",
@@ -325,6 +354,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Music and playlists",
     dashboardUrl: "https://developer.spotify.com/dashboard",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/spotify",
     defaultScopes: [
       "user-read-playback-state",
       "user-modify-playback-state",
@@ -366,6 +396,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Tasks and projects",
     dashboardUrl: "https://developer.todoist.com/appconsole.html",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/todoist",
     defaultScopes: ["data:read_write"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -399,6 +430,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Servers and messages",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/discord",
     defaultScopes: [
       "identify",
       "guilds",
@@ -435,6 +467,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Files and folders",
     dashboardUrl: "https://www.dropbox.com/developers/apps",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/dropbox",
     defaultScopes: [
       "files.metadata.read",
       "files.content.read",
@@ -478,6 +511,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Tasks and projects",
     dashboardUrl: "https://app.asana.com/0/my-apps",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/asana",
     defaultScopes: ["default"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -508,6 +542,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Bases and records",
     dashboardUrl: "https://airtable.com/create/tokens",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/airtable",
     defaultScopes: [
       "data.records:read",
       "data.records:write",
@@ -543,6 +578,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "CRM contacts and deals",
     dashboardUrl: "https://developers.hubspot.com/",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/hubspot",
     defaultScopes: [
       "crm.objects.contacts.read",
       "crm.objects.contacts.write",
@@ -582,6 +618,7 @@ const PROVIDER_SEED_DATA: Record<
     description: "Design files and comments",
     dashboardUrl: "https://www.figma.com/developers/apps",
     clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/figma",
     defaultScopes: ["files:read", "file_comments:write"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -616,6 +653,7 @@ const PROVIDER_SEED_DATA: Record<
     dashboardUrl:
       "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
     clientIdPlaceholder: "Application (client) ID from Azure portal",
+    logoUrl: "https://cdn.simpleicons.org/microsoftoutlook",
     defaultScopes: [
       "openid",
       "profile",
@@ -664,6 +702,7 @@ const PROVIDER_SEED_DATA: Record<
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
+    logoUrl: "https://cdn.simpleicons.org/slack",
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -682,6 +721,7 @@ const PROVIDER_SEED_DATA: Record<
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
+    logoUrl: "https://cdn.simpleicons.org/telegram",
     defaultScopes: [],
     scopePolicy: {
       allowAdditionalScopes: false,

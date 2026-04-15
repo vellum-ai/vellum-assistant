@@ -14,6 +14,7 @@ import {
   readPlatformToken,
   getPlatformUrl,
   hatchAssistant,
+  checkExistingPlatformAssistant,
   platformInitiateExport,
   platformPollExportStatus,
   platformDownloadExport,
@@ -23,6 +24,7 @@ import {
   platformUploadToSignedUrl,
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
+  platformPollImportStatus,
 } from "../lib/platform-client.js";
 import {
   hatchDocker,
@@ -34,6 +36,8 @@ import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
 import { stopProcessByPidFile } from "../lib/process.js";
+import { fetchCurrentVersion } from "../lib/upgrade-lifecycle.js";
+import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
 
 function printHelp(): void {
@@ -512,6 +516,16 @@ async function exportFromAssistant(
         if (msg.includes("not found")) {
           throw err;
         }
+        // Re-throw permanent 4xx errors (auth, forbidden, etc.)
+        // but retry transient 5xx errors
+        const statusMatch = msg.match(/status check failed: (\d+)/);
+        if (statusMatch) {
+          const statusCode = parseInt(statusMatch[1], 10);
+          if (statusCode >= 400 && statusCode < 500) {
+            throw err;
+          }
+        }
+        // Transient error — retry
         console.warn(`Polling failed, retrying... (${msg})`);
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         continue;
@@ -706,13 +720,81 @@ async function importToAssistant(
         : await platformImportBundle(bundleData, token, entry.runtimeUrl);
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out after 5 minutes.");
+        console.error("Error: Import request timed out.");
         process.exit(1);
       }
       throw err;
     }
 
     handleImportStatusErrors(importResult.statusCode, entry.assistantId);
+
+    if (importResult.statusCode === 202) {
+      const jobId = (importResult.body as { job_id?: string }).job_id;
+      if (!jobId) {
+        console.error("Error: Import accepted but no job ID returned.");
+        process.exit(1);
+      }
+
+      const POLL_INTERVAL_MS = 5_000;
+      const TIMEOUT_MS = 10 * 60 * 1_000; // 10 minutes (platform staleness is 930s)
+      const startTime = Date.now();
+      const deadline = startTime + TIMEOUT_MS;
+
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+        let status: {
+          status: string;
+          result?: Record<string, unknown>;
+          error?: string;
+        };
+        try {
+          status = await platformPollImportStatus(
+            jobId,
+            token,
+            entry.runtimeUrl,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("not found")) {
+            throw err;
+          }
+          // Re-throw permanent 4xx errors (auth, forbidden, etc.)
+          // but retry transient 5xx errors
+          const statusMatch = msg.match(/status check failed: (\d+)/);
+          if (statusMatch) {
+            const statusCode = parseInt(statusMatch[1], 10);
+            if (statusCode >= 400 && statusCode < 500) {
+              throw err;
+            }
+          }
+          // Transient error — retry
+          console.warn(`Polling failed, retrying... (${msg})`);
+          continue;
+        }
+
+        if (status.status === "complete") {
+          importResult = { statusCode: 200, body: status.result ?? {} };
+          break;
+        }
+
+        if (status.status === "failed") {
+          console.error(`Import failed: ${status.error ?? "unknown error"}`);
+          process.exit(1);
+        }
+
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        process.stdout.write(`\rImporting... ${elapsed}s elapsed`);
+      }
+
+      // Clear the progress line
+      process.stdout.write("\r" + " ".repeat(40) + "\r");
+
+      if (importResult.statusCode === 202) {
+        console.error("Import timed out after 10 minutes.");
+        process.exit(1);
+      }
+    }
 
     const result = importResult.body as unknown as ImportResponse;
     printImportSummary(result);
@@ -779,7 +861,7 @@ export async function resolveOrHatchTarget(
   // Hatch a new assistant in the target environment
   if (targetEnv === "local") {
     const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
-    await hatchLocal("vellum", targetName ?? null, false, false, false, {});
+    await hatchLocal("vellum", targetName ?? null, false, false, {});
     const entry = targetName
       ? findAssistantByName(targetName)
       : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??
@@ -816,7 +898,29 @@ export async function resolveOrHatchTarget(
       process.exit(1);
     }
 
-    const result = await hatchAssistant(token);
+    const { assistant: result, reusedExisting } = await hatchAssistant(token);
+
+    // Defensive safety net — should not happen because of the pre-check in
+    // teleport(), but guards against a TOCTOU race between the pre-check and
+    // hatch (e.g. another client hatches in the GCS-upload window).
+    if (reusedExisting) {
+      const entry: AssistantEntry = {
+        assistantId: result.id,
+        runtimeUrl: getPlatformUrl(),
+        cloud: "vellum",
+        species: "vellum",
+        hatchedAt: new Date().toISOString(),
+      };
+      saveAssistantEntry(entry);
+      console.error(
+        `Error: You already have a platform assistant '${result.id}'.`,
+      );
+      console.error(
+        `Retire it first with 'vellum retire ${result.id}', then retry the teleport.`,
+      );
+      process.exit(1);
+    }
+
     const entry: AssistantEntry = {
       assistantId: result.id,
       runtimeUrl: getPlatformUrl(),
@@ -1025,6 +1129,13 @@ export async function teleport(): Promise<void> {
 
   const fromCloud = resolveCloud(fromEntry);
 
+  if (fromCloud === "apple-container") {
+    console.error(
+      `Error: '${from}' uses the Apple Containers runtime. Teleport is not yet supported for this topology.`,
+    );
+    process.exit(1);
+  }
+
   // Early same-environment guard — compare source cloud against the CLI flag
   // BEFORE exporting or hatching, to avoid creating orphaned assistants.
   const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
@@ -1056,6 +1167,28 @@ export async function teleport(): Promise<void> {
           `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
         );
         process.exit(1);
+      }
+
+      // Version guard: block platform→non-platform when target is behind
+      if (fromCloud === "vellum" && toCloud !== "vellum") {
+        const [sourceVersion, targetVersion] = await Promise.all([
+          fetchCurrentVersion(fromEntry.runtimeUrl),
+          fetchCurrentVersion(existingTarget.runtimeUrl),
+        ]);
+        const cmp =
+          sourceVersion && targetVersion
+            ? compareVersions(targetVersion, sourceVersion)
+            : null;
+        if (cmp !== null && cmp < 0) {
+          console.error(
+            `Error: Target assistant '${existingTarget.assistantId}' is running ${targetVersion}, ` +
+              `but the platform source is on ${sourceVersion}.`,
+          );
+          console.error(
+            `Upgrade your ${toCloud} assistant first: vellum upgrade ${existingTarget.assistantId}`,
+          );
+          process.exit(1);
+        }
       }
 
       console.log(`Exporting from ${from} (${fromCloud})...`);
@@ -1117,6 +1250,31 @@ export async function teleport(): Promise<void> {
     // and import hit the same instance.
     const targetPlatformUrl = existingTarget?.runtimeUrl;
 
+    // Step B2 — Pre-check: block if the user already has a platform assistant.
+    // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+    if (!existingTarget) {
+      const existing = await checkExistingPlatformAssistant(
+        token,
+        targetPlatformUrl,
+      );
+      if (existing) {
+        saveAssistantEntry({
+          assistantId: existing.id,
+          runtimeUrl: getPlatformUrl(),
+          cloud: "vellum",
+          species: "vellum",
+          hatchedAt: new Date().toISOString(),
+        });
+        console.error(
+          `Error: You already have a platform assistant '${existing.id}'.`,
+        );
+        console.error(
+          `Retire it first with 'vellum retire ${existing.id}', then retry the teleport.`,
+        );
+        process.exit(1);
+      }
+    }
+
     // Step C — Upload to GCS
     // bundleKey: string = uploaded successfully, null = tried but unavailable,
     // undefined would mean "never tried" (not used here).
@@ -1159,6 +1317,36 @@ export async function teleport(): Promise<void> {
   // fails, the user can recover by running `vellum wake <source>`.
   const sourceIsLocalOrDocker = fromCloud === "local" || fromCloud === "docker";
   const targetIsLocalOrDocker = targetEnv === "local" || targetEnv === "docker";
+
+  // Version guard (pre-hatch): for existing targets, check BEFORE hatching
+  // to avoid creating orphaned assistants when the version check would fail.
+  let versionGuardPassed = false;
+  if (fromCloud === "vellum" && targetIsLocalOrDocker && targetName) {
+    const existingTarget = findAssistantByName(targetName);
+    if (existingTarget) {
+      const [sourceVersion, existingVersion] = await Promise.all([
+        fetchCurrentVersion(fromEntry.runtimeUrl),
+        fetchCurrentVersion(existingTarget.runtimeUrl),
+      ]);
+      const cmp =
+        sourceVersion && existingVersion
+          ? compareVersions(existingVersion, sourceVersion)
+          : null;
+      if (cmp !== null && cmp < 0) {
+        console.error(
+          `Error: Target assistant '${existingTarget.assistantId}' is running ${existingVersion}, ` +
+            `but the platform source is on ${sourceVersion}.`,
+        );
+        console.error(
+          `Upgrade your ${targetEnv} assistant first: vellum upgrade ${existingTarget.assistantId}`,
+        );
+        process.exit(1);
+      }
+      // Pre-hatch check passed (or was best-effort skipped) — skip post-hatch
+      versionGuardPassed = true;
+    }
+  }
+
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
     console.log(`Stopping source assistant '${from}' to free ports...`);
     if (fromCloud === "docker") {
@@ -1187,6 +1375,41 @@ export async function teleport(): Promise<void> {
       `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
     );
     process.exit(1);
+  }
+
+  // Version guard (post-hatch): for newly hatched targets we must check after
+  // hatch because the assistant doesn't exist yet before. If it fails, clean
+  // up the freshly hatched assistant to avoid orphans.
+  // Skip if the pre-hatch guard already ran for an existing target.
+  if (!versionGuardPassed && fromCloud === "vellum" && toCloud !== "vellum") {
+    const [sourceVersion, targetVersion] = await Promise.all([
+      fetchCurrentVersion(fromEntry.runtimeUrl),
+      fetchCurrentVersion(toEntry.runtimeUrl),
+    ]);
+    const cmp =
+      sourceVersion && targetVersion
+        ? compareVersions(targetVersion, sourceVersion)
+        : null;
+    if (cmp !== null && cmp < 0) {
+      // Clean up the freshly hatched assistant to avoid orphans
+      console.error(
+        `Cleaning up newly hatched assistant '${toEntry.assistantId}'...`,
+      );
+      if (toCloud === "docker") {
+        await retireDocker(toEntry.assistantId);
+      } else {
+        await retireLocal(toEntry.assistantId, toEntry);
+      }
+      removeAssistantEntry(toEntry.assistantId);
+      console.error(
+        `Error: Target assistant '${toEntry.assistantId}' was running ${targetVersion}, ` +
+          `but the platform source is on ${sourceVersion}.`,
+      );
+      console.error(
+        `Upgrade your ${toCloud} environment first, then retry the teleport.`,
+      );
+      process.exit(1);
+    }
   }
 
   // Import to target

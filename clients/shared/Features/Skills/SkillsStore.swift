@@ -15,6 +15,9 @@ public final class SkillsStore: ObservableObject {
     @Published public var loadedBodies: [String: String] = [:]
     @Published public var isLoading = false
 
+    @Published public var categoryCounts: [String: Int] = [:]
+    @Published public var totalCount: Int = 0
+
     @Published public var searchResults: [SkillInfo] = []
     @Published public var isSearching = false
 
@@ -37,15 +40,26 @@ public final class SkillsStore: ObservableObject {
     @Published public var skillDetailError: String?
     @Published public var skillFilesError: String?
 
+    /// Per-file loaded content keyed by the file's relative path within the skill.
+    @Published public var loadedFileContents: [String: String] = [:]
+    /// Paths with an in-flight content fetch.
+    @Published public var loadingFilePaths: Set<String> = []
+    /// Per-path error messages from failed content fetches.
+    @Published public var fileContentErrors: [String: String] = [:]
+
     // MARK: - Result Types
 
     public struct InstallResult: Sendable {
         public let slug: String
+        /// The actual installed skill ID returned by the daemon, which may
+        /// differ from `slug` (e.g. skills.sh resolves "owner/repo/skill" to "skill").
+        public let skillId: String?
         public let success: Bool
         public let error: String?
 
-        public init(slug: String, success: Bool, error: String?) {
+        public init(slug: String, skillId: String? = nil, success: Bool, error: String?) {
             self.slug = slug
+            self.skillId = skillId
             self.success = success
             self.error = error
         }
@@ -85,14 +99,24 @@ public final class SkillsStore: ObservableObject {
 
     private let skillsClient: SkillsClientProtocol
     private var lastSearchQuery: String?
+    private var fetchTask: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
     private var skillDetailTask: Task<Void, Never>?
     private var skillFilesTask: Task<Void, Never>?
+    private var fileContentTasks: [String: Task<Void, Never>] = [:]
     private var draftGeneration: Int = 0
     private var createGeneration: Int = 0
     private var currentDetailSkillId: String?
     private var currentFilesSkillId: String?
+
+    /// Last-used filter params, replayed by post-operation refreshes so
+    /// the user's active filter view is preserved after install/uninstall/etc.
+    private var lastOrigin: String?
+    private var lastKind: String?
+    private var lastQuery: String?
+    private var lastCategory: String?
 
     // MARK: - Init
 
@@ -106,15 +130,30 @@ public final class SkillsStore: ObservableObject {
 
     // MARK: - Fetch Skills
 
-    public func fetchSkills(force: Bool = false) {
-        guard !isLoading else { return }
-        if !force && !skills.isEmpty { return }
+    public func fetchSkills(force: Bool = false, origin: String? = nil, kind: String? = nil, query: String? = nil, category: String? = nil) {
+        if force {
+            // Cancel the in-flight fetch so the latest filter params always win.
+            fetchTask?.cancel()
+        } else {
+            guard !isLoading else { return }
+            if !skills.isEmpty { return }
+        }
+
+        // Remember the filter params so post-operation refreshes replay them.
+        lastOrigin = origin
+        lastKind = kind
+        lastQuery = query
+        lastCategory = category
+
         isLoading = true
 
-        Task {
-            let response = await skillsClient.fetchSkillsList(includeCatalog: true)
+        fetchTask = Task {
+            let response = await skillsClient.fetchSkillsList(includeCatalog: true, origin: origin, kind: kind, query: query, category: category)
+            guard !Task.isCancelled else { return }
             if let response {
                 skills = response.skills
+                categoryCounts = response.categoryCounts ?? [:]
+                totalCount = response.totalCount ?? response.skills.count
             }
             isLoading = false
         }
@@ -137,12 +176,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Search Skills
 
     public func searchSkills(query: String = "", force: Bool = false) {
-        guard !isSearching else { return }
         if !force && !searchResults.isEmpty && lastSearchQuery == query { return }
+
+        // Cancel any in-flight search so the latest query always wins.
+        searchTask?.cancel()
         isSearching = true
 
-        Task {
+        searchTask = Task {
             let result = await skillsClient.searchSkills(query: query)
+            guard !Task.isCancelled else { return }
             if let result, result.success {
                 searchResults = result.skills
             } else {
@@ -151,6 +193,17 @@ public final class SkillsStore: ObservableObject {
             lastSearchQuery = query
             isSearching = false
         }
+    }
+
+    /// Cancels any in-flight search task and clears search state.
+    ///
+    /// Called by `SkillsManager.dispatchSearch` when the user types a new
+    /// query before the previous search completes, preventing stale results
+    /// from the earlier query from briefly appearing.
+    public func cancelSearch() {
+        searchTask?.cancel()
+        searchResults = []
+        isSearching = false
     }
 
     // MARK: - Install Skill
@@ -162,13 +215,13 @@ public final class SkillsStore: ObservableObject {
             let response = await skillsClient.installSkill(slug: slug, version: nil)
             let result: InstallResult
             if let response, response.success {
-                result = InstallResult(slug: slug, success: true, error: nil)
+                result = InstallResult(slug: slug, skillId: response.skillId, success: true, error: nil)
             } else {
                 result = InstallResult(slug: slug, success: false, error: response?.error ?? "Failed to connect")
             }
             installResult = result
             if result.success {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -196,7 +249,7 @@ public final class SkillsStore: ObservableObject {
             }
             uninstallResult = result
             if result.success {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -213,14 +266,14 @@ public final class SkillsStore: ObservableObject {
     public func enableSkill(name: String) {
         Task {
             _ = await skillsClient.enableSkill(name: name)
-            fetchSkills(force: true)
+            fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
         }
     }
 
     public func disableSkill(name: String) {
         Task {
             _ = await skillsClient.disableSkill(name: name)
-            fetchSkills(force: true)
+            fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
         }
     }
 
@@ -283,7 +336,7 @@ public final class SkillsStore: ObservableObject {
             )
             guard generation == self.createGeneration else { return }
             if response?.success == true {
-                fetchSkills(force: true)
+                fetchSkills(force: true, origin: lastOrigin, kind: lastKind, query: lastQuery, category: lastCategory)
             } else {
                 createError = response?.error ?? "Failed to create skill"
             }
@@ -318,9 +371,15 @@ public final class SkillsStore: ObservableObject {
     // MARK: - Fetch Skill Files
 
     public func fetchSkillFiles(skillId: String) {
+        // Cancel any in-flight files task and start a new one. Intentionally do
+        // not early-return when `currentFilesSkillId == skillId`: a re-fetch
+        // for the same skill replaces stale (lazy/null) file content with
+        // fresh content after an install transition, so the store must always
+        // reissue the request rather than reuse the prior response.
         skillFilesTask?.cancel()
         if currentFilesSkillId != skillId {
             selectedSkillFiles = nil
+            clearLoadedFileContents()
         }
         currentFilesSkillId = skillId
         isLoadingSkillFiles = true
@@ -339,6 +398,52 @@ public final class SkillsStore: ObservableObject {
         }
     }
 
+    // MARK: - Lazy File Content
+
+    public func loadSkillFileContent(skillId: String, path: String) {
+        // Cancel any in-flight task for the same path so a second click
+        // replaces the first. The task body mirrors the structure of
+        // `fetchSkillDetail`/`fetchSkillFiles` above: a single
+        // `Task.isCancelled` check gates every state mutation, and the
+        // `SkillsStore` actor isolation (`@MainActor`) removes the need
+        // for an explicit `MainActor.run` hop.
+        fileContentTasks[path]?.cancel()
+        loadingFilePaths.insert(path)
+        fileContentErrors[path] = nil
+
+        let task = Task {
+            let result = await self.skillsClient.fetchSkillFileContent(skillId: skillId, path: path)
+            guard !Task.isCancelled else { return }
+            guard self.currentFilesSkillId == skillId else { return }
+
+            self.loadingFilePaths.remove(path)
+            if let result, let content = result.content {
+                self.loadedFileContents[path] = content
+            } else if let result, result.isBinary {
+                // Binary file: no preview available is expected, not an error.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else if let result, result.content == nil {
+                // Oversized text file: the daemon returns `content: null`
+                // for text files above the inline-content size threshold.
+                // Treat this as "no preview available" rather than an
+                // error — the detail view falls through to its existing
+                // "Select a file to view" empty state.
+                self.loadedFileContents.removeValue(forKey: path)
+            } else {
+                self.fileContentErrors[path] = "Failed to load file content"
+            }
+        }
+        fileContentTasks[path] = task
+    }
+
+    public func clearLoadedFileContents() {
+        for task in fileContentTasks.values { task.cancel() }
+        fileContentTasks.removeAll()
+        loadedFileContents.removeAll()
+        loadingFilePaths.removeAll()
+        fileContentErrors.removeAll()
+    }
+
     // MARK: - Clear Skill Detail
 
     public func clearSkillDetail() {
@@ -354,6 +459,7 @@ public final class SkillsStore: ObservableObject {
         isLoadingSkillFiles = false
         skillDetailError = nil
         skillFilesError = nil
+        clearLoadedFileContents()
     }
 
     // MARK: - Reset Draft State

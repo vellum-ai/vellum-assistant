@@ -11,14 +11,13 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
-import type {
-  TurnChannelContext,
-  TurnInterfaceContext,
-} from "../channels/types.js";
 import {
+  canServiceRegistryBrowser,
   parseChannelId,
   parseInterfaceId,
   supportsHostProxy,
+  type TurnChannelContext,
+  type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
@@ -34,19 +33,28 @@ import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { QueueDrainReason } from "./conversation-queue-manager.js";
+import { persistQueuedMessageBody } from "./conversation-messaging.js";
+import type {
+  MessageQueue,
+  QueuedMessage,
+  QueueDrainReason,
+} from "./conversation-queue-manager.js";
 import type {
   ChannelCapabilities,
   TrustContext,
 } from "./conversation-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import {
+  classifySlash,
+  resolveSlash,
+  type SlashContext,
+} from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import type {
   ServerMessage,
   UsageStats,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
@@ -93,6 +101,12 @@ export interface ProcessConversationContext {
   currentRequestId?: string;
   readonly queue: MessageQueue;
   readonly traceEmitter: TraceEmitter;
+  /**
+   * Set of requestIds created by surface-action responses. Used to
+   * distinguish surface-action turns from regular user turns (e.g. for
+   * stale-surface auto-dismiss guards and batched-drain exclusion).
+   */
+  readonly surfaceActionRequestIds: Set<string>;
   currentActiveSurfaceId?: string;
   currentPage?: string;
   /** Cumulative token usage stats for the conversation. */
@@ -134,8 +148,26 @@ export interface ProcessConversationContext {
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void;
-  /** Restore host proxy availability based on whether a real client is connected. */
-  restoreProxyAvailability(): void;
+  /**
+   * Restore host proxy availability based on whether a real client is connected.
+   * When `skipBrowser` is true, the browser proxy is left untouched — use this
+   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
+   * separately with the correct registry-routed sender.
+   */
+  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void;
+  /** Restore only the host browser proxy (used by chrome-extension and macOS+extension drains). */
+  restoreBrowserProxyAvailability(): void;
+  /**
+   * Registry-routed sender override for the host browser proxy. When set,
+   * `restoreBrowserProxyAvailability()` uses this function instead of
+   * `sendToClient`. Set by the POST /messages handler when the guardian
+   * has an active extension connection (regardless of interface).
+   */
+  hostBrowserSenderOverride?: (msg: ServerMessage) => void;
+  /** Replace or clear the conversation's host browser proxy. */
+  setHostBrowserProxy(
+    proxy: import("./host-browser-proxy.js").HostBrowserProxy | undefined,
+  ): void;
   emitActivityState(
     phase:
       | "idle"
@@ -164,6 +196,13 @@ export interface ProcessConversationContext {
   forceCompact(): Promise<ContextWindowResult>;
   /** Set transport-derived hints for the conversation. */
   setTransportHints(hints: string[] | undefined): void;
+  /**
+   * Apply client-reported host env (home dir, username) from transport
+   * metadata, gating on `supportsHostProxy` so non-host-proxy interfaces
+   * clear any stale values. Shared between the create/reuse path in
+   * `DaemonServer.applyTransportMetadata` and the queue-drain path below.
+   */
+  applyHostEnvFromTransport(transport: ConversationTransportMetadata): void;
 }
 
 function resolveQueuedTurnContext(
@@ -228,6 +267,82 @@ function buildSlashContext(
   };
 }
 
+/**
+ * Walk the head of the queue and return the longest contiguous run of
+ * passthrough messages (non-slash, non-verification-intent) that share the
+ * same `userMessageInterface`. Returns `[]` when the head is itself a slash
+ * command or verification-intent direct-setup — in that case `drainQueue`
+ * pops the head via `queue.shift()` and the single-message path handles it.
+ *
+ * The builder uses `peek` for lookahead and only calls `shiftN(matched)` once
+ * a contiguous passthrough run is identified. This keeps byte-budget
+ * accounting centralized in `MessageQueue` rather than mutating mid-walk.
+ */
+async function buildPassthroughBatch(
+  conversation: ProcessConversationContext,
+): Promise<QueuedMessage[]> {
+  const head = conversation.queue.peek(0);
+  if (head === undefined) return [];
+
+  const headInterface = resolveQueuedTurnInterfaceContext(
+    head,
+    conversation.getTurnInterfaceContext(),
+  );
+  // Pure classifier — no side effects. `resolveSlash` runs /pair's side
+  // effects (pairing registration, QR PNG write); if we called it here the
+  // real drain would invoke those again and the second call would fail with
+  // "active pairing already in progress".
+  if (classifySlash(head.content) !== "passthrough") return [];
+  if (resolveVerificationSessionIntent(head.content).kind === "direct_setup") {
+    // Verification intents stay on the single-message path so their per-turn
+    // skill preactivation isn't leaked into batched tail messages.
+    return [];
+  }
+  // Surface-action messages rely on per-message `activeSurfaceId` and
+  // `surfaceActionRequestIds` semantics that last-wins batching would
+  // corrupt (e.g. erasing the head's surface context when the last tail is
+  // a regular text message). Keep them on the single-message path.
+  if (
+    head.activeSurfaceId !== undefined ||
+    conversation.surfaceActionRequestIds.has(head.requestId)
+  ) {
+    return [];
+  }
+
+  let i = 1;
+  for (;;) {
+    const candidate = conversation.queue.peek(i);
+    if (candidate === undefined) break;
+    const candIf = resolveQueuedTurnInterfaceContext(
+      candidate,
+      conversation.getTurnInterfaceContext(),
+    );
+    // Treat an undefined interface as distinct from a defined one so we don't
+    // silently batch cross-interface messages whose env/transport would
+    // otherwise diverge.
+    if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
+      break;
+    if (classifySlash(candidate.content) !== "passthrough") break;
+    if (
+      resolveVerificationSessionIntent(candidate.content).kind ===
+      "direct_setup"
+    )
+      break;
+    // Stop at the first surface-action tail; it will drain via the single-
+    // message path so its per-message surface context is preserved.
+    if (
+      candidate.activeSurfaceId !== undefined ||
+      conversation.surfaceActionRequestIds.has(candidate.requestId)
+    ) {
+      break;
+    }
+    i++;
+  }
+
+  const matched = i;
+  return conversation.queue.shiftN(matched);
+}
+
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
@@ -244,9 +359,26 @@ export async function drainQueue(
   conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
-  const next = conversation.queue.shift();
-  if (!next) return;
+  const batch = await buildPassthroughBatch(conversation);
+  if (batch.length === 0) {
+    // Head is a slash / verification intent / empty queue. If the queue has
+    // an item the builder rejected, pop it and hand it to the single-message
+    // path — which owns slash / compact / verification-intent behavior.
+    const next = conversation.queue.shift();
+    if (!next) return;
+    return drainSingleMessage(conversation, next, reason);
+  }
+  if (batch.length === 1) {
+    return drainSingleMessage(conversation, batch[0], reason);
+  }
+  return drainBatch(conversation, batch, reason);
+}
 
+async function drainSingleMessage(
+  conversation: ProcessConversationContext,
+  next: QueuedMessage,
+  reason: QueueDrainReason,
+): Promise<void> {
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
   // from a desktop source that skips runAgentLoop) can't leak CU preactivation
   // into the next queued message.
@@ -304,6 +436,10 @@ export async function drainQueue(
   // environment context for internal turns.
   if (next.transport) {
     conversation.setTransportHints(buildTransportHints(next.transport));
+    // Route client-reported host env through the same capability-gated
+    // setter used by DaemonServer.applyTransportMetadata so create/reuse
+    // and queue-drain stay in sync without duplicating the gate logic.
+    conversation.applyHostEnvFromTransport(next.transport);
   }
 
   // Non-interactive queued messages (channel requests) must not execute tools
@@ -311,16 +447,73 @@ export async function drainQueue(
   // returns false and tool execution falls back to local.
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
+    // chrome-extension is non-interactive (no SSE prompter UI) but DOES have
+    // a connected client that can service host_browser_request events. The
+    // unconditional clear above turned its hostBrowserProxy off; restore it
+    // here so the queued turn can still drive the browser via CDP.
+    const drainInterfaceCtx =
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
+    const drainInterface = drainInterfaceCtx?.userMessageInterface;
+    if (
+      drainInterface &&
+      !supportsHostProxy(drainInterface) &&
+      supportsHostProxy(drainInterface, "host_browser")
+    ) {
+      conversation.restoreBrowserProxyAvailability();
+    }
   } else {
     // Restore proxy availability only for desktop-originating turns (macos)
     // in case a prior non-interactive drain disabled it. Non-desktop interactive
-    // interfaces (CLI, Vellum) should not re-enable desktop host proxies.
+    // interfaces (CLI, Vellum) should not re-enable desktop host proxies. The
+    // chrome-extension interface only supports host_browser, not the desktop
+    // proxies or computer-use, so it is excluded by the no-arg form of
+    // supportsHostProxy (which returns false for chrome-extension).
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability();
+      // When hostBrowserSenderOverride is set, skip the browser proxy here
+      // — restoreBrowserProxyAvailability() below will handle it with the
+      // correct registry-routed sender instead of the SSE hub emitter.
+      conversation.restoreProxyAvailability(
+        conversation.hostBrowserSenderOverride
+          ? { skipBrowser: true }
+          : undefined,
+      );
       conversation.addPreactivatedSkillId("computer-use");
+    }
+    // Tear down a stale hostBrowserProxy inherited from a prior turn on a
+    // different interface (e.g. chrome-extension installed one, then a CLI
+    // turn drains). Without this, restoreProxyAvailability() above would
+    // re-enable the proxy and getCdpClient() would route browser tools
+    // through host_browser_request and hang waiting for a client that this
+    // turn's interface can't service.
+    //
+    // Skip teardown only when BOTH conditions hold:
+    //   1. `hostBrowserSenderOverride` is set (live registry-routed sender)
+    //   2. The current turn's interface can service host_browser frames
+    //      (chrome-extension or macOS).
+    // Without the interface check, queued turns from CLI/iOS/Vellum would
+    // inherit a stale override left by a prior extension-connected turn
+    // and keep the proxy alive, causing cross-interface misrouting.
+    const currentTurnCanServiceBrowser =
+      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
+    if (
+      sourceInterface &&
+      !supportsHostProxy(sourceInterface, "host_browser") &&
+      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
+    ) {
+      conversation.setHostBrowserProxy(undefined);
+    }
+    // When a macOS turn has a registry-routed sender override (active
+    // extension connection), restore the browser proxy so host_browser
+    // tools route through the extension rather than cdp-inspect/local.
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface) &&
+      conversation.hostBrowserSenderOverride
+    ) {
+      conversation.restoreBrowserProxyAvailability();
     }
   }
 
@@ -597,6 +790,16 @@ export async function drainQueue(
     return;
   }
 
+  // Broadcast the user message to all hub subscribers so passive devices
+  // see the user turn before the assistant reply starts streaming.
+  next.onEvent({
+    type: "user_message_echo",
+    text: resolvedContent,
+    conversationId: conversation.conversationId,
+    messageId: userMessageId,
+    requestId: next.requestId,
+  });
+
   // Set the active surface for the dequeued message so runAgentLoop can inject context
   conversation.currentActiveSurfaceId = next.activeSurfaceId;
   conversation.currentPage = next.currentPage;
@@ -664,6 +867,412 @@ export async function drainQueue(
       next.onEvent({
         type: "error",
         message: `Failed to process queued message: ${message}`,
+      });
+    });
+}
+
+// Drives a batched turn where multiple queued passthrough messages share one
+// runAgentLoop run. Per-message dequeue events and DB persistence are
+// preserved; the agent reply fans out to every batched client.
+async function drainBatch(
+  conversation: ProcessConversationContext,
+  batch: QueuedMessage[],
+  reason: QueueDrainReason,
+): Promise<void> {
+  // Head-wins: the batch-builder guarantees identical userMessageInterface
+  // across the batch; channel/transport divergence is accepted with the head's
+  // environment.
+  const head = batch[0];
+
+  // Reset per-turn preactivation so a prior iteration can't leak CU
+  // preactivation into this batched turn.
+  conversation.preactivatedSkillIds = undefined;
+
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      requestId: head.requestId,
+      reason,
+      batchSize: batch.length,
+    },
+    "Dequeuing batched messages",
+  );
+
+  const queuedTurnCtx = resolveQueuedTurnContext(
+    head,
+    conversation.getTurnChannelContext(),
+  );
+  if (queuedTurnCtx) {
+    conversation.setTurnChannelContext(queuedTurnCtx);
+  }
+
+  const queuedInterfaceCtx = resolveQueuedTurnInterfaceContext(
+    head,
+    conversation.getTurnInterfaceContext(),
+  );
+  if (queuedInterfaceCtx) {
+    conversation.setTurnInterfaceContext(queuedInterfaceCtx);
+  }
+
+  // Apply transport hints from the head message so this batched turn uses
+  // the head's transport metadata. Tail transport divergence is accepted
+  // per the head-wins contract.
+  if (head.transport) {
+    conversation.setTransportHints(buildTransportHints(head.transport));
+    conversation.applyHostEnvFromTransport(head.transport);
+  }
+
+  // Non-interactive queued messages (channel requests) must not execute tools
+  // via the desktop host proxy. Clear proxy availability so isAvailable()
+  // returns false and tool execution falls back to local. Mirrors the
+  // single-message path exactly — sourced from `head`.
+  if (head.isInteractive === false) {
+    conversation.clearProxyAvailability();
+    const drainInterfaceCtx =
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
+    const drainInterface = drainInterfaceCtx?.userMessageInterface;
+    if (
+      drainInterface &&
+      !supportsHostProxy(drainInterface) &&
+      supportsHostProxy(drainInterface, "host_browser")
+    ) {
+      conversation.restoreBrowserProxyAvailability();
+    }
+  } else {
+    const interfaceCtx =
+      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
+    const sourceInterface = interfaceCtx?.userMessageInterface;
+    if (sourceInterface && supportsHostProxy(sourceInterface)) {
+      conversation.restoreProxyAvailability(
+        conversation.hostBrowserSenderOverride
+          ? { skipBrowser: true }
+          : undefined,
+      );
+      conversation.addPreactivatedSkillId("computer-use");
+    }
+    const currentTurnCanServiceBrowser =
+      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
+    if (
+      sourceInterface &&
+      !supportsHostProxy(sourceInterface, "host_browser") &&
+      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
+    ) {
+      conversation.setHostBrowserProxy(undefined);
+    }
+    if (
+      sourceInterface &&
+      supportsHostProxy(sourceInterface) &&
+      conversation.hostBrowserSenderOverride
+    ) {
+      conversation.restoreBrowserProxyAvailability();
+    }
+  }
+
+  // Snapshot persona context at turn start so later tool turns can't pick up
+  // a different actor's context if a concurrent request mutates the live fields.
+  conversation.currentTurnTrustContext = conversation.trustContext;
+  conversation.currentTurnChannelCapabilities =
+    conversation.channelCapabilities;
+
+  // Single activity-state transition for the batched turn. Per-message
+  // emissions would publish N "thinking" phase transitions to every
+  // connected SSE client (via activityVersion increments), whipsawing the
+  // client-side thinking indicator. The single-message path emits exactly
+  // one such event per turn; match it here.
+  conversation.emitActivityState(
+    "thinking",
+    "message_dequeued",
+    "assistant_turn",
+    head.requestId,
+  );
+
+  // Per-message dequeue events and persistence loop. Track the last
+  // SUCCESSFUL persist separately from the batch tail — a failed tail
+  // must not corrupt the requestId/surface context that `runAgentLoop`
+  // will tag `message_complete` / `generation_cancelled` with.
+  let lastSuccessfulRequestId: string | undefined;
+  let lastSuccessfulActiveSurfaceId: string | undefined;
+  let lastSuccessfulCurrentPage: string | undefined;
+  let lastSuccessfulContent: string | undefined;
+  let lastUserMessageId: string | undefined;
+  // Members whose persist succeeded. `fanOutOnEvent` below must only
+  // broadcast agent-loop events to these — clients whose persist failed
+  // already received an error event and must not also receive the
+  // assistant's streaming response for a turn that isn't theirs.
+  const successfulBatch: QueuedMessage[] = [];
+  for (let i = 0; i < batch.length; i++) {
+    const qm = batch[i];
+    qm.onEvent({
+      type: "message_dequeued",
+      conversationId: conversation.conversationId,
+      requestId: qm.requestId,
+    });
+    conversation.traceEmitter.emit(
+      "request_dequeued",
+      "Message dequeued (batched)",
+      {
+        requestId: qm.requestId,
+        status: "info",
+        attributes: { reason, batchIndex: i, batchSize: batch.length },
+      },
+    );
+
+    const qmSlash = await resolveSlash(
+      qm.content,
+      buildSlashContext(conversation),
+    );
+    if (qmSlash.kind !== "passthrough") {
+      // Defensive recovery. `buildPassthroughBatch` should make this
+      // unreachable, but if it ever fires we must avoid stranding
+      // per-turn state and dropping the batch tails that have already
+      // been shifted out of the queue. Log, emit an error to the
+      // affected client, and either recover-and-drain (head case) or
+      // skip the tail (tail case) so the rest of the batch still runs.
+      const invariantMessage =
+        "Internal error: batch drain invariant violated (non-passthrough message in batch)";
+      log.error(
+        {
+          conversationId: conversation.conversationId,
+          requestId: qm.requestId,
+          batchIndex: i,
+          batchSize: batch.length,
+          slashKind: qmSlash.kind,
+        },
+        "drainBatch invariant violated — non-passthrough message found in batch",
+      );
+      conversation.traceEmitter.emit("request_error", invariantMessage, {
+        requestId: qm.requestId,
+        status: "error",
+        attributes: { reason: "batch_invariant_violation" },
+      });
+      qm.onEvent({ type: "error", message: invariantMessage });
+      if (i === 0) {
+        // Head invariant fired — no in-flight turn yet (the check runs
+        // before persistUserMessage, so the head was never persisted).
+        // Clear per-turn state and recursively drain the remaining tails,
+        // which were already shifted out of the queue by
+        // buildPassthroughBatch and would otherwise be stranded. Mirrors
+        // the head persist-failure recovery below.
+        conversation.processing = false;
+        conversation.abortController = null;
+        conversation.currentRequestId = undefined;
+        conversation.preactivatedSkillIds = undefined;
+        const remaining = batch.slice(1);
+        if (remaining.length >= 2) {
+          await drainBatch(conversation, remaining, reason);
+        } else if (remaining.length === 1) {
+          await drainSingleMessage(conversation, remaining[0], reason);
+        } else {
+          await drainQueue(conversation);
+        }
+        return;
+      }
+      // Tail case — processing is live, just skip this message. Loop
+      // continues to drain any remaining tails.
+      continue;
+    }
+    const qmContent = qmSlash.content;
+
+    try {
+      if (i === 0) {
+        lastUserMessageId = await conversation.persistUserMessage(
+          qmContent,
+          qm.attachments,
+          qm.requestId,
+          { ...qm.metadata, sentAt: qm.sentAt },
+          qm.displayContent,
+        );
+      } else {
+        lastUserMessageId = await persistQueuedMessageBody(
+          conversation,
+          qmContent,
+          qm.attachments,
+          qm.requestId,
+          { ...qm.metadata, sentAt: qm.sentAt },
+          qm.displayContent,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: conversation.conversationId,
+          requestId: qm.requestId,
+          batchIndex: i,
+        },
+        "Failed to persist batched queued message",
+      );
+      conversation.traceEmitter.emit(
+        "request_error",
+        `Queued message persist failed: ${message}`,
+        {
+          requestId: qm.requestId,
+          status: "error",
+          attributes: { reason: "persist_failure" },
+        },
+      );
+      qm.onEvent({ type: "error", message });
+
+      if (i === 0) {
+        // Head persist failed — processing is not set yet, no in-flight turn
+        // to fan tails into. We've already shifted the tails out of the queue
+        // as part of this batch, so if we simply called drainQueue the tails
+        // would be stranded. Reset per-turn state and recursively drain the
+        // remaining tails (they're still valid by the batch invariant).
+        conversation.preactivatedSkillIds = undefined;
+        const remaining = batch.slice(1);
+        if (remaining.length >= 2) {
+          await drainBatch(conversation, remaining, reason);
+        } else if (remaining.length === 1) {
+          await drainSingleMessage(conversation, remaining[0], reason);
+        } else {
+          await drainQueue(conversation);
+        }
+        return;
+      }
+      // Tail persist failed — we cannot abandon the batch without stranding
+      // the head's in-flight turn. Processing state is already set; skip
+      // this message and continue accumulating siblings. The emitted error
+      // event lets the tail client see the failure. Crucially we do NOT
+      // update lastSuccessful* here, so runAgentLoop tags completion with
+      // the most recent successfully-persisted message's requestId.
+      continue;
+    }
+
+    // Broadcast the user message to all hub subscribers so passive devices
+    // see each batched user turn before the assistant reply starts streaming.
+    qm.onEvent({
+      type: "user_message_echo",
+      text: qmContent,
+      conversationId: conversation.conversationId,
+      messageId: lastUserMessageId,
+      requestId: qm.requestId,
+    });
+
+    // Persist succeeded. Update last-successful markers so a later tail
+    // failure won't overwrite them.
+    lastSuccessfulRequestId = qm.requestId;
+    lastSuccessfulActiveSurfaceId = qm.activeSurfaceId;
+    lastSuccessfulCurrentPage = qm.currentPage;
+    lastSuccessfulContent = qmContent;
+    successfulBatch.push(qm);
+
+    // Fire-and-forget: detect notification preferences in each batched user
+    // message and persist any that are found, mirroring drainSingleMessage.
+    if (conversation.assistantId) {
+      extractPreferences(qmContent)
+        .then((result) => {
+          if (!result.detected) return;
+          for (const pref of result.preferences) {
+            createPreference({
+              preferenceText: pref.preferenceText,
+              appliesWhen: pref.appliesWhen,
+              priority: pref.priority,
+            });
+          }
+          log.info(
+            {
+              count: result.preferences.length,
+              conversationId: conversation.conversationId,
+            },
+            "Persisted extracted notification preferences (batched)",
+          );
+        })
+        .catch((err) => {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.warn(
+            { err: errMsg, conversationId: conversation.conversationId },
+            "Background preference extraction failed (batched)",
+          );
+        });
+    }
+
+    // If the user hit abort mid-batch, stop persisting remaining tails.
+    // runAgentLoop's existing abort handling will emit generation_cancelled
+    // and clear processing state for whatever did persist.
+    if (conversation.abortController?.signal.aborted) {
+      log.info(
+        {
+          conversationId: conversation.conversationId,
+          requestId: qm.requestId,
+          batchIndex: i,
+          batchSize: batch.length,
+        },
+        "drainBatch: abort signaled mid-batch; stopping tail persist",
+      );
+      break;
+    }
+  }
+
+  if (lastUserMessageId === undefined || lastSuccessfulContent === undefined) {
+    // Nothing persisted — either the head's invariant-violation recovery
+    // already drained and returned, or every message failed. Head failure
+    // has its own recovery path above; if we get here it's because a
+    // defensive code path left us with nothing to run. Log and bail.
+    log.error(
+      {
+        conversationId: conversation.conversationId,
+        batchSize: batch.length,
+      },
+      "drainBatch: no messages persisted successfully; skipping runAgentLoop",
+    );
+    conversation.preactivatedSkillIds = undefined;
+    return;
+  }
+
+  // Tag turn-completion state with the last SUCCESSFUL persist so client-
+  // side correlation (message_complete / generation_cancelled /
+  // generation_handoff) surfaces a requestId that actually has a DB row.
+  conversation.currentRequestId = lastSuccessfulRequestId;
+  conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
+  conversation.currentPage = lastSuccessfulCurrentPage;
+
+  // Broadcast agent-loop events only to members whose persist succeeded.
+  // Members whose persist failed already received an error event in the
+  // catch block above; sending them the assistant's streaming response
+  // would surface a reply for a user message that isn't in their DB.
+  const fanOutOnEvent = (msg: ServerMessage) => {
+    for (const qm of successfulBatch) qm.onEvent(msg);
+  };
+
+  const drainLoopOptions: {
+    isInteractive?: boolean;
+    isUserMessage?: boolean;
+    titleText?: string;
+  } = { isUserMessage: true };
+  // Source interactive flag from the last successfully-persisted sibling so
+  // a trailing failed tail doesn't flip the agent loop's interactivity.
+  const lastSuccessfulBatchEntry =
+    successfulBatch.length > 0
+      ? successfulBatch[successfulBatch.length - 1]
+      : undefined;
+  if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
+    drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
+
+  // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
+  // when this run completes. Mirrors drainSingleMessage.
+  conversation
+    .runAgentLoop(
+      lastSuccessfulContent,
+      lastUserMessageId,
+      fanOutOnEvent,
+      drainLoopOptions,
+    )
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: conversation.conversationId,
+          requestId: lastSuccessfulRequestId,
+          batchSize: batch.length,
+        },
+        "Error processing batched queued messages",
+      );
+      fanOutOnEvent({
+        type: "error",
+        message: `Failed to process queued messages: ${message}`,
       });
     });
 }

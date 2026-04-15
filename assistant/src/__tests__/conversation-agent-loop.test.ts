@@ -137,6 +137,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
   getConversationOriginChannel: () => null,
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 const syncMessageToDiskMock = mock(() => {});
@@ -201,7 +203,7 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 }));
 
 mock.module("../daemon/date-context.js", () => ({
-  formatTurnTimestamp: () => "2026-01-01 (Thu) 00:00:00 +00:00 (UTC)",
+  formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
 mock.module("../daemon/history-repair.js", () => ({

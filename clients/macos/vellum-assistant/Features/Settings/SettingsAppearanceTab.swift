@@ -13,6 +13,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingSidebarToggle = false
     @State private var isRecordingNewChat = false
     @State private var isRecordingCurrentConversation = false
+    @State private var isRecordingMarkConversationUnread = false
     @State private var isRecordingPopOut = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
@@ -172,11 +173,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecording()
                             }
                             if !store.globalHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.globalHotkeyShortcut = ""
                                 }
                             }
@@ -212,11 +213,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingQuickInput()
                             }
                             if !store.quickInputHotkeyShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.quickInputHotkeyShortcut = ""
                                     store.quickInputHotkeyKeyCode = 0
                                 }
@@ -244,11 +245,11 @@ struct SettingsAppearanceTab: View {
                     } else {
                         VShortcutTag(activator.kind != .none ? "Hold \(activator.displayName)" : "Disabled")
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingVoiceInput()
                             }
                             if activator.kind != .none {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     PTTActivator.off.store()
                                     PTTActivator.updateCache(.off)
                                     activationKey = "none"
@@ -280,11 +281,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingNewChat()
                             }
                             if !store.newChatShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.newChatShortcut = ""
                                 }
                             }
@@ -313,12 +314,45 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingCurrentConversation()
                             }
                             if !store.currentConversationShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.currentConversationShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
+                // Mark conversation as unread (configurable)
+                HStack {
+                    Text("Mark conversation as unread")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingMarkConversationUnread, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.markConversationUnreadShortcut))
+                    }
+
+                    if isRecordingMarkConversationUnread {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Change", style: .outlined) {
+                                startRecordingMarkConversationUnread()
+                            }
+                            if !store.markConversationUnreadShortcut.isEmpty {
+                                VButton(label: "Remove", style: .outlined) {
+                                    store.markConversationUnreadShortcut = ""
                                 }
                             }
                         }
@@ -346,11 +380,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingSidebarToggle()
                             }
                             if !store.sidebarToggleShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.sidebarToggleShortcut = ""
                                 }
                             }
@@ -379,11 +413,11 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Record", style: .outlined) {
+                            VButton(label: "Change", style: .outlined) {
                                 startRecordingPopOut()
                             }
                             if !store.popOutShortcut.isEmpty {
-                                VButton(label: "Unbind", style: .outlined) {
+                                VButton(label: "Remove", style: .outlined) {
                                     store.popOutShortcut = ""
                                 }
                             }
@@ -610,6 +644,13 @@ struct SettingsAppearanceTab: View {
         isRecordingCurrentConversation = true
     }
 
+    private func startRecordingMarkConversationUnread() {
+        startRecordingShortcut { shortcut, _ in
+            store.markConversationUnreadShortcut = shortcut
+        }
+        isRecordingMarkConversationUnread = true
+    }
+
     private func startRecordingPopOut() {
         startRecordingShortcut { shortcut, _ in
             store.popOutShortcut = shortcut
@@ -663,6 +704,7 @@ struct SettingsAppearanceTab: View {
         isRecordingSidebarToggle = false
         isRecordingNewChat = false
         isRecordingCurrentConversation = false
+        isRecordingMarkConversationUnread = false
         isRecordingPopOut = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {

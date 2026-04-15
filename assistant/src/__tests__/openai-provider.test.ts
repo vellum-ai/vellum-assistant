@@ -10,6 +10,8 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
+import { ProviderError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mock openai module — must be before importing the provider
@@ -653,10 +655,10 @@ describe("OpenAIProvider", () => {
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       undefined,
       undefined,
-      { config: { max_tokens: 32000 } },
+      { config: { max_tokens: 64000 } },
     );
 
-    expect(lastCreateParams!.max_completion_tokens).toBe(32000);
+    expect(lastCreateParams!.max_completion_tokens).toBe(64000);
   });
 
   // -----------------------------------------------------------------------
@@ -757,6 +759,68 @@ describe("OpenAIProvider", () => {
     } catch (error) {
       expect((error as Error).message).toContain("OpenAI request failed");
       expect((error as Error).message).toContain("Network failure");
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Tagged AbortReason propagation
+  // -----------------------------------------------------------------------
+  test("attaches tagged abortReason to ProviderError wrapping an APIError when signal is aborted with a reason", async () => {
+    shouldThrow = new FakeAPIError(0, "Request was aborted.");
+    const controller = new AbortController();
+    const reason = createAbortReason("user_cancel", "test:openai");
+    controller.abort(reason);
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false); // should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBe(reason);
+    }
+  });
+
+  test("attaches tagged abortReason to ProviderError wrapping a generic error on abort", async () => {
+    shouldThrow = new Error("socket hang up");
+    const controller = new AbortController();
+    const reason = createAbortReason("preempted_by_new_message", "test:openai");
+    controller.abort(reason);
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBe(reason);
+    }
+  });
+
+  test("does not attach abortReason when the signal was aborted with a non-tagged reason", async () => {
+    shouldThrow = new FakeAPIError(0, "Request was aborted.");
+    const controller = new AbortController();
+    controller.abort(new Error("plain abort"));
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        undefined,
+        undefined,
+        { signal: controller.signal },
+      );
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).abortReason).toBeUndefined();
     }
   });
 

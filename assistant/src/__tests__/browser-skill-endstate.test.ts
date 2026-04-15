@@ -49,6 +49,8 @@ describe("browser skill migration end-state", () => {
     "browser_snapshot",
     "browser_screenshot",
     "browser_close",
+    "browser_attach",
+    "browser_detach",
     "browser_click",
     "browser_type",
     "browser_press_key",
@@ -59,6 +61,7 @@ describe("browser skill migration end-state", () => {
     "browser_extract",
     "browser_wait_for_download",
     "browser_fill_credential",
+    "browser_status",
   ] as const;
 
   // ── 1. Startup payload excludes browser tools ──────────────────────
@@ -81,7 +84,7 @@ describe("browser skill migration end-state", () => {
     // Startup has ~20 definitions after moving scaffold/settings/skill-management
     // tools to bundled skills (no browser tools).
     // Allow wider drift for unrelated tool additions while still failing if
-    // browser tools are reintroduced at startup (+14 definitions).
+    // browser tools are reintroduced at startup (+many definitions).
     expect(definitions.length).toBeGreaterThanOrEqual(15);
     expect(definitions.length).toBeLessThanOrEqual(50);
 
@@ -110,7 +113,7 @@ describe("browser skill migration end-state", () => {
     expect(fs.existsSync(path.join(skillDir, "TOOLS.json"))).toBe(true);
   });
 
-  test("browser TOOLS.json contains all 14 tools", async () => {
+  test("browser TOOLS.json contains all browser tools", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
     const toolsPath = path.resolve(
@@ -119,10 +122,28 @@ describe("browser skill migration end-state", () => {
     );
     const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
     expect(manifest.version).toBe(1);
-    expect(manifest.tools).toHaveLength(14);
+    expect(manifest.tools).toHaveLength(BROWSER_TOOLS.length);
     const toolNames = manifest.tools.map((t: { name: string }) => t.name);
     for (const name of BROWSER_TOOLS) {
       expect(toolNames).toContain(name);
+    }
+  });
+
+  test("every browser tool schema exposes an optional browser_mode property", async () => {
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const toolsPath = path.resolve(
+      import.meta.dirname,
+      "../config/bundled-skills/browser/TOOLS.json",
+    );
+    const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
+    for (const tool of manifest.tools) {
+      const props = tool.input_schema?.properties ?? {};
+      expect(props.browser_mode).toBeDefined();
+      expect(props.browser_mode.type).toBe("string");
+      // browser_mode must NOT be required
+      const required: string[] = tool.input_schema?.required ?? [];
+      expect(required).not.toContain("browser_mode");
     }
   });
 
@@ -154,7 +175,7 @@ describe("browser skill migration end-state", () => {
 
   // ── 4. Tool wrapper scripts exist ──────────────────────────────────
 
-  test("all 14 browser tool wrapper scripts exist", async () => {
+  test("all browser tool wrapper scripts exist", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
     const toolsDir = path.resolve(
@@ -166,6 +187,8 @@ describe("browser skill migration end-state", () => {
       "browser-snapshot.ts",
       "browser-screenshot.ts",
       "browser-close.ts",
+      "browser-attach.ts",
+      "browser-detach.ts",
       "browser-click.ts",
       "browser-type.ts",
       "browser-press-key.ts",
@@ -176,6 +199,7 @@ describe("browser skill migration end-state", () => {
       "browser-extract.ts",
       "browser-wait-for-download.ts",
       "browser-fill-credential.ts",
+      "browser-status.ts",
     ];
     for (const file of wrapperFiles) {
       expect(fs.existsSync(path.join(toolsDir, file))).toBe(true);
@@ -212,9 +236,9 @@ describe("browser skill migration end-state", () => {
     }
   });
 
-  // ── 6. Runtime projection adds exactly 14 browser tools ──────────
+  // ── 6. Runtime projection adds all browser tools ──────────
 
-  test("skill_load projection adds all 14 browser tools", () => {
+  test("skill_load projection adds all browser tools", () => {
     const history = buildSkillLoadHistory(BROWSER_SKILL_ID);
     const tracking = new Map<string, string>();
 
@@ -227,7 +251,7 @@ describe("browser skill migration end-state", () => {
       // skill_execute), so toolDefinitions is expected to be empty.
       expect(projection.toolDefinitions).toHaveLength(0);
 
-      // All 14 browser tools should be registered and tracked in allowedToolNames
+      // All browser tools should be registered and tracked in allowedToolNames
       expect(projection.allowedToolNames.size).toBe(BROWSER_TOOL_COUNT);
       for (const name of BROWSER_TOOL_NAMES) {
         expect(projection.allowedToolNames.has(name)).toBe(true);

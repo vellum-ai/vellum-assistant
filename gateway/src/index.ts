@@ -6,11 +6,7 @@ import {
   loadOrCreateSigningKey,
   initSigningKey,
 } from "./auth/token-service.js";
-import {
-  validateEdgeToken,
-  mintBrowserRelayToken,
-  mintServiceToken,
-} from "./auth/token-exchange.js";
+import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
@@ -26,7 +22,6 @@ import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
-  isLoopbackPeer,
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -39,6 +34,16 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
+import {
+  createTwilioMediaWebsocketHandler,
+  getMediaStreamWebsocketHandlers,
+  type MediaStreamSocketData,
+} from "./http/routes/twilio-media-websocket.js";
+import {
+  createSttStreamWebsocketHandler,
+  getSttStreamWebsocketHandlers,
+  type SttStreamSocketData,
+} from "./http/routes/stt-stream-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
@@ -49,7 +54,10 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
-import { createPrivacyConfigPatchHandler } from "./http/routes/privacy-config.js";
+import {
+  createPrivacyConfigGetHandler,
+  createPrivacyConfigPatchHandler,
+} from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -79,6 +87,7 @@ import {
   createTrustRulesStarterBundleHandler,
 } from "./http/routes/trust-rules.js";
 import { getLogger, initLogger } from "./logger.js";
+import { getPlatformBaseUrl } from "./platform-url.js";
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
@@ -106,7 +115,19 @@ import {
 } from "./http/router.js";
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
+import { fetchImpl } from "./fetch.js";
+import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
+import { registerEmailCallbackRoute } from "./email/register-callback.js";
+import { GatewayIpcServer } from "./ipc/server.js";
+import {
+  featureFlagRoutes,
+  getMergedFeatureFlags,
+} from "./ipc/feature-flag-handlers.js";
+import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
+import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
+import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
+import { getGatewayDb } from "./db/connection.js";
 
 const log = getLogger("main");
 
@@ -160,6 +181,22 @@ function isBrowserRelaySocketData(
   );
 }
 
+function isMediaStreamSocketData(data: unknown): data is MediaStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "twilio-media-stream"
+  );
+}
+
+function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "stt-stream"
+  );
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -188,12 +225,18 @@ async function main() {
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
 
+  getGatewayDb();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
   const configFileCache = new ConfigFileCache();
+
+  // ── Avatar sync ──
+  const avatarChannelSyncer = new AvatarChannelSyncer();
+  const avatarSyncWatcher = new AvatarSyncWatcher(avatarChannelSyncer);
 
   // ── Integration readiness flags ──
   // Track whether each integration has valid credentials so route
@@ -202,6 +245,7 @@ async function main() {
   let telegramReady = false;
   let whatsappReady = false;
   let slackReady = false;
+  let vellumReady = false;
 
   const twilioValidationCaches = {
     credentials: credentialCache,
@@ -233,9 +277,15 @@ async function main() {
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
     configFile: configFileCache,
   });
+  const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
+    configFile: configFileCache,
+  });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
+  const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
+  const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
+  const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
       credentials: credentialCache,
@@ -297,6 +347,7 @@ async function main() {
   const handleLogExport = createLogExportHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
+  const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
@@ -365,7 +416,7 @@ async function main() {
       handler: (req) => handleWhatsAppWebhook(req),
     },
     {
-      path: "/webhooks/email/inbound",
+      path: "/webhooks/email",
       handler: (req) => handleEmailWebhook(req),
     },
 
@@ -927,6 +978,20 @@ async function main() {
     // ── Privacy config (scope-protected) ──
     {
       path: "/v1/config/privacy",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/config\/privacy\/$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handlePrivacyConfigGet(req),
+    },
+    {
+      path: "/v1/config/privacy",
       method: "PATCH",
       auth: "edge-scoped",
       scope: "settings.write",
@@ -1021,6 +1086,14 @@ async function main() {
           browserRelayWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
@@ -1028,11 +1101,27 @@ async function main() {
           browserRelayWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
         if (isBrowserRelaySocketData(ws.data)) {
           browserRelayWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isMediaStreamSocketData(ws.data)) {
+          twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isSttStreamSocketData(ws.data)) {
+          sttStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         twilioRelayWebsocketHandlers.close(ws as never, code, reason);
@@ -1157,26 +1246,25 @@ async function main() {
         return undefined as unknown as Response;
       }
 
+      if (
+        url.pathname === "/webhooks/twilio/media-stream" ||
+        url.pathname.startsWith("/webhooks/twilio/media-stream/")
+      ) {
+        const upgradeResult = handleTwilioMediaWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+
       if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
       }
 
-      // ── Pre-router: browser relay token endpoint ──
-      if (
-        config.runtimeProxyEnabled &&
-        url.pathname === "/v1/browser-relay/token" &&
-        req.method === "GET"
-      ) {
-        if (!isLoopbackPeer(svr, req, { trustProxy: config.trustProxy })) {
-          return Response.json(
-            { error: "Browser relay token only available from localhost" },
-            { status: 403 },
-          );
-        }
-        const token = mintBrowserRelayToken();
-        return Response.json({ token });
+      if (url.pathname === "/v1/stt/stream") {
+        const upgradeResult = handleSttStreamWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
       }
 
       // Attach a trace ID to every non-healthcheck request for
@@ -1261,6 +1349,53 @@ async function main() {
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
+  /** Fire-and-forget: notify the platform of inbound Slack activity so the
+   *  idle-sleep timer is reset for this assistant.
+   *  Throttled to at most one outbound POST per 30 seconds. */
+  let lastRecordActivityTs = 0;
+  async function notifyRecordActivity(): Promise<void> {
+    const now = Date.now();
+    if (now - lastRecordActivityTs < 30_000) return;
+    lastRecordActivityTs = now;
+
+    try {
+      const [platformBaseUrl, assistantApiKey, assistantIdRaw] =
+        await Promise.all([
+          getPlatformBaseUrl(credentialCache),
+          credentialCache.get(credentialKey("vellum", "assistant_api_key")),
+          credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
+        ]);
+
+      const assistantId =
+        assistantIdRaw?.trim() ||
+        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
+        undefined;
+
+      if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
+
+      const res = await fetchImpl(
+        `${platformBaseUrl}/v1/assistants/${assistantId}/record-activity/`,
+        {
+          method: "POST",
+          headers: { Authorization: `Api-Key ${assistantApiKey.trim()}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+
+      if (!res.ok) {
+        log.warn(
+          { status: res.status },
+          "Non-OK response from record-activity endpoint",
+        );
+      }
+    } catch (err) {
+      log.debug(
+        { err },
+        "Failed to notify platform of Slack activity for idle sleep",
+      );
+    }
+  }
+
   async function startSlackSocket(): Promise<void> {
     if (slackSocketClient) {
       slackSocketClient.stop();
@@ -1278,6 +1413,10 @@ async function main() {
     slackSocketClient = createSlackSocketModeClient(
       { appToken, botToken, gatewayConfig: config },
       (normalized) => {
+        // Notify the platform of inbound activity so the idle-sleep timer
+        // is reset for this assistant (fire-and-forget).
+        notifyRecordActivity();
+
         const { threadTs, channel } = normalized;
         const params = new URLSearchParams({ channel });
         if (threadTs) params.set("threadTs", threadTs);
@@ -1298,6 +1437,31 @@ async function main() {
           threadTs !== messageTs &&
           !isEdit &&
           !isCallback;
+
+        // Handle /new command — reset conversation before it reaches the runtime
+        if (isNewCommand(normalized.event.message.content)) {
+          handleNewCommand(
+            config,
+            "slack",
+            normalized.event.message.conversationExternalId,
+            async (text) => {
+              await fetchImpl("https://slack.com/api/chat.postMessage", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${botToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  channel,
+                  text,
+                  ...(threadTs ? { thread_ts: threadTs } : {}),
+                }),
+              });
+            },
+            log,
+          );
+          return;
+        }
 
         const forward = async (threadContextHint?: string) => {
           try {
@@ -1511,6 +1675,13 @@ async function main() {
     const slackCreds = event.credentials.get("slack_channel");
     slackReady = !!(slackCreds?.bot_token && slackCreds?.app_token);
 
+    const vellumCreds = event.credentials.get("vellum");
+    vellumReady = !!(
+      vellumCreds?.platform_base_url &&
+      vellumCreds?.assistant_api_key &&
+      vellumCreds?.platform_assistant_id
+    );
+
     // Side effects keyed by service name
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
@@ -1528,6 +1699,36 @@ async function main() {
           "Failed to restart Slack Socket Mode after credential change",
         );
       });
+
+      // Sync avatar to Slack bot profile on credential change (including
+      // initial startup). Gated behind channel-avatar-sync feature flag.
+      // Known limitation: if the flag is toggled off without a credential
+      // change, the syncer stays registered until the next credential
+      // change triggers this callback.
+      if (slackReady && getMergedFeatureFlags()["channel-avatar-sync"]) {
+        avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
+        avatarChannelSyncer.syncToChannel("slack").catch((err) => {
+          log.warn({ err }, "Initial Slack avatar sync failed");
+        });
+      } else {
+        avatarChannelSyncer.unregister("slack");
+      }
+    }
+
+    // Register email callback route with the platform so inbound email
+    // webhooks are forwarded to this gateway (same pattern as Telegram).
+    // Fires on initial credential load and whenever vellum credentials change
+    // (key rotation, late provisioning).
+    if (changed.has("vellum")) {
+      registerEmailCallbackRoute({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.error(
+          { err },
+          "Failed to register email callback route after credential change",
+        );
+      });
     }
   });
 
@@ -1535,6 +1736,10 @@ async function main() {
   // webhook reconciliation, Slack Socket Mode) during the initial poll, so no
   // additional post-start triggers are needed here.
   await credentialWatcher.start();
+
+  // Start watching avatar directory for changes after credential watcher
+  // so channel syncers are already registered before the first file event.
+  avatarSyncWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
@@ -1549,9 +1754,27 @@ async function main() {
         );
       });
     }
+
+    // Side effect: re-register email callback when ingress URL changes so
+    // the platform callback route points at the new self-hosted URL.
+    if (event.changedKeys.has("ingress") && vellumReady) {
+      registerEmailCallbackRoute({
+        credentials: credentialCache,
+        configFile: configFileCache,
+      }).catch((err) => {
+        log.error(
+          { err },
+          "Failed to re-register email callback route after ingress URL change",
+        );
+      });
+    }
   });
 
   configFileWatcher.start();
+
+  // ── IPC server ──
+  const ipcServer = new GatewayIpcServer([...featureFlagRoutes]);
+  ipcServer.start();
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
@@ -1576,6 +1799,12 @@ async function main() {
     configFileCache.invalidate();
     credentialCache.invalidate();
 
+    // Immediately refresh remote feature flags so the gateway doesn't run
+    // with stale values until the next scheduled poll (up to 5 min away).
+    remoteFeatureFlagSync.syncNow().catch((err) => {
+      log.error({ err }, "Failed to sync remote feature flags after wake");
+    });
+
     // Re-register Telegram webhook with current ingress URL
     if (telegramReady) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -1593,8 +1822,10 @@ async function main() {
     sleepWakeDetector.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
+    avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
+    ipcServer.stop();
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();

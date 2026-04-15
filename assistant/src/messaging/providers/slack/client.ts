@@ -18,6 +18,7 @@ import type {
   SlackChatUpdateResponse,
   SlackConversationHistoryResponse,
   SlackConversationInfoResponse,
+  SlackConversationJoinResponse,
   SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
@@ -517,6 +518,20 @@ export async function deleteMessage(
   );
 }
 
+export async function joinConversation(
+  connectionOrToken: OAuthConnection | string,
+  channel: string,
+): Promise<SlackConversationJoinResponse> {
+  return request<SlackConversationJoinResponse>(
+    connectionOrToken,
+    "conversations.join",
+    undefined,
+    {
+      channel,
+    },
+  );
+}
+
 export async function leaveConversation(
   connectionOrToken: OAuthConnection | string,
   channel: string,
@@ -530,3 +545,4 @@ export async function leaveConversation(
     },
   );
 }
+

@@ -11,6 +11,7 @@
 
 import { addRule } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { getTool } from "../tools/registry.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 import type {
@@ -22,6 +23,7 @@ import type {
 import { toApprovalActionOptions } from "./channel-approval-types.js";
 import {
   buildDecisionActions,
+  buildOneTimeDecisionActions,
   buildPlainTextFallback,
 } from "./guardian-decision-types.js";
 import * as pendingInteractions from "./pending-interactions.js";
@@ -92,9 +94,11 @@ function buildPromptFromApprovalInfo(
     toolName: info.toolName,
   });
 
-  const decisionActions = buildDecisionActions({
-    persistentDecisionsAllowed: info.persistentDecisionsAllowed,
-  });
+  const decisionActions = isPermissionControlsV2Enabled()
+    ? buildOneTimeDecisionActions()
+    : buildDecisionActions({
+        persistentDecisionsAllowed: info.persistentDecisionsAllowed,
+      });
   const actions = toApprovalActionOptions(decisionActions);
   const plainTextFallback = buildPlainTextFallback(promptText, decisionActions);
 
@@ -138,6 +142,10 @@ export function buildApprovalUIMetadata(
  * the permission pipeline can activate the appropriate override.
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
+  if (isPermissionControlsV2Enabled()) {
+    return action === "reject" ? "deny" : "allow";
+  }
+
   switch (action) {
     case "reject":
       return "deny";
@@ -182,7 +190,10 @@ export function handleChannelDecision(
     : pending[0];
   if (!info) return { applied: false };
 
-  if (decision.action === "approve_always") {
+  if (
+    !isPermissionControlsV2Enabled() &&
+    decision.action === "approve_always"
+  ) {
     // Only persist a trust rule when the confirmation explicitly allows persistence
     // AND provides explicit allowlist/scope options. Without explicit options we
     // would create a blanket "**"/"everywhere" rule, which is a security risk.
@@ -264,7 +275,9 @@ export function buildGuardianApprovalPrompt(
     requesterIdentifier,
   });
 
-  const decisionActions = buildDecisionActions({ forGuardianOnBehalf: true });
+  const decisionActions = isPermissionControlsV2Enabled()
+    ? buildOneTimeDecisionActions()
+    : buildDecisionActions({ forGuardianOnBehalf: true });
   const actions = toApprovalActionOptions(decisionActions);
   const plainTextFallback = buildPlainTextFallback(promptText, decisionActions);
 

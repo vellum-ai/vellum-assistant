@@ -1,0 +1,146 @@
+import { describe, expect, mock, test } from "bun:test";
+
+import type { ToolContext } from "../tools/types.js";
+
+const mockBatchModifyMessages =
+  mock<
+    (
+      conn: unknown,
+      ids: string[],
+      opts: Record<string, unknown>,
+    ) => Promise<void>
+  >();
+const mockListMessages =
+  mock<
+    (
+      conn: unknown,
+      query: string,
+      limit: number,
+      pageToken?: string,
+    ) => Promise<{
+      messages?: { id: string }[];
+      nextPageToken?: string | null;
+    }>
+  >();
+const mockModifyMessage =
+  mock<
+    (
+      conn: unknown,
+      messageId: string,
+      opts: Record<string, unknown>,
+    ) => Promise<void>
+  >();
+const mockResolveOAuthConnection =
+  mock<(provider: string, opts?: unknown) => Promise<unknown>>();
+
+mock.module("../messaging/providers/gmail/client.js", () => ({
+  batchModifyMessages: mockBatchModifyMessages,
+  listMessages: mockListMessages,
+  modifyMessage: mockModifyMessage,
+}));
+
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: mockResolveOAuthConnection,
+}));
+
+mock.module("../config/bundled-skills/gmail/tools/scan-result-store.js", () => ({
+  getSenderMessageIds: () => ["msg-a", "msg-b"],
+}));
+
+const { run } = await import(
+  "../config/bundled-skills/gmail/tools/gmail-archive.js"
+);
+
+function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  return {
+    conversationId: "conv-1",
+    ...overrides,
+  } as ToolContext;
+}
+
+describe("gmail_archive gate", () => {
+  test("rejects query path when neither surface action nor batch-authorized task", async () => {
+    const result = await run(
+      { query: "in:inbox" },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: false,
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("surface action");
+  });
+
+  test("rejects batch message_ids path when neither flag set", async () => {
+    const result = await run(
+      { message_ids: ["m1", "m2"] },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: false,
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("surface action");
+  });
+
+  test("rejects scan_id path when neither flag set", async () => {
+    const result = await run(
+      { scan_id: "scan-1", sender_ids: ["s1"] },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: false,
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("surface action");
+  });
+
+  test("allows query path in a scheduled task run (batchAuthorizedByTask)", async () => {
+    mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+    mockListMessages.mockResolvedValueOnce({
+      messages: [{ id: "m1" }, { id: "m2" }],
+      nextPageToken: null,
+    });
+    mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+    const result = await run(
+      { query: "in:inbox category:promotions" },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: true,
+      }),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Archived 2 message(s)");
+  });
+
+  test("allows batch message_ids path in a scheduled task run", async () => {
+    mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+    mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+    const result = await run(
+      { message_ids: ["m1", "m2"] },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: true,
+      }),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Archived 2 message(s)");
+  });
+
+  test("single message_id path works without either flag (no gate on that path)", async () => {
+    mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+    mockModifyMessage.mockResolvedValueOnce(undefined);
+
+    const result = await run(
+      { message_id: "msg-1" },
+      makeContext({
+        triggeredBySurfaceAction: false,
+        batchAuthorizedByTask: false,
+      }),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Message archived");
+  });
+});

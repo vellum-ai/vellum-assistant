@@ -60,18 +60,12 @@ struct ImageLightboxOverlay: View {
     // MARK: - Close Button
 
     private var closeButton: some View {
-        Button { dismiss() } label: {
-            ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 32, height: 32)
-
-                VIconView(.x, size: 14)
-                    .foregroundStyle(VColor.auxWhite.opacity(0.8))
-            }
-        }
-        .buttonStyle(.plain)
-        .shadow(color: VColor.auxBlack.opacity(0.3), radius: 8)
+        VButton(
+            label: "Close",
+            iconOnly: VIcon.x.rawValue,
+            style: .outlined,
+            action: dismiss
+        )
     }
 
     // MARK: - Toolbar

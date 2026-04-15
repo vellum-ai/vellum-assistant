@@ -100,6 +100,7 @@ export function registerConversationNotifiers(
           type: "message_complete",
           conversationId: conversationId,
           messageId: msg.id,
+          source: "aux",
         });
       }
     },
@@ -135,6 +136,7 @@ export function registerConversationNotifiers(
           type: "message_complete",
           conversationId: conversationId,
           messageId: msg.id,
+          source: "aux",
         });
       }
     },
@@ -171,6 +173,7 @@ export function registerConversationNotifiers(
         type: "message_complete",
         conversationId: conversationId,
         messageId: msg.id,
+        source: "aux",
       });
     },
   );
@@ -189,6 +192,7 @@ export function registerConversationNotifiers(
       ctx.sendToClient({
         type: "message_complete",
         conversationId: conversationId,
+        source: "aux",
       });
     },
   );
@@ -204,6 +208,7 @@ export function registerConversationNotifiers(
     ctx.sendToClient({
       type: "message_complete",
       conversationId: conversationId,
+      source: "aux",
     });
   });
 }

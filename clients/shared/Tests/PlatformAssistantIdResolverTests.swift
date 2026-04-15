@@ -2,7 +2,9 @@ import XCTest
 @testable import VellumAssistantShared
 
 /// In-memory credential storage for testing.
-private final class MockCredentialStorage: CredentialStorage {
+/// Marked `@unchecked Sendable` because tests drive it single-threaded; the
+/// `CredentialStorage` protocol requires `Sendable` for production impls.
+private final class MockCredentialStorage: CredentialStorage, @unchecked Sendable {
     private var store: [String: String] = [:]
 
     func get(account: String) -> String? {
@@ -303,5 +305,70 @@ final class PlatformAssistantIdResolverTests: XCTestCase {
             credentialStorage: storage
         )
         XCTAssertEqual(result, "new-platform-id")
+    }
+
+    // MARK: - Bootstrap credential cleanup
+
+    /// Verifies that clearBootstrapCredential removes the locally cached
+    /// bootstrap credential for a runtime assistant.
+    @MainActor
+    func testClearBootstrapCredentialRemovesCachedKey() {
+        // GIVEN a bootstrap credential is stored
+        let assistantId = "vellum-cool-heron"
+        let account = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
+        _ = storage.set(account: account, value: "some-api-key")
+        XCTAssertNotNil(storage.get(account: account))
+
+        // WHEN clearing the bootstrap credential
+        let deleted = LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: assistantId,
+            credentialStorage: storage
+        )
+
+        // THEN the credential is removed
+        XCTAssertTrue(deleted)
+        // AND the storage no longer contains the key
+        XCTAssertNil(storage.get(account: account))
+    }
+
+    /// Verifies that clearBootstrapCredential is a no-op when no credential
+    /// exists, matching the expected behavior during deregistration of an
+    /// assistant that was never bootstrapped.
+    @MainActor
+    func testClearBootstrapCredentialNoOpWhenNothingStored() {
+        // GIVEN no credential is stored for this assistant
+
+        // WHEN clearing the bootstrap credential
+        let deleted = LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: "vellum-nonexistent",
+            credentialStorage: storage
+        )
+
+        // THEN the delete returns false (nothing to remove)
+        XCTAssertFalse(deleted)
+    }
+
+    /// Verifies that clearBootstrapCredential only removes the targeted
+    /// assistant's credential, leaving other assistants' credentials intact.
+    @MainActor
+    func testClearBootstrapCredentialDoesNotAffectOtherAssistants() {
+        // GIVEN credentials are stored for two assistants
+        let assistantA = "vellum-cool-heron"
+        let assistantB = "vellum-swift-eagle"
+        let accountA = LocalAssistantBootstrapService.credentialAccount(for: assistantA)
+        let accountB = LocalAssistantBootstrapService.credentialAccount(for: assistantB)
+        _ = storage.set(account: accountA, value: "key-a")
+        _ = storage.set(account: accountB, value: "key-b")
+
+        // WHEN clearing only assistant A's credential
+        LocalAssistantBootstrapService.clearBootstrapCredential(
+            runtimeAssistantId: assistantA,
+            credentialStorage: storage
+        )
+
+        // THEN assistant A's credential is removed
+        XCTAssertNil(storage.get(account: accountA))
+        // AND assistant B's credential is still present
+        XCTAssertEqual(storage.get(account: accountB), "key-b")
     }
 }

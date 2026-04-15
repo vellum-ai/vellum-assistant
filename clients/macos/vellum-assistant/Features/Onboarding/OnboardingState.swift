@@ -25,7 +25,7 @@ final class OnboardingState {
     private static let currentFlowVersion = 13
 
     var currentStep: Int = 0
-    var assistantName: String = "Velly"
+    var assistantName: String = RandomNameGenerator.generateInstanceName()
     var chosenKey: ActivationKey = .fn
 
     /// Whether the user explicitly skipped login during onboarding.
@@ -108,6 +108,12 @@ final class OnboardingState {
     var hatchTotalSteps: Int = 1
     var hatchCurrentStep: Int = 0
 
+    /// Pre-chat onboarding context collected after hatching when the
+    /// `onboarding-pre-chat` feature flag is enabled. Threaded through
+    /// AppDelegate → ConversationManager → ChatViewModel so the first
+    /// message POST includes it for assistant personalization.
+    var preChatContext: PreChatOnboardingContext?
+
     /// Avatar traits generated during the hatching animation. Stored here
     /// (rather than as @State in HatchingStepView) so they survive view
     /// disappearance and are available to the post-hatch sync logic.
@@ -132,7 +138,7 @@ final class OnboardingState {
             } else {
                 currentStep = saved
             }
-            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? "Velly"
+            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? RandomNameGenerator.generateInstanceName()
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
                 chosenKey = key

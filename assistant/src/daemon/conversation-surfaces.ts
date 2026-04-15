@@ -4,9 +4,9 @@ import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  inlineDistAssets,
   isMultifileApp,
   resolveAppDir,
+  resolveEffectiveAppHtml,
   updateApp,
 } from "../memory/app-store.js";
 import {
@@ -17,6 +17,8 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
+import { launchConversation } from "./conversation-launch.js";
+import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
@@ -234,6 +236,10 @@ function normalizeTaskProgressCardPatch(
  */
 export interface SurfaceConversationContext {
   readonly conversationId: string;
+  /** Assistant id (if known) — used when publishing launch-triggered events. */
+  readonly assistantId?: string;
+  /** Inherited to spawned conversations in the `launch_conversation` action path. */
+  readonly trustContext?: TrustContext;
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
@@ -278,6 +284,7 @@ export interface SurfaceConversationContext {
       data?: Record<string, unknown>;
     }>;
     display?: string;
+    persistent?: boolean;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
@@ -645,12 +652,75 @@ export function buildDeselectionDescription(
   return "";
 }
 
-export function handleSurfaceAction(
+export type SurfaceActionResult =
+  | { accepted: true; conversationId: string }
+  | { accepted: false; error: string }
+  | void;
+
+export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
-): void {
+): Promise<SurfaceActionResult> {
+  // `launch_conversation` actions spawn a fresh conversation inline instead
+  // of round-tripping through the LLM with a `[User action on card surface:
+  // ...]` chat message. This dispatch must run BEFORE the pending-vs-not
+  // branching below: `ui_show` unconditionally calls
+  // `pendingSurfaceActions.set(...)` for any interactive card (regardless of
+  // the `persistent` flag), so on the very first click of a freshly-rendered
+  // launcher card `pending` is already set. Without this hoist the launch
+  // branch would fall through into the pending path and the LLM round-trip
+  // would happen on every click.
+  if (
+    data &&
+    typeof data === "object" &&
+    (data as Record<string, unknown>)._action === "launch_conversation"
+  ) {
+    const payload = data as Record<string, unknown>;
+    const title = typeof payload.title === "string" ? payload.title : "";
+    const seedPrompt =
+      typeof payload.seedPrompt === "string" ? payload.seedPrompt : "";
+    const anchorMessageId =
+      typeof payload.anchorMessageId === "string"
+        ? payload.anchorMessageId
+        : undefined;
+    if (!title || !seedPrompt) {
+      return { accepted: false, error: "missing_title_or_seedPrompt" };
+    }
+    // Launch actions don't consume the surface — persistent launcher cards
+    // keep accepting clicks afterward. Drop the pending entry (if any) so
+    // sibling button presses on the same card aren't blocked behind a stale
+    // expectation that this surface still owes an answer to the LLM.
+    ctx.pendingSurfaceActions.delete(surfaceId);
+    // `ctx` is the origin Conversation — inherit its trust context so the
+    // spawned conversation keeps guardian / trust-class state.
+    //
+    // `launchConversation` is the sole emitter of `open_conversation` for
+    // this path. We pass `focus: false` so the client registers a sidebar
+    // entry for the spawned conversation without switching focus away from
+    // the origin — critical for fan-out UX where one click launches
+    // multiple conversations.
+    //
+    // The helper also kicks off the seed turn fire-and-forget, so this
+    // `await` resolves as soon as the conversation is created + titled +
+    // published to the event hub. The HTTP POST /v1/surface-actions
+    // response returns promptly — the seed turn runs in the background.
+    const originTrustContext = ctx.trustContext;
+    const { conversationId } = await launchConversation({
+      title,
+      seedPrompt,
+      focus: false,
+      ...(anchorMessageId ? { anchorMessageId } : {}),
+      ...(originTrustContext ? { originTrustContext } : {}),
+    });
+    log.info(
+      { originConversationId: ctx.conversationId, conversationId, surfaceId },
+      "launch_conversation dispatched inline from surface action",
+    );
+    return { accepted: true, conversationId };
+  }
+
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
 
   // When surfaces are restored from history (e.g. onboarding cards), there is
@@ -1150,10 +1220,12 @@ export function refreshSurfacesForApp(
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
-    // Update in-memory surface state so the next refinement gets fresh HTML
+    // Update in-memory surface state so the next refinement gets fresh HTML.
+    // For multifile apps, resolve the compiled dist/index.html with inlined
+    // assets rather than the empty root index.html (app.htmlDefinition).
     const updatedData: DynamicPageSurfaceData = {
       ...data,
-      html: app.htmlDefinition,
+      html: resolveEffectiveAppHtml(app),
       ...(opts?.fileChange
         ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 }
         : {}),
@@ -1376,6 +1448,11 @@ export async function surfaceProxyResolver(
     }
 
     const display = (input.display as string) === "panel" ? "panel" : "inline";
+    // `persistent: true` keeps the card visible through action clicks (only
+    // marks the clicked action as spent). Forward the flag so
+    // `SurfaceManager.showSurface` on the client sees it — without this the
+    // field is dropped and every card dismisses on first click.
+    const persistent = input.persistent === true ? true : undefined;
 
     const mappedActions = actions?.map((a) => ({
       id: a.id,
@@ -1404,6 +1481,7 @@ export async function surfaceProxyResolver(
         dataKeys: Object.keys(data),
         actionCount: mappedActions?.length ?? 0,
         display,
+        persistent: persistent ?? false,
         conversationId: ctx.conversationId,
       },
       "Sending ui_surface_show to client",
@@ -1418,6 +1496,7 @@ export async function surfaceProxyResolver(
       data,
       actions: mappedActions,
       display,
+      ...(persistent ? { persistent: true } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -1428,6 +1507,7 @@ export async function surfaceProxyResolver(
       data,
       actions: mappedActions,
       display,
+      ...(persistent ? { persistent: true } : {}),
     });
 
     if (awaitAction) {
@@ -1543,11 +1623,10 @@ export async function surfaceProxyResolver(
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
 
-    // For multifile TSX apps, resolve HTML from compiled dist/index.html
-    // rather than the root index.html (which is empty for formatVersion 2).
-    let html = app.htmlDefinition;
+    // For multifile TSX apps, auto-compile if dist is missing, then
+    // resolve HTML from compiled dist/index.html with inlined assets.
     if (isMultifileApp(app)) {
-      const { existsSync, readFileSync } = await import("node:fs");
+      const { existsSync } = await import("node:fs");
       const { join } = await import("node:path");
       const appDir = getAppDirPath(app.id);
       const distIndex = join(appDir, "dist", "index.html");
@@ -1561,12 +1640,8 @@ export async function surfaceProxyResolver(
           );
         }
       }
-      if (existsSync(distIndex)) {
-        html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-      } else {
-        html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
-      }
     }
+    const html = resolveEffectiveAppHtml(app);
 
     const surfaceData: DynamicPageSurfaceData = {
       html,

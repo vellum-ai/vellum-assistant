@@ -19,6 +19,7 @@ struct OnboardingFlowView: View {
     @State private var managedBootstrapError: String?
     @State private var didCallComplete = false
     @State private var completionDelayTask: Task<Void, Never>?
+    @State private var isShowingPreChat = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -27,6 +28,10 @@ struct OnboardingFlowView: View {
 
     private var managedSignInEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
+    }
+
+    private var preChatOnboardingEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("onboarding-pre-chat")
     }
 
     private var maxOnboardingStep: Int {
@@ -38,7 +43,31 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.surfaceOverlay.ignoresSafeArea()
 
-            if state.isHatching {
+            if isShowingPreChat {
+                PreChatOnboardingFlow(initialAssistantName: state.assistantName) { context in
+                    state.preChatContext = context
+                    // Update assistant name if user changed it during pre-chat
+                    if let newName = context?.assistantName, !newName.isEmpty, newName != state.assistantName {
+                        state.assistantName = newName
+                    }
+                    isShowingPreChat = false
+                    onComplete()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RadialGradient(
+                        colors: [
+                            VColor.surfaceBase,
+                            VColor.surfaceOverlay
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 500
+                    )
+                    .ignoresSafeArea()
+                )
+                .transition(.opacity)
+            } else if state.isHatching {
                 HatchingStepView(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
@@ -57,17 +86,22 @@ struct OnboardingFlowView: View {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Fixed top inset — positions the icon consistently
-                    // across all steps regardless of bottom content weight.
-                    Color.clear.frame(height: VSpacing.xxxl)
+                    if state.currentStep == 0 {
+                        // Step 0 only: top inset + app icon
+                        Color.clear.frame(height: 80)
 
-                    if let nsImage = Self.appIcon {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 96, height: 96)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                            .padding(.bottom, VSpacing.xl)
+                        if let nsImage = Self.appIcon {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
+                                .padding(.bottom, 78)
+                        }
+                    } else {
+                        // Steps 1–3: top inset only (no icon)
+                        Color.clear.frame(height: VSpacing.xxxl)
                     }
 
                     // Step content — Group flattens into parent VStack so
@@ -147,9 +181,10 @@ struct OnboardingFlowView: View {
                     .id(isBootstrappingManaged ? -1 : state.currentStep)
 
                     // Bottom padding so content isn't flush with window edge.
-                    // Skip for steps with characters footer (0, 2) where the
-                    // graphic is designed to sit flush at the window bottom.
-                    if (state.currentStep != 0 && state.currentStep != 2) || isBootstrappingManaged {
+                    // All onboarding steps now have a characters footer that sits
+                    // flush at the window bottom, so only add padding for the
+                    // managed bootstrap view.
+                    if isBootstrappingManaged {
                         Color.clear.frame(height: VSpacing.xxl)
                     }
                 }
@@ -172,7 +207,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .frame(minWidth: 460, minHeight: 700)
+        .frame(minWidth: 440, minHeight: 630)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
@@ -212,6 +247,7 @@ struct OnboardingFlowView: View {
                 state.hatchStepLabel = nil
                 state.hatchTotalSteps = 1
                 state.hatchCurrentStep = 0
+                isShowingPreChat = false
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
@@ -258,7 +294,13 @@ struct OnboardingFlowView: View {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
-                    onComplete()
+                    if preChatOnboardingEnabled {
+                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                            isShowingPreChat = true
+                        }
+                    } else {
+                        onComplete()
+                    }
                 }
             }
         }

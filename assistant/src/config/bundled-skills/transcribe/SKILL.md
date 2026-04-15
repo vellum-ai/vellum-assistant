@@ -1,6 +1,6 @@
 ---
 name: transcribe
-description: Transcribe audio and video files using Whisper
+description: Transcribe audio and video files using the configured speech-to-text provider
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎙️"
@@ -8,22 +8,17 @@ metadata:
     display-name: "Transcribe"
 ---
 
-Transcribe audio and video files using OpenAI's Whisper model - either via the cloud API or locally via whisper.cpp.
-
-## Choosing a Mode
-
-Before transcribing, **ask the user which mode they prefer** if they haven't specified:
-
-1. **`api`** - Uses the OpenAI Whisper API. Fast, accurate, no setup needed. Requires an OpenAI API key (check if one is already configured). Audio is sent to OpenAI's servers. Costs ~$0.006/min.
-2. **`local`** - Uses whisper.cpp installed via Homebrew. Free, private, runs entirely on-device. Requires a one-time `brew install whisper-cpp`. Slightly slower but no data leaves the machine.
-
-If the user says "cloud", "API", or "online" → use `api`.
-If the user says "local", "offline", "private", or "on-device" → use `local`.
+Transcribe audio and video files using the configured speech-to-text provider. Supports multiple STT providers including OpenAI Whisper, Deepgram, and Google Gemini — the active provider is selected in Settings under Speech-to-Text (`services.stt`).
 
 ## Usage Notes
 
 - The tool accepts a `file_path` (absolute path to a local audio or video file) to transcribe.
 - Supported formats: any video (mp4, mov, etc.) or audio (mp3, wav, m4a, etc.) file.
 - For video files, audio is automatically extracted via ffmpeg before transcription.
-- The API mode has a 25MB per-request limit - large files are automatically split into chunks.
-- Local mode requires whisper.cpp (`brew install whisper-cpp`). The model is downloaded automatically on first use.
+- Large files are automatically split into chunks for processing.
+- If no STT provider credentials are configured, the tool will return an error with setup instructions.
+- The STT provider (`services.stt`) is shared between transcription and telephony call paths.
+
+## Maintenance
+
+When adding or modifying an STT provider, follow the onboarding checklist at `assistant/docs/stt-provider-onboarding.md`. That document covers the daemon catalog, config schema, adapter wiring, client catalog parity, and required tests.

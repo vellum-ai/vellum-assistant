@@ -21,6 +21,12 @@ import {
 import { getDb, initializeDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import {
+  __resetChromeExtensionRegistryForTests,
+  type ChromeExtensionConnection,
+  getChromeExtensionRegistry,
+} from "../runtime/chrome-extension-registry.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
@@ -188,6 +194,7 @@ function createFakeConversation(conversationId: string): Conversation {
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;
     },
+    restoreBrowserProxyAvailability: () => {},
     addPreactivatedSkillId: () => {},
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
@@ -328,6 +335,270 @@ beforeEach(() => {
   resetTables();
   resetConversationsDir();
   conversationInstances.clear();
+  pendingInteractions.clear();
+  __resetChromeExtensionRegistryForTests();
+});
+
+// ── macOS browser backend fallback regression ─────────────────────────
+//
+// These tests verify the route-level wiring that enables the CDP factory's
+// fallback chain on macOS-originated turns:
+//
+//   1. Extension connected  → extension backend (tested in host-browser-e2e-cloud.test.ts)
+//   2. Extension absent, cdp-inspect unavailable → local Playwright fallback
+//
+// Specifically, we verify that when a macOS message enters through
+// handleSendMessage with `interface: "macos"` and NO extension is connected,
+// the conversation's turnInterfaceContext is set correctly so the CDP factory
+// builds the right candidate list (cdp-inspect → local). If cdp-inspect
+// is also unreachable (the common case when Chrome is not launched with
+// --remote-debugging-port), the factory falls through to local.
+//
+// This is the regression guard for backend preference order step 2:
+//   macOS + no extension + cdp-inspect unavailable → local backend
+//
+// If the interface propagation or factory candidate list construction
+// regresses, these tests will fail.
+
+describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => {
+  test("macOS turn without extension sets turnInterfaceContext to macos, enabling local fallback", async () => {
+    const conversationKey = `macos-fallback-${crypto.randomUUID()}`;
+    const content = "Test macOS fallback path.";
+    let capturedConversation: Conversation | undefined;
+
+    const response = await handleSendMessage(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationKey,
+          content,
+          sourceChannel: "vellum",
+          interface: "macos",
+        }),
+      }),
+      {
+        sendMessageDeps: {
+          getOrCreateConversation: async (conversationId: string) => {
+            const conv = getOrCreateFakeConversation(conversationId);
+            capturedConversation = conv;
+            return conv;
+          },
+          assistantEventHub: new AssistantEventHub(),
+          resolveAttachments: () => [],
+        },
+      },
+      authContext,
+    );
+
+    expect(response.status).toBe(202);
+
+    // The conversation instance should have its turnInterfaceContext set
+    // to "macos" by handleSendMessage. This is the value the CDP factory
+    // reads (via ToolContext.transportInterface) to decide whether to
+    // include cdp-inspect as a desktop-auto candidate and ultimately fall
+    // back to local Playwright when cdp-inspect is unavailable.
+    expect(capturedConversation).toBeDefined();
+    const interfaceCtx = capturedConversation!.getTurnInterfaceContext();
+    expect(interfaceCtx).not.toBeNull();
+    expect(interfaceCtx!.userMessageInterface).toBe("macos");
+    expect(interfaceCtx!.assistantMessageInterface).toBe("macos");
+
+    // With no extension in the ChromeExtensionRegistry, the conversation's
+    // hostBrowserProxy should NOT be provisioned through the registry.
+    // The absence of a hostBrowserProxy means the CDP factory will skip
+    // the extension candidate entirely and fall through:
+    // cdp-inspect (desktop-auto) → local.
+    expect(
+      (capturedConversation as unknown as Record<string, unknown>)
+        .hostBrowserProxy,
+    ).toBeUndefined();
+    expect(
+      (capturedConversation as unknown as Record<string, unknown>)
+        .hostBrowserSenderOverride,
+    ).toBeUndefined();
+  });
+
+  test("macOS turn correctly persists interface metadata through the agent loop", async () => {
+    const conversationKey = `macos-metadata-${crypto.randomUUID()}`;
+    const content = "Verify interface metadata persistence.";
+
+    const response = await handleSendMessage(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationKey,
+          content,
+          sourceChannel: "vellum",
+          interface: "macos",
+        }),
+      }),
+      {
+        sendMessageDeps: {
+          getOrCreateConversation: async (conversationId: string) =>
+            getOrCreateFakeConversation(conversationId),
+          assistantEventHub: new AssistantEventHub(),
+          resolveAttachments: () => [],
+        },
+      },
+      authContext,
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted: boolean;
+      conversationId: string;
+    };
+
+    // Wait for the agent loop to persist the assistant reply (the fake
+    // runAgentLoop persists interface metadata into message records).
+    const conversationRow = getConversation(body.conversationId);
+    expect(conversationRow).not.toBeNull();
+    const conversationDir = getConversationDirPath(
+      body.conversationId,
+      conversationRow!.createdAt,
+    );
+    const messagesPath = join(conversationDir, "messages.jsonl");
+
+    const lines = await waitFor(() => {
+      if (!existsSync(messagesPath)) return undefined;
+      const raw = readFileSync(messagesPath, "utf-8").trim();
+      if (!raw) return undefined;
+      const parsed = raw.split("\n").map(
+        (line) =>
+          JSON.parse(line) as {
+            role: string;
+            metadata?: Record<string, unknown>;
+          },
+      );
+      return parsed.length >= 2 ? parsed : undefined;
+    });
+
+    // The assistant reply (second line) should carry the interface metadata
+    // set by setTurnInterfaceContext during the macOS turn setup.
+    const assistantLine = lines[1];
+    expect(assistantLine?.role).toBe("assistant");
+    expect(assistantLine?.metadata?.userMessageInterface).toBe("macos");
+    expect(assistantLine?.metadata?.assistantMessageInterface).toBe("macos");
+  });
+});
+
+describe("chrome-extension host_browser pending registration", () => {
+  test("registers pending interaction before registry-routed host_browser send", async () => {
+    const guardianId = `guardian-${crypto.randomUUID()}`;
+    let pendingRegisteredAtSend: boolean | undefined;
+    let observedRequestId: string | undefined;
+
+    const connection: ChromeExtensionConnection = {
+      id: `conn-${crypto.randomUUID()}`,
+      guardianId,
+      ws: {
+        send(payload: string) {
+          const frame = JSON.parse(payload) as {
+            type?: string;
+            requestId?: string;
+          };
+          if (
+            frame.type === "host_browser_request" &&
+            typeof frame.requestId === "string"
+          ) {
+            observedRequestId = frame.requestId;
+            pendingRegisteredAtSend =
+              pendingInteractions.get(frame.requestId)?.kind === "host_browser";
+          }
+        },
+        close() {},
+      } as unknown as ChromeExtensionConnection["ws"],
+      connectedAt: Date.now(),
+      lastActiveAt: Date.now(),
+    };
+    getChromeExtensionRegistry().register(connection);
+
+    const actorAuthContext: AuthContext = {
+      ...authContext,
+      subject: `actor:self:${guardianId}`,
+      principalType: "actor",
+      scopeProfile: "actor_client_v1",
+      actorPrincipalId: guardianId,
+    };
+
+    const conversationKey = `chrome-ext-pending-${crypto.randomUUID()}`;
+    const response = await handleSendMessage(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationKey,
+          content: "Trigger host browser request via registry sender.",
+          sourceChannel: "vellum",
+          interface: "chrome-extension",
+        }),
+      }),
+      {
+        sendMessageDeps: {
+          getOrCreateConversation: async (conversationId: string) => {
+            const conversation = createFakeConversation(
+              conversationId,
+            ) as unknown as {
+              hostBrowserProxy?: {
+                request: (
+                  input: { cdpMethod: string; timeout_seconds?: number },
+                  conversationId: string,
+                ) => Promise<{ content: string; isError: boolean }>;
+              };
+              processing: boolean;
+              abortController: AbortController | null;
+              currentRequestId?: string;
+              runAgentLoop: (
+                content: string,
+                userMessageId: string,
+                onEvent: (msg: Record<string, unknown>) => void,
+              ) => Promise<void>;
+              conversationId: string;
+            };
+
+            conversation.runAgentLoop = async function (
+              _content: string,
+              _userMessageId: string,
+              _onEvent: (msg: Record<string, unknown>) => void,
+            ): Promise<void> {
+              if (!this.hostBrowserProxy) {
+                throw new Error(
+                  "Expected hostBrowserProxy to be provisioned for chrome-extension turn",
+                );
+              }
+              await this.hostBrowserProxy.request(
+                {
+                  cdpMethod: "Browser.getVersion",
+                  // Keep the test fast while still allowing assertion at send time.
+                  timeout_seconds: 0.05,
+                },
+                this.conversationId,
+              );
+              this.processing = false;
+              this.abortController = null;
+              this.currentRequestId = undefined;
+            };
+
+            conversationInstances.set(
+              conversationId,
+              conversation as unknown as Conversation,
+            );
+            return conversation as unknown as Conversation;
+          },
+          assistantEventHub: new AssistantEventHub(),
+          resolveAttachments: () => [],
+        },
+      },
+      actorAuthContext,
+    );
+
+    expect(response.status).toBe(202);
+    const registered = await waitFor(() => pendingRegisteredAtSend, 1000);
+    expect(observedRequestId).toBeDefined();
+    expect(registered).toBe(true);
+  });
 });
 
 describe("conversationKey send path disk-view regression", () => {

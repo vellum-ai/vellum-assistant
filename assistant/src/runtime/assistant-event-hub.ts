@@ -45,7 +45,7 @@ interface SubscriberEntry {
  * events that match their `assistantId` (and optionally `conversationId`).
  *
  * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection lives in the SSE route (PR 7).
+ * backpressure. Slow-consumer protection lives in the SSE route.
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
@@ -194,6 +194,6 @@ export class AssistantEventHub {
 /**
  * Singleton hub shared across the entire runtime process.
  *
- * Import and use this in daemon send paths (PR 3) and the SSE route (PR 5).
+ * Import and use this in daemon send paths and the SSE route.
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });

@@ -24,8 +24,21 @@ type SlackApiResult = {
 };
 
 /**
+ * Surfaced when Slack returns `ok: false` with a non-retryable error. Callers
+ * can branch on `slackError` (e.g. retry without blocks for `invalid_blocks`)
+ * before falling through to the transport-error path.
+ */
+type SlackApiError = {
+  kind: "slack_error";
+  slackError: string | undefined;
+  response: Response;
+};
+
+/**
  * Call a Slack API method with rate-limit retries. Returns the parsed
- * JSON body on success, or a ready-made error Response on failure.
+ * JSON body on success, a `SlackApiError` for non-retryable Slack errors
+ * (so callers can inspect `slackError`), or a ready-made error `Response`
+ * for transport-level failures (429/5xx exhausted, etc.).
  */
 async function callSlackApiWithRetries(
   url: string,
@@ -33,7 +46,7 @@ async function callSlackApiWithRetries(
   botToken: string,
   chatId: string,
   tlog: Pick<ReturnType<typeof getLogger>, "error" | "warn" | "info">,
-): Promise<SlackApiResult | Response> {
+): Promise<SlackApiResult | SlackApiError | Response> {
   let lastError: string | undefined;
 
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
@@ -107,31 +120,47 @@ async function callSlackApiWithRetries(
 
       const userMessage = getUserMessage(data.error);
 
+      let errorResponse: Response;
       if (category === "rate_limit") {
-        return Response.json(
+        errorResponse = Response.json(
           { error: "Rate limited", ...(userMessage && { userMessage }) },
           { status: 429 },
         );
-      }
-      if (category === "channel_not_found" || category === "not_found") {
-        return Response.json(
+      } else if (
+        category === "channel_not_found" ||
+        category === "not_found"
+      ) {
+        errorResponse = Response.json(
           { error: "Channel not found", ...(userMessage && { userMessage }) },
           { status: 404 },
         );
-      }
-      if (category === "permission") {
-        return Response.json(
+      } else if (category === "permission") {
+        errorResponse = Response.json(
           { error: "Permission denied", ...(userMessage && { userMessage }) },
           { status: 403 },
         );
+      } else if (category === "client_error") {
+        // Client-side payload problems (e.g. invalid_blocks) — the daemon
+        // must NOT retry the exact same payload. 400 signals this clearly.
+        errorResponse = Response.json(
+          { error: "Invalid payload", ...(userMessage && { userMessage }) },
+          { status: 400 },
+        );
+      } else {
+        // Auth errors use 502 so downstream retry logic treats them as
+        // transient (token rotation, brief credential desync). Permanent
+        // auth failures will exhaust retries and be dead-lettered normally.
+        errorResponse = Response.json(
+          { error: "Delivery failed", ...(userMessage && { userMessage }) },
+          { status: 502 },
+        );
       }
-      // Auth errors use 502 so downstream retry logic treats them as
-      // transient (token rotation, brief credential desync). Permanent
-      // auth failures will exhaust retries and be dead-lettered normally.
-      return Response.json(
-        { error: "Delivery failed", ...(userMessage && { userMessage }) },
-        { status: 502 },
-      );
+
+      return {
+        kind: "slack_error",
+        slackError: data.error,
+        response: errorResponse,
+      };
     }
 
     return { ok: true, ts: data.ts };
@@ -799,6 +828,8 @@ export function createSlackDeliverHandler(
         onThreadReply(threadTs);
       }
 
+      let usedBlockFallback = false;
+
       if (text && typeof text === "string") {
         const slackBody: Record<string, unknown> = {
           channel: chatId,
@@ -821,7 +852,8 @@ export function createSlackDeliverHandler(
           slackBody.user = body.user!;
         }
 
-        let result: SlackApiResult | Response;
+        let result: SlackApiResult | SlackApiError | Response;
+        let blockFallback = false;
 
         if (isUpdate) {
           // chat.update only accepts channel, ts, text, and blocks — thread_ts
@@ -842,12 +874,41 @@ export function createSlackDeliverHandler(
             tlog,
           );
 
-          // Fall back to posting a new message if update fails
-          if (result instanceof Response) {
-            tlog.warn(
-              { chatId, messageTs },
-              "Slack chat.update failed, falling back to chat.postMessage",
-            );
+          // Fall back to posting a new message if update fails (either a
+          // transport error or a Slack-level error).
+          if (
+            result instanceof Response ||
+            ("kind" in result && result.kind === "slack_error")
+          ) {
+            // If chat.update rejected the payload because the blocks are
+            // invalid, strip blocks before the postMessage fallback — the
+            // blocks will fail identically there. This collapses what would
+            // otherwise be three round-trips (update+blocks, post+blocks,
+            // post without blocks via the outer retry) into two.
+            const updateRejectedBlocks =
+              !(result instanceof Response) &&
+              "kind" in result &&
+              result.kind === "slack_error" &&
+              result.slackError === "invalid_blocks" &&
+              !body.approval &&
+              !isEphemeral &&
+              Array.isArray(slackBody.blocks) &&
+              slackBody.blocks.length > 0;
+
+            if (updateRejectedBlocks) {
+              tlog.warn(
+                { chatId, messageTs },
+                "chat.update returned invalid_blocks; falling back to chat.postMessage without blocks",
+              );
+              delete slackBody.blocks;
+              blockFallback = true;
+            } else {
+              tlog.warn(
+                { chatId, messageTs },
+                "Slack chat.update failed, falling back to chat.postMessage",
+              );
+            }
+
             result = await callSlackApiWithRetries(
               "https://slack.com/api/chat.postMessage",
               slackBody,
@@ -855,6 +916,18 @@ export function createSlackDeliverHandler(
               chatId,
               tlog,
             );
+
+            // If we pre-stripped blocks above but the postMessage call still
+            // failed, clear the fallback flag so the success log isn't
+            // misleading. The outer error handling below will return the
+            // appropriate response.
+            if (
+              updateRejectedBlocks &&
+              (result instanceof Response ||
+                ("kind" in result && result.kind === "slack_error"))
+            ) {
+              blockFallback = false;
+            }
           }
         } else {
           const slackMethod = isEphemeral
@@ -870,10 +943,59 @@ export function createSlackDeliverHandler(
           );
         }
 
-        // If result is a Response, it's an error response — return it directly
+        // If Slack rejected the Block Kit payload, retry chat.postMessage
+        // once with plain text only. Approval prompts have a required Block
+        // Kit structure — skip the fallback for those since plain text is
+        // not a valid substitute. Ephemeral messages are also skipped so
+        // the retry doesn't broadcast a private message to the whole
+        // channel (postEphemeral is the only way to preserve ephemerality,
+        // but if Slack rejected its blocks it will reject them here too).
+        if (
+          !(result instanceof Response) &&
+          "kind" in result &&
+          result.kind === "slack_error" &&
+          result.slackError === "invalid_blocks" &&
+          !body.approval &&
+          !isEphemeral &&
+          Array.isArray(slackBody.blocks) &&
+          slackBody.blocks.length > 0
+        ) {
+          const originalBlockCount = slackBody.blocks.length;
+          tlog.warn(
+            {
+              chatId,
+              originalBlockCount,
+              textLength: text.length,
+            },
+            "Retrying Slack delivery without blocks after invalid_blocks",
+          );
+          const { blocks: _omitBlocks, ...plainSlackBody } = slackBody;
+          result = await callSlackApiWithRetries(
+            "https://slack.com/api/chat.postMessage",
+            plainSlackBody,
+            botToken,
+            chatId,
+            tlog,
+          );
+          if (
+            !(result instanceof Response) &&
+            !("kind" in result && result.kind === "slack_error")
+          ) {
+            blockFallback = true;
+          }
+        }
+
+        // If result is a Response, it's a transport-level error — return it directly
         if (result instanceof Response) {
           return result;
         }
+        // If it's a Slack-level error, return the stashed error response.
+        if ("kind" in result && result.kind === "slack_error") {
+          return result.response;
+        }
+
+        // Surface the block-fallback flag to the normal success log below.
+        usedBlockFallback = blockFallback;
       }
 
       if (attachments && attachments.length > 0) {
@@ -894,6 +1016,7 @@ export function createSlackDeliverHandler(
           ephemeral: isEphemeral,
           hasText: !!text,
           attachmentCount: attachments?.length ?? 0,
+          ...(usedBlockFallback && { blockFallback: true }),
         },
         isUpdate ? "Slack message updated" : "Slack message sent",
       );

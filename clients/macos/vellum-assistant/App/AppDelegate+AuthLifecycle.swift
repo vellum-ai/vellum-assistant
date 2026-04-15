@@ -161,9 +161,10 @@ extension AppDelegate {
         // The sentinel contains the current Unix timestamp; the new instance
         // honours it only if it is less than 30 seconds old, so a stale file
         // left by a crash does not permanently disable the guard.
-        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".vellum")
-        try? FileManager.default.createDirectory(at: sentinelDir, withIntermediateDirectories: true)
-        let sentinelPath = sentinelDir.appendingPathComponent("restart-in-progress")
+        // Uses NSTemporaryDirectory() (per Apple guidelines for transient IPC
+        // files) instead of ~/.vellum to avoid workspace disk assumptions.
+        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vellum-restart-in-progress")
         let timestamp = "\(Date().timeIntervalSince1970)"
         try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
 
@@ -245,13 +246,17 @@ extension AppDelegate {
             // Clear locally-cached credentials for all local assistants
             let credStorage = FileCredentialStorage()
             for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
-                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                LocalAssistantBootstrapService.clearBootstrapCredential(
+                    runtimeAssistantId: assistant.assistantId,
+                    credentialStorage: credStorage
+                )
             }
             // Also clear for the connected assistant in case it's not in the lockfile
             if let assistantId = connectedAssistantId {
-                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                LocalAssistantBootstrapService.clearBootstrapCredential(
+                    runtimeAssistantId: assistantId,
+                    credentialStorage: credStorage
+                )
             }
 
             // Stop all non-current local assistant processes to clear in-memory platform
@@ -474,34 +479,31 @@ extension AppDelegate {
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
-        // 4. For managed assistants, bootstrap via the platform API to
-        //    re-resolve the organization ID before connecting. The org ID was
-        //    cleared in step 3; without it the health check's
-        //    Vellum-Organization-Id header would be missing and the connection
-        //    would fail.
+        // 4. For managed assistants, re-resolve the organization ID before
+        //    connecting. The org ID was cleared in step 3; without it the
+        //    health check's Vellum-Organization-Id header would be missing
+        //    and the connection would fail.
         managedSwitchTask?.cancel()
         managedSwitchTask = nil
         if assistant.isManaged {
             let targetId = assistant.assistantId
             managedSwitchTask = Task {
-                // Use ensureManagedAssistant() directly instead of the
-                // coordinator's activateManagedAssistant() — the coordinator
-                // calls persistManagedAssistant() which overwrites
-                // connectedAssistantId as a side effect, creating a race
-                // when a second switch fires before this task completes.
-                // We only need the org ID resolution from ensureManagedAssistant().
+                // Call resolveOrganizationId() directly — we only need the
+                // org ID side effect here, not the full bootstrap (list +
+                // hatch). Using ensureManagedAssistant() would trigger an
+                // unnecessary listAssistants network call and could
+                // overwrite connectedAssistantId via the 404/403 paths.
                 do {
-                    _ = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+                    _ = try await ManagedAssistantBootstrapService.shared.resolveOrganizationId()
                 } catch is CancellationError {
                     log.info("Managed switch to \(targetId, privacy: .public) cancelled")
                     return
                 } catch {
-                    log.error("Managed bootstrap failed during switch: \(error.localizedDescription, privacy: .public)")
+                    log.error("Org resolution failed during switch: \(error.localizedDescription, privacy: .public)")
                     // If resolveOrganizationId() failed, connectedOrganizationId
                     // is still nil and the connection would fail for the same
                     // reason this fix exists. Only proceed if the org ID was
-                    // actually resolved (it's set as a side effect of
-                    // resolveOrganizationId() inside ensureManagedAssistant()).
+                    // actually resolved.
                     if UserDefaults.standard.string(forKey: "connectedOrganizationId") == nil {
                         log.error("Organization ID not resolved — aborting managed switch to \(targetId, privacy: .public)")
                         // The main window was already closed in step 2.
@@ -510,10 +512,8 @@ extension AppDelegate {
                         return
                     }
                 }
-                // ensureManagedAssistant() clears connectedAssistantId when the
-                // platform returns 404 (deleted) or 403 (revoked). Restore it
-                // so the guard below doesn't confuse this with a concurrent
-                // switch that wrote a different assistant ID.
+                // resolveOrganizationId() doesn't touch connectedAssistantId,
+                // but guard against a concurrent switch that cleared it.
                 if LockfileAssistant.loadActiveAssistantId() == nil, !Task.isCancelled {
                     LockfileAssistant.setActiveAssistantId(targetId)
                 }
@@ -635,86 +635,43 @@ extension AppDelegate {
     /// `false` if the user cancelled after a failure.
     @discardableResult
     func performRetireAsync() async -> Bool {
-        let assistantName = LockfileAssistant.loadActiveAssistantId()
+        // Disconnect SSE and health checks *before* killing the
+        // daemon/gateway. Otherwise the EventStreamClient reconnect loop
+        // hits the gateway while the upstream daemon is already dead,
+        // producing spurious "SSE connection failed with status 502" errors.
+        connectionManager.disconnect()
 
-        if assistantName == nil {
-            log.error("No stored connected assistant ID found — skipping retire")
+        let client = AssistantManagementClient.create()
+        let replacement: LockfileAssistant?
+        do {
+            replacement = try await client.retire()
+        } catch {
+            log.error("Retire failed: \(error.localizedDescription)")
+
+            let alert = NSAlert()
+            alert.messageText = "Failed to Retire Assistant"
+            alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the assistant may still be running and will need to be cleaned up manually."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Force Remove")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() != .alertFirstButtonReturn {
+                try? await connectionManager.connect()
+                return false
+            }
+            // User chose "Force Remove" — the client delegates lockfile
+            // cleanup to this shared protocol-extension method.
+            replacement = await client.forceRemoveActiveAssistant()
         }
 
-        if let name = assistantName {
-            // Disconnect SSE and health checks *before* the CLI kills the
-            // daemon/gateway. Otherwise the EventStreamClient reconnect loop
-            // hits the gateway while the upstream daemon is already dead,
-            // producing spurious "SSE connection failed with status 502" errors.
-            connectionManager.disconnect()
-
-            do {
-                try await vellumCli.retire(name: name)
-            } catch {
-                log.error("CLI retire failed: \(error.localizedDescription)")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Retire Remote Instance"
-                alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the remote cloud instance may still be running and will need to be deleted manually."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Force Remove")
-                alert.addButton(withTitle: "Cancel")
-                if alert.runModal() != .alertFirstButtonReturn {
-                    // Assistant is still running — reconnect so the user can
-                    // continue using the app (we disconnected above to avoid
-                    // 502 errors during the retire attempt).
-                    try? await connectionManager.connect()
-                    return false
-                }
-                // Retire failed but user chose Force Remove — stop the assistant
-                // before cleaning up local state.
-                await vellumCli.stop(name: name)
-                self.removeLockfileEntry(assistantId: name)
-            }
-        } else {
-            await vellumCli.stop(name: assistantName)
-        }
-
-        // Clear the stale connectedAssistantId immediately after retire so
-        // subsequent flows (e.g. managed bootstrap) don't attempt a 404 lookup
-        // for the now-retired assistant on the platform. If another assistant is
-        // found below, performSwitchAssistant will set the new ID.
-        LockfileAssistant.setActiveAssistantId(nil)
-
-        // Check if other assistants remain in the lockfile.
-        // Prefer remote assistants (always reachable), then try waking local ones.
-        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
-        if !remaining.isEmpty {
-            // Try remote assistants first — they're always reachable
-            if let remote = remaining.first(where: { $0.isRemote }) {
-                performSwitchAssistant(to: remote)
-                return true
-            }
-
-            // Try local assistants — check if awake, otherwise wake them
-            for candidate in remaining {
-                if await HealthCheckClient.isReachable(for: candidate) {
-                    performSwitchAssistant(to: candidate)
-                    return true
-                }
-
-                // Sleeping — try to wake it
-                do {
-                    try await vellumCli.wake(name: candidate.assistantId)
-                    performSwitchAssistant(to: candidate)
-                    return true
-                } catch {
-                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
-                    continue
-                }
-            }
-            // All local wake attempts failed — fall through to onboarding
+        if let replacement {
+            performSwitchAssistant(to: replacement)
+            return true
         }
 
         // No assistants left — tear down fully and show onboarding
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")
-        LockfileAssistant.setActiveAssistantId(nil)
         SentryDeviceInfo.updateAssistantTag(nil)
         UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         SentryDeviceInfo.updateOrganizationTag(nil)
@@ -811,7 +768,7 @@ extension AppDelegate {
 
         Task {
             let allAssistants = LockfileAssistant.loadAll()
-            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker }
+            let localAssistants = allAssistants.filter { !$0.isRemote || $0.isDocker || $0.isAppleContainer }
 
             // Disconnect SSE before retiring so the reconnect loop doesn't
             // hit a half-torn-down gateway and produce 502 errors.
@@ -819,9 +776,10 @@ extension AppDelegate {
 
             // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
+                let client = AssistantManagementClient.create(for: assistant)
                 do {
                     log.info("Retiring local assistant '\(assistant.assistantId, privacy: .public)' as part of uninstall")
-                    try await vellumCli.retire(name: assistant.assistantId)
+                    try await client.retire(name: assistant.assistantId)
                 } catch {
                     log.error("Failed to retire '\(assistant.assistantId, privacy: .public)' during uninstall: \(error.localizedDescription)")
                 }

@@ -20,7 +20,7 @@ Vellum is a personal AI assistant platform that runs as a local service on the u
 
 ## Architecture at a Glance
 
-The assistant runs as an HTTP server. Conversations are managed by a coordinator that delegates to an AgentLoop, which sends messages to the configured LLM provider and executes tools. The system prompt is composed from workspace files (IDENTITY.md, SOUL.md, USER.md) plus dynamic context. Skills extend capabilities via lazy-loaded instruction sets.
+The assistant runs as an HTTP server. Conversations are managed by a coordinator that delegates to an AgentLoop, which sends messages to the configured LLM provider and executes tools. The system prompt is composed from workspace files (IDENTITY.md, SOUL.md, and the guardian's per-user persona at `users/<slug>.md`) plus dynamic context. Skills extend capabilities via lazy-loaded instruction sets.
 
 ## Configuration System
 

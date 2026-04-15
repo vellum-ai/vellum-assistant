@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createServer } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,18 +55,50 @@ let gatewayPort = 0;
 let cesPort = 0;
 let cesServer: ReturnType<typeof Bun.serve> | null = null;
 
-function assignPorts(): void {
-  if (gatewayPort !== 0 && cesPort !== 0) return;
-  gatewayPort = 49152 + Math.floor(Math.random() * 8_192);
-  cesPort = gatewayPort + 1;
+/** Ask the OS for a free port by briefly binding to port 0. */
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === "string") {
+        srv.close();
+        reject(new Error("Failed to get free port"));
+        return;
+      }
+      const port = addr.port;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
+
+/** Wait for a child process to exit, with a safety timeout. */
+function waitForExit(proc: ChildProcess, timeoutMs = 5_000): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, timeoutMs);
+    proc.on("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 async function startGateway(): Promise<void> {
-  assignPorts();
+  if (cesPort === 0)
+    throw new Error(
+      "CES port not assigned — call startFakeCes or reserveCesPort first",
+    );
+  gatewayPort = await getFreePort();
 
+  const { GATEWAY_SECURITY_DIR: _, ...parentEnv } = process.env;
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
-      ...process.env,
+      ...parentEnv,
       BASE_DATA_DIR: testDir,
       GATEWAY_PORT: String(gatewayPort),
       CES_CREDENTIAL_URL: `http://127.0.0.1:${cesPort}`,
@@ -76,8 +109,27 @@ async function startGateway(): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const deadline = Date.now() + 10_000;
+  // Collect stderr for diagnostics on failure.
+  const stderrChunks: Buffer[] = [];
+  gatewayProc.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+  // Track early exit so we can fail fast instead of polling for 30s.
+  let earlyExitCode: number | null = null;
+  let earlyExitSignal: string | null = null;
+  gatewayProc.on("exit", (code, signal) => {
+    earlyExitCode = code;
+    earlyExitSignal = signal;
+  });
+
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    // If the process already died, fail immediately with stderr.
+    if (earlyExitCode !== null || earlyExitSignal !== null) {
+      const stderr = Buffer.concat(stderrChunks).toString().slice(-2000);
+      throw new Error(
+        `Gateway exited early (code=${earlyExitCode}, signal=${earlyExitSignal})\n${stderr}`,
+      );
+    }
     try {
       const res = await fetch(`http://localhost:${gatewayPort}/healthz`);
       if (res.ok) return;
@@ -86,7 +138,10 @@ async function startGateway(): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Gateway failed to start within 10 seconds");
+  const stderr = Buffer.concat(stderrChunks).toString().slice(-2000);
+  throw new Error(
+    `Gateway failed to start within 30 seconds\nstderr: ${stderr}`,
+  );
 }
 
 function startFakeCes(opts: {
@@ -94,11 +149,12 @@ function startFakeCes(opts: {
   credentials?: Record<string, string>;
   resolveValue?: (account: string) => string | undefined;
 }): void {
-  assignPorts();
   const accounts = opts.accounts ?? Object.keys(opts.credentials ?? {});
   const credentials = opts.credentials ?? {};
   cesServer = Bun.serve({
-    port: cesPort,
+    // If cesPort was pre-reserved (for tests that start the gateway before
+    // the CES), bind to that port. Otherwise let the OS pick a free one.
+    port: cesPort || 0,
     fetch(req) {
       const authHeader = req.headers.get("authorization");
       if (authHeader !== `Bearer ${TEST_SERVICE_TOKEN}`) {
@@ -130,17 +186,22 @@ function startFakeCes(opts: {
       return new Response("Not Found", { status: 404 });
     },
   });
+  cesPort = cesServer.port!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   cesServer?.stop(true);
   cesServer = null;
   gatewayPort = 0;
   cesPort = 0;
 
   if (gatewayProc) {
-    gatewayProc.kill("SIGKILL");
+    const proc = gatewayProc;
     gatewayProc = null;
+    proc.kill("SIGKILL");
+    // Wait for the process to actually exit so ports and file handles are
+    // fully released before the next test starts.
+    await waitForExit(proc);
   }
 
   rmSync(testDir, { recursive: true, force: true });
@@ -151,6 +212,11 @@ describe("gateway managed credential bootstrap retry", () => {
     mkdirSync(testDir, { recursive: true });
     writeCredentialMetadata();
 
+    // Reserve the CES port before starting the gateway so the gateway
+    // knows where CES will eventually appear. CES isn't running yet —
+    // the gateway's managed bootstrap will get ECONNREFUSED until we
+    // start the fake CES below.
+    cesPort = await getFreePort();
     await startGateway();
 
     const base = `http://localhost:${gatewayPort}`;
@@ -176,7 +242,7 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 
   test("keeps retrying until configured credential reads succeed after CES list is already available", async () => {
     mkdirSync(testDir, { recursive: true });
@@ -220,7 +286,7 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 
   test("detects new Slack credentials when metadata is written after startup with no initial channel services", async () => {
     // Start with NO channel service metadata — only non-channel credentials
@@ -274,5 +340,5 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 20_000);
+  }, 45_000);
 });

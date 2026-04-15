@@ -1,7 +1,7 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { z } from "zod";
@@ -12,8 +12,10 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  canServiceRegistryBrowser,
   CHANNEL_IDS,
   INTERFACE_IDS,
+  type InterfaceId,
   isInteractiveInterface,
   parseChannelId,
   parseInterfaceId,
@@ -21,6 +23,7 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import type { Conversation } from "../../daemon/conversation.js";
 import {
   buildModelInfoEvent,
   formatCompactResult,
@@ -41,10 +44,14 @@ import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
-  MacosTransportMetadata,
-  NonMacosTransportMetadata,
+  HostProxyTransportMetadata,
+  NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import {
+  writeOnboardingSidecar,
+  writeRelationshipState,
+} from "../../home/relationship-state-writer.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -74,10 +81,12 @@ import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -106,7 +115,7 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(
     conversationId,
@@ -171,7 +180,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     data: string;
     filePath?: string;
   }>;
-  conversation: import("../../daemon/conversation.js").Conversation;
+  conversation: Conversation;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -423,8 +432,18 @@ export function handleListMessages(
   // pendingToolUses map — otherwise they render as "Unknown" tool calls.
   const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
 
+  // During streaming, all assistant turns within one agent loop accumulate
+  // on a single client-side ChatMessage (via currentAssistantMessageId).
+  // In the DB, each API turn is a separate assistant row because
+  // consolidation is deferred to compaction for prefix-cache stability.
+  // Merge consecutive assistant messages here at query time so
+  // renderHistoryContent produces the same contentOrder shape as streaming
+  // (consecutive tool refs grouped together).
+  const { messages: consolidatedMessages, mergedIdMap } =
+    mergeConsecutiveAssistantMessages(mergedMessages);
+
   // Parse content blocks and extract text + tool calls
-  const parsed = mergedMessages.map((msg) => {
+  const parsed = consolidatedMessages.map((msg) => {
     let content: unknown;
     try {
       content = JSON.parse(msg.content);
@@ -549,7 +568,13 @@ export function handleListMessages(
       // blobs for non-image attachments (documents, audio). Then
       // selectively fetch full data only for images so the client can
       // generate thumbnails for inline display on history restore.
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
+      // Also query attachments for any messages that were merged into
+      // this one (consecutive assistant merge), so their attachments
+      // aren't lost before DB compaction relinks them.
+      const idsToQuery = [m.id, ...(mergedIdMap.get(m.id) ?? [])];
+      const linked = idsToQuery.flatMap((id) =>
+        attachmentsStore.getAttachmentMetadataForMessage(id),
+      );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
@@ -794,6 +819,150 @@ function mergeToolResultsIntoAssistantMessages(
   return result;
 }
 
+// ── Consecutive assistant message merging ────────────────────────────
+
+/** Parse a message's JSON content into an array of content blocks. */
+function parseContentBlocks(content: string): unknown[] {
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to parse content blocks during assistant message merge",
+    );
+    return [];
+  }
+}
+
+/**
+ * Append content blocks from a donor message onto a target block array.
+ * Parses the donor's JSON content and pushes each block into `target`.
+ */
+function appendContentBlocks(target: unknown[], donorContent: string): void {
+  try {
+    const parsed = JSON.parse(donorContent);
+    if (Array.isArray(parsed)) {
+      target.push(...parsed);
+    } else {
+      target.push(parsed);
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to parse donor content blocks during assistant message merge",
+    );
+  }
+}
+
+/**
+ * Promote metadata fields from a donor message to the surviving message
+ * when the survivor lacks them. Currently promotes `subagentNotification`.
+ * Returns a new MessageRow if promotion occurred, otherwise the original.
+ */
+function promoteMetadata(survivor: MessageRow, donor: MessageRow): MessageRow {
+  if (donor.metadata && survivor.metadata) {
+    try {
+      const survivorMeta = JSON.parse(survivor.metadata);
+      const donorMeta = JSON.parse(donor.metadata);
+      if (
+        !survivorMeta.subagentNotification &&
+        donorMeta.subagentNotification
+      ) {
+        survivorMeta.subagentNotification = donorMeta.subagentNotification;
+        return { ...survivor, metadata: JSON.stringify(survivorMeta) };
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to parse metadata during assistant message merge",
+      );
+    }
+  } else if (donor.metadata && !survivor.metadata) {
+    return { ...survivor, metadata: donor.metadata };
+  }
+  return survivor;
+}
+
+/**
+ * Merge consecutive assistant messages into a single message at query time.
+ *
+ * During streaming, all assistant turns within one agent loop accumulate on
+ * a single client-side ChatMessage. In the DB, each API turn is stored as a
+ * separate assistant row (consolidation is deferred to compaction for
+ * prefix-cache stability). This produces N separate assistant messages that
+ * the client renders as N individual bubbles — each showing "Completed 1
+ * step" instead of one grouped "Completed N steps" accordion.
+ *
+ * This function concatenates the content block arrays of consecutive
+ * assistant messages (no intervening user messages after tool-result
+ * merging) into the first message of each run. The merged messages are
+ * removed from the output. This is query-time only — the DB is not
+ * modified.
+ *
+ * The first message in each run keeps its id, createdAt, and metadata so
+ * that attachment lookups, display timestamps, and subagent notifications
+ * continue to work. Metadata from later messages in the run (e.g.
+ * subagentNotification) is preserved by promoting it to the surviving
+ * message when the surviving message has no metadata of its own for that
+ * field.
+ */
+function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
+  messages: MessageRow[];
+  /** Maps each surviving message ID → all original message IDs merged into it. */
+  mergedIdMap: Map<string, string[]>;
+} {
+  const result: MessageRow[] = [];
+  // Key = index in `result`, value = accumulated content blocks.
+  const pendingMerges = new Map<number, unknown[]>();
+  // Key = index in `result`, value = IDs of messages merged into the target.
+  const mergedIds = new Map<number, string[]>();
+
+  for (const msg of messages) {
+    const lastIdx = result.length - 1;
+    const isConsecutiveAssistant =
+      msg.role === "assistant" &&
+      lastIdx >= 0 &&
+      result[lastIdx].role === "assistant";
+
+    if (!isConsecutiveAssistant) {
+      result.push(msg);
+      continue;
+    }
+
+    // Track the donor message ID.
+    let ids = mergedIds.get(lastIdx);
+    if (!ids) {
+      ids = [];
+      mergedIds.set(lastIdx, ids);
+    }
+    ids.push(msg.id);
+
+    // Lazily parse the target's content on first merge.
+    let targetContent = pendingMerges.get(lastIdx);
+    if (!targetContent) {
+      targetContent = parseContentBlocks(result[lastIdx].content);
+      pendingMerges.set(lastIdx, targetContent);
+    }
+
+    appendContentBlocks(targetContent, msg.content);
+    result[lastIdx] = promoteMetadata(result[lastIdx], msg);
+  }
+
+  // Write back merged content for any messages that were targets.
+  for (const [idx, content] of pendingMerges) {
+    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+  }
+
+  // Build the merged ID map keyed by surviving message ID.
+  const mergedIdMap = new Map<string, string[]>();
+  for (const [idx, ids] of mergedIds) {
+    mergedIdMap.set(result[idx].id, ids);
+  }
+
+  return { messages: result, mergedIdMap };
+}
+
 /**
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
@@ -806,7 +975,7 @@ function mergeToolResultsIntoAssistantMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  conversation: import("../../daemon/conversation.js").Conversation,
+  conversation: Conversation,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
@@ -887,30 +1056,8 @@ function makeHubPublisher(
         conversationId,
         kind: "secret",
       });
-    } else if (msg.type === "host_bash_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (msg.type === "host_browser_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (msg.type === "host_file_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (msg.type === "host_cu_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_cu",
-      });
+    } else {
+      registerHostProxyPendingInteraction(msg, conversation, conversationId);
     }
 
     // ServerMessage is a large union; conversationId exists on most but not all variants.
@@ -939,6 +1086,202 @@ function makeHubPublisher(
   };
 }
 
+/**
+ * Register pending interactions for host proxy request envelopes so
+ * standalone result endpoints can resolve by requestId.
+ *
+ * Returns the registered requestId when a host proxy request was registered.
+ * Callers that route through non-hub transports (e.g. registry-routed
+ * host_browser sends) can use this to clean up the registration if send fails.
+ */
+function registerHostProxyPendingInteraction(
+  msg: ServerMessage,
+  conversation: Conversation,
+  conversationId: string,
+): string | undefined {
+  if (msg.type === "host_bash_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_bash",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_browser_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_browser",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_file_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_file",
+    });
+    return msg.requestId;
+  }
+  if (msg.type === "host_cu_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_cu",
+    });
+    return msg.requestId;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the host_browser sender function for a conversation turn.
+ *
+ * When the guardian has an active extension connection in the
+ * ChromeExtensionRegistry, returns a registry-routed sender that forwards
+ * `host_browser_request` / `host_browser_cancel` frames through the
+ * WebSocket to the connected extension. Otherwise returns the SSE hub
+ * emitter (`onEvent`).
+ *
+ * For `chrome-extension` turns the registry sender is **always** returned
+ * regardless of the POST-time connection check. The chrome-extension
+ * interface has no SSE consumer for `host_browser_request` frames, so
+ * falling back to `onEvent` would cause CDP calls to stall until the proxy
+ * timeout (30 s) instead of failing immediately at send time when the
+ * registry throws on a missing connection.
+ *
+ * This helper is interface-agnostic: both chrome-extension and macOS turns
+ * can obtain a registry-routed sender when extension connectivity exists.
+ * The `isRegistryRouted` flag lets the caller decide whether to set
+ * `hostBrowserSenderOverride` and whether to provision a `HostBrowserProxy`
+ * for interfaces that don't statically support host_browser (e.g. macOS).
+ */
+function resolveHostBrowserSender(
+  conversation: Conversation,
+  conversationId: string,
+  authContext: AuthContext,
+  onEvent: (msg: ServerMessage) => void,
+  sourceInterface: InterfaceId,
+): { sender: (msg: ServerMessage) => void; isRegistryRouted: boolean } {
+  // Check whether the guardian has any active extension connection.
+  const guardianId =
+    conversation.trustContext?.guardianPrincipalId ??
+    authContext.actorPrincipalId;
+  const hasExtensionConnection =
+    !!guardianId && !!getChromeExtensionRegistry().get(guardianId);
+
+  // For chrome-extension, always use the registry sender so that send-time
+  // failures produce immediate errors rather than 30-second proxy timeouts.
+  // The SSE hub has no extension consumer, so falling back to onEvent is
+  // never correct for this interface.
+  if (!hasExtensionConnection && sourceInterface !== "chrome-extension") {
+    return { sender: onEvent, isRegistryRouted: false };
+  }
+
+  // Build a registry-routed sender. The guardian principal ID is resolved
+  // at send time rather than captured here so that queue-drain restores
+  // (which re-fire this closure outside the original POST context) follow
+  // the conversation's bound guardian identity rather than a stale
+  // authContext.actorPrincipalId.
+  const registrySender = (msg: ServerMessage): void => {
+    const requestId = registerHostProxyPendingInteraction(
+      msg,
+      conversation,
+      conversationId,
+    );
+    const gid =
+      conversation.trustContext?.guardianPrincipalId ??
+      authContext.actorPrincipalId;
+    if (!gid) {
+      if (requestId) pendingInteractions.resolve(requestId);
+      throw new Error(
+        "host_browser send skipped: no guardianId on AuthContext",
+      );
+    }
+    const ok = getChromeExtensionRegistry().send(gid, msg);
+    if (!ok) {
+      if (requestId) pendingInteractions.resolve(requestId);
+      throw new Error(
+        `host_browser send failed: no active connection for guardian ${gid}`,
+      );
+    }
+  };
+
+  return { sender: registrySender, isRegistryRouted: true };
+}
+
+/**
+ * Persist the pre-chat onboarding payload to disk.
+ *
+ * Runs only on the very first message of a fresh conversation. Three
+ * artifacts are produced:
+ *
+ *   1. `data/onboarding-context.json` — sidecar read by the
+ *      relationship-state writer so onboarding-sourced facts survive
+ *      the pure-recomputation write cycle (every turn boundary rebuilds
+ *      facts from markdown; the sidecar is the durable source for the
+ *      tool/task/tone chips).
+ *   2. `IDENTITY.md` / `USER.md` — persona seed files, only written
+ *      when missing so we never clobber existing content. These feed
+ *      the system prompt and the relationship-state writer's
+ *      `parseIdentity` / `parseUserName` helpers after a daemon
+ *      restart when the in-memory onboarding context is gone.
+ *   3. `data/relationship-state.json` — kicked off fire-and-forget so
+ *      the Home page can populate immediately on first visit instead
+ *      of waiting for the first agent-turn boundary.
+ *
+ * Never throws: every write is guarded and logged as a warning on
+ * failure. The route handler path must never reject because of a
+ * best-effort persistence step.
+ */
+function persistOnboardingArtifacts(onboarding: {
+  tools: string[];
+  tasks: string[];
+  tone: string;
+  userName?: string;
+  assistantName?: string;
+}): void {
+  writeOnboardingSidecar(onboarding);
+
+  const assistantName = onboarding.assistantName?.trim();
+  if (assistantName) {
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    if (!existsSync(identityPath)) {
+      try {
+        writeFileSync(
+          identityPath,
+          `# Identity\n\n- Name: ${assistantName}\n`,
+          "utf-8",
+        );
+      } catch (err) {
+        log.warn(
+          { err, identityPath },
+          "Failed to seed IDENTITY.md from onboarding",
+        );
+      }
+    }
+  }
+
+  const userName = onboarding.userName?.trim();
+  if (userName) {
+    const userPath = getWorkspacePromptPath("USER.md");
+    if (!existsSync(userPath)) {
+      try {
+        writeFileSync(userPath, `# User\n\n- Name: ${userName}\n`, "utf-8");
+      } catch (err) {
+        log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
+      }
+    }
+  }
+
+  void writeRelationshipState().catch((err) => {
+    log.warn(
+      { err },
+      "Failed to kick off relationship-state write after onboarding",
+    );
+  });
+}
+
 export async function handleSendMessage(
   req: Request,
   deps: {
@@ -959,6 +1302,13 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    onboarding?: {
+      tools: string[];
+      tasks: string[];
+      tone: string;
+      userName?: string;
+      assistantName?: string;
+    };
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -1065,23 +1415,37 @@ export async function handleSendMessage(
 
   // Build transport metadata from the request so the daemon can inject
   // host environment hints (home directory, username) into the LLM context.
-  const transport =
-    sourceInterface === "macos"
-      ? ({
-          channelId: sourceChannel,
-          interfaceId: "macos" as const,
-          hostHomeDir: body.hostHomeDir,
-          hostUsername: body.hostUsername,
-        } satisfies MacosTransportMetadata)
-      : ({
-          channelId: sourceChannel,
-          interfaceId: sourceInterface,
-        } satisfies NonMacosTransportMetadata);
+  // The `supportsHostProxy` type predicate narrows `sourceInterface` to
+  // `HostProxyInterfaceId` in the truthy branch, which is exactly the
+  // discriminant the `HostProxyTransportMetadata` variant expects — so the
+  // construction site stays in lock-step with the runtime capability gate.
+  const transport = supportsHostProxy(sourceInterface)
+    ? ({
+        channelId: sourceChannel,
+        interfaceId: sourceInterface,
+        hostHomeDir: body.hostHomeDir,
+        hostUsername: body.hostUsername,
+      } satisfies HostProxyTransportMetadata)
+    : ({
+        channelId: sourceChannel,
+        interfaceId: sourceInterface,
+      } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,
     { transport },
   );
+
+  // Store pre-chat onboarding context on the conversation when this is the
+  // very first message (no prior messages loaded). Also persist the
+  // onboarding selections so the Home page shows onboarding-sourced
+  // chips immediately, and seed IDENTITY.md / USER.md so subsequent
+  // turn-boundary recomputes of relationship-state have a stable
+  // persona source beyond the in-memory conversation object.
+  if (body.onboarding && conversation.messages.length === 0) {
+    conversation.setOnboardingContext(body.onboarding);
+    persistOnboardingArtifacts(body.onboarding);
+  }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
@@ -1146,12 +1510,13 @@ export async function handleSendMessage(
     conversation,
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create the host bash proxy for desktop client interfaces that can
-  // execute commands on the user's machine. Non-desktop conversations (CLI,
-  // channels, headless) fall back to local execution.
+  // Only create each host proxy for interfaces that support the matching
+  // capability. macOS supports all four; the chrome-extension interface only
+  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
+  // fall back to local execution.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (supportsHostProxy(sourceInterface)) {
+  if (supportsHostProxy(sourceInterface, "host_bash")) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1160,18 +1525,70 @@ export async function handleSendMessage(
       });
       conversation.setHostBashProxy(proxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBashProxy(undefined);
+  }
+  // Resolve the host_browser sender — registry-routed when the guardian has
+  // an active extension connection, SSE hub otherwise. This applies to both
+  // chrome-extension and macOS interfaces so that macOS turns can route
+  // browser automation through the user's real Chrome session when available.
+  const { sender: browserProxySendToClient, isRegistryRouted } =
+    resolveHostBrowserSender(
+      conversation,
+      mapping.conversationId,
+      authContext,
+      onEvent,
+      sourceInterface,
+    );
+
+  // Stash the registry-routed sender on the conversation so queue-drain
+  // restores (which run outside of conversation-routes.ts and only have
+  // access to `sendToClient`) can preserve it when calling
+  // `restoreBrowserProxyAvailability()`. The override is set when the
+  // sender is registry-routed (regardless of interface) and cleared when
+  // the SSE hub sender is used, so the drain path always restores the
+  // correct transport.
+  if (isRegistryRouted) {
+    conversation.hostBrowserSenderOverride = browserProxySendToClient;
+  } else {
+    conversation.hostBrowserSenderOverride = undefined;
+  }
+
+  // Provision the host browser proxy. For interfaces that natively support
+  // host_browser (chrome-extension), always provision it. For macOS, the
+  // static capability check returns false (supportsHostProxy("macos",
+  // "host_browser") === false) because the extension isn't guaranteed to be
+  // attached — but when the registry confirms an active extension
+  // connection, we provision the proxy anyway so macOS turns can drive the
+  // user's real Chrome session. When no extension is connected, macOS skips
+  // provisioning and browser tools fall through to cdp-inspect/local.
+  const shouldProvisionBrowserProxy =
+    supportsHostProxy(sourceInterface, "host_browser") ||
+    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
+  if (shouldProvisionBrowserProxy) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-      const browserProxy = new HostBrowserProxy(onEvent, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
+      const browserProxy = new HostBrowserProxy(
+        browserProxySendToClient,
+        (requestId) => {
+          pendingInteractions.resolve(requestId);
+        },
+      );
       conversation.setHostBrowserProxy(browserProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostBrowserProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
       });
       conversation.setHostFileProxy(fileProxy);
     }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostFileProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -1185,20 +1602,40 @@ export async function handleSendMessage(
       conversation.addPreactivatedSkillId("computer-use");
     }
   } else if (!conversation.isProcessing()) {
-    conversation.setHostBashProxy(undefined);
-    conversation.setHostBrowserProxy(undefined);
-    conversation.setHostFileProxy(undefined);
     conversation.setHostCuProxy(undefined);
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // Called after setHostBashProxy so updateSender targets the current proxy.
   // When proxies are preserved during an active turn (non-desktop request while
-  // processing), skip updating proxy senders to avoid degrading them.
+  // processing), skip updating proxy senders to avoid degrading them. The gate
+  // matches the host_bash capability because the legacy "reject send during
+  // host bash" flow is what this is really protecting.
   const preservingProxies =
-    conversation.isProcessing() && !supportsHostProxy(sourceInterface);
+    conversation.isProcessing() &&
+    !supportsHostProxy(sourceInterface, "host_bash");
+  // hasNoClient must remain `!isInteractive` so downstream tool gating
+  // (`isToolActiveForContext` for HOST_TOOL_NAMES, `createToolExecutor`'s
+  // `isInteractive: !ctx.hasNoClient`) keeps host_bash/host_file/host_cu
+  // tools gated for non-desktop interfaces. The chrome-extension interface
+  // is non-interactive (no SSE prompter UI) but still has a connected client
+  // that can service host_browser_request events; we restore that single
+  // proxy explicitly below without relaxing `hasNoClient`.
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
+  // Re-enable the browser proxy for turns that provisioned one. This covers:
+  // - chrome-extension: natively supports host_browser (non-interactive but
+  //   has a connected client for host_browser_request events)
+  // - macOS with extension: provisioned above when isRegistryRouted is true
+  //
+  // The helper bypasses the `hasNoClient` gate so chrome-extension turns can
+  // drive the browser via CDP without leaking host_bash/host_file tool
+  // availability. It reads `hostBrowserSenderOverride` (set above when
+  // registry-routed) and applies the correct sender — including after
+  // queue-drain restores run from conversation-process.ts.
+  if (shouldProvisionBrowserProxy) {
+    conversation.restoreBrowserProxyAvailability?.();
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
@@ -1262,6 +1699,12 @@ export async function handleSendMessage(
         // fast path) so the HTTP response reaches the client before SSE
         // events arrive.
         setTimeout(() => {
+          onEvent({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+          });
           onEvent({ type: "assistant_text_delta", text: cannedGreeting });
           onEvent({ type: "message_complete", conversationId });
           conversation.processing = false;
@@ -1555,6 +1998,12 @@ export async function handleSendMessage(
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
       setTimeout(() => {
+        onEvent({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+        });
         if (modelInfoEvent) {
           onEvent(modelInfoEvent);
         }
@@ -1581,80 +2030,88 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "compact") {
     conversation.processing = true;
-    let cleanupDeferred = false;
-    try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
-      const cleanMsg = createUserMessage(rawContent, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(cleanMsg);
+    const provenance = provenanceFromTrustContext(conversation.trustContext);
+    const channelMeta = {
+      ...provenance,
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+    };
+    const cleanMsg = createUserMessage(rawContent, attachments);
+    const persisted = await addMessage(
+      mapping.conversationId,
+      "user",
+      JSON.stringify(cleanMsg.content),
+      channelMeta,
+    );
+    conversation.getMessages().push(cleanMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-      );
-      const result = await conversation.forceCompact();
-      const responseText = formatCompactResult(result);
+    const conversationId = mapping.conversationId;
 
-      const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
-        mapping.conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(assistantMsg);
-
-      const response = Response.json(
-        {
-          accepted: true,
-          messageId: persisted.id,
-          conversationId: mapping.conversationId,
-        },
-        { status: 202 },
-      );
-
-      const conversationId = mapping.conversationId;
-      setTimeout(() => {
-        onEvent({ type: "assistant_text_delta", text: responseText });
+    // Fire-and-forget: return 202 immediately, run compaction async.
+    // forceCompact() makes an LLM call that can exceed the client's
+    // HTTP timeout on large contexts, causing a false "Failed to send".
+    (async () => {
+      try {
         onEvent({
-          type: "message_complete",
+          type: "user_message_echo",
+          text: rawContent,
           conversationId,
+          messageId: persisted.id,
         });
+        conversation.emitActivityState(
+          "thinking",
+          "context_compacting",
+          "assistant_turn",
+        );
+        const result = await conversation.forceCompact();
+        const responseText = formatCompactResult(result);
+
+        const assistantMsg = createAssistantMessage(responseText);
+        await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify(assistantMsg.content),
+          channelMeta,
+        );
+        conversation.getMessages().push(assistantMsg);
+
+        onEvent({ type: "assistant_text_delta", text: responseText });
+        onEvent({ type: "message_complete", conversationId });
+      } catch (err) {
+        log.error({ err, conversationId }, "Compact command failed");
+        onEvent({
+          type: "conversation_error",
+          conversationId,
+          code: "UNKNOWN",
+          userMessage: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+          retryable: true,
+        });
+      } finally {
         conversation.processing = false;
         silentlyWithLog(
           conversation.drainQueue(),
           "compact-command queue drain",
         );
-      }, 0);
-
-      cleanupDeferred = true;
-      return response;
-    } finally {
-      if (!cleanupDeferred && conversation.processing) {
-        conversation.processing = false;
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
-    }
+    })();
+
+    return Response.json(
+      {
+        accepted: true,
+        messageId: persisted.id,
+        conversationId,
+      },
+      { status: 202 },
+    );
   }
 
   const resolvedContent = slashResult.content;
 
+  const requestId = crypto.randomUUID();
   let messageId: string;
   try {
-    const requestId = crypto.randomUUID();
     messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
@@ -1664,6 +2121,14 @@ export async function handleSendMessage(
   } catch (err) {
     throw err;
   }
+
+  onEvent({
+    type: "user_message_echo",
+    text: resolvedContent,
+    conversationId: mapping.conversationId,
+    messageId,
+    requestId,
+  });
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.
   conversation

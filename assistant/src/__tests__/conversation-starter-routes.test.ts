@@ -11,6 +11,7 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite, initializeDb } from "../memory/db.js";
 import {
+  CONVERSATION_STARTERS_STALE_TTL_MS,
   conversationStarterRouteDefinitions,
   orderStrongestFirst,
 } from "../runtime/routes/conversation-starter-routes.js";
@@ -89,22 +90,57 @@ function insertMemoryItem(scopeId = "default") {
   );
 }
 
+function setCheckpoint(key: string, value: string, updatedAt = Date.now()) {
+  getSqlite().run(
+    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
+    [key, value, updatedAt],
+  );
+}
+
+function insertStarterJob(scopeId = "default", status = "pending") {
+  const now = Date.now();
+  getSqlite().run(
+    `INSERT INTO memory_jobs (
+      id, type, payload, status, attempts, deferrals, run_after, last_error,
+      started_at, created_at, updated_at
+    ) VALUES (?, 'generate_conversation_starters', ?, ?, 0, 0, ?, NULL, NULL, ?, ?)`,
+    [uuid(), JSON.stringify({ scopeId }), status, now, now, now],
+  );
+}
+
+function countStarterJobs() {
+  return (
+    getSqlite()
+      .prepare(
+        `SELECT COUNT(*) AS c FROM memory_jobs WHERE type = 'generate_conversation_starters'`,
+      )
+      .get() as { c: number }
+  ).c;
+}
+
 beforeEach(() => {
   clearTables();
 });
 
 describe("GET /v1/conversation-starters", () => {
   test("returns ready status with starters when they exist", async () => {
+    const now = Date.now();
     insertStarter({
       label: "Draft a PR summary",
       prompt: "Draft a summary for my latest PR",
       category: "development",
+      createdAt: now,
     });
     insertStarter({
       label: "Check Slack threads",
       prompt: "Check my unread Slack threads",
       category: "communication",
+      createdAt: now,
     });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "2");
+    insertMemoryItem();
+    insertMemoryItem();
 
     const res = await dispatch("conversation-starters");
     const body = (await res.json()) as {
@@ -117,6 +153,96 @@ describe("GET /v1/conversation-starters", () => {
     expect(body.status).toBe("ready");
     expect(body.starters).toHaveLength(2);
     expect(body.total).toBe(2);
+  });
+
+  test("returns refreshing with existing starters when the batch is stale and enqueues one refresh job", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Draft a PR summary",
+      prompt: "Draft a summary for my latest PR",
+      category: "development",
+      createdAt: now - 1_000,
+    });
+    insertStarter({
+      label: "Check Slack threads",
+      prompt: "Check my unread Slack threads",
+      category: "communication",
+      createdAt: now - 2_000,
+    });
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(now - CONVERSATION_STARTERS_STALE_TTL_MS - 1_000),
+    );
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "2");
+    insertMemoryItem();
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.starters).toHaveLength(2);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("returns refreshing with existing starters when the checkpoint count is ahead of active memory and enqueues one refresh job", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Draft a PR summary",
+      prompt: "Draft a summary for my latest PR",
+      category: "development",
+      createdAt: now,
+    });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "5");
+    insertMemoryItem();
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.starters).toHaveLength(1);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("does not enqueue duplicate refresh jobs when a starter job is already active", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Draft a PR summary",
+      prompt: "Draft a summary for my latest PR",
+      category: "development",
+      createdAt: now,
+    });
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(now - CONVERSATION_STARTERS_STALE_TTL_MS - 1_000),
+    );
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+    insertStarterJob("default");
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.starters).toHaveLength(1);
+    expect(countStarterJobs()).toBe(1);
   });
 
   test("returns empty status when no memory items exist", async () => {

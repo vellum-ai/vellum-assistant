@@ -19,10 +19,7 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import {
-  resolveChannelPersona,
-  resolveGuardianPersona,
-} from "../../prompts/persona-resolver.js";
+import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
@@ -168,14 +165,19 @@ async function handleBtw(
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           const isGreeting = conversationKey === GREETING_KEY;
-          const userPersona = resolveGuardianPersona();
-          const channelPersona = resolveChannelPersona(undefined);
+          // Resolve guardian persona context (undefined trustContext triggers
+          // the guardian lookup path in persona-resolver). Thread userSlug
+          // through so buildSystemPrompt's BOOTSTRAP.md placeholder never
+          // falls back to "default.md" if excludeBootstrap is ever flipped.
+          const { userPersona, userSlug, channelPersona } =
+            resolvePersonaContext(undefined, undefined);
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
             signal: req.signal,
             userPersona,
             channelPersona,
+            userSlug,
             ...(isGreeting
               ? { modelIntent: getConfig().ui.greetingModelIntent }
               : {}),

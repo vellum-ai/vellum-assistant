@@ -1894,6 +1894,44 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     }
 }
 
+public struct FilingConfigResponse: Codable, Sendable {
+    public let type: String
+    public let enabled: Bool
+    public let intervalMs: Double
+    public let activeHoursStart: Double?
+    public let activeHoursEnd: Double?
+    public let nextRunAt: Int?
+    public let lastRunAt: Int?
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
+        self.type = type
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.activeHoursStart = activeHoursStart
+        self.activeHoursEnd = activeHoursEnd
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct FilingRunNowResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let ran: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, ran: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.ran = ran
+        self.error = error
+    }
+}
+
 public struct HeartbeatRunNow: Codable, Sendable {
     public let type: String
 
@@ -2530,13 +2568,15 @@ public struct MessageComplete: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     public let attachmentWarnings: [String]?
     public let messageId: String?
+    public let source: String?
 
-    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil) {
+    public init(type: String, conversationId: String? = nil, attachments: [UserMessageAttachment]? = nil, attachmentWarnings: [String]? = nil, messageId: String? = nil, source: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.attachments = attachments
         self.attachmentWarnings = attachmentWarnings
         self.messageId = messageId
+        self.source = source
     }
 }
 
@@ -2956,6 +2996,22 @@ public struct OpenUrl: Codable, Sendable {
         self.type = type
         self.url = url
         self.title = title
+    }
+}
+
+public struct OpenConversation: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String?
+    public let anchorMessageId: String?
+    public let focus: Bool?
+
+    public init(type: String, conversationId: String, title: String? = nil, anchorMessageId: String? = nil, focus: Bool? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+        self.anchorMessageId = anchorMessageId
+        self.focus = focus
     }
 }
 
@@ -3430,13 +3486,15 @@ public struct ConversationInfo: Codable, Sendable {
     public let title: String
     public let correlationId: String?
     public let conversationType: String?
+    public let hostAccess: Bool?
 
-    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.correlationId = correlationId
         self.conversationType = conversationType
+        self.hostAccess = hostAccess
     }
 }
 
@@ -3494,6 +3552,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let lastMessageAt: Int?
     public let conversationType: String?
     public let source: String?
+    public let hostAccess: Bool?
     public let scheduleJobId: String?
     /// Channel binding metadata exposed in conversation list APIs.
     public let channelBinding: ChannelBinding?
@@ -3506,7 +3565,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3514,6 +3573,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.lastMessageAt = lastMessageAt
         self.conversationType = conversationType
         self.source = source
+        self.hostAccess = hostAccess
         self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
@@ -4038,6 +4098,21 @@ public struct SkillsListResponse: Codable, Sendable {
     }
 }
 
+/// Security audit result from a partner analysis provider.
+public struct PartnerAudit: Codable, Sendable, Equatable {
+    public let risk: String
+    public let alerts: Int?
+    public let score: Double?
+    public let analyzedAt: String
+
+    public init(risk: String, alerts: Int? = nil, score: Double? = nil, analyzedAt: String) {
+        self.risk = risk
+        self.alerts = alerts
+        self.score = score
+        self.analyzedAt = analyzedAt
+    }
+}
+
 public struct SkillsListResponseSkill: Codable, Sendable {
     public let id: String
     public let name: String
@@ -4054,10 +4129,12 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let stars: Int?
     public let reports: Int?
     public let publishedAt: String?
+    public let version: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4071,7 +4148,9 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.stars = stars
         self.reports = reports
         self.publishedAt = publishedAt
+        self.version = version
         self.sourceRepo = sourceRepo
+        self.audit = audit
     }
 }
 
@@ -4131,6 +4210,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let publishedAt: String?
     // Skillssh-only:
     public let sourceRepo: String?
+    public let audit: [String: PartnerAudit]?
     // Clawhub detail enrichment fields:
     public let owner: ClawhubDetailOwner?
     public let stats: ClawhubDetailStats?
@@ -4138,7 +4218,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
     public let createdAt: Int?
     public let updatedAt: Int?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil, owner: ClawhubDetailOwner? = nil, stats: ClawhubDetailStats? = nil, latestVersion: ClawhubDetailVersion? = nil, createdAt: Int? = nil, updatedAt: Int? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4153,6 +4233,7 @@ public struct SkillDetailHTTPResponse: Codable, Sendable {
         self.reports = reports
         self.publishedAt = publishedAt
         self.sourceRepo = sourceRepo
+        self.audit = audit
         self.owner = owner
         self.stats = stats
         self.latestVersion = latestVersion
@@ -4174,6 +4255,26 @@ public struct SkillDetailFilesHTTPResponse: Codable, Sendable {
 }
 
 public struct SkillFileEntry: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mimeType: String
+    public let isBinary: Bool
+    public let content: String?
+
+    public init(path: String, name: String, size: Int, mimeType: String, isBinary: Bool, content: String? = nil) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.isBinary = isBinary
+        self.content = content
+    }
+}
+
+// MARK: - Skill File Content Response (GET /v1/skills/:id/files/content)
+
+public struct SkillFileContentResponse: Codable, Sendable {
     public let path: String
     public let name: String
     public let size: Int
@@ -4316,12 +4417,14 @@ public struct SubagentDetailResponseEvent: Codable, Sendable {
     public let content: String
     public let toolName: String?
     public let isError: Bool?
+    public let messageId: String?
 
-    public init(type: String, content: String, toolName: String? = nil, isError: Bool? = nil) {
+    public init(type: String, content: String, toolName: String? = nil, isError: Bool? = nil, messageId: String? = nil) {
         self.type = type
         self.content = content
         self.toolName = toolName
         self.isError = isError
+        self.messageId = messageId
     }
 }
 
@@ -4838,7 +4941,34 @@ public struct UiSurfaceDismiss: Codable, Sendable {
     }
 }
 
+public struct UiSurfaceShow: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let surfaceId: String
+    public let surfaceType: String
+    public let title: String?
+    public let data: [String: AnyCodable]
+    public let actions: [SurfaceAction]?
+    /// `"inline"` embeds in chat, `"panel"` shows a floating window.
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
+    /// When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable.
+    public let persistent: Bool?
 
+    public init(type: String, conversationId: String, surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [SurfaceAction]? = nil, display: String? = nil, messageId: String? = nil, persistent: Bool? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.surfaceId = surfaceId
+        self.surfaceType = surfaceType
+        self.title = title
+        self.data = data
+        self.actions = actions
+        self.display = display
+        self.messageId = messageId
+        self.persistent = persistent
+    }
+}
 
 public struct UiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
@@ -5090,11 +5220,15 @@ public struct UserMessageEcho: Codable, Sendable {
     public let type: String
     public let text: String
     public let conversationId: String?
+    public let messageId: String?
+    public let requestId: String?
 
-    public init(type: String, text: String, conversationId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil, messageId: String? = nil, requestId: String? = nil) {
         self.type = type
         self.text = text
         self.conversationId = conversationId
+        self.messageId = messageId
+        self.requestId = requestId
     }
 }
 

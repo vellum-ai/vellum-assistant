@@ -19,7 +19,7 @@ public final class BillingService {
 
     /// Fetch the current organization's billing summary.
     public func getBillingSummary() async throws -> BillingSummaryResponse {
-        let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/summary/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/billing/summary/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -110,7 +110,7 @@ public final class BillingService {
 
     /// POST to the billing summary endpoint to create the BillingAccount with initial credit.
     private func postBootstrapBillingSummary() async throws -> BillingSummaryResponse {
-        let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/summary/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/billing/summary/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -164,7 +164,7 @@ public final class BillingService {
     /// Fetch the current user's referral code and stats.
     /// The backend lazily creates a referral code if one doesn't exist yet.
     public func getReferralCode() async throws -> ReferralCodeResponse {
-        let urlString = "\(AuthService.shared.baseURL)/v1/referral-codes/me/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/referral-codes/me/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }
@@ -215,7 +215,7 @@ public final class BillingService {
 
     /// Create a top-up checkout session and return the Stripe checkout URL.
     public func createTopUpCheckout(amount: String) async throws -> URL {
-        let urlString = "\(AuthService.shared.baseURL)/v1/organizations/billing/top-ups/checkout-session/"
+        let urlString = "\(VellumEnvironment.resolvedPlatformURL)/v1/organizations/billing/top-ups/checkout-session/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
         }

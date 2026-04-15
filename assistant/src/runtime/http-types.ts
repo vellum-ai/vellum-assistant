@@ -193,7 +193,7 @@ export interface RuntimeHttpServerOptions {
           surfaceId: string,
           actionId: string,
           data?: Record<string, unknown>,
-        ): void;
+        ): void | Promise<unknown>;
         surfaceState: Map<
           string,
           { surfaceType: SurfaceType; data: SurfaceData; title?: string }
@@ -215,7 +215,7 @@ export interface RuntimeHttpServerOptions {
           surfaceId: string,
           actionId: string,
           data?: Record<string, unknown>,
-        ): void;
+        ): void | Promise<unknown>;
         surfaceState: Map<
           string,
           { surfaceType: SurfaceType; data: SurfaceData; title?: string }
@@ -240,6 +240,10 @@ export interface RuntimeHttpServerOptions {
   /** Accessor for the heartbeat service (for run-now and config routes). */
   getHeartbeatService?: () =>
     | import("../heartbeat/heartbeat-service.js").HeartbeatService
+    | undefined;
+  /** Accessor for the filing service (for run-now and config routes). */
+  getFilingService?: () =>
+    | import("../filing/filing-service.js").FilingService
     | undefined;
 }
 

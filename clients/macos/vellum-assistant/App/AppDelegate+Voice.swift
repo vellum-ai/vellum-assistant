@@ -15,8 +15,10 @@ extension AppDelegate {
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
 
-            // Capture prefix before clearing — it was saved when partials started
+            // Capture prefix before clearing — it was saved when partials started.
             let savedPrefix = (self?.preVoiceInputText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let alreadyConsumed = self?.voiceTranscriptionConsumed ?? false
+            self?.voiceTranscriptionConsumed = true
             self?.preVoiceInputText = nil
 
             // PTT uses priority-based routing because it's a one-shot dictation: the user
@@ -32,6 +34,13 @@ extension AppDelegate {
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
+                // When onTranscription already fired for this recording session
+                // and the input is empty (user already sent the message), skip
+                // the write to avoid re-populating a cleared composer.
+                if alreadyConsumed && viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log.info("Skipping stale voice transcription delivery — input already cleared by send")
+                    return
+                }
                 // Append transcribed text to any existing input — let the user send manually
                 viewModel.inputText = savedPrefix.isEmpty ? text : "\(savedPrefix) \(text)"
                 return
@@ -41,7 +50,8 @@ extension AppDelegate {
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
-            // Skip if recording already stopped (late callback from speech recognizer)
+            // Skip if recording already stopped (late callback from speech recognizer
+            // or streaming STT session).
             guard self?.voiceInput?.isRecording == true else { return }
 
             // Priority 0: Route partial text to quick input bar if visible
@@ -84,6 +94,7 @@ extension AppDelegate {
             // to avoid stale isRecording when the user switches conversations mid-recording.
             if isRecording {
                 self?.recordingViewModel = self?.mainWindow?.activeViewModel
+                self?.voiceTranscriptionConsumed = false
             }
             if let vm = self?.recordingViewModel {
                 vm.isRecording = isRecording

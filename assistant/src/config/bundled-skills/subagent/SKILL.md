@@ -63,6 +63,24 @@ Only the parent conversation that spawned a subagent can interact with it (check
 
 Set `send_result_to_user: false` when spawning a subagent whose result is for internal processing only. The parent will still be notified on completion, but the notification will instruct it to read the result without presenting it to the user.
 
+## Fork Mode
+
+Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.
+
+**Key behaviors:** Forks always run as `general` role (the `role` parameter is ignored). `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
+
+**When to fork vs regular sub-agent:**
+
+| Task | Mode |
+|---|---|
+| Single tool call (one search, one file read) | Direct -- don't spawn at all |
+| Multi-page web research needing conversation context | Fork |
+| Exploratory file search informed by prior discussion | Fork |
+| Comparing multiple sources against what was discussed | Parallel forks |
+| Self-contained task with a clear objective | Regular sub-agent |
+
+Rule of thumb: "Does this task need to know what we've been talking about?" If yes, fork. If the objective is fully self-describing, use a regular sub-agent with a scoped role.
+
 ## Tips
 
 - Do NOT poll `subagent_status` in a loop. You will be notified automatically when a subagent completes.

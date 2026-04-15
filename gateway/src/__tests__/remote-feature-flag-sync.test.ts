@@ -550,6 +550,70 @@ describe("RemoteFeatureFlagSync", () => {
     sync.stop();
   });
 
+  test("syncNow during in-flight poll does not create duplicate poll chains", async () => {
+    // Simulate a slow fetch that takes 200ms to resolve.
+    let fetchCallCount = 0;
+    fetchMock = mock(async () => {
+      fetchCallCount++;
+      await new Promise((r) => setTimeout(r, 200));
+      return Response.json({ flags: { ok: true } });
+    });
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+    // start() awaits its own fetchAndCache, so fetchCallCount is 1 now.
+    expect(fetchCallCount).toBe(1);
+
+    // Wait for the first poll timer to fire (50ms would be initial, but
+    // start succeeded so it snapped to steady-state). Instead, we'll
+    // call syncNow() directly — the interesting case is when poll() is
+    // already in-flight. To trigger that, we use a short interval.
+    sync.stop();
+
+    // Reset with short interval to create the race:
+    fetchCallCount = 0;
+    fetchMock = mock(async () => {
+      fetchCallCount++;
+      // Slow fetch — 150ms
+      await new Promise((r) => setTimeout(r, 150));
+      return Response.json({ flags: { ok: true } });
+    });
+
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      initialPollIntervalMs: 30,
+    });
+    await sync2.start(); // 1 fetch (slow, 150ms)
+    expect(fetchCallCount).toBe(1);
+
+    // Wait for poll timer to fire and start its fetch (30ms after start)
+    await new Promise((r) => setTimeout(r, 50));
+    // poll() has fired and its fetchAndCache() is now in-flight
+
+    // Call syncNow() while poll's fetch is in-flight
+    const syncNowPromise = sync2.syncNow();
+
+    // Wait for everything to settle
+    await syncNowPromise;
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Count how many fetches happened after the race window
+    const fetchesDuringRace = fetchCallCount;
+
+    // Now wait a bit more — if duplicate poll chains exist, we'd see
+    // extra fetches firing at the short interval
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Should NOT have extra fetches from a leaked poll chain
+    // At most: 1 (start) + 1 (poll) + 1 (syncNow) + 1 (next scheduled poll)
+    expect(fetchCallCount).toBeLessThanOrEqual(fetchesDuringRace + 1);
+
+    sync2.stop();
+  });
+
   test("doubles poll interval on consecutive failures", async () => {
     // Always fail — missing creds
     const creds = defaultCredentials();

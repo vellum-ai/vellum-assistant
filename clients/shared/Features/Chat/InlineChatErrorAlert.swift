@@ -181,5 +181,6 @@ public struct InlineChatErrorAlert: View {
                 .strokeBorder(accentColor.opacity(0.15), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

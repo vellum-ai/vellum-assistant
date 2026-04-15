@@ -54,21 +54,9 @@ class HostFileReadTool implements Tool {
       };
     }
 
-    // Image files must be handled locally — the host-file proxy protocol
-    // only carries {content, isError} and cannot transport contentBlocks
-    // (base64 image data). Check for image extensions before the proxy
-    // short-circuit so image reads work in managed/macOS+iOS sessions.
-    const ext = extname(rawPath).toLowerCase();
-    if (IMAGE_EXTENSIONS.has(ext)) {
-      const pathCheck = hostPolicy(rawPath);
-      if (!pathCheck.ok) {
-        return { content: `Error: ${pathCheck.error}`, isError: true };
-      }
-      return readImageFile(pathCheck.resolved);
-    }
-
     // Proxy to connected client for execution on the user's machine
-    // when a capable client is available (managed/cloud-hosted mode).
+    // when a capable client is available (managed/cloud-hosted mode),
+    // including image reads that need the host filesystem view.
     if (context.hostFileProxy?.isAvailable()) {
       return context.hostFileProxy.request(
         {
@@ -80,6 +68,15 @@ class HostFileReadTool implements Tool {
         context.conversationId,
         context.signal,
       );
+    }
+
+    const ext = extname(rawPath).toLowerCase();
+    if (IMAGE_EXTENSIONS.has(ext)) {
+      const pathCheck = hostPolicy(rawPath);
+      if (!pathCheck.ok) {
+        return { content: `Error: ${pathCheck.error}`, isError: true };
+      }
+      return readImageFile(pathCheck.resolved);
     }
 
     const ops = new FileSystemOps(hostPolicy);

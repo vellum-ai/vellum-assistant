@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "KnowledgeStore")
 
@@ -31,7 +32,7 @@ final class KnowledgeStore: ObservableObject {
     init() {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+        let dir = appSupport.appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
         self.fileURL = dir.appendingPathComponent("knowledge.json")
 
         // Load existing knowledge or start fresh

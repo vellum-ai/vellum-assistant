@@ -1,4 +1,11 @@
 #!/bin/bash
+
+# Ensure bash semantics even when invoked through another shell (e.g. `sh`).
+# The script uses bash arrays and other bash-specific features.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec /bin/bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 # Single-command build script for vellum-assistant.
@@ -25,6 +32,8 @@ set -euo pipefail
 #   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 #   VELLUM_DOCS_BASE_URL Override docs base URL for in-app docs links (e.g. staging)
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
+#   VELLUM_ENVIRONMENT   Runtime environment (local|dev|test|staging|production).
+#                        Auto-set by build command if not provided. See AGENTS.md.
 #   SENTRY_DSN_MACOS     Sentry DSN for the macOS app project (omit to disable)
 #   SENTRY_DSN_ASSISTANT Sentry DSN for the assistant/daemon project (omit to disable)
 #   SU_FEED_URL          Sparkle appcast URL for auto-updates (default: Vellum GitHub releases)
@@ -58,10 +67,12 @@ swift_with_retry() {
         if [ "$_cmd_exit" -eq 0 ]; then
             return 0
         fi
-        # Auto-clean stale PCH module cache (happens when switching between
-        # worktrees that share the same .build directory via symlink).
-        if [ "$_pch_cleaned" -eq 0 ] && grep -q "PCH was compiled with module cache path" "$_stderr_log" 2>/dev/null; then
-            echo "warning: stale module cache detected, cleaning and retrying..."
+        # Auto-clean stale module caches when switching between worktrees that
+        # share a .build directory via symlink. Swift surfaces this as either:
+        # - "PCH was compiled with module cache path ..."
+        # - "module 'X' is defined in both ..."
+        if [ "$_pch_cleaned" -eq 0 ] && grep -Eq "PCH was compiled with module cache path|is defined in both" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale module cache detected (path mismatch or duplicate module), cleaning and retrying..."
             find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
             [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
             _pch_cleaned=1
@@ -125,7 +136,7 @@ fi
 
 _cache_slug="$(printf '%s' "$_repo_root" | md5 -q 2>/dev/null || printf '%s' "$_repo_root" | md5sum | cut -d' ' -f1)"
 SPM_MODULE_CACHE="/tmp/spm-module-cache/${_cache_slug}"
-MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE"
+MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE -Xcc -fmodules-cache-path=$SPM_MODULE_CACHE -Xcxx -fmodules-cache-path=$SPM_MODULE_CACHE"
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
@@ -149,13 +160,17 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
-
-# Version (overridable via env for CI, defaults to Package.swift)
-if [ -z "${DISPLAY_VERSION:-}" ]; then
-    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
-    DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
-fi
-BUILD_VERSION="${BUILD_VERSION:-1}"
+KATA_KERNEL_VERSION="3.17.0"
+KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
+# When bumping KATA_KERNEL_VERSION, update both SHAs:
+#   Archive: curl -sL "$KATA_KERNEL_ARCHIVE_URL" | shasum -a 256 (more recent releases will have the SHA on github)
+#   Kernel:  tar -xJf archive.tar.xz && shasum -a 256 opt/kata/share/kata-containers/vmlinux.container
+KATA_KERNEL_ARCHIVE_SHA256="647c7612e6edf789d5e14698c48c99d8bac15ad139ffaa1c8bb7d229f748d181"
+KATA_KERNEL_SHA256="67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af6ea0"
+KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
+KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
+KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
+KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
@@ -175,6 +190,21 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Version (overridable via env for CI, defaults to Package.swift)
+if [ -z "${DISPLAY_VERSION:-}" ]; then
+    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
+    DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
+    # For local dev builds (build/run), append a -local.TIMESTAMP suffix so
+    # each hot-reload produces a distinguishable version string, similar to
+    # CI's -dev.N.SHA format.
+    if [ "$CMD" = "build" ] || [ "$CMD" = "run" ]; then
+        _local_ts=$(date +"%Y%m%d%H%M%S")
+        _local_sha=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        DISPLAY_VERSION="${DISPLAY_VERSION}-local.${_local_ts}.${_local_sha}"
+    fi
+fi
+BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
@@ -214,6 +244,28 @@ export SIGN_IDENTITY
 ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
+NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
+
+# Chrome extension allowlist IDs injected into compiled binaries as a fallback
+# for packaged runs where repo-relative `meta/browser-extension/...` paths are
+# unavailable (Bun compiled binaries often resolve import.meta.dir to /$bunfs/root).
+CHROME_EXTENSION_ALLOWLIST_PATH="$_repo_root/meta/browser-extension/chrome-extension-allowlist.json"
+CHROME_EXTENSION_IDS_CSV=""
+if [ -f "$CHROME_EXTENSION_ALLOWLIST_PATH" ] && command -v bun &>/dev/null; then
+    CHROME_EXTENSION_IDS_CSV=$(
+        CHROME_ALLOWLIST_PATH="$CHROME_EXTENSION_ALLOWLIST_PATH" bun --eval '
+            const fs = require("node:fs");
+            const raw = fs.readFileSync(process.env.CHROME_ALLOWLIST_PATH, "utf8");
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed.allowedExtensionIds)) process.exit(1);
+            const ids = parsed.allowedExtensionIds.filter(
+              (id) => typeof id === "string" && /^[a-p]{32}$/.test(id),
+            );
+            if (ids.length === 0) process.exit(1);
+            process.stdout.write(ids.join(","));
+        ' 2>/dev/null || true
+    )
+fi
 
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
@@ -265,10 +317,26 @@ build_bun_binary() {
 }
 
 # ---------------------------------------------------------------------------
-# build_binaries — build all Bun binaries (daemon, CLI, gateway).
+# install_shared_packages — install node_modules for every package under
+# packages/. assistant/, cli/, gateway/, etc. reference these via file: deps
+# that point at TypeScript source, so the packages need their own node_modules
+# for transitive deps (e.g. zod) to resolve during tsc/bun build. Must run
+# before any build_bun_binary invocation, from any build mode.
+# ---------------------------------------------------------------------------
+install_shared_packages() {
+    command -v bun &>/dev/null || return 0
+    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
+        [ -f "${pkg_dir}package.json" ] || continue
+        (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    done
+}
+
+# ---------------------------------------------------------------------------
+# build_binaries — build all Bun binaries (daemon, assistant CLI, CLI, gateway,
+# and chrome native host helper).
 #
 # Installs dependencies once per source directory upfront, then compiles all
-# four binaries in parallel to reduce wall-clock time.
+# all binaries in parallel to reduce wall-clock time.
 # ---------------------------------------------------------------------------
 build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
@@ -276,9 +344,13 @@ build_binaries() {
     # Pre-install dependencies once per source directory so parallel builds
     # don't race on the same node_modules.
     echo "Installing dependencies..."
+    install_shared_packages
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
 
     # Shared flags for daemon and assistant CLI
     local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
@@ -288,6 +360,9 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
 
     local cli_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -296,8 +371,16 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        cli_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
 
-    # Build all four binaries in parallel. Each writes to its own output
+    local native_host_flags=()
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
+
+    # Build binaries in parallel. Each writes to its own output
     # directory so there are no filesystem conflicts. SKIP_BUN_INSTALL=1
     # tells build_bun_binary to skip `bun install` (already done above).
     echo "Building binaries in parallel..."
@@ -318,6 +401,12 @@ build_binaries() {
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
     pids+=($!)
+
+    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
+        SKIP_BUN_INSTALL=1 build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${native_host_flags[@]}" &
+        pids+=($!)
+    fi
 
     for pid in "${pids[@]}"; do
         wait "$pid" || failures=$((failures + 1))
@@ -341,6 +430,73 @@ build_binaries() {
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
 }
+
+bundle_kata_kernel() {
+    mkdir -p "$KATA_KERNEL_CACHE_DIR"
+
+    if [ ! -f "$KATA_KERNEL_PATH" ]; then
+        echo "Downloading Kata $KATA_KERNEL_VERSION ARM64 kernel..."
+        curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
+            --output "$KATA_KERNEL_ARCHIVE_PATH" "$KATA_KERNEL_ARCHIVE_URL"
+
+        echo "Verifying Kata kernel archive checksum..."
+        local actual_sha256
+        actual_sha256=$(shasum -a 256 "$KATA_KERNEL_ARCHIVE_PATH" | awk '{print $1}')
+        if [ "$actual_sha256" != "$KATA_KERNEL_ARCHIVE_SHA256" ]; then
+            echo "ERROR: SHA-256 mismatch for Kata kernel archive" >&2
+            echo "  Expected: $KATA_KERNEL_ARCHIVE_SHA256" >&2
+            echo "  Actual:   $actual_sha256" >&2
+            rm -f "$KATA_KERNEL_ARCHIVE_PATH"
+            exit 1
+        fi
+
+        echo "Extracting Kata kernel..."
+        local temp_extract
+        temp_extract=$(mktemp -d "$KATA_KERNEL_CACHE_DIR/extract.XXXXXX")
+        tar -xJf "$KATA_KERNEL_ARCHIVE_PATH" -C "$temp_extract"
+        cp -L "$temp_extract/opt/kata/share/kata-containers/vmlinux.container" "$KATA_KERNEL_PATH"
+        rm -rf "$temp_extract"
+        rm -f "$KATA_KERNEL_ARCHIVE_PATH"
+    fi
+
+    echo "Verifying Kata kernel checksum..."
+    local actual_kernel_sha256
+    actual_kernel_sha256=$(shasum -a 256 "$KATA_KERNEL_PATH" | awk '{print $1}')
+    if [ "$actual_kernel_sha256" != "$KATA_KERNEL_SHA256" ]; then
+        echo "ERROR: SHA-256 mismatch for Kata kernel" >&2
+        echo "  Expected: $KATA_KERNEL_SHA256" >&2
+        echo "  Actual:   $actual_kernel_sha256" >&2
+        rm -f "$KATA_KERNEL_PATH"
+        exit 1
+    fi
+
+    echo "Bundling Kata kernel..."
+    mkdir -p "$KATA_KERNEL_BUNDLE_DIR"
+    cp "$KATA_KERNEL_PATH" "$KATA_KERNEL_BUNDLE_DIR/vmlinux.container"
+}
+
+# Default VELLUM_ENVIRONMENT based on build command (overridable via env).
+# See AGENTS.md "Build Environment" for the full matrix.
+# This must run before the early-exit commands (test, lint, clean, binaries)
+# so that swift test inherits the correct value.
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
+    case "$CMD" in
+        test)                          VELLUM_ENVIRONMENT="test" ;;
+        run)                           VELLUM_ENVIRONMENT="local" ;;
+        release|release-application)
+            # Staging releases have a prerelease suffix in DISPLAY_VERSION
+            # (e.g. "0.6.0-staging.3"); clean semver means production.
+            if [[ "${DISPLAY_VERSION:-}" == *-staging* ]]; then
+                VELLUM_ENVIRONMENT="staging"
+            else
+                VELLUM_ENVIRONMENT="production"
+            fi
+            ;;
+        *)                             VELLUM_ENVIRONMENT="local" ;;
+    esac
+fi
+export VELLUM_ENVIRONMENT
+echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
 
 case "$CMD" in
     test)
@@ -389,7 +545,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -434,16 +590,19 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
         fi
     fi
 fi
 
-# Use a distinct bundle ID for debug builds so that `log stream` filtering
-# does not pick up logs from the production app running on the same machine.
-if [ "$CONFIG" = "debug" ]; then
-    BUNDLE_ID="com.vellum.vellum-assistant-dev"
-fi
+# Derive a per-environment bundle ID so that non-production builds are
+# isolated from each other (separate preferences, log stream filters, etc.).
+# Production keeps the bare identifier; everything else gets a suffix.
+case "$VELLUM_ENVIRONMENT" in
+    production) ;; # keep default BUNDLE_ID
+    *)          BUNDLE_ID="com.vellum.vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
+esac
+echo "BUNDLE_ID=$BUNDLE_ID"
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -483,6 +642,15 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
     NEEDS_REBUILD=true
 fi
 
+# Install shared packages (packages/*) before any direct build_bun_binary call
+# below. The 'binaries' subcommand handles this via build_binaries(), but
+# build|run|release|release-application fall through to direct invocations and
+# would otherwise fail to resolve transitive deps (e.g. zod) from
+# packages/ces-contracts on a fresh clone.
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
+    install_shared_packages
+fi
+
 # Auto-build daemon binary if missing or stale (source changed) and bun is available.
 # When SKIP_BUN_REBUILD=1 (set by CI after cross-compiling binaries for a specific
 # target arch), skip staleness checks entirely to avoid overwriting pre-built
@@ -507,6 +675,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     fi
     if [ -n "${COMMIT_SHA:-}" ]; then
         local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
+    fi
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
@@ -562,8 +733,12 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && comm
     fi
 fi
 if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
+    local_assistant_flags=("${BUN_EXTERNAL_FLAGS[@]}")
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_assistant_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${BUN_EXTERNAL_FLAGS[@]}"
+        "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${local_assistant_flags[@]}"
 fi
 
 # Also rebuild if assistant CLI binary changed or newly added
@@ -617,6 +792,39 @@ fi
 # Also rebuild if gateway binary changed or newly added
 if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     if [ ! -f "$MACOS_DIR/vellum-gateway" ] || [ "$SCRIPT_DIR/gateway-bin/vellum-gateway" -nt "$MACOS_DIR/vellum-gateway" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
+# Auto-build Chrome native messaging helper binary if missing or stale
+# and bun is available. This is the binary Chrome spawns via
+# chrome.runtime.connectNative("com.vellum.daemon") — see
+# clients/chrome-extension/native-host/ for the source and
+# clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift
+# for the manifest that points at the bundled copy.
+NATIVE_HOST_BIN_NEEDS_BUILD=false
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$NATIVE_HOST_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -print -quit 2>/dev/null)" ]; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    elif [ "$NATIVE_HOST_SRC_DIR/package.json" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ] || \
+         { [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; }; then
+        NATIVE_HOST_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$NATIVE_HOST_BIN_NEEDS_BUILD" = true ]; then
+    local_native_host_flags=()
+    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+        local_native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
+    fi
+    build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${local_native_host_flags[@]}"
+fi
+
+# Also rebuild if native host binary changed or newly added
+if [ -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-chrome-native-host" ] || [ "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -nt "$MACOS_DIR/vellum-chrome-native-host" ]; then
         NEEDS_REBUILD=true
     fi
 fi
@@ -677,6 +885,19 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
     fi
 
+    # Copy bundled Chrome native messaging helper binary (if available).
+    # This is an auxiliary executable under Contents/MacOS/ that Chrome
+    # spawns via the com.vellum.daemon.json manifest written by
+    # NativeMessagingInstaller at first launch.
+    NATIVE_HOST_BIN="$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host"
+    if [ -f "$NATIVE_HOST_BIN" ]; then
+        echo "Bundling Chrome native messaging helper binary..."
+        cp "$NATIVE_HOST_BIN" "$MACOS_DIR/vellum-chrome-native-host"
+        chmod +x "$MACOS_DIR/vellum-chrome-native-host"
+    else
+        echo "No Chrome native messaging helper binary at $NATIVE_HOST_BIN — skipping (dev mode)"
+    fi
+
 else
     echo "Binaries unchanged, skipping binary repackaging"
 fi
@@ -728,6 +949,14 @@ PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
 if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
     cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
 fi
+TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
+if [ -f "$TTS_PROVIDER_CATALOG" ]; then
+    cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
+fi
+STT_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/stt-provider-catalog.json"
+if [ -f "$STT_PROVIDER_CATALOG" ]; then
+    cp "$STT_PROVIDER_CATALOG" "$RESOURCES_DIR/stt-provider-catalog.json"
+fi
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
 # packaged DMG.  This enables `vellum hatch --remote docker` to work
@@ -749,6 +978,10 @@ if command -v bun &>/dev/null && [ -f "$CHAR_COMP_SRC" ]; then
     echo "Generating character-components.json..."
     bun -e "import { getCharacterComponents } from '$CHAR_COMP_SRC'; process.stdout.write(JSON.stringify(getCharacterComponents()))" > "$RESOURCES_DIR/character-components.json"
 fi
+
+# Bundle the developer VM kernel directly into the app so the macOS client can
+# boot the hello-world VM without a first-run kernel download.
+bundle_kata_kernel
 
 # Always check resource bundles (they change independently of binaries)
 # Copy SPM resource bundles into Contents/Resources/
@@ -817,6 +1050,9 @@ if [ "$CONFIG" = "debug" ]; then
         <key>VELLUM_FLAG_LOCAL_DOCKER_ENABLED</key>
         <string>1</string>"
 fi
+_LSE_ENTRIES+="
+        <key>VELLUM_ENVIRONMENT</key>
+        <string>$VELLUM_ENVIRONMENT</string>"
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="
@@ -874,7 +1110,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
-    <string>${SU_FEED_URL:-https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml}</string>
+    <string>${SU_FEED_URL:-https://github.com/vellum-ai/vellum-assistant/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUEnableAutomaticChecks</key>
@@ -1067,12 +1303,21 @@ echo "Signing with: $SIGN_IDENTITY"
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
+# Timestamp flags: release builds with a real identity use Apple's timestamp
+# server (required for notarization). Debug builds and self-signed builds use
+# --timestamp=none to explicitly opt out — otherwise, when re-signing Sparkle's
+# pre-timestamped XPC services, codesign implicitly tries to preserve the
+# timestamp by contacting Apple's timestamp server, and if that server is
+# unreachable the build fails with "A timestamp was expected but was not found".
+if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    CODESIGN_TS_FLAGS=(--timestamp --options runtime)
+else
+    CODESIGN_TS_FLAGS=(--timestamp=none)
+fi
+
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
 if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
-    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        FW_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
 
     SPARKLE_VERSIONS="$FRAMEWORKS_DIR/Sparkle.framework/Versions/B"
 
@@ -1102,10 +1347,7 @@ fi
 # Sign Quick Look Thumbnail extension (must be signed before outer app bundle)
 QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
 if [ -d "$QLTHUMB_APPEX" ]; then
-    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        QLTHUMB_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${QLTHUMB_SIGN_FLAGS[@]}" "$QLTHUMB_APPEX"
     echo "VellumQLThumbnail.appex signed"
 fi
@@ -1113,32 +1355,30 @@ fi
 # Sign Quick Look Preview extension (must be signed before outer app bundle)
 QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
 if [ -d "$QLPREV_APPEX" ]; then
-    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        QLPREV_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${QLPREV_SIGN_FLAGS[@]}" "$QLPREV_APPEX"
     echo "VellumQLPreview.appex signed"
 fi
 
 # Sign CLI binary
 if [ -f "$MACOS_DIR/vellum-cli" ]; then
-    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        CLI_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
     echo "CLI binary signed"
 fi
 
 # Sign gateway binary
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
-    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        GATEWAY_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
     echo "Gateway binary signed"
+fi
+
+# Sign Chrome native messaging helper binary
+if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
+    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${NATIVE_HOST_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-chrome-native-host"
+    echo "Chrome native messaging helper binary signed"
 fi
 
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
@@ -1146,24 +1386,19 @@ fi
 # Sign any additional regular files directly under Contents/MacOS.
 # This protects against future unsigned loose files in incremental dev builds.
 if [ -d "$MACOS_DIR" ]; then
-    EXTRA_FILE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        EXTRA_FILE_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    EXTRA_FILE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
     find "$MACOS_DIR" -maxdepth 1 -type f \
         ! -name "$BUNDLE_DISPLAY_NAME" \
         ! -name "vellum-daemon" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
+        ! -name "vellum-chrome-native-host" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        DAEMON_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
+    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
 fi
@@ -1191,11 +1426,8 @@ if [ ${#STRAY_ITEMS[@]} -gt 0 ]; then
     exit 1
 fi
 
-# Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
-if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    APP_SIGN_FLAGS+=(--timestamp --options runtime)
-fi
+# Sign the outer app bundle with entitlements (without --deep to preserve nested signatures)
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
 codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
@@ -1238,6 +1470,116 @@ if [ "$CMD" = "run" ]; then
     fi
     pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
+
+    # The kill block above only terminates the same-display-name instance,
+    # so any sibling bundle built from this project under a different
+    # `BUNDLE_DISPLAY_NAME` would survive and race against us — they share
+    # bundle ID, lockfile, identity cache, and UserDefaults but hold
+    # separate in-memory state. We identify siblings by reading each
+    # candidate process's `Contents/Info.plist` and matching against our
+    # `$BUNDLE_ID` rather than name-matching, so an unrelated third-party
+    # app that happens to be called "Vellum" (the ebook formatter at
+    # vellum.pub, for example) is correctly ignored.
+    other_vellum=""
+    while IFS= read -r line; do
+        pid=${line%% *}
+        exe_path=${line#* }
+        case "$exe_path" in
+            */Contents/MacOS/*) ;;
+            *) continue ;;
+        esac
+        bundle_root=${exe_path%/Contents/MacOS/*}
+        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+        [ "$other_id" = "$BUNDLE_ID" ] || continue
+        [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
+        other_vellum+="$pid $exe_path"$'\n'
+    done < <(ps -ax -o pid=,comm=)
+    other_vellum=${other_vellum%$'\n'}
+
+    if [ -n "$other_vellum" ]; then
+        echo ""
+        echo "Killing sibling process(es) from this project (bundle ID $BUNDLE_ID):"
+        echo "$other_vellum" | sed 's/^/  /'
+        echo "$other_vellum" | awk '{print $1}' | xargs kill 2>/dev/null || true
+        # Give them a moment to exit
+        for i in {1..20}; do
+            still_running=false
+            while IFS= read -r pid_line; do
+                sib_pid=${pid_line%% *}
+                kill -0 "$sib_pid" 2>/dev/null && still_running=true && break
+            done <<< "$other_vellum"
+            $still_running || break
+            sleep 0.1
+        done
+        # Force-kill any stragglers — re-read ps and re-match the bundle
+        # ID so we never SIGKILL a PID that was reused by an unrelated
+        # process since the original snapshot.
+        if $still_running; then
+            echo "Force-killing remaining sibling process(es)..."
+            survivors=""
+            while IFS= read -r line; do
+                pid=${line%% *}
+                exe_path=${line#* }
+                case "$exe_path" in
+                    */Contents/MacOS/*) ;;
+                    *) continue ;;
+                esac
+                bundle_root=${exe_path%/Contents/MacOS/*}
+                other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+                [ "$other_id" = "$BUNDLE_ID" ] || continue
+                [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
+                survivors+="$pid "
+            done < <(ps -ax -o pid=,comm=)
+            if [ -n "$survivors" ]; then
+                echo "$survivors" | xargs kill -9 2>/dev/null || true
+            fi
+            sleep 0.3
+        fi
+    fi
+
+    # Refresh /Applications/$BUNDLE_DISPLAY_NAME.app from the freshly-built
+    # dist/ bundle, if a copy already exists. Without this, `./build.sh run`
+    # only updates dist/ and a Finder/dock launch silently keeps using the
+    # last DMG-installed bundle — which can be many features stale and
+    # presents as missing menus, missing feature flags, and ghost data loss.
+    # We only refresh when /Applications already has a copy so this doesn't
+    # become an unsolicited installer for users who never installed via DMG.
+    #
+    # The refresh is *best-effort*: under `set -euo pipefail` we have to
+    # guard every failable step with `|| refresh_ok=false`, otherwise a
+    # permission error or disk-full would propagate up and abort the entire
+    # `run` flow before `open "$APP_DIR"` executes — turning a best-effort
+    # mirror into a hard launch failure for anyone whose /Applications
+    # bundle isn't writable. We also stage the new copy beside the
+    # destination *before* removing the old one, so a partial cp failure
+    # doesn't leave the user with no installed bundle at all.
+    INSTALLED_APP="/Applications/$BUNDLE_DISPLAY_NAME.app"
+    if [ -d "$INSTALLED_APP" ]; then
+        echo "Refreshing $INSTALLED_APP from dist/..."
+        STAGING_APP="$INSTALLED_APP.tmp.$$"
+        refresh_ok=true
+        cp -R "$APP_DIR" "$STAGING_APP" 2>/dev/null || refresh_ok=false
+        if $refresh_ok; then
+            rm -rf "$INSTALLED_APP" 2>/dev/null || refresh_ok=false
+        fi
+        if $refresh_ok; then
+            mv "$STAGING_APP" "$INSTALLED_APP" 2>/dev/null || refresh_ok=false
+        fi
+        if $refresh_ok; then
+            echo "Refreshed installed bundle."
+        else
+            # The realistic failure modes we're protecting against are
+            # `cp` failing (disk full / permission denied), which happens
+            # *before* we touch $INSTALLED_APP. The staging-then-swap
+            # ordering means an `rm` or `mv` failure after a successful
+            # `cp` is only possible under TOCTOU races with another
+            # process — vanishingly rare and out of scope for a
+            # best-effort dev mirror. Clean up the staging copy and warn.
+            rm -rf "$STAGING_APP" 2>/dev/null || true
+            echo "Warning: failed to refresh $INSTALLED_APP — Finder launches may use a stale bundle."
+        fi
+    fi
+
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.

@@ -3,26 +3,16 @@
   "version": 1,
   "skills": [
     {
-      "id": "agentmail",
-      "name": "agentmail",
-      "description": "Run email operations through a provider-agnostic CLI wrapper",
-      "metadata": {
-        "emoji": "📬",
-        "vellum": {
-          "display-name": "Email CLI Ops",
-          "feature-flag": "email-channel"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "amazon",
       "name": "amazon",
-      "description": "Shop on Amazon and Amazon Fresh using the bundled Amazon scripts",
+      "description": "Shop on Amazon and Amazon Fresh through your browser",
       "metadata": {
-        "emoji": "📦",
+        "emoji": "🛒",
         "vellum": {
-          "display-name": "Amazon"
+          "display-name": "Amazon",
+          "includes": [
+            "browser"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -52,6 +42,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "conversation-launcher",
+      "name": "conversation-launcher",
+      "description": "Offer the user several spin-off conversations as clickable buttons on a single persistent card. Each click spawns a fresh seeded conversation in the sidebar; the user keeps their place in the current conversation. Use when you want to branch into N focused threads (research directions, draft choices, pending replies, triage of N items) without losing the current context. Not for single-destination pivots — just reply inline.",
+      "metadata": {
+        "emoji": "🧭",
+        "vellum": {
+          "display-name": "Conversation Launcher"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
@@ -70,7 +72,10 @@
       "metadata": {
         "emoji": "📝",
         "vellum": {
-          "display-name": "Document Writer"
+          "display-name": "Document Writer",
+          "includes": [
+            "document"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -102,7 +107,7 @@
     {
       "id": "email-setup",
       "name": "email-setup",
-      "description": "Create the assistant's own email address via the Vellum hosted API (one-time setup)",
+      "description": "Register the assistant's own @vellum.me email address (one-time setup)",
       "metadata": {
         "emoji": "📧",
         "vellum": {
@@ -156,11 +161,14 @@
     {
       "id": "influencer",
       "name": "influencer",
-      "description": "Research influencers on Instagram, TikTok, and X/Twitter using the Chrome extension relay",
+      "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
       "metadata": {
         "emoji": "🔍",
         "vellum": {
-          "display-name": "Influencer Research"
+          "display-name": "Influencer Research",
+          "includes": [
+            "browser"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -425,6 +433,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-sounds",
+      "name": "vellum-sounds",
+      "description": "Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)",
+      "metadata": {
+        "emoji": "🔊",
+        "vellum": {
+          "display-name": "Sounds"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
@@ -463,9 +483,10 @@
     },
     {
       "id": "watch-together",
-      "name": "Watch Together",
+      "name": "watch-together",
       "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
       "metadata": {
+        "emoji": "📺",
         "vellum": {
           "emoji": "📺"
         }

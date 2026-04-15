@@ -13,7 +13,7 @@ public enum AttachmentUploadResult: Sendable {
 /// Result of sending a message.
 public enum MessageSendResult: Sendable {
     /// Message accepted by the server.
-    case success(serverConversationId: String?)
+    case success(serverConversationId: String?, messageId: String?)
     /// Authentication failed terminally (already emitted upstream).
     case authRequired
     /// Message blocked by secret-ingress check.
@@ -27,7 +27,7 @@ public enum MessageSendResult: Sendable {
 /// Focused client for uploading attachments and sending user messages.
 public protocol MessageClientProtocol {
     func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String?) async -> AttachmentUploadResult
-    func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?) async -> MessageSendResult
+    func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?, onboarding: PreChatOnboardingContext?) async -> MessageSendResult
 }
 
 /// Gateway-backed implementation of ``MessageClientProtocol``.
@@ -63,7 +63,8 @@ public struct MessageClient: MessageClientProtocol {
     }
 
     public func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String? = nil) async -> AttachmentUploadResult {
-        log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public)")
+        let isFileBacked = data.isEmpty && filePath != nil
+        log.info("[send-pipeline] attachment upload start — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public), fileBacked=\(isFileBacked, privacy: .public)")
 
         var body: [String: Any] = [
             "filename": filename,
@@ -101,7 +102,7 @@ public struct MessageClient: MessageClientProtocol {
         }
     }
 
-    public func sendMessage(content: String?, conversationKey: String, attachmentIds: [String] = [], conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil) async -> MessageSendResult {
+    public func sendMessage(content: String?, conversationKey: String, attachmentIds: [String] = [], conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil, onboarding: PreChatOnboardingContext? = nil) async -> MessageSendResult {
         log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
         var body: [String: Any] = [
@@ -130,6 +131,20 @@ public struct MessageClient: MessageClientProtocol {
         if let hostUsername = Self.hostUsername {
             body["hostUsername"] = hostUsername
         }
+        if let onboarding {
+            var onboardingDict: [String: Any] = [
+                "tools": onboarding.tools,
+                "tasks": onboarding.tasks,
+                "tone": onboarding.tone
+            ]
+            if let userName = onboarding.userName {
+                onboardingDict["userName"] = userName
+            }
+            if let assistantName = onboarding.assistantName {
+                onboardingDict["assistantName"] = assistantName
+            }
+            body["onboarding"] = onboardingDict
+        }
 
         do {
             let response = try await GatewayHTTPClient.post(
@@ -142,7 +157,8 @@ public struct MessageClient: MessageClientProtocol {
                 log.info("Message sent successfully")
                 let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
                 let serverConvId = json?["conversationId"] as? String
-                return .success(serverConversationId: serverConvId)
+                let messageId = json?["messageId"] as? String
+                return .success(serverConversationId: serverConvId, messageId: messageId)
             } else if response.statusCode == 401 {
                 return .authRequired
             } else if response.statusCode == 422 {

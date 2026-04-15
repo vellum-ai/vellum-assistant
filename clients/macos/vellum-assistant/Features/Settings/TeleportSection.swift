@@ -52,6 +52,7 @@ private enum TeleportError: LocalizedError {
     case dockerAssistantNotFound
     case noOrganizations
     case multipleOrganizations
+    case existingPlatformAssistant(id: String)
 
     var errorDescription: String? {
         switch self {
@@ -75,6 +76,8 @@ private enum TeleportError: LocalizedError {
             return "No organizations found for this account"
         case .multipleOrganizations:
             return "Multiple organizations found — please select one in account settings first"
+        case .existingPlatformAssistant(let id):
+            return "You already have a platform assistant '\(id)'. Retire it first, then retry the teleport."
         }
     }
 }
@@ -287,7 +290,8 @@ struct TeleportSection: View {
                     }
                 } else {
                     do {
-                        try await AppDelegate.shared?.vellumCli.retire(name: oldId)
+                        let client = AssistantManagementClient.create(for: original)
+                        try await client.retire(name: oldId)
                         log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
                     } catch {
                         log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -351,6 +355,19 @@ struct TeleportSection: View {
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
+        // Step 2b — Pre-check: block if the user already has a platform assistant.
+        // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+        phase = .transferring(step: "Checking for existing assistant...")
+        let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: organizationId)
+        if case .found(let existingAssistant) = activeResult {
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: existingAssistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: existingAssistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
+        }
+
         // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
@@ -373,13 +390,20 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            platformAssistant = assistant
+            // Defensive safety net — should not happen because of the pre-check above,
+            // but if it does (race condition), block here as well.
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: assistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: assistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
         }
         let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
-            runtimeUrl: AuthService.shared.baseURL,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard lockfileSuccess else {
@@ -490,6 +514,19 @@ struct TeleportSection: View {
         phase = .transferring(step: "Resolving organization...")
         let organizationId = try await resolveOrganizationId()
 
+        // Step 2b — Pre-check: block if the user already has a platform assistant.
+        // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+        phase = .transferring(step: "Checking for existing assistant...")
+        let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: organizationId)
+        if case .found(let existingAssistant) = activeResult {
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: existingAssistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: existingAssistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: existingAssistant.id)
+        }
+
         // Step 3 — Upload to GCS via signed URL (with inline fallback)
         phase = .transferring(step: "Uploading data to cloud...")
         let bundleKey: String?
@@ -512,13 +549,20 @@ struct TeleportSection: View {
         let platformAssistant: PlatformAssistant
         switch hatchResult {
         case .reusedExisting(let assistant):
-            platformAssistant = assistant
+            // Defensive safety net — should not happen because of the pre-check above,
+            // but if it does (race condition), block here as well.
+            _ = LockfileAssistant.ensureManagedEntry(
+                assistantId: assistant.id,
+                runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+                hatchedAt: assistant.created_at ?? Date().iso8601String
+            )
+            throw TeleportError.existingPlatformAssistant(id: assistant.id)
         case .createdNew(let assistant):
             platformAssistant = assistant
         }
         let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
             assistantId: platformAssistant.id,
-            runtimeUrl: AuthService.shared.baseURL,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
             hatchedAt: platformAssistant.created_at ?? Date().iso8601String
         )
         guard lockfileSuccess else {
@@ -620,6 +664,48 @@ struct TeleportSection: View {
                 throw TeleportError.importFailed(message: errorMsg)
             }
             throw TeleportError.importFailed(message: "HTTP \(statusCode)")
+        }
+
+        // Handle async import: 202 means the job was accepted and we need to poll
+        if statusCode == 202 {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let jobId = json["job_id"] as? String else {
+                throw TeleportError.importFailed(message: "Import accepted but no job ID returned")
+            }
+
+            let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
+            let timeout: TimeInterval = 600 // 10 minutes
+            let start = Date()
+
+            while Date().timeIntervalSince(start) < timeout {
+                try await Task.sleep(nanoseconds: pollInterval)
+
+                let status: PlatformMigrationClient.ImportJobStatus
+                do {
+                    status = try await PlatformMigrationClient.pollImportStatus(jobId: jobId)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as PlatformMigrationClient.PlatformMigrationError {
+                    // Only retry on transient 5xx server errors
+                    // All other PlatformMigrationError cases (notAuthenticated, 4xx, etc.) are permanent
+                    if case .requestFailed(let statusCode, _) = error, (500..<600).contains(statusCode) {
+                        continue
+                    }
+                    // Permanent error — fail fast
+                    throw error
+                } catch {
+                    // Transient network errors — retry on next cycle
+                    continue
+                }
+
+                if status.status == "complete" {
+                    return
+                }
+                if status.status == "failed" {
+                    throw TeleportError.importFailed(message: status.error ?? "Import job failed")
+                }
+            }
+            throw TeleportError.importFailed(message: "Import timed out after 10 minutes")
         }
 
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

@@ -320,6 +320,7 @@ struct MarkdownTableView: View {
     @MainActor static func clearCellAttributedStringCache() {
         cellCache.removeAll()
         cellCacheLruCounter = 0
+        heightCache.removeAll()
     }
 
     @MainActor private static func cachedAttributedString(for text: String) -> AttributedString {
@@ -350,18 +351,61 @@ struct MarkdownTableView: View {
         return attributed
     }
 
+    // MARK: - Height Cache
+    //
+    // During scrolling, LazyVStack.measureEstimates calls sizeThatFits on
+    // each cell to estimate content height. For tables with N rows × M
+    // columns, this triggers a recursive explicitAlignment cascade through
+    // every nested VStack/HStack — O(N × M × depth) per measurement.
+    //
+    // By caching the rendered height after the first layout pass and
+    // applying it as a definite .frame(width:height:), subsequent
+    // sizeThatFits calls from measureEstimates return in O(1) because
+    // _FrameLayout with both dimensions set doesn't query children.
+    //
+    // The cache is content-addressed (keyed by headers + rows + width),
+    // so it works correctly across conversation switches — identical
+    // tables produce cache hits regardless of which conversation they
+    // appear in.
+    //
+    // References:
+    // - WWDC23: Demystify SwiftUI performance (https://developer.apple.com/videos/play/wwdc2023/10160/)
+    // - _FrameLayout vs _FlexFrameLayout alignment behavior (see AGENTS.md)
+
+    @MainActor private static var heightCache: [Int: CGFloat] = [:]
+
+    /// Content-based hash for height cache lookup. Includes maxWidth so
+    /// window resizing naturally invalidates stale entries.
+    private var contentHash: Int {
+        var hasher = Hasher()
+        hasher.combine(headers)
+        hasher.combine(rows)
+        hasher.combine(maxWidth)
+        return hasher.finalize()
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let usableWidth = maxWidth.isFinite
+        let hash = usableWidth ? contentHash : 0
+        let cachedHeight = usableWidth ? Self.heightCache[hash] : nil
+
+        // Default alignment (.center) avoids explicitAlignment(.leading)
+        // queries during sizing. Rows are full-width HStacks with
+        // Spacer(minLength: 0), so content is already left-aligned
+        // internally — the VStack alignment is visually redundant but
+        // was previously triggering O(N) alignment queries per pass.
+        VStack(spacing: 0) {
             // Header row
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                    Text(header)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.sm)
+                    HStack(spacing: 0) {
+                        Text(header)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(VSpacing.sm)
                 }
             }
 
@@ -371,10 +415,11 @@ struct MarkdownTableView: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                 HStack(spacing: 0) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                        inlineMarkdownCell(cell)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.sm)
+                        HStack(spacing: 0) {
+                            inlineMarkdownCell(cell)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(VSpacing.sm)
                     }
                 }
                 if rowIdx < rows.count - 1 {
@@ -388,7 +433,21 @@ struct MarkdownTableView: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
-        .frame(maxWidth: maxWidth, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            if usableWidth {
+                Self.heightCache[hash] = newHeight
+            }
+        }
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        // Both width AND height are set (after first render) so _FrameLayout
+        // returns the cached size in O(1) without querying children.
+        .frame(
+            width: maxWidth.isFinite ? maxWidth : nil,
+            height: cachedHeight,
+            alignment: .leading
+        )
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {
@@ -398,6 +457,5 @@ struct MarkdownTableView: View {
             .foregroundStyle(VColor.contentDefault)
             .textSelection(.enabled)
             .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }

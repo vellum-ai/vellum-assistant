@@ -1,6 +1,12 @@
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+import os
+
+private let panelCoordinatorLog = Logger(
+    subsystem: Bundle.appBundleIdentifier,
+    category: "PanelCoordinator"
+)
 
 // MARK: - Panel Coordination Extension
 
@@ -25,13 +31,31 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
-        case .debug:
-            DebugPanel(
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+                    conversationManager.openConversation(
+                        message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
+                        forceNew: true
+                    )
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                })
+        case .logsAndUsage:
+            LogsAndUsagePanel(
                 traceStore: traceStore,
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
-                onClose: { windowState.selection = nil }
+                usageDashboardStore: usageDashboardStore,
+                onClose: { windowState.selection = nil },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .generated:
             GeneratedPanel(
@@ -105,21 +129,94 @@ extension MainWindowView {
                         windowState.selection = nil
                     }
                 },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
+                authManager: authManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
-        case .usageDashboard:
-            UsageDashboardPanel(
-                store: usageDashboardStore,
-                onClose: { windowState.selection = nil }
-            )
+        case .home:
+            homePanelView(onDismiss: { windowState.selection = nil })
         }
+    }
+
+    @ViewBuilder
+    func homePanelView(onDismiss: @escaping () -> Void) -> some View {
+        // Home intentionally skips ``VPageContainer`` — the redesigned
+        // Home page has its own centered hero greeting, so a top-aligned
+        // "Home" title would double up and steal vertical space from the
+        // first scroll viewport. ``HomePageView`` paints its own full
+        // background internally, so no outer chrome is needed here.
+        HomePageView(
+            store: homeStore,
+            feedStore: feedStore,
+            onPrimaryCTA: { capability in
+                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
+                conversationManager.openConversation(message: seed, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
+                }
+            },
+            onShortcutCTA: { capability in
+                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
+                conversationManager.openConversation(message: seed, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
+                }
+            },
+            onFeedConversationOpened: { conversationId in
+                // Daemon already created the conversation in response to
+                // `store.triggerAction`; the client just needs to navigate.
+                // A non-UUID id here means the daemon returned something
+                // the client contract does not allow — log loudly so the
+                // regression is visible instead of silently dropping.
+                guard let uuid = UUID(uuidString: conversationId) else {
+                    panelCoordinatorLog.error(
+                        "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
+                    )
+                    windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                    return
+                }
+                onDismiss()
+                windowState.selection = .conversation(uuid)
+            },
+            onSubmitMessage: { message in
+                // Home inline composer: start a brand-new conversation
+                // pre-seeded with the user's text and navigate into it.
+                // `forceNew: true` is critical — we always want the
+                // Home composer to create a fresh thread rather than
+                // append to whatever was last active.
+                conversationManager.openConversation(message: message, forceNew: true)
+                onDismiss()
+                if let id = conversationManager.activeConversationId {
+                    windowState.selection = .conversation(id)
+                }
+            }
+        )
+        .onAppear {
+            homeStore.isHomeTabVisible = true
+            homeStore.markSeen()
+        }
+        .onDisappear {
+            homeStore.isHomeTabVisible = false
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
     }
 
     @ViewBuilder
@@ -180,6 +277,7 @@ extension MainWindowView {
         // When settings is open the sidebar is hidden.
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -213,6 +311,7 @@ extension MainWindowView {
     func clampedSidePanelWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -241,6 +340,7 @@ extension MainWindowView {
     func clampedChatDockWidth(windowSize: CGSize) -> Binding<Double> {
         let settingsOpen: Bool = {
             if case .panel(.settings) = windowState.selection { return true }
+            if case .panel(.logsAndUsage) = windowState.selection { return true }
             return false
         }()
         let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
@@ -362,7 +462,7 @@ extension MainWindowView {
                     conversationManager.ensureActiveConversation()
                 }
             } else {
-                // Full-window panels: settings, debug, identity
+                // Full-window panels: settings, logs & usage, intelligence
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -391,6 +491,7 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
+                        showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
                         onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
@@ -399,6 +500,11 @@ extension MainWindowView {
                                         viewModel.subagentDetailStore.populateFromDetailResponse(response)
                                     }
                                 }
+                            }
+                        },
+                        onInspectMessage: { messageId in
+                            withAnimation(VAnimation.standard) {
+                                windowState.inspectorMessageId = messageId
                             }
                         },
                         onClose: { windowState.selectedSubagentId = nil }
@@ -427,10 +533,14 @@ extension MainWindowView {
             let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
                 "voice-mode"
             )
+            let showsConversationHostAccessControl = assistantFeatureFlagStore.isEnabled(
+                "permission-controls-v2"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
+                showsConversationHostAccessControl: showsConversationHostAccessControl,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 ambientAgent: ambientAgent,
@@ -461,13 +571,32 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) })
-        case .debug:
-            DebugPanel(
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+                    conversationManager.openConversation(
+                        message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
+                        forceNew: true
+                    )
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                    windowState.dismissOverlay()
+                })
+        case .logsAndUsage:
+            LogsAndUsagePanel(
                 traceStore: traceStore,
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
-                onClose: { windowState.dismissOverlay() }
+                usageDashboardStore: usageDashboardStore,
+                onClose: { windowState.dismissOverlay() },
+                onSelectConversation: { conversationId in
+                    Task { @MainActor in
+                        let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
+                        guard found, let id = conversationManager.activeConversationId else { return }
+                        windowState.selection = .conversation(id)
+                    }
+                }
             )
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
@@ -530,20 +659,26 @@ extension MainWindowView {
                         windowState.selection = .conversation(id)
                     }
                 },
+                onImportMemory: { message in
+                    conversationManager.openConversation(message: message, forceNew: true)
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
                 conversationManager: conversationManager,
+                authManager: authManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
-        case .usageDashboard:
-            UsageDashboardPanel(
-                store: usageDashboardStore,
-                onClose: { windowState.dismissOverlay() }
-            )
+        case .home:
+            homePanelView(onDismiss: { windowState.dismissOverlay() })
         }
     }
 
@@ -600,12 +735,14 @@ extension MainWindowView {
 // MARK: - Wrapper Views
 
 /// Renders the chat interface with an optional message inspector overlay.
-/// Owns the inspector state and bootstrap-state reading; ChatView reads
-/// viewModel properties directly via @Bindable.
+/// Owns bootstrap-state reading; ChatView reads viewModel properties directly
+/// via @Bindable. Inspector state is shared via `MainWindowState.inspectorMessageId`
+/// so both the chat and the subagent panel can trigger it.
 struct ActiveChatViewWrapper: View {
     @Bindable var viewModel: ChatViewModel
     var windowState: MainWindowState
     let conversationStartersEnabled: Bool
+    let showsConversationHostAccessControl: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var ambientAgent: AmbientAgent
@@ -622,8 +759,6 @@ struct ActiveChatViewWrapper: View {
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
-
-    @State private var inspectorMessageId: String? = nil
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -660,7 +795,7 @@ struct ActiveChatViewWrapper: View {
                     windowState.selection = .panel(.settings)
                 },
                 onBootstrapSendLogs: {
-                    AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+                    AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
@@ -674,7 +809,7 @@ struct ActiveChatViewWrapper: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
-                isInteractionEnabled: inspectorMessageId == nil,
+                isInteractionEnabled: windowState.inspectorMessageId == nil,
                 isReadonly: isReadonly,
                 isBootstrapping: isBootstrapping,
                 isBootstrapTimedOut: isBootstrapTimedOut,
@@ -687,12 +822,14 @@ struct ActiveChatViewWrapper: View {
                 onEndVoiceMode: onEndVoiceMode,
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
-                watchSession: ambientAgent.activeWatchSession
+                watchSession: ambientAgent.activeWatchSession,
+                conversationManager: conversationManager,
+                showsConversationHostAccessControl: showsConversationHostAccessControl
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-            .disabled(inspectorMessageId != nil)
+            .disabled(windowState.inspectorMessageId != nil)
 
-            if let messageId = inspectorMessageId {
+            if let messageId = windowState.inspectorMessageId {
                 MessageInspectorView(
                     messageId: messageId,
                     onBack: dismissInspector
@@ -700,22 +837,25 @@ struct ActiveChatViewWrapper: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(VAnimation.standard, value: inspectorMessageId)
+        .animation(VAnimation.standard, value: windowState.inspectorMessageId)
+        .onDisappear {
+            windowState.inspectorMessageId = nil
+        }
         .onChange(of: conversationId) { _, _ in
-            inspectorMessageId = nil
+            windowState.inspectorMessageId = nil
         }
     }
 
     private func presentInspector(for messageId: String?) {
         guard let messageId else { return }
         withAnimation(VAnimation.standard) {
-            inspectorMessageId = messageId
+            windowState.inspectorMessageId = messageId
         }
     }
 
     private func dismissInspector() {
         withAnimation(VAnimation.standard) {
-            inspectorMessageId = nil
+            windowState.inspectorMessageId = nil
         }
     }
 }

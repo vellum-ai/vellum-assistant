@@ -784,6 +784,8 @@ export function loadSkillCatalog(
             toolManifest: detectToolManifest(directory),
             includes: parsed.includes,
             featureFlag: parsed.featureFlag,
+            activationHints: parsed.activationHints,
+            avoidWhen: parsed.avoidWhen,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -879,6 +881,8 @@ export function loadSkillCatalog(
           toolManifest: detectToolManifest(directory),
           includes: parsed.includes,
           featureFlag: parsed.featureFlag,
+          activationHints: parsed.activationHints,
+          avoidWhen: parsed.avoidWhen,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 

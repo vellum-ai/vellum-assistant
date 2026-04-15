@@ -21,6 +21,11 @@ import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
+import {
+  bulkSetSecureKeysAsync,
+  getSecureKeyResultAsync,
+  listSecureKeysAsync,
+} from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
@@ -34,7 +39,10 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
-import { commitImport } from "../migrations/vbundle-importer.js";
+import {
+  commitImport,
+  extractCredentialsFromBundle,
+} from "../migrations/vbundle-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 const log = getLogger("migration-routes");
@@ -146,6 +154,27 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
+    // Read all stored credentials to include in the export bundle
+    const credentialList = await listSecureKeysAsync();
+    const credentials: Array<{ account: string; value: string }> = [];
+    if (credentialList.unreachable) {
+      log.warn(
+        "Credential store is unreachable — export will not include credentials",
+      );
+    } else {
+      for (const account of credentialList.accounts) {
+        const result = await getSecureKeyResultAsync(account);
+        if (result.unreachable) {
+          log.warn(
+            { account },
+            "Credential store unreachable when reading credential — skipping",
+          );
+        } else if (result.value != null) {
+          credentials.push({ account, value: result.value });
+        }
+      }
+    }
+
     const result = await streamExportVBundle({
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
@@ -153,6 +182,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       workspaceDir: getWorkspaceDir(),
       source: "runtime-export",
       description,
+      credentials,
       checkpoint: () => {
         const dbPath = getDbPath();
         try {
@@ -196,6 +226,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
         "Content-Length": String(size),
         "X-Vbundle-Schema-Version": manifest.schema_version,
         "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
+        "X-Vbundle-Credentials-Included": String(credentials.length),
       },
     });
   } catch (err) {
@@ -444,6 +475,57 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       );
     }
 
+    // Import credentials from the bundle into CES (non-blocking — failures
+    // are logged as warnings but do not fail the overall import).
+    let credentialsImported:
+      | {
+          total: number;
+          succeeded: number;
+          failed: number;
+          failedAccounts: string[];
+        }
+      | undefined;
+
+    if (validation.entries) {
+      const bundleCredentials = extractCredentialsFromBundle(
+        validation.entries,
+        validation.manifest!,
+      );
+      if (bundleCredentials.length > 0) {
+        try {
+          const credResults = await bulkSetSecureKeysAsync(bundleCredentials);
+          const failedResults = credResults.filter((r) => !r.ok);
+          if (failedResults.length > 0) {
+            log.warn(
+              { failed: failedResults.map((f) => f.account) },
+              "Some credentials failed to import",
+            );
+          }
+          log.info(
+            { total: bundleCredentials.length, failed: failedResults.length },
+            "Credential import complete",
+          );
+          const succeeded = bundleCredentials.length - failedResults.length;
+          credentialsImported = {
+            total: bundleCredentials.length,
+            succeeded,
+            failed: failedResults.length,
+            failedAccounts: failedResults.map((f) => f.account),
+          };
+          if (failedResults.length > 0) {
+            result.report.warnings.push(
+              `Imported ${succeeded} credential(s), ${failedResults.length} failed`,
+            );
+          }
+        } catch (err) {
+          log.warn({ err }, "Credential import failed entirely");
+          result.report.warnings.push(
+            `Credential import failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
+
     // Invalidate in-process caches so imported settings.json and trust.json take effect
     invalidateConfigCache();
     clearTrustCache();
@@ -463,7 +545,10 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       // Don't fail the import if validation itself errors
     }
 
-    return Response.json(result.report);
+    return Response.json({
+      ...result.report,
+      ...(credentialsImported ? { credentialsImported } : {}),
+    });
   } catch (err) {
     log.error({ err }, "Unexpected error during import commit");
     return httpError(

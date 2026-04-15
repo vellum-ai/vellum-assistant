@@ -10,6 +10,7 @@ export interface SubagentSpawned {
   parentConversationId: string;
   label: string;
   objective: string;
+  isFork?: boolean;
 }
 
 export interface SubagentStatusChanged {
@@ -29,6 +30,7 @@ export interface SubagentDetailResponse {
     content: string;
     toolName?: string;
     isError?: boolean;
+    messageId?: string;
   }>;
 }
 

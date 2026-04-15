@@ -94,7 +94,7 @@ function makeEmailPayload(overrides?: {
 
 function postRequest(body: string, secret?: string): Request {
   const sigSecret = secret ?? TEST_WEBHOOK_SECRET;
-  return new Request("http://localhost:7830/webhooks/email/inbound", {
+  return new Request("http://localhost:7830/webhooks/email", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -126,7 +126,7 @@ describe("email-webhook", () => {
 
   it("rejects non-POST requests with 405", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+    const req = new Request("http://localhost:7830/webhooks/email", {
       method: "GET",
     });
     const res = await handler(req);
@@ -194,7 +194,7 @@ describe("email-webhook", () => {
   it("rejects invalid JSON with 400", async () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
     const body = "not json";
-    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+    const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -289,7 +289,7 @@ describe("email-webhook", () => {
     const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
     const body = makeEmailPayload({ messageId: "<wrong-secret@example.com>" });
     // Sign with a different secret than what the cache returns
-    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+    const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -306,7 +306,7 @@ describe("email-webhook", () => {
     const body = makeEmailPayload({
       messageId: "<missing-header@example.com>",
     });
-    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+    const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
@@ -378,7 +378,7 @@ describe("email-webhook", () => {
       messageId: "<stale-var-fix@example.com>",
     });
     // Sign with wrong secret
-    const req = new Request("http://localhost:7830/webhooks/email/inbound", {
+    const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
       headers: {
         "content-type": "application/json",

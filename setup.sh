@@ -17,10 +17,18 @@ info()  { echo "==> $*"; }
 error() { echo "error: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Pre-flight: ensure bun is available
+# Pre-flight: ensure bun is available (install automatically if missing)
 # ---------------------------------------------------------------------------
 if ! command -v bun &>/dev/null; then
-  error "bun is not installed. Install it from https://bun.sh and try again."
+  info "Bun not found — installing from https://bun.sh"
+  curl -fsSL https://bun.sh/install | bash
+  # Add bun to PATH for the rest of this script
+  export BUN_INSTALL="${HOME}/.bun"
+  export PATH="${BUN_INSTALL}/bin:${PATH}"
+  if ! command -v bun &>/dev/null; then
+    error "Bun installation failed. Install it manually from https://bun.sh and try again."
+  fi
+  info "Bun $(bun --version) installed successfully"
 fi
 
 # ---------------------------------------------------------------------------
@@ -28,6 +36,23 @@ fi
 # ---------------------------------------------------------------------------
 info "Configuring git hooks"
 git config core.hooksPath .githooks
+
+# ---------------------------------------------------------------------------
+# iOS: ensure xcodegen is installed and generate the Xcode project
+# ---------------------------------------------------------------------------
+if command -v brew &>/dev/null; then
+  if ! command -v xcodegen &>/dev/null; then
+    info "Installing xcodegen via Homebrew"
+    brew install xcodegen
+  else
+    info "xcodegen already installed"
+  fi
+
+  info "Generating iOS Xcode project"
+  (cd "${REPO_ROOT}/clients/ios" && xcodegen generate)
+else
+  info "Skipping xcodegen (Homebrew not available — not on macOS?)"
+fi
 
 # ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable

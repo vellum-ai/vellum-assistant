@@ -34,7 +34,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Ses
 ./build.sh lint
 
 # Watch logs from a running instance
+# Production:
 log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debug
+# Local dev:
+log stream --predicate 'subsystem == "com.vellum.vellum-assistant-local"' --level debug
 ```
 
 ---
@@ -57,7 +60,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `Contacts/` | Contact management |
 | `ChannelVerification/` | Channel verification flow |
 | `MainWindow/` | MainWindowView shell, ConversationSwitcherDrawer, NavigationToolbar, ConversationManager, side panels |
-| `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
+| `MainWindow/Panels/` | Side panels including LogsAndUsagePanel (combined logs + usage dashboard with settings-like sidebar layout) |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `QuickInput/` | Quick task input popover and screen selection |
 | `Session/` | Session overlay UI for computer-use task execution |
@@ -105,7 +108,7 @@ CU execution dependencies are protocol-based for testability:
 ### Network Layer (`Network/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
-- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Must be `nonisolated`. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: GatewayHTTPClient".
+- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Naturally `nonisolated` since it has no mutable state. See `clients/AGENTS.md` § "Networking: GatewayHTTPClient".
 - `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
@@ -118,7 +121,25 @@ A background screen-watching system that runs alongside the manual session loop:
 
 ### Voice Input
 
-`VoiceInputManager` — hold Fn (or Ctrl, configurable) for speech-to-text via `SFSpeechRecognizer`. Shows `VoiceTranscriptionWindow` during recording.
+`VoiceInputManager` — hold Fn (or Ctrl, configurable) for voice input. Shows `VoiceTranscriptionWindow` during recording. Uses a **service-first STT** strategy: captured audio is encoded to WAV and sent to the assistant's configured STT service via `STTClient` (shared client in `clients/shared/Network/STTClient.swift`). Apple-native `SFSpeechRecognizer` provides real-time partial transcriptions during recording and serves as the fallback when the STT service is unconfigured or fails.
+
+**Service-first STT precedence (dictation mode):**
+1. Audio is recorded and accumulated as PCM buffers alongside a live `SFSpeechRecognizer` session for partial display.
+2. On recording end, buffers are encoded to WAV via `AudioWavEncoder` and sent to the STT service through the gateway.
+3. If the service returns a non-empty transcription, that text is used as the final result.
+4. If the service is unconfigured (503), unavailable, or returns empty text, the native `SFSpeechRecognizer` result is used as fallback.
+
+**Conversation mode (streaming STT):** When `VoiceInputManager.currentMode == .conversation` and `STTProviderRegistry.isStreamingAvailable` is `true` (the configured provider's `conversationStreamingMode` is `realtime-ws` or `incremental-batch`), the manager opens a real-time STT streaming session via `STTStreamingClient` in addition to the native `SFSpeechRecognizer` session. Key behaviors:
+
+- `startStreamingSession(generation:)` creates a new `STTStreamingClient` per recording session via the injected `streamingClientFactory` closure. The generation token prevents stale-session event delivery after reconnects.
+- While the streaming session is active and healthy (`streamingSessionActive && !streamingFailed`), streaming partials take priority over native `SFSpeechRecognizer` partials for UI display.
+- When recording stops, if `streamingReceivedFinal && !streamingFailed`, the accumulated `streamingFinalText` is used directly. Otherwise, the batch STT resolution path (`STTClient.transcribe()`) provides the fallback.
+- On streaming failure (`STTStreamFailure` — connection error, timeout, rejected, abnormal closure), `streamingFailed` is set to `true` and the batch path handles completion on stop.
+- `tearDownStreamingSession()` signals graceful stop (`client.stop()`) before forcible close (`client.close()`). All streaming state (`streamingClient`, `streamingSessionActive`, `streamingFinalText`, `streamingReceivedFinal`, `streamingFailed`) is reset.
+
+**Voice mode (streaming):** `OpenAIVoiceService` follows the same service-first pattern for turn-final transcript resolution. Per-turn PCM audio is encoded to WAV and sent to the STT service. The service result takes precedence; the live `SFSpeechRecognizer` transcript is used as fallback.
+
+**STT adapter:** The `SpeechRecognizerAdapter` protocol (`Features/Voice/SpeechRecognizerAdapter.swift`) abstracts `SFSpeechRecognizer` static APIs and instance creation for partial transcription and fallback. The production implementation is `AppleSpeechRecognizerAdapter`. Both `VoiceInputManager` and `OpenAIVoiceService` accept the adapter, `STTClient`, and `streamingClientFactory` via init injection, enabling tests to substitute mocks without hardware or permission dependencies.
 
 **Keyboard shortcut detection:** Uses defense-in-depth to distinguish voice activation from keyboard shortcuts (Control+C, Fn+arrow). Timer starts on key press, but recording only begins if no other keys are pressed during the 300ms hold period. Flag check (`otherKeyPressedDuringHold`) handles cases where apps consume keyDown events (e.g., Terminal).
 
@@ -242,7 +263,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### Rules
 
-- **`@MainActor` on view models and UI state managers only** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
+- **`@MainActor` on stateful types (view models, managers, clients with mutable state)** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies through init parameters, not singletons. Session dependencies use protocols for testability.
@@ -251,6 +272,15 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   - **Padding**: Use `.padding(EdgeInsets(top:leading:bottom:trailing:))` instead of separate `.padding(.horizontal, x).padding(.vertical, y)` or `.padding(.leading, a).padding(.trailing, b).padding(.vertical, c)`.
   - **Background**: Use a single `.background { }` with a `ZStack` inside instead of chaining multiple `.background()` calls.
   - **No-op backgrounds**: Never add invisible backgrounds like `.background(Capsule().fill(Color.clear))` — they create layout wrappers with zero visual effect.
+- **No animated insertions in chat `LazyVStack`**: ANY animated insertion/removal in a `LazyVStack` triggers `motionVectors` — an O(n) `sizeThatFits` measurement over ALL children that defeats lazy loading and causes multi-minute hangs. The chat message list uses `.transaction { $0.animation = nil }` to suppress all insertion animations. Do NOT remove that modifier or wrap content mutations in `withAnimation` that flows into the `LazyVStack`. See [`.transaction` docs](https://developer.apple.com/documentation/swiftui/view/transaction(_:)) and [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/).
+- **No `.frame(maxWidth:, alignment:)` inside LazyVStack cell hierarchy**: `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) whose `placement()` queries each child's explicit alignment via [`ViewDimensions.subscript`](https://developer.apple.com/documentation/swiftui/viewdimensions). Nested FlexFrames recurse O(depth × children) per layout pass. **This includes `.frame(maxWidth: X)` with no explicit alignment** — it defaults to `.center`, still triggering the query. See [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/). Safe alternatives:
+  - `.frame(width: exactWidth)` — [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)), no alignment query.
+  - `HStack { content; Spacer(minLength: 0) }` — leading alignment without queries.
+  - `HStack { Spacer(minLength: 0); content }` — trailing alignment without queries.
+  - [`.containerRelativeFrame(.horizontal)`](https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)) — width constraint without FlexFrame.
+  
+  Never trade `HStack+Spacer` for `.frame(alignment:)` in lazy containers — fewer layout nodes is not worth O(n) recursive alignment queries per node.
+- **Use `.frame(width:)` (not `.frame(maxWidth:)`) on ScrollView containers with LazyVStack**: `.frame(width:)` creates [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) which returns `bounds.midX` for alignment without querying children — the alignment cascade stops here. `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) which queries `explicitAlignment` on children, cascading O(n) through the entire `LazyVStack` subtree on every layout pass. Use a computed width (e.g. `min(containerWidth, maxWidth)`) to get responsive behavior without `_FlexFrameLayout`. Do NOT use a custom `Layout` barrier — custom `Layout` containers between the outer modifier chain and the `ScrollView` disrupt SwiftUI's internal scroll infrastructure, causing intermittent cell materialization failures.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
 - **Accessibility**: See `clients/AGENTS.md` § [Accessibility](../AGENTS.md#accessibility) for the full checklist (labels, hidden elements, custom interactions, AppKit panels). All rules there apply to macOS components.
 
@@ -295,6 +325,9 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ---
+## Build Flags
+
+- `clients/macos/build.sh` bundles the Kata 3.17.0 ARM64 kernel into `Vellum.app/Contents/Resources/DeveloperVM/` and caches the downloaded archive under `clients/macos/.container-cache/`.
 
 ## Keyboard Shortcuts
 

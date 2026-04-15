@@ -36,10 +36,13 @@ cd assistant && bun run lint         # Lint
 
 This project is licensed under MIT. All dependencies must have MIT-compatible licenses (MIT, Apache-2.0, ISC, BSD-2-Clause, BSD-3-Clause, Unlicense, or similar permissive licenses). Do not add dependencies with copyleft licenses (GPL, AGPL, LGPL, SSPL, EUPL) or proprietary/restrictive licenses without explicit approval.
 
+**Version pinning**: Always use exact versions in `package.json` — no `^` or `~` prefixes. Use `bun add --exact` (or `bun add -E`) when adding packages. The root `bunfig.toml` sets `[install] exact = true` to enforce this by default (bun walks parent directories, so it applies to all packages). See [Bun docs on `--exact`](https://bun.sh/docs/cli/add#exact).
+
 When adding a new dependency:
 1. Check its license in the package's `package.json` or LICENSE file.
 2. Dual-licensed packages (e.g. "MIT OR GPL-3.0") are acceptable — we use them under the MIT-compatible option.
 3. If unsure about compatibility, flag it in the PR for review.
+4. Verify the version in `package.json` is pinned to an exact version (no `^` or `~`).
 
 ## Testing
 
@@ -112,6 +115,10 @@ The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/ru
 
 Feature flags use simple kebab-case keys (e.g., `browser`, `ces-tools`). Declare new flags in `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. The resolver in `assistant/src/config/assistant-feature-flags.ts` checks config overrides, then registry defaults, then defaults to enabled. Guard tests enforce format, registry declaration, and canonical keys.
 
+**Cross-repo requirement**: When adding a new flag, you must also open a PR in [`vellum-assistant-platform`](../vellum-assistant-platform) to add the flag to the LaunchDarkly Terraform configuration (`terraform/`) so it exists on the platform for remote sync. See `meta/feature-flags/AGENTS.md` for full steps.
+
+**Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. That means no global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a new v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
+
 ## LLM Provider Abstraction
 
 All LLM calls must go through the provider abstraction — use `getConfiguredProvider()` from `providers/provider-send-message.ts`. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
@@ -156,8 +163,8 @@ Docker instances use four dedicated volumes with strict per-service access bound
 
 | Volume | Mount path | Access | Contents |
 |---|---|---|---|
-| **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs |
-| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | `trust.json`, `actor-token-signing-key`, `guardian-init.lock` |
+| **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs, `.backups/`, `.backup.key` |
+| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
 
@@ -168,6 +175,8 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads and writes trust rules via the gateway's HTTP trust API — it has no direct filesystem access to `trust.json`. The gateway reads `trust.json` from `/gateway-security/trust.json`.
 - **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
 - The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
+
+**Backup paths in Docker mode**: The backup system stores local snapshots at `VELLUM_BACKUP_DIR` (default: `/workspace/.backups/`) and the encryption key at `VELLUM_BACKUP_KEY_PATH` (default: `/workspace/.backup.key`) on the workspace volume. This means workspace volume destruction loses both data and backups. For stronger isolation, a dedicated backup volume could be added in a future iteration.
 
 ## Workspace & Secrets
 
@@ -188,6 +197,31 @@ When making changes that could affect the cloud platform, review the sibling `..
 - HTTP server behavior and API contracts.
 - Stored file and directory structure changes (workspace paths, on-disk formats, exports/imports, migrations).
 - Dockerfile or container runtime/build changes.
+- **Feature flags**: Adding a flag to `meta/feature-flags/feature-flag-registry.json` requires a companion PR in `vellum-assistant-platform` to provision the flag in Terraform. See the [Assistant Feature Flags](#assistant-feature-flags) section.
+
+## Build Environment (`VELLUM_ENVIRONMENT`)
+
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
+
+| Value | Use cases |
+|---|---|
+| `local` | Always built from local source code. Enable developer-only features (e.g. build container images from local source, verbose logging). |
+| `dev` | Artifacts generated from `main`. Connected to the dev platform; skip production guards. |
+| `test` | Stub external services, use test fixtures. |
+| `staging` | QA against staging platform before production rollout. Default for release branch builds. |
+| `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
+
+**Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+
+**Reading the value at runtime** (Swift):
+```swift
+let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
+```
+
+**Guidelines**:
+- Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
+- Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
+- Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
 
 ## Sentry & Linear Integration
 

@@ -14,6 +14,8 @@ interface PendingRequest {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   timeoutSec: number;
+  /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
+  detachAbort: () => void;
 }
 
 export class HostBashProxy {
@@ -60,8 +62,14 @@ export class HostBashProxy {
       const timeoutSec = input.timeout_seconds ?? shellMaxTimeoutSec;
       // Proxy timeout: slightly after client-side timeout, but before executor's outer timeout
       const proxyTimeoutSec = timeoutSec + 3;
+
+      // Declared up-front so onAbort (defined before detachAbort is assigned)
+      // can close over a stable reference once it's wired below.
+      let detachAbort: () => void = () => {};
+
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        detachAbort();
         this.onInternalResolve?.(requestId);
         log.warn(
           { requestId, command: input.command },
@@ -78,13 +86,14 @@ export class HostBashProxy {
         );
       }, proxyTimeoutSec * 1000);
 
-      this.pending.set(requestId, { resolve, reject, timer, timeoutSec });
-
       if (signal) {
         const onAbort = () => {
           if (this.pending.has(requestId)) {
             clearTimeout(timer);
             this.pending.delete(requestId);
+            // Abort fired — nothing to detach, but call the no-op for symmetry
+            // so callers can rely on detachAbort being idempotent.
+            detachAbort();
             this.onInternalResolve?.(requestId);
             try {
               this.sendToClient({
@@ -98,19 +107,43 @@ export class HostBashProxy {
           }
         };
         signal.addEventListener("abort", onAbort, { once: true });
+        detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this.sendToClient({
-        type: "host_bash_request",
-        requestId,
-        conversationId,
-        command: input.command,
-        working_dir: input.working_dir,
-        timeout_seconds: input.timeout_seconds,
-        ...(input.env && Object.keys(input.env).length > 0
-          ? { env: input.env }
-          : {}),
-      } as ServerMessage);
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        timeoutSec,
+        detachAbort,
+      });
+
+      try {
+        this.sendToClient({
+          type: "host_bash_request",
+          requestId,
+          conversationId,
+          command: input.command,
+          working_dir: input.working_dir,
+          timeout_seconds: input.timeout_seconds,
+          ...(input.env && Object.keys(input.env).length > 0
+            ? { env: input.env }
+            : {}),
+        } as ServerMessage);
+      } catch (err) {
+        // Sender threw synchronously (e.g. client transport error during
+        // event emission). Clean up pending state and timer so we don't
+        // leak an in-flight entry that nothing will ever resolve.
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        detachAbort();
+        this.onInternalResolve?.(requestId);
+        log.warn(
+          { requestId, command: input.command, err },
+          "Host bash proxy send failed",
+        );
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -129,6 +162,7 @@ export class HostBashProxy {
       return;
     }
     clearTimeout(entry.timer);
+    entry.detachAbort();
     this.pending.delete(requestId);
     const result = formatShellOutput(
       response.stdout,
@@ -151,6 +185,7 @@ export class HostBashProxy {
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
+      entry.detachAbort();
       this.onInternalResolve?.(requestId);
       try {
         this.sendToClient({

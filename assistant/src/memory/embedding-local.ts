@@ -1,4 +1,10 @@
-import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
@@ -83,6 +89,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     }
   >();
   private stdoutReaderActive = false;
+  private activeEmbeds = 0;
+  private disposeRequested = false;
 
   private readonly initGuard = new PromiseGuard<void>();
 
@@ -94,6 +102,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
+    if (this.disposeRequested) {
+      throw new Error("Local embedding backend is shutting down");
+    }
     if (inputs.length === 0) return [];
 
     const texts = inputs.map((i) => {
@@ -106,24 +117,30 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (options?.signal?.aborted)
       throw new DOMException("Aborted", "AbortError");
 
-    await this.ensureInitialized();
+    this.activeEmbeds++;
+    try {
+      await this.ensureInitialized();
 
-    const results: number[][] = [];
-    const batchSize = 32;
-    for (let i = 0; i < texts.length; i += batchSize) {
-      if (options?.signal?.aborted)
-        throw new DOMException("Aborted", "AbortError");
-      const batch = texts.slice(i, i + batchSize);
-      const response = await this.sendRequest(batch);
-      if (response.error) {
-        throw new Error(`Embedding worker error: ${response.error}`);
+      const results: number[][] = [];
+      const batchSize = 32;
+      for (let i = 0; i < texts.length; i += batchSize) {
+        if (options?.signal?.aborted)
+          throw new DOMException("Aborted", "AbortError");
+        const batch = texts.slice(i, i + batchSize);
+        const response = await this.sendRequest(batch);
+        if (response.error) {
+          throw new Error(`Embedding worker error: ${response.error}`);
+        }
+        if (!response.vectors) {
+          throw new Error("Embedding worker returned no vectors");
+        }
+        results.push(...response.vectors);
       }
-      if (!response.vectors) {
-        throw new Error("Embedding worker returned no vectors");
-      }
-      results.push(...response.vectors);
+      return results;
+    } finally {
+      this.activeEmbeds--;
+      this.disposeIfIdle();
     }
-    return results;
   }
 
   private sendRequest(texts: string[]): Promise<WorkerResponse> {
@@ -146,6 +163,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private async ensureInitialized(): Promise<void> {
     if (this.workerProc) return;
     await this.initGuard.run(() => this.initialize());
+  }
+
+  dispose(): void {
+    this.disposeRequested = true;
+    this.disposeIfIdle();
   }
 
   private async initialize(): Promise<void> {
@@ -198,6 +220,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   ): Promise<void> {
     const embeddingModelsDir = getEmbeddingModelsDir();
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
+
+    // Singleton guard: an orphaned embed worker from a previous daemon
+    // (e.g. one that crashed without cleanup) may still be running and
+    // holding the workspace's PID file. Detect and reclaim it before
+    // spawning so we never leave duplicate workers eating CPU/memory.
+    this.reclaimStaleWorker(workerPath);
 
     log.info(
       { bunPath, workerPath, model: this.model },
@@ -255,6 +283,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       { pid: proc.pid, model: this.model },
       "Embedding worker process started",
     );
+
+    this.disposeIfIdle();
   }
 
   private drainStderr(stderr: ReadableStream<Uint8Array>): void {
@@ -355,6 +385,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         if (pending) {
           this.pendingRequests.delete(msg.id);
           pending.resolve(msg);
+          this.disposeIfIdle();
         }
       }
     }
@@ -423,6 +454,134 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       unlinkSync(this.getPidFilePath());
     } catch {
       // Best-effort
+    }
+  }
+
+  /** Read the PID from the on-disk PID file, or null if missing/invalid. */
+  private readPidFile(): number | null {
+    const path = this.getPidFilePath();
+    if (!existsSync(path)) return null;
+    try {
+      const pid = parseInt(readFileSync(path, "utf-8").trim(), 10);
+      return Number.isFinite(pid) && pid > 0 ? pid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verify a PID belongs to this workspace's embed worker before sending
+   * signals — defends against PID reuse killing an unrelated process if the
+   * original worker exited and the OS recycled the PID.
+   *
+   * Matching `embed-worker` alone would also match a sibling assistant
+   * instance's worker (different VELLUM_WORKSPACE_DIR), so we match against
+   * the absolute worker script path, which lives under THIS workspace's
+   * embedding-models directory and is therefore unique per instance.
+   */
+  private isOurEmbedWorker(pid: number, workerPath: string): boolean {
+    try {
+      // `-ww` disables column-width truncation. Without it, macOS `ps` clips
+      // the command field to the terminal width, which can cut off the
+      // workerPath argument and cause this check to spuriously return false
+      // for genuine orphans. Same flag is used by daemon-control.ts:123 for
+      // exactly this reason.
+      const result = Bun.spawnSync({
+        cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      if (result.exitCode !== 0) return false;
+      const cmd = new TextDecoder().decode(result.stdout).trim();
+      if (!cmd) return false;
+      return cmd.includes(workerPath);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * If a previous embed worker is still running for this workspace (orphaned
+   * by a crashed daemon, for example), terminate it before spawning a new one
+   * so we never end up with duplicate workers competing for the same workspace.
+   *
+   * Stale PID files (process no longer exists) are silently cleaned up.
+   * PIDs that have been recycled to unrelated processes — including embed
+   * workers belonging to *other* assistant instances — are left untouched.
+   */
+  private reclaimStaleWorker(workerPath: string): void {
+    const pid = this.readPidFile();
+    if (pid == null) return;
+
+    // Never signal ourselves — should not happen since the worker is a child
+    // process, but guard against logic bugs that would deadlock the daemon.
+    if (pid === process.pid) {
+      this.removePidFile();
+      return;
+    }
+
+    let isAlive = false;
+    try {
+      // Signal 0 just probes for liveness without delivering a signal.
+      process.kill(pid, 0);
+      isAlive = true;
+    } catch {
+      // ESRCH — no such process. PID file is stale.
+    }
+
+    if (!isAlive) {
+      log.info(
+        { pid, model: this.model },
+        "Removing stale embed worker PID file (process no longer exists)",
+      );
+      this.removePidFile();
+      return;
+    }
+
+    if (!this.isOurEmbedWorker(pid, workerPath)) {
+      // PID points to something that isn't this workspace's embed worker —
+      // either an unrelated process (PID reuse after the original worker
+      // exited) or another assistant instance's worker. Either way, don't
+      // signal it; just drop the stale file so the new worker can claim it.
+      log.warn(
+        { pid, model: this.model },
+        "PID file points to a process that is not this workspace's embed worker; clearing without killing",
+      );
+      this.removePidFile();
+      return;
+    }
+
+    log.warn(
+      { pid, model: this.model },
+      "Found orphaned embed worker from a previous daemon, terminating it",
+    );
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Race: it exited between the liveness check and the kill — fine.
+    }
+    this.removePidFile();
+  }
+
+  private disposeIfIdle(): void {
+    if (!this.disposeRequested) return;
+    if (this.activeEmbeds > 0) return;
+    if (this.pendingRequests.size > 0) return;
+    if (this.readyResolve || this.readyReject) return;
+
+    const proc = this.workerProc;
+    this.workerProc = null;
+    this.stdoutReaderActive = false;
+    this.stdoutBuffer = "";
+    this.initGuard.reset();
+    this.removePidFile();
+
+    if (!proc) return;
+
+    try {
+      proc.kill();
+    } catch {
+      // Worker may already be exiting
     }
   }
 }

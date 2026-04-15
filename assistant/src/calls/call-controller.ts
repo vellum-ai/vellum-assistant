@@ -23,6 +23,7 @@ import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import type { TtsProvider } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
@@ -44,11 +45,11 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import type { CallTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
-import { synthesizeWithFishAudio } from "./fish-audio-client.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
-import type { RelayConnection } from "./relay-server.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
@@ -61,7 +62,6 @@ import {
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
-import { isFishAudioTts } from "./voice-quality.js";
 import {
   startVoiceTurn,
   type VoiceTurnHandle,
@@ -87,7 +87,7 @@ interface PendingGuardianInput {
 
 export class CallController {
   private callSessionId: string;
-  private relay: RelayConnection;
+  private transport: CallTransport;
   private state: ControllerState = "idle";
   private abortController: AbortController = new AbortController();
   private currentTurnHandle: VoiceTurnHandle | null = null;
@@ -139,12 +139,12 @@ export class CallController {
    * without blocking the caller.
    */
   private guardianUnavailableForCall = false;
-  /** Active Fish Audio session — tracked so interrupt handling can close it. */
-  private activeFishAbort: AbortController | null = null;
+  /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
+  private activeSynthesisAbort: AbortController | null = null;
 
   constructor(
     callSessionId: string,
-    relay: RelayConnection,
+    transport: CallTransport,
     task: string | null,
     opts?: {
       broadcast?: (msg: ServerMessage) => void;
@@ -153,7 +153,7 @@ export class CallController {
     },
   ) {
     this.callSessionId = callSessionId;
-    this.relay = relay;
+    this.transport = transport;
     this.task = task;
     this.isInbound = !task;
     this.broadcast = opts?.broadcast;
@@ -345,21 +345,57 @@ export class CallController {
   }
 
   /**
+   * Handle a barge-in attempt from inbound caller audio.
+   *
+   * Only interrupts the in-flight turn when the assistant is actively
+   * speaking. When the controller is idle or still processing (no TTS
+   * output yet), the barge-in is ignored — this prevents false
+   * interruption on initial inbound media frames that arrive before
+   * the assistant has had a chance to produce its first response.
+   *
+   * @returns `true` if the barge-in was accepted (assistant was speaking),
+   *   `false` if it was ignored (assistant idle or processing).
+   */
+  handleBargeIn(): boolean {
+    if (this.state !== "speaking") {
+      log.debug(
+        {
+          callSessionId: this.callSessionId,
+          state: this.state,
+        },
+        "Barge-in ignored — assistant not speaking",
+      );
+      return false;
+    }
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      "Barge-in accepted — interrupting assistant speech",
+    );
+    this.handleInterrupt();
+    return true;
+  }
+
+  /**
    * Handle caller interrupting the assistant's speech.
+   *
+   * This is the hard interrupt path used for explicit teardown and
+   * internal abort scenarios. For barge-in from inbound audio, prefer
+   * {@link handleBargeIn} which gates on the speaking state.
    */
   handleInterrupt(): void {
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
-    // Cancel in-flight Fish Audio synthesis on barge-in
-    if (this.activeFishAbort) {
-      this.activeFishAbort.abort();
-      this.activeFishAbort = null;
+    // Cancel in-flight synthesized TTS on barge-in
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
     }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
-      this.relay.sendTextToken("", true);
+      this.transport.sendTextToken("", true);
     }
     this.state = "idle";
     // Restart silence detection so a barge-in that never yields a
@@ -386,9 +422,9 @@ export class CallController {
     this.pendingInstructions = [];
     this.llmRunVersion++;
     this.abortCurrentTurn();
-    if (this.activeFishAbort) {
-      this.activeFishAbort.abort();
-      this.activeFishAbort = null;
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
     }
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
@@ -516,7 +552,7 @@ export class CallController {
         return;
       }
       log.error({ err, callSessionId: this.callSessionId }, "Voice turn error");
-      this.relay.sendTextToken(
+      this.transport.sendTextToken(
         "I'm sorry, I encountered a technical issue. Could you repeat that?",
         true,
       );
@@ -536,11 +572,19 @@ export class CallController {
     runVersion: number,
     runSignal: AbortSignal,
   ): Promise<string> {
-    // Fish Audio TTS routing: when configured, buffer text by sentence
-    // boundaries and synthesize via Fish Audio instead of streaming text
-    // tokens for ElevenLabs TTS.
-    const config = loadConfig();
-    const useFishAudio = isFishAudioTts(config);
+    // Resolve the active TTS provider through the global abstraction.
+    // The catalog's callMode determines the call path: synthesized-play
+    // providers buffer text, synthesize via provider API, and stream
+    // audio chunks to Twilio via play-URL. Native-twilio providers
+    // stream text tokens to the relay for Twilio's built-in TTS.
+    //
+    // When the transport requires WAV (media-stream), request WAV so
+    // the audio store entry and any downstream fetch/transcode receives
+    // PCM that audioBufferToFrames can convert to mu-law.
+    const { provider, useSynthesizedPath, audioFormat } =
+      resolveCallTtsProvider({
+        preferWav: this.transport.requiresWavAudio,
+      });
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -548,18 +592,18 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
 
-    // When using Fish Audio, we accumulate all text and synthesize
+    // When using the synthesized path, we accumulate all text and synthesize
     // the complete response at the end of the turn (better prosody).
-    let fishAudioTextBuffer = "";
+    let synthesizedTextBuffer = "";
 
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
       const cleaned = sanitizeForTts(safeText);
       if (cleaned.length === 0) return;
-      if (useFishAudio) {
-        fishAudioTextBuffer += cleaned;
+      if (useSynthesizedPath) {
+        synthesizedTextBuffer += cleaned;
       } else {
-        this.relay.sendTextToken(cleaned, false);
+        this.transport.sendTextToken(cleaned, false);
       }
     };
 
@@ -670,48 +714,29 @@ export class CallController {
       emitSafeChunk(ttsBuffer);
     }
 
-    // When using Fish Audio, synthesize the complete response text in a
-    // single REST API call. The full text gives Fish Audio better context
-    // for prosody and intonation. Audio streams back via chunked transfer
-    // encoding and is forwarded to Twilio as it arrives.
-    const sanitizedFishText = sanitizeForTts(fishAudioTextBuffer.trim());
-    if (useFishAudio && sanitizedFishText.length > 0) {
+    // Synthesized-play path: when the active provider supports streaming,
+    // synthesize the complete response text via the provider's streaming
+    // API. The full text gives the provider better context for prosody
+    // and intonation. Audio streams back via chunked transfer encoding
+    // and is forwarded to Twilio as it arrives.
+    const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
+    if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
-      let handle: ReturnType<typeof createStreamingEntry> | null = null;
-      try {
-        const format = config.fishAudio.format ?? "mp3";
-        handle = createStreamingEntry(format as "mp3" | "wav" | "opus");
-        const baseUrl = getPublicBaseUrl(config);
-        const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-        this.relay.sendPlayUrl(url);
-        const abortController = new AbortController();
-        this.activeFishAbort = abortController;
-        await synthesizeWithFishAudio(
-          sanitizedFishText,
-          config.fishAudio,
-          {
-            onChunk: (chunk) => handle!.push(chunk),
-            signal: abortController.signal,
-          },
-        );
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          log.debug("Fish Audio synthesis aborted (barge-in)");
-        } else {
-          log.error({ err }, "Fish Audio synthesis failed — skipping");
-        }
-      } finally {
-        this.activeFishAbort = null;
-        handle?.finalize();
-      }
+      await this.synthesizeAndStreamAudio(
+        provider,
+        sanitizedSynthText,
+        runVersion,
+        audioFormat,
+      );
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells ConversationRelay to start listening — it does NOT trigger TTS
-    // synthesis.  This is required even when Fish Audio handled all audio
-    // playback, because ConversationRelay still needs the end-of-turn signal
-    // to transition from "assistant speaking" to "caller speaking" state.
-    this.relay.sendTextToken("", true);
+    // synthesis.  This is required even when a synthesized provider handled
+    // all audio playback, because ConversationRelay still needs the
+    // end-of-turn signal to transition from "assistant speaking" to
+    // "caller speaking" state.
+    this.transport.sendTextToken("", true);
 
     // Mark the greeting's first response as awaiting ack
     if (this.lastSentWasOpener && fullResponseText.length > 0) {
@@ -720,6 +745,109 @@ export class CallController {
     }
 
     return fullResponseText;
+  }
+
+  /**
+   * Synthesize text via a streaming TTS provider and forward audio chunks
+   * to Twilio through the audio store / play-URL mechanism.
+   */
+  private async synthesizeAndStreamAudio(
+    provider: TtsProvider,
+    text: string,
+    _runVersion: number,
+    format: "mp3" | "wav" | "opus" = "mp3",
+  ): Promise<void> {
+    let handle: ReturnType<typeof createStreamingEntry> | null = null;
+    let playUrlSent = false;
+    try {
+      // When format is WAV (media-stream transport), request raw PCM from
+      // the provider so the audio bytes match the store's content-type.
+      // Without this, providers like Fish Audio still return mp3 and the
+      // downstream mu-law transcoder fails on the format mismatch.
+      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
+
+      // Use "pcm" as the store format when requesting PCM output so the
+      // audio store entry's content-type (audio/pcm) matches the raw PCM
+      // bytes providers return. Without this, the store says "audio/wav"
+      // but the bytes have no RIFF header, causing audioBufferToFrames to
+      // fall through to the wrong decode path.
+      const storeFormat = outputFormat ? "pcm" : format;
+      handle = createStreamingEntry(storeFormat);
+      const config = loadConfig();
+      const baseUrl = getPublicBaseUrl(config);
+      const url = `${baseUrl}/v1/audio/${handle.audioId}`;
+      const sendPlayUrlOnce = (): void => {
+        if (playUrlSent) return;
+        this.transport.sendPlayUrl(url);
+        playUrlSent = true;
+      };
+
+      const abortController = new AbortController();
+      this.activeSynthesisAbort = abortController;
+
+      if (provider.synthesizeStream) {
+        let streamedChunk = false;
+        await provider.synthesizeStream(
+          {
+            text,
+            useCase: "phone-call",
+            outputFormat,
+            signal: abortController.signal,
+          },
+          (chunk) => {
+            if (chunk.byteLength === 0) return;
+            if (!streamedChunk) {
+              sendPlayUrlOnce();
+              streamedChunk = true;
+            }
+            handle!.push(chunk);
+          },
+        );
+
+        // Some provider adapters may return a buffer without invoking
+        // onChunk. If that happens, do not leave a dangling unspeakable
+        // turn; degrade to native token TTS below by treating it as no-audio.
+        if (!streamedChunk) {
+          throw new Error("Streaming TTS returned no audio chunks");
+        }
+      } else {
+        // Fallback: buffer-oriented synthesis for providers that don't
+        // implement streaming (shouldn't normally reach here since
+        // useSynthesizedPath is gated on catalog callMode).
+        const result = await provider.synthesize({
+          text,
+          useCase: "phone-call",
+          outputFormat,
+          signal: abortController.signal,
+        });
+        if (result.audio.byteLength === 0) {
+          throw new Error("Buffer TTS returned an empty audio payload");
+        }
+        sendPlayUrlOnce();
+        handle.push(result.audio);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        log.debug(
+          { provider: provider.id },
+          "TTS synthesis aborted (barge-in)",
+        );
+      } else {
+        log.error(
+          { err, provider: provider.id },
+          "TTS synthesis failed — skipping",
+        );
+        // If synthesis fails before any audio has started, degrade to
+        // token-based speech on ConversationRelay so the caller still
+        // hears a response instead of silence.
+        if (!playUrlSent && !this.transport.requiresWavAudio) {
+          this.transport.sendTextToken(text, false);
+        }
+      }
+    } finally {
+      this.activeSynthesisAbort = null;
+      handle?.finalize();
+    }
   }
 
   /**
@@ -734,7 +862,9 @@ export class CallController {
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: responseText,
     });
-    const spokenText = sanitizeForTts(stripInternalSpeechMarkers(responseText)).trim();
+    const spokenText = sanitizeForTts(
+      stripInternalSpeechMarkers(responseText),
+    ).trim();
     if (spokenText.length > 0) {
       const session = getCallSession(this.callSessionId);
       if (session) {
@@ -952,7 +1082,7 @@ export class CallController {
           currentSession.status !== "cancelled"
         : false;
 
-      this.relay.endSession("Call completed");
+      this.transport.endSession("Call completed");
       updateCallSession(this.callSessionId, {
         status: "completed",
         endedAt: Date.now(),
@@ -1200,7 +1330,7 @@ export class CallController {
           { callSessionId: this.callSessionId },
           "Call duration warning",
         );
-        this.relay.sendTextToken(
+        this.transport.sendTextToken(
           "Just to let you know, we're running low on time for this call.",
           true,
         );
@@ -1212,7 +1342,7 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Call duration limit reached",
       );
-      this.relay.sendTextToken(
+      this.transport.sendTextToken(
         "I'm sorry, but we've reached the maximum time for this call. Thank you for your time. Goodbye!",
         true,
       );
@@ -1225,7 +1355,7 @@ export class CallController {
             currentSession.status !== "cancelled"
           : false;
 
-        this.relay.endSession("Maximum call duration reached");
+        this.transport.endSession("Maximum call duration reached");
         updateCallSession(this.callSessionId, {
           status: "completed",
           endedAt: Date.now(),
@@ -1274,7 +1404,7 @@ export class CallController {
       // inbound access-request wait (relay state).
       if (
         this.pendingGuardianInput ||
-        this.relay.getConnectionState() === "awaiting_guardian_decision"
+        this.transport.getConnectionState() === "awaiting_guardian_decision"
       ) {
         log.debug(
           { callSessionId: this.callSessionId },
@@ -1286,7 +1416,7 @@ export class CallController {
         { callSessionId: this.callSessionId },
         "Silence timeout triggered",
       );
-      this.relay.sendTextToken("Are you still there?", true);
+      this.transport.sendTextToken("Are you still there?", true);
     }, getSilenceTimeoutMs());
   }
 }

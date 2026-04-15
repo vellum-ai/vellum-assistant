@@ -30,6 +30,7 @@ export interface SlackChannelConfigResult {
   success: boolean;
   hasBotToken: boolean;
   hasAppToken: boolean;
+  hasUserToken: boolean;
   connected: boolean;
   teamId?: string;
   teamName?: string;
@@ -58,17 +59,32 @@ function ensureBotTokenInjectionTemplates(): void {
   });
 }
 
+/** Ensure the user token credential has injection templates for the proxy. */
+function ensureUserTokenInjectionTemplates(): void {
+  upsertCredentialMetadata("slack_channel", "user_token", {
+    allowedDomains: ["slack.com"],
+    injectionTemplates: SLACK_INJECTION_TEMPLATES,
+  });
+}
+
 /**
- * Backfill injection templates on the Slack bot token credential.
+ * Backfill injection templates on the Slack credentials.
  * Called on daemon startup so existing credentials get proxy support.
  */
 export function backfillSlackInjectionTemplates(): void {
-  const meta = getCredentialMetadata("slack_channel", "bot_token");
+  const botMeta = getCredentialMetadata("slack_channel", "bot_token");
   if (
-    meta &&
-    (!meta.injectionTemplates || meta.injectionTemplates.length === 0)
+    botMeta &&
+    (!botMeta.injectionTemplates || botMeta.injectionTemplates.length === 0)
   ) {
     ensureBotTokenInjectionTemplates();
+  }
+  const userMeta = getCredentialMetadata("slack_channel", "user_token");
+  if (
+    userMeta &&
+    (!userMeta.injectionTemplates || userMeta.injectionTemplates.length === 0)
+  ) {
+    ensureUserTokenInjectionTemplates();
   }
 }
 
@@ -87,6 +103,9 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
   const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
   ));
+  const hasUserToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  ));
   const conn = getConnectionByProvider("slack_channel");
   const connected =
     !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
@@ -96,11 +115,15 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
   if (hasBotToken) {
     ensureBotTokenInjectionTemplates();
   }
+  if (hasUserToken) {
+    ensureUserTokenInjectionTemplates();
+  }
 
   return {
     success: true,
     hasBotToken,
     hasAppToken,
+    hasUserToken,
     connected,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
@@ -109,9 +132,37 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
   };
 }
 
+/** Build an error-path result snapshot that reports the current credential state. */
+async function currentErrorSnapshot(
+  error: string,
+): Promise<SlackChannelConfigResult> {
+  const errHasBotToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "bot_token"),
+  ));
+  const errHasAppToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "app_token"),
+  ));
+  const errHasUserToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  ));
+  const errConn = getConnectionByProvider("slack_channel");
+  return {
+    success: false,
+    hasBotToken: errHasBotToken,
+    hasAppToken: errHasAppToken,
+    hasUserToken: errHasUserToken,
+    connected:
+      !!(errConn && errConn.status === "active") &&
+      errHasBotToken &&
+      errHasAppToken,
+    error,
+  };
+}
+
 export async function setSlackChannelConfig(
   botToken?: string,
   appToken?: string,
+  userToken?: string,
 ): Promise<SlackChannelConfigResult> {
   let metadata: {
     teamId?: string;
@@ -138,25 +189,9 @@ export async function setSlackChannelConfig(
         user?: string;
       };
       if (!data.ok) {
-        const errHasBotToken = !!(await getSecureKeyAsync(
-          credentialKey("slack_channel", "bot_token"),
-        ));
-        const errHasAppToken = !!(await getSecureKeyAsync(
-          credentialKey("slack_channel", "app_token"),
-        ));
-        const errConn = getConnectionByProvider("slack_channel");
-        return {
-          success: false,
-          hasBotToken: errHasBotToken,
-          hasAppToken: errHasAppToken,
-          connected:
-            !!(errConn && errConn.status === "active") &&
-            errHasBotToken &&
-            errHasAppToken,
-          error: `Slack API validation failed: ${
-            data.error ?? "unknown error"
-          }`,
-        };
+        return currentErrorSnapshot(
+          `Slack API validation failed: ${data.error ?? "unknown error"}`,
+        );
       }
       metadata = {
         teamId: data.team_id,
@@ -166,23 +201,7 @@ export async function setSlackChannelConfig(
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const errHasBotToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "bot_token"),
-      ));
-      const errHasAppToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "app_token"),
-      ));
-      const errConn = getConnectionByProvider("slack_channel");
-      return {
-        success: false,
-        hasBotToken: errHasBotToken,
-        hasAppToken: errHasAppToken,
-        connected:
-          !!(errConn && errConn.status === "active") &&
-          errHasBotToken &&
-          errHasAppToken,
-        error: `Failed to validate bot token: ${message}`,
-      };
+      return currentErrorSnapshot(`Failed to validate bot token: ${message}`);
     }
 
     const stored = await setSecureKeyAsync(
@@ -190,23 +209,7 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      const errHasBotToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "bot_token"),
-      ));
-      const errHasAppToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "app_token"),
-      ));
-      const errConn = getConnectionByProvider("slack_channel");
-      return {
-        success: false,
-        hasBotToken: errHasBotToken,
-        hasAppToken: errHasAppToken,
-        connected:
-          !!(errConn && errConn.status === "active") &&
-          errHasBotToken &&
-          errHasAppToken,
-        error: "Failed to store bot token in secure storage",
-      };
+      return currentErrorSnapshot("Failed to store bot token in secure storage");
     }
 
     ensureBotTokenInjectionTemplates();
@@ -218,6 +221,73 @@ export async function setSlackChannelConfig(
     setNestedValue(raw, "slack.botUsername", metadata.botUsername ?? "");
     saveRawConfig(raw);
     invalidateConfigCache();
+
+    // Cross-check existing user_token against the newly-stored bot_token's
+    // workspace. A user_token persisted under a previous workspace (or whose
+    // auth.test returns ok:false) must be cleared so reads and writes never
+    // fan out across workspaces.
+    //
+    // IMPORTANT: we only clear on a definitive negative signal —
+    // (a) auth.test returned ok:false, or
+    // (b) auth.test returned ok:true with a team_id that differs from the new
+    //     bot_token's team_id.
+    //
+    // Transient failures (network error, non-JSON response, JSON parse error)
+    // must NOT wipe a still-valid user_token: for user-scope installs,
+    // re-issuing can require admin approval. The adapter already tolerates a
+    // stale token — it will surface on next real use, at which point the user
+    // can re-run setup.
+    const existingUserToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    );
+    if (existingUserToken) {
+      let shouldClear = false;
+      let clearReason: string | undefined;
+      try {
+        const res = await fetch("https://slack.com/api/auth.test", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${existingUserToken}` },
+        });
+        const data = (await res.json()) as {
+          ok: boolean;
+          error?: string;
+          team_id?: string;
+        };
+        if (!data.ok) {
+          shouldClear = true;
+          clearReason = "User token validation failed; it has been removed.";
+        } else if (
+          metadata.teamId &&
+          data.team_id &&
+          data.team_id !== metadata.teamId
+        ) {
+          shouldClear = true;
+          clearReason =
+            "User token from a different workspace was removed.";
+        }
+      } catch (err) {
+        // Transient failure (DNS error, network blip, connection reset,
+        // non-JSON response, JSON parse failure). Leave the user_token in
+        // place — we have no definitive signal that it's invalid. Future
+        // reads that actually hit Slack will fail naturally if the token is
+        // actually bad, and the user can re-run setup then.
+        const message = err instanceof Error ? err.message : String(err);
+        _log.warn(
+          { err: message },
+          "Skipping user_token re-validation due to transient error; leaving existing user_token in place.",
+        );
+      }
+      if (shouldClear) {
+        const cleared = await clearSlackUserToken();
+        if (!cleared.success) {
+          const failMsg =
+            "User token workspace mismatch detected but removal failed; please clear it manually.";
+          warning = warning ? `${warning} ${failMsg}` : failMsg;
+        } else if (clearReason) {
+          warning = warning ? `${warning} ${clearReason}` : clearReason;
+        }
+      }
+    }
   } else {
     // Use existing metadata from config if no new bot token provided
     const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
@@ -232,23 +302,7 @@ export async function setSlackChannelConfig(
   // Validate and store app token
   if (appToken) {
     if (!appToken.startsWith("xapp-")) {
-      const errHasBotToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "bot_token"),
-      ));
-      const errHasAppToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "app_token"),
-      ));
-      const errConn = getConnectionByProvider("slack_channel");
-      return {
-        success: false,
-        hasBotToken: errHasBotToken,
-        hasAppToken: errHasAppToken,
-        connected:
-          !!(errConn && errConn.status === "active") &&
-          errHasBotToken &&
-          errHasAppToken,
-        error: 'Invalid app token: must start with "xapp-"',
-      };
+      return currentErrorSnapshot('Invalid app token: must start with "xapp-"');
     }
 
     const stored = await setSecureKeyAsync(
@@ -256,26 +310,66 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      const errHasBotToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "bot_token"),
-      ));
-      const errHasAppToken = !!(await getSecureKeyAsync(
-        credentialKey("slack_channel", "app_token"),
-      ));
-      const errConn = getConnectionByProvider("slack_channel");
-      return {
-        success: false,
-        hasBotToken: errHasBotToken,
-        hasAppToken: errHasAppToken,
-        connected:
-          !!(errConn && errConn.status === "active") &&
-          errHasBotToken &&
-          errHasAppToken,
-        error: "Failed to store app token in secure storage",
-      };
+      return currentErrorSnapshot("Failed to store app token in secure storage");
     }
 
     upsertCredentialMetadata("slack_channel", "app_token", {});
+  }
+
+  // Validate and store user token (optional — grants read access to channels
+  // the bot isn't a member of; writes always continue to go through the bot).
+  if (userToken) {
+    if (!userToken.startsWith("xoxp-")) {
+      return currentErrorSnapshot(
+        'Invalid user token: must start with "xoxp-"',
+      );
+    }
+
+    let userTeamId: string | undefined;
+    try {
+      const res = await fetch("https://slack.com/api/auth.test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${userToken}` },
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        team_id?: string;
+      };
+      if (!data.ok) {
+        return currentErrorSnapshot(
+          `Slack API validation failed: ${data.error ?? "unknown error"}`,
+        );
+      }
+      userTeamId = data.team_id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return currentErrorSnapshot(
+        `Failed to validate user token: ${message}`,
+      );
+    }
+
+    // Cross-check: if a bot token has already been configured, the user token
+    // must be for the same workspace. If no bot token is configured yet, store
+    // provisionally and skip the cross-check — the order of setup can vary.
+    const existingBotTeamId = metadata.teamId;
+    if (existingBotTeamId && userTeamId && existingBotTeamId !== userTeamId) {
+      return currentErrorSnapshot(
+        "User token is for a different workspace than the bot token",
+      );
+    }
+
+    const stored = await setSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+      userToken,
+    );
+    if (!stored) {
+      return currentErrorSnapshot(
+        "Failed to store user token in secure storage",
+      );
+    }
+
+    ensureUserTokenInjectionTemplates();
   }
 
   const hasBotToken = !!(await getSecureKeyAsync(
@@ -284,13 +378,18 @@ export async function setSlackChannelConfig(
   const hasAppToken = !!(await getSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
   ));
+  const hasUserToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  ));
 
   if (hasBotToken && !hasAppToken) {
-    warning =
+    const msg =
       "Bot token stored but app token is missing — connection incomplete.";
+    warning = warning ? `${warning} ${msg}` : msg;
   } else if (!hasBotToken && hasAppToken) {
-    warning =
+    const msg =
       "App token stored but bot token is missing — connection incomplete.";
+    warning = warning ? `${warning} ${msg}` : msg;
   }
 
   // Sync oauth_connection record so getConnectionByProvider("slack_channel")
@@ -309,9 +408,76 @@ export async function setSlackChannelConfig(
     success: true,
     hasBotToken,
     hasAppToken,
+    hasUserToken,
     connected: hasBotToken && hasAppToken,
     ...metadata,
     ...(warning ? { warning } : {}),
+  };
+}
+
+/**
+ * Surgically remove the Slack user_token credential.
+ *
+ * Deletes only the user_token secure key and its credential metadata. Leaves
+ * the bot_token, app_token, oauth_connection row, and Slack config metadata
+ * untouched so the Socket Mode connection stays up. Returns a
+ * `SlackChannelConfigResult` reflecting the remaining state. A `not-found`
+ * delete outcome is reported as a failure to match the credential_store
+ * delete semantics (callers and automation rely on missing-credential
+ * detection).
+ */
+export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
+  const result = await deleteSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  );
+
+  if (result === "error" || result === "not-found") {
+    const hasBotToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    ));
+    const hasAppToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "app_token"),
+    ));
+    const hasUserToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    ));
+    const conn = getConnectionByProvider("slack_channel");
+    return {
+      success: false,
+      hasBotToken,
+      hasAppToken,
+      hasUserToken,
+      connected:
+        !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+      error:
+        result === "not-found"
+          ? "Slack user token not found in secure storage"
+          : "Failed to delete Slack user token from secure storage",
+    };
+  }
+
+  deleteCredentialMetadata("slack_channel", "user_token");
+
+  const hasBotToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "bot_token"),
+  ));
+  const hasAppToken = !!(await getSecureKeyAsync(
+    credentialKey("slack_channel", "app_token"),
+  ));
+  const conn = getConnectionByProvider("slack_channel");
+  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+
+  return {
+    success: true,
+    hasBotToken,
+    hasAppToken,
+    hasUserToken: false,
+    connected:
+      !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+    ...(teamId ? { teamId } : {}),
+    ...(teamName ? { teamName } : {}),
+    ...(botUserId ? { botUserId } : {}),
+    ...(botUsername ? { botUsername } : {}),
   };
 }
 
@@ -322,8 +488,11 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
   const r2 = await deleteSecureKeyAsync(
     credentialKey("slack_channel", "app_token"),
   );
+  const r3 = await deleteSecureKeyAsync(
+    credentialKey("slack_channel", "user_token"),
+  );
 
-  if (r1 === "error" || r2 === "error") {
+  if (r1 === "error" || r2 === "error" || r3 === "error") {
     // Check each key individually so partial deletions report accurate status.
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
@@ -331,11 +500,15 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
     const hasAppToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "app_token"),
     ));
+    const hasUserToken = !!(await getSecureKeyAsync(
+      credentialKey("slack_channel", "user_token"),
+    ));
     const conn = getConnectionByProvider("slack_channel");
     return {
       success: false,
       hasBotToken,
       hasAppToken,
+      hasUserToken,
       connected:
         !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
       error: "Failed to delete Slack channel credentials from secure storage",
@@ -344,6 +517,7 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
 
   deleteCredentialMetadata("slack_channel", "bot_token");
   deleteCredentialMetadata("slack_channel", "app_token");
+  deleteCredentialMetadata("slack_channel", "user_token");
 
   // Remove the oauth_connection row so getConnectionByProvider returns undefined.
   removeManualTokenConnection("slack_channel");
@@ -360,6 +534,7 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
     success: true,
     hasBotToken: false,
     hasAppToken: false,
+    hasUserToken: false,
     connected: false,
   };
 }

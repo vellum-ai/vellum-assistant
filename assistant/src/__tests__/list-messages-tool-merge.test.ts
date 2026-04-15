@@ -84,7 +84,11 @@ describe("handleListMessages tool_result merging", () => {
       conv.id,
       "user",
       JSON.stringify([
-        { type: "tool_result", tool_use_id: "tu1", content: "file1.txt\nfile2.txt" },
+        {
+          type: "tool_result",
+          tool_use_id: "tu1",
+          content: "file1.txt\nfile2.txt",
+        },
       ]),
     );
 
@@ -117,7 +121,12 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([
         { type: "tool_use", id: "tu1", name: "bash", input: { command: "ls" } },
         { type: "text", text: "and also" },
-        { type: "tool_use", id: "tu2", name: "file_read", input: { path: "/tmp/a" } },
+        {
+          type: "tool_use",
+          id: "tu2",
+          name: "file_read",
+          input: { path: "/tmp/a" },
+        },
       ]),
     );
     await addMessage(
@@ -176,7 +185,11 @@ describe("handleListMessages tool_result merging", () => {
       conv.id,
       "user",
       JSON.stringify([
-        { type: "tool_result", tool_use_id: "tu_orphan", content: "stale result" },
+        {
+          type: "tool_result",
+          tool_use_id: "tu_orphan",
+          content: "stale result",
+        },
       ]),
     );
     await addMessage(
@@ -228,7 +241,12 @@ describe("handleListMessages tool_result merging", () => {
       "assistant",
       JSON.stringify([
         { type: "text", text: "Now reading:" },
-        { type: "tool_use", id: "tu2", name: "file_read", input: { path: "/x" } },
+        {
+          type: "tool_use",
+          id: "tu2",
+          name: "file_read",
+          input: { path: "/x" },
+        },
       ]),
     );
     await addMessage(
@@ -248,17 +266,19 @@ describe("handleListMessages tool_result merging", () => {
     const response = handleListMessages(createTestUrl(conv.id), null);
     const body = (await response.json()) as { messages: MessagePayload[] };
 
-    // user("list files"), assistant(bash), assistant(file_read), user("thanks")
-    expect(body.messages).toHaveLength(4);
+    // Consecutive assistant messages are merged at query time so the client
+    // sees one grouped message (matching the streaming path behavior).
+    // user("list files"), merged-assistant(bash + file_read), user("thanks")
+    expect(body.messages).toHaveLength(3);
     expect(body.messages[0].role).toBe("user");
     expect(body.messages[1].role).toBe("assistant");
+    expect(body.messages[1].toolCalls).toHaveLength(2);
     expect(body.messages[1].toolCalls![0].name).toBe("bash");
     expect(body.messages[1].toolCalls![0].result).toBe("files");
-    expect(body.messages[2].role).toBe("assistant");
-    expect(body.messages[2].toolCalls![0].name).toBe("file_read");
-    expect(body.messages[2].toolCalls![0].result).toBe("file data");
-    expect(body.messages[3].role).toBe("user");
-    expect(body.messages[3].content).toBe("thanks");
+    expect(body.messages[1].toolCalls![1].name).toBe("file_read");
+    expect(body.messages[1].toolCalls![1].result).toBe("file data");
+    expect(body.messages[2].role).toBe("user");
+    expect(body.messages[2].content).toBe("thanks");
   });
 
   test("tool_result with is_error propagates error status", async () => {
@@ -272,7 +292,12 @@ describe("handleListMessages tool_result merging", () => {
       conv.id,
       "assistant",
       JSON.stringify([
-        { type: "tool_use", id: "tu1", name: "bash", input: { command: "fail" } },
+        {
+          type: "tool_use",
+          id: "tu1",
+          name: "bash",
+          input: { command: "fail" },
+        },
       ]),
     );
     await addMessage(

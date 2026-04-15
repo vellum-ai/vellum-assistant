@@ -48,6 +48,7 @@ export const INTERFACE_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "chrome-extension",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -90,9 +91,74 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
   return INTERACTIVE_INTERFACES.has(id);
 }
 
-/** Whether the interface supports host proxies (bash, file, computer-use). */
-export function supportsHostProxy(id: InterfaceId): boolean {
-  return id === "macos";
+/**
+ * Host proxy capabilities that an interface can support. The macOS client
+ * supports all four; the chrome-extension interface only supports
+ * host_browser (via the Chrome DevTools Protocol proxy).
+ */
+export type HostProxyCapability =
+  | "host_bash"
+  | "host_file"
+  | "host_cu"
+  | "host_browser";
+
+/**
+ * Interfaces that support the full desktop host-proxy set (all four
+ * `HostProxyCapability` values). This is the capability-level identity used
+ * by the discriminated transport metadata union and by the
+ * `supportsHostProxy(id)` type predicate.
+ *
+ * Extend this literal type AND the `supportsHostProxy` implementation
+ * below in lock-step when adding a new host-capable client (e.g. a native
+ * Linux or Windows desktop).
+ */
+export type HostProxyInterfaceId = "macos";
+
+/**
+ * Whether the interface supports a host proxy capability.
+ *
+ * The no-arg form `supportsHostProxy(id)` asks "is this interface a desktop
+ * host-proxy client?" — it returns `true` only for macOS and is the type
+ * predicate that narrows `InterfaceId` to `HostProxyInterfaceId`. It returns
+ * `false` for chrome-extension because chrome-extension only supports
+ * `host_browser`, and the no-arg form is the gate that legacy desktop-only
+ * call sites use (e.g. preactivating computer-use, restoring host proxies
+ * in the drain queue). Callers that want to check a single capability —
+ * for example, to decide whether to keep `hostBrowserProxy` available for
+ * chrome-extension — should pass the capability explicitly:
+ * `supportsHostProxy(id, "host_browser")`.
+ */
+export function supportsHostProxy(id: InterfaceId): id is HostProxyInterfaceId;
+export function supportsHostProxy(
+  id: InterfaceId,
+  capability: HostProxyCapability,
+): boolean;
+export function supportsHostProxy(
+  id: InterfaceId,
+  capability?: HostProxyCapability,
+): boolean {
+  // host_browser is excluded for macos because the proxy path requires a
+  // Chrome extension that isn't guaranteed to be attached; browser tools
+  // fall back to the local Playwright Chromium instead.
+  if (id === "macos") return capability !== "host_browser";
+  if (id === "chrome-extension" && capability === "host_browser") return true;
+  return false;
+}
+
+/**
+ * Whether the interface can service host_browser frames via the
+ * ChromeExtensionRegistry (WebSocket) when an extension connection exists.
+ *
+ * Returns `true` for interfaces where the daemon should set
+ * `hostBrowserSenderOverride` and provision a `HostBrowserProxy` when the
+ * guardian has an active extension connection — currently `chrome-extension`
+ * and `macos`.
+ *
+ * Use this instead of hard-coding interface checks so new desktop interfaces
+ * only need to be added in one place.
+ */
+export function canServiceRegistryBrowser(id: InterfaceId): boolean {
+  return id === "chrome-extension" || id === "macos";
 }
 
 export interface TurnInterfaceContext {

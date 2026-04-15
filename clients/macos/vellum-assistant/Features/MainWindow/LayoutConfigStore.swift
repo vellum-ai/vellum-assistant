@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LayoutConfigStore")
@@ -6,7 +7,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Layou
 public enum LayoutConfigStore {
     private static var configURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("vellum-assistant/layout-config.json")
+        return appSupport
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("layout-config.json")
     }
 
     public static func load() -> LayoutConfig {

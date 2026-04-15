@@ -1,0 +1,177 @@
+import AppKit
+import Foundation
+import Observation
+import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeStore")
+
+/// Observable store that owns the Home page's cached `RelationshipState`.
+///
+/// Responsibilities:
+/// - Fetches the current state from the daemon via ``HomeStateClient``.
+/// - Subscribes to the shared `ServerMessage` stream and re-fetches when the
+///   daemon broadcasts `relationshipStateUpdated`.
+/// - Re-fetches when the app returns to the foreground so the UI stays fresh
+///   if the user switched away while capabilities were being unlocked.
+///
+/// The store deliberately leaves `state` untouched on failure — a transient
+/// network blip should not blank the Home page. `isLoading` reflects the
+/// in-flight state of `load()` so views can show a spinner on first fetch.
+///
+/// `hasUnseenChanges` and `isHomeTabVisible` are stubs declared here so the
+/// public surface is in place; PR 16 drives the unseen-changes logic.
+@MainActor
+@Observable
+public final class HomeStore {
+
+    // MARK: - Reactive State
+
+    public private(set) var state: RelationshipState?
+    public private(set) var isLoading: Bool = false
+
+    /// Set when the daemon emits a `relationshipStateUpdated` SSE event while
+    /// the Home tab is not currently visible. Drives a badge on the tab.
+    /// PR 16 wires the producer side; this PR only declares the property.
+    public private(set) var hasUnseenChanges: Bool = false
+
+    /// Toggled by the Home tab host to track visibility for the unseen-changes
+    /// badge logic in PR 16. This PR only declares the property.
+    public var isHomeTabVisible: Bool = false
+
+    // MARK: - Non-reactive Bookkeeping
+
+    @ObservationIgnored private let client: HomeStateClient
+    @ObservationIgnored let messageStream: AsyncStream<ServerMessage>
+    @ObservationIgnored var sseTask: Task<Void, Never>?
+    @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+
+    /// Monotonically-increasing generation token bumped on every `load()`
+    /// entry. Used to discard out-of-order responses when concurrent
+    /// `load()` calls overlap (SSE handler + foreground observer +
+    /// HomePageView.task can all fire in the same tick).
+    @ObservationIgnored private var loadGeneration: UInt64 = 0
+
+    // MARK: - Lifecycle
+
+    public init(client: HomeStateClient, messageStream: AsyncStream<ServerMessage>) {
+        self.client = client
+        self.messageStream = messageStream
+        startListening()
+        observeForeground()
+    }
+
+    deinit {
+        sseTask?.cancel()
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: - Public API
+
+    /// Fetches the latest `RelationshipState` from the daemon.
+    ///
+    /// Leaves `state` unchanged on failure so the UI keeps showing whatever
+    /// we last successfully fetched. Errors are logged, never thrown out.
+    ///
+    /// Concurrent calls are guarded by `loadGeneration`: each call captures
+    /// its own generation token at entry, and only applies its result if it
+    /// is still the latest call when the network response lands. This makes
+    /// the SSE handler / foreground observer / HomePageView.task triple-fire
+    /// race safe — older responses are silently discarded instead of
+    /// overwriting newer state.
+    public func load() async {
+        loadGeneration &+= 1
+        let myGeneration = loadGeneration
+        isLoading = true
+        defer {
+            // Only the latest in-flight call should clear `isLoading`.
+            if loadGeneration == myGeneration {
+                isLoading = false
+            }
+        }
+        do {
+            let next = try await client.fetchRelationshipState()
+            // Drop the result if a newer `load()` started while we awaited.
+            guard loadGeneration == myGeneration else { return }
+            self.state = next
+        } catch {
+            log.error("HomeStore.load failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Producer-side flip for the unseen-changes badge. Invoked by the SSE
+    /// handler when an update arrives while the Home tab is not visible.
+    /// Kept at `internal` so the `HomeStore+SSE` extension can drive it
+    /// without exposing it to the rest of the app.
+    func flagUnseenChanges() {
+        hasUnseenChanges = true
+    }
+
+    /// Clears the unseen-changes badge. Called by the Home tab host when the
+    /// user navigates to the Home tab. PR 16 will drive the producer side;
+    /// the clearer is exposed here so the acceptance-criteria surface is
+    /// complete.
+    public func markSeen() {
+        hasUnseenChanges = false
+    }
+
+    // MARK: - Foreground Refresh
+
+    private func observeForeground() {
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.load()
+            }
+        }
+    }
+}
+
+// MARK: - Mock Client
+
+/// In-memory mock used by unit tests and, in the future, gallery fixtures.
+///
+/// Lives alongside `HomeStore` rather than in a test-only file so it can be
+/// shared between `vellum-assistantTests` and any future preview surfaces
+/// without changing its import path.
+public final class MockHomeStateClient: HomeStateClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _state: RelationshipState?
+    private var _error: Error?
+    private var _callCount: Int = 0
+
+    public init(state: RelationshipState? = nil, error: Error? = nil) {
+        self._state = state
+        self._error = error
+    }
+
+    public var callCount: Int {
+        lock.withLock { _callCount }
+    }
+
+    public func setState(_ state: RelationshipState?) {
+        lock.withLock { _state = state }
+    }
+
+    public func setError(_ error: Error?) {
+        lock.withLock { _error = error }
+    }
+
+    public func fetchRelationshipState() async throws -> RelationshipState {
+        let (error, state) = lock.withLock { () -> (Error?, RelationshipState?) in
+            _callCount += 1
+            return (_error, _state)
+        }
+
+        if let error { throw error }
+        guard let state else {
+            throw HomeStateClientError.httpError(statusCode: 404)
+        }
+        return state
+    }
+}

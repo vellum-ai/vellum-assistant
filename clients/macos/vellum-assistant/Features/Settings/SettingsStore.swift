@@ -75,6 +75,7 @@ public final class SettingsStore: ObservableObject {
     @Published var sidebarToggleShortcut: String
     @Published var newChatShortcut: String
     @Published var currentConversationShortcut: String
+    @Published var markConversationUnreadShortcut: String
     @Published var popOutShortcut: String
     @Published var cmdEnterToSend: Bool
 
@@ -205,6 +206,14 @@ public final class SettingsStore: ObservableObject {
     /// Current web search mode. Values: "managed" or "your-own".
     @Published var webSearchMode: String = "your-own"
 
+    // MARK: - TTS Voice ID State
+
+    /// The configured ElevenLabs voice ID from daemon config.
+    @Published var elevenLabsVoiceId: String = ""
+
+    /// The configured Fish Audio reference ID from daemon config.
+    @Published var fishAudioReferenceId: String = ""
+
     /// Managed OAuth mode per provider (keyed by managedServiceConfigKey). Values: "managed" or "your-own".
     @Published var managedOAuthMode: [String: String] = [:]
     /// Managed OAuth connections per provider (keyed by managedServiceConfigKey).
@@ -277,6 +286,31 @@ public final class SettingsStore: ObservableObject {
     /// Set to `true` once the first ingress config response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
     @Published var ingressConfigLoaded: Bool = false
+
+    // MARK: - Host Browser (CDP Inspect) State
+
+    /// Whether the cdp-inspect host-browser backend is enabled.
+    ///
+    /// When true, the browser-session manager probes the configured
+    /// `hostBrowserCdpInspectHost`/`hostBrowserCdpInspectPort` for a running
+    /// Chrome instance exposing `--remote-debugging-port` before falling
+    /// back to the local Playwright backend.
+    @Published var hostBrowserCdpInspectEnabled: Bool = false
+
+    /// Host name or IP address for the host Chrome remote-debugging endpoint.
+    ///
+    /// Only loopback values are accepted (`localhost`, `127.0.0.1`, `::1`,
+    /// `[::1]`) to prevent remote attach attempts.
+    @Published var hostBrowserCdpInspectHost: String = "localhost"
+
+    /// TCP port for the host Chrome remote-debugging endpoint.
+    ///
+    /// Must be in the range `1...65535`.
+    @Published var hostBrowserCdpInspectPort: Int = 9222
+
+    /// Timeout (in milliseconds) for the backend availability probe.
+    /// Defaults to `500` and is preserved verbatim from the fetched config.
+    @Published var hostBrowserCdpInspectProbeTimeoutMs: Int = 500
 
     // MARK: - Connection Health Check State
 
@@ -440,6 +474,11 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "markConversationUnreadShortcut") == nil {
+            self.markConversationUnreadShortcut = "cmd+shift+u"
+        } else {
+            self.markConversationUnreadShortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? ""
+        }
         if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
             self.popOutShortcut = "cmd+p"
         } else {
@@ -531,6 +570,11 @@ public final class SettingsStore: ObservableObject {
         $currentConversationShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "currentConversationShortcut") }
+            .store(in: &cancellables)
+
+        $markConversationUnreadShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "markConversationUnreadShortcut") }
             .store(in: &cancellables)
 
         $popOutShortcut
@@ -656,15 +700,29 @@ public final class SettingsStore: ObservableObject {
             await self?.refreshManagedAssistantRecoveryMode()
         }
 
+        // Eagerly fetch daemon config so config-dependent state (e.g.
+        // userTimezone, mediaEmbeds, service providers) is hydrated on
+        // app startup. The daemon only broadcasts config_changed on file
+        // mutations, so without this the store would stay at init
+        // defaults until the user edits config.json.
+        refreshDaemonConfig()
+
+        // Refresh config on daemon (re)connect so config-dependent state
+        // recovers after the daemon restarts or after a network blip.
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshDaemonConfig()
+            }
+            .store(in: &cancellables)
+
         // Refresh config when the daemon notifies us that config.json changed.
         NotificationCenter.default.publisher(for: .configChanged)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.refreshModelInfo()
-                Task { @MainActor [weak self] in
-                    await self?.loadConfigFromDaemon()
-                }
+                self.refreshDaemonConfig()
             }
             .store(in: &cancellables)
 
@@ -844,14 +902,50 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveElevenLabsKey(_ raw: String) {
+    func saveElevenLabsKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "elevenlabs", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync ElevenLabs key to daemon: \(error, privacy: .public)")
+            }
+        }
     }
 
     func clearElevenLabsKey() {
-        APIKeyManager.deleteKey(for: "elevenlabs")
+        APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "elevenlabs", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "elevenlabs:api_key") }
+        }
+    }
+
+    func saveFishAudioKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+        removeDeletionTombstone(type: "credential", name: "fish-audio:api_key")
+        Task {
+            let result = await APIKeyManager.setCredential(trimmed, service: "fish-audio", field: "api_key")
+            if result.success {
+                onSuccess?()
+            } else if let error = result.error {
+                log.error("Failed to sync Fish Audio key to daemon: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    func clearFishAudioKey() {
+        APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+        Task {
+            let deleted = await APIKeyManager.deleteCredential(service: "fish-audio", field: "api_key")
+            if !deleted { addDeletionTombstone(type: "credential", name: "fish-audio:api_key") }
+        }
     }
 
     func clearAPIKeyForProvider(_ provider: String) {
@@ -2129,6 +2223,14 @@ public final class SettingsStore: ObservableObject {
            let mode = linearOAuth["mode"] as? String {
             self.managedOAuthMode["linear"] = mode
         }
+        if let githubOAuth = services["github-oauth"] as? [String: Any],
+           let mode = githubOAuth["mode"] as? String {
+            self.managedOAuthMode["github"] = mode
+        }
+        if let notionOAuth = services["notion-oauth"] as? [String: Any],
+           let mode = notionOAuth["mode"] as? String {
+            self.managedOAuthMode["notion"] = mode
+        }
     }
 
     @discardableResult
@@ -2873,6 +2975,171 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected TTS provider to the daemon config so synthesis
+    /// routes through the correct backend. The canonical config path is
+    /// `services.tts.provider`.
+    @discardableResult
+    func setTTSProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for TTS provider")
+            }
+            return success
+        }
+        return task
+    }
+
+    func setElevenLabsVoiceId(_ voiceId: String) {
+        let trimmed = voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.elevenLabsVoiceId = trimmed
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["elevenlabs": ["voiceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for ElevenLabs voice ID")
+            }
+        }
+    }
+
+    func setFishAudioReferenceId(_ referenceId: String) {
+        let trimmed = referenceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.fishAudioReferenceId = trimmed
+        Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["tts": ["providers": ["fish-audio": ["referenceId": trimmed]]]]
+            ])
+            if !success {
+                log.error("Failed to patch config for Fish Audio reference ID")
+            }
+        }
+    }
+
+    /// Persists the selected STT provider to the daemon config so
+    /// transcription routes through the correct backend. The canonical
+    /// config path is `services.stt.provider`.
+    @discardableResult
+    func setSTTProvider(_ provider: String) -> Task<Bool, Never> {
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "services": ["stt": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for STT provider")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Saves an API key for the given STT provider to the credential store
+    /// and synchronizes it to the assistant.
+    ///
+    /// Returns the gateway write result so callers can surface explicit
+    /// success/failure feedback in UI flows.
+    func saveSTTKeyResult(_ raw: String, sttProviderId: String) async -> APIKeyManager.SetKeyResult {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return APIKeyManager.SetKeyResult(
+                success: false,
+                error: "Please enter an API key.",
+                isTransient: false
+            )
+        }
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        let setLocalKey: (String, String) -> Void = APIKeyManager.setKey(_:for:)
+        setLocalKey(trimmed, keyProvider)
+        removeDeletionTombstone(type: "api_key", name: keyProvider)
+        let result = await APIKeyManager.setKey(trimmed, for: keyProvider)
+        if result.success {
+            scheduleRoutingSourceRefresh()
+            return result
+        }
+        if let error = result.error {
+            log.error("Failed to sync STT key for \(sttProviderId, privacy: .public) to daemon: \(error, privacy: .public)")
+        }
+        if !result.isTransient {
+            let _: Void = APIKeyManager.deleteKey(for: keyProvider)
+        }
+        return result
+    }
+
+    /// Saves an API key for the given STT provider to the credential store.
+    /// The `sttProviderId` is the catalog identifier (e.g. `"openai-whisper"`,
+    /// `"deepgram"`); the method resolves the credential provider name from
+    /// the STT provider registry's `apiKeyProviderName` field so callers
+    /// don't need to know the mapping.
+    func saveSTTKey(_ raw: String, sttProviderId: String, onSuccess: (() -> Void)? = nil) {
+        Task {
+            let result = await saveSTTKeyResult(raw, sttProviderId: sttProviderId)
+            if result.success {
+                onSuccess?()
+            }
+        }
+    }
+
+    /// Clears the API key for the given STT provider from both local and
+    /// daemon credential stores.
+    func clearSTTKey(sttProviderId: String) {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        APIKeyManager.deleteKey(for: keyProvider)
+        Task {
+            let deleted = await APIKeyManager.deleteKey(for: keyProvider)
+            if !deleted { addDeletionTombstone(type: "api_key", name: keyProvider) }
+        }
+    }
+
+    /// Checks whether the daemon has an API key stored for the given STT
+    /// provider.
+    func hasSTTKey(sttProviderId: String) async -> Bool {
+        let keyProvider = Self.sttApiKeyProviderName(for: sttProviderId)
+        return await APIKeyManager.hasKey(for: keyProvider)
+    }
+
+    /// Resolves the `api_key` secret-catalog provider name for a given STT
+    /// provider identifier. Looks up the `apiKeyProviderName` from the STT
+    /// provider registry; falls back to the provider id itself when the
+    /// registry entry is not found.
+    static func sttApiKeyProviderName(for sttProviderId: String) -> String {
+        loadSTTProviderRegistry()
+            .provider(withId: sttProviderId)?
+            .apiKeyProviderName ?? sttProviderId
+    }
+
+    /// Whether the given STT provider owns its API key exclusively — i.e. the
+    /// key is not shared with any other service. Exclusive-key providers can
+    /// safely have their key cleared through the STT reset flow without
+    /// affecting other features.
+    ///
+    /// A provider's key is exclusive when its `apiKeyProviderName` matches its
+    /// own `id` (e.g. `deepgram` → `deepgram`). Shared-key providers map to a
+    /// different credential name (e.g. `openai-whisper` → `openai`).
+    ///
+    /// This helper is provider-agnostic: adding a new provider only requires a
+    /// catalog entry — no new conditionals here or in the UI layer.
+    static func sttKeyIsExclusive(for sttProviderId: String) -> Bool {
+        let entry = loadSTTProviderRegistry().provider(withId: sttProviderId)
+        guard let entry else {
+            // Unknown providers are assumed exclusive — clearing an unknown
+            // key cannot collide with a known service.
+            return true
+        }
+        return entry.apiKeyProviderName == entry.id
+    }
+
+    /// Whether the given STT provider's API key is shared with another
+    /// service. The inverse of `sttKeyIsExclusive(for:)`.
+    ///
+    /// Shared-key providers should not expose a "Reset" action in the STT
+    /// settings card because clearing the key would break the sibling service
+    /// that depends on it.
+    static func sttKeyIsShared(for sttProviderId: String) -> Bool {
+        !sttKeyIsExclusive(for: sttProviderId)
+    }
+
     /// Schedules a delayed refresh of provider routing sources, giving the
     /// daemon time to re-initialize providers after a key change.
     private func scheduleRoutingSourceRefresh() {
@@ -3271,11 +3538,26 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// In-flight config refresh task. Cancelled when a new refresh is
+    /// requested so that a slow stale response can't clobber a newer
+    /// applied state when startup, reconnect, and configChanged triggers
+    /// fire in quick succession.
+    private var configRefreshTask: Task<Void, Never>?
+
+    /// Cancels any in-flight config refresh and spawns a fresh one.
+    private func refreshDaemonConfig() {
+        configRefreshTask?.cancel()
+        configRefreshTask = Task { @MainActor [weak self] in
+            await self?.loadConfigFromDaemon()
+        }
+    }
+
     /// Fetches the full workspace config from the daemon and applies all
     /// config-dependent properties. Called after init once the daemon is
     /// reachable.
     func loadConfigFromDaemon() async {
         guard let config = await settingsClient.fetchConfig() else { return }
+        guard !Task.isCancelled else { return }
         applyDaemonConfig(config)
     }
 
@@ -3293,6 +3575,44 @@ public final class SettingsStore: ObservableObject {
            let provider = webSearch["provider"] as? String {
             self.webSearchProvider = provider
         }
+
+        // Sync the global TTS provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.tts.provider.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let ttsProvider = tts["provider"] as? String {
+            UserDefaults.standard.set(ttsProvider, forKey: "ttsProvider")
+        }
+
+        // Sync provider-specific voice IDs so the Voice Settings view
+        // can display the configured value on load.
+        if let services = config["services"] as? [String: Any],
+           let tts = services["tts"] as? [String: Any],
+           let providers = tts["providers"] as? [String: Any] {
+            if let elevenlabs = providers["elevenlabs"] as? [String: Any],
+               let voiceId = elevenlabs["voiceId"] as? String {
+                self.elevenLabsVoiceId = voiceId
+            }
+            if let fishAudio = providers["fish-audio"] as? [String: Any],
+               let referenceId = fishAudio["referenceId"] as? String {
+                self.fishAudioReferenceId = referenceId
+            }
+        }
+
+        // Sync the global STT provider from the daemon config so the client
+        // stays aligned after restart or reconnection. The canonical path
+        // is services.stt.provider. Empty/whitespace-only values are
+        // treated as "not configured" and are not persisted — this avoids
+        // clobbering a previously selected provider with a no-op sentinel.
+        if let services = config["services"] as? [String: Any],
+           let stt = services["stt"] as? [String: Any],
+           let sttProvider = stt["provider"] as? String,
+           !sttProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            UserDefaults.standard.set(sttProvider, forKey: "sttProvider")
+        }
+
+        Self.applyHostBrowserCdpInspectConfig(config, into: self)
 
         loadServiceModes(config: config)
 
@@ -3313,6 +3633,198 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
         return canonicalizeTimeZoneIdentifier(trimmed)
+    }
+
+    // MARK: - Host Browser (CDP Inspect) Loading
+
+    /// Loopback hostnames accepted by the cdp-inspect backend. Non-loopback
+    /// values are rejected at the UI layer to prevent remote attach.
+    static let hostBrowserCdpInspectAllowedHosts: Set<String> = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "[::1]",
+    ]
+
+    /// Returns `true` when `host` is one of the accepted loopback addresses
+    /// for the cdp-inspect backend.
+    static func isValidHostBrowserCdpInspectHost(_ host: String) -> Bool {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return hostBrowserCdpInspectAllowedHosts.contains(trimmed)
+    }
+
+    /// Returns `true` when `port` is within the valid TCP port range.
+    static func isValidHostBrowserCdpInspectPort(_ port: Int) -> Bool {
+        return (1...65535).contains(port)
+    }
+
+    /// Default loopback host for the cdp-inspect backend. Used as the fallback
+    /// when the daemon config contains an invalid (non-loopback) host value.
+    static let defaultHostBrowserCdpInspectHost: String = "localhost"
+    /// Default DevTools remote-debugging port for the cdp-inspect backend.
+    /// Used as the fallback when the daemon config contains an out-of-range
+    /// port value.
+    static let defaultHostBrowserCdpInspectPort: Int = 9222
+
+    /// Reads `hostBrowser.cdpInspect.{enabled,host,port,probeTimeoutMs}` from
+    /// the workspace config and copies the values into `store`. Missing keys
+    /// leave the existing values untouched so the defaults set in the
+    /// property declarations apply.
+    ///
+    /// The `host` and `port` values are validated the same way as the UI
+    /// setters (`setHostBrowserCdpInspectHost` / `setHostBrowserCdpInspectPort`)
+    /// to preserve the loopback-only security invariant: if the workspace
+    /// config file is manually edited (or tampered with) to contain a
+    /// non-loopback host like `"attacker.example.com"` or an out-of-range
+    /// port, we fall back to the safe defaults (`localhost` / `9222`) and
+    /// log a warning instead of silently accepting the unsafe value.
+    ///
+    /// When an invalid value is detected, we also patch the sanitized
+    /// default back to the daemon config so the bad value does not
+    /// reappear on the next config reload. The patch only fires when
+    /// validation fails — once the config contains a valid value, no
+    /// patch is emitted, so there is no infinite loop across refreshes.
+    static func applyHostBrowserCdpInspectConfig(
+        _ config: [String: Any],
+        into store: SettingsStore
+    ) {
+        guard let hostBrowser = config["hostBrowser"] as? [String: Any],
+              let cdpInspect = hostBrowser["cdpInspect"] as? [String: Any] else {
+            return
+        }
+        if let enabled = cdpInspect["enabled"] as? Bool {
+            store.hostBrowserCdpInspectEnabled = enabled
+        }
+        if let host = cdpInspect["host"] as? String, !host.isEmpty {
+            if isValidHostBrowserCdpInspectHost(host) {
+                store.hostBrowserCdpInspectHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                log.warning("Ignoring invalid hostBrowser.cdpInspect.host value from daemon config (must be loopback); falling back to default and patching daemon")
+                store.hostBrowserCdpInspectHost = defaultHostBrowserCdpInspectHost
+                // Persist the sanitized fallback so the invalid value
+                // does not reappear on the next daemon config reload.
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["host": defaultHostBrowserCdpInspectHost]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.host back to daemon config")
+                    }
+                }
+            }
+        }
+        // JSONSerialization may surface integral numbers as Double, so coerce
+        // through a single path before validating.
+        let rawPort: Int?
+        if let port = cdpInspect["port"] as? Int {
+            rawPort = port
+        } else if let portDouble = cdpInspect["port"] as? Double {
+            if portDouble.truncatingRemainder(dividingBy: 1) == 0 {
+                rawPort = Int(portDouble)
+            } else {
+                log.warning("Ignoring fractional hostBrowser.cdpInspect.port value \(portDouble) from daemon config; falling back to default")
+                rawPort = nil
+                store.hostBrowserCdpInspectPort = defaultHostBrowserCdpInspectPort
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["port": defaultHostBrowserCdpInspectPort]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.port back to daemon config")
+                    }
+                }
+            }
+        } else {
+            rawPort = nil
+        }
+        if let port = rawPort {
+            if isValidHostBrowserCdpInspectPort(port) {
+                store.hostBrowserCdpInspectPort = port
+            } else {
+                log.warning("Ignoring out-of-range hostBrowser.cdpInspect.port value from daemon config (must be 1..65535); falling back to default and patching daemon")
+                store.hostBrowserCdpInspectPort = defaultHostBrowserCdpInspectPort
+                // Persist the sanitized fallback so the invalid value
+                // does not reappear on the next daemon config reload.
+                let settingsClient = store.settingsClient
+                Task {
+                    let success = await settingsClient.patchConfig([
+                        "hostBrowser": ["cdpInspect": ["port": defaultHostBrowserCdpInspectPort]]
+                    ])
+                    if !success {
+                        log.error("Failed to patch sanitized hostBrowser.cdpInspect.port back to daemon config")
+                    }
+                }
+            }
+        }
+        if let probeTimeout = cdpInspect["probeTimeoutMs"] as? Int {
+            store.hostBrowserCdpInspectProbeTimeoutMs = probeTimeout
+        } else if let probeTimeoutDouble = cdpInspect["probeTimeoutMs"] as? Double {
+            store.hostBrowserCdpInspectProbeTimeoutMs = Int(probeTimeoutDouble)
+        }
+    }
+
+    // MARK: - Host Browser (CDP Inspect) Actions
+
+    /// Persists the cdp-inspect enable flag by patching
+    /// `hostBrowser.cdpInspect.enabled` on the workspace config.
+    ///
+    /// The local `@Published` value is updated optimistically before the
+    /// patch completes so the UI reflects the new state immediately.
+    @discardableResult
+    func setHostBrowserCdpInspectEnabled(_ enabled: Bool) -> Task<Bool, Never> {
+        hostBrowserCdpInspectEnabled = enabled
+        return Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["enabled": enabled]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.enabled")
+            }
+            return success
+        }
+    }
+
+    /// Persists the cdp-inspect host override by patching
+    /// `hostBrowser.cdpInspect.host`. Returns an error string and does not
+    /// emit a patch when `host` is not one of the accepted loopback values.
+    @discardableResult
+    func setHostBrowserCdpInspectHost(_ host: String) -> String? {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValidHostBrowserCdpInspectHost(trimmed) else {
+            return "Only loopback hosts are allowed (localhost, 127.0.0.1, ::1, [::1])."
+        }
+        hostBrowserCdpInspectHost = trimmed
+        Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["host": trimmed]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.host")
+            }
+        }
+        return nil
+    }
+
+    /// Persists the cdp-inspect port override by patching
+    /// `hostBrowser.cdpInspect.port`. Returns an error string and does not
+    /// emit a patch when `port` is outside the valid TCP range.
+    @discardableResult
+    func setHostBrowserCdpInspectPort(_ port: Int) -> String? {
+        guard Self.isValidHostBrowserCdpInspectPort(port) else {
+            return "Port must be between 1 and 65535."
+        }
+        hostBrowserCdpInspectPort = port
+        Task {
+            let success = await settingsClient.patchConfig([
+                "hostBrowser": ["cdpInspect": ["port": port]]
+            ])
+            if !success {
+                log.error("Failed to patch config for hostBrowser.cdpInspect.port")
+            }
+        }
+        return nil
     }
 
 }
@@ -3358,10 +3870,17 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let dashboard_url: String?
     let client_id_placeholder: String?
     let requires_client_secret: Bool
+    let logo_url: String?
 
     /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
         return provider_key
+    }
+
+    /// Parsed `URL?` for `logo_url`, or `nil` when the field is missing or malformed.
+    var logoURL: URL? {
+        guard let raw = logo_url, !raw.isEmpty else { return nil }
+        return URL(string: raw)
     }
 }
 

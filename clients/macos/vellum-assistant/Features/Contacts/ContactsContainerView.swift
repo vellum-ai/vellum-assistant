@@ -16,7 +16,6 @@ struct ContactsContainerView: View {
     var connectionManager: GatewayConnectionManager?
     var store: SettingsStore?
     var conversationManager: ConversationManager?
-    var isEmailEnabled: Bool = false
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
     @State private var viewModel: ContactsViewModel
@@ -24,11 +23,10 @@ struct ContactsContainerView: View {
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
+    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.connectionManager = connectionManager
         self.store = store
         self.conversationManager = conversationManager
-        self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
         _viewModel = State(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
@@ -181,7 +179,7 @@ struct ContactsContainerView: View {
                     // Title row: display name + badge + interaction count
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         HStack(spacing: VSpacing.sm) {
-                            Text("\(contact.displayName) (You)")
+                            Text(contact.displayName.hasPrefix("vellum-principal-") ? "You" : "\(contact.displayName) (You)")
                                 .font(VFont.titleSmall)
                                 .foregroundStyle(VColor.contentDefault)
                             ContactTypeBadge(role: "guardian")
@@ -220,7 +218,7 @@ struct ContactsContainerView: View {
                         VButton(
                             label: "Save",
                             style: .primary,
-                            isDisabled: guardianIsSaving || guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            isDisabled: guardianIsSaving || (guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !contact.displayName.hasPrefix("vellum-principal-"))
                         ) {
                             Task { await saveGuardianEdits(contact: contact) }
                         }
@@ -253,14 +251,14 @@ struct ContactsContainerView: View {
         .contentMargins(0)
         .id(contact.id)
         .onAppear {
-            guardianEditedName = contact.displayName
+            guardianEditedName = contact.displayName.hasPrefix("vellum-principal-") ? "" : contact.displayName
             guardianEditedNotes = contact.notes ?? ""
         }
         .onChange(of: contact) { _, newContact in
             // Don't reset fields while a save is in flight — the reload
             // triggers this with stale data before the API response propagates.
             guard !guardianIsSaving else { return }
-            guardianEditedName = newContact.displayName
+            guardianEditedName = newContact.displayName.hasPrefix("vellum-principal-") ? "" : newContact.displayName
             guardianEditedNotes = newContact.notes ?? ""
         }
     }
@@ -268,7 +266,8 @@ struct ContactsContainerView: View {
     /// Persists guardian name/notes edits via the contacts API.
     private func saveGuardianEdits(contact: ContactPayload) async {
         let trimmedName = guardianEditedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        // When the name field is empty (e.g. guardian with raw principal ID), preserve the existing displayName
+        let nameToSave = trimmedName.isEmpty ? contact.displayName : trimmedName
         let trimmedNotes = guardianEditedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guardianIsSaving = true
@@ -276,10 +275,10 @@ struct ContactsContainerView: View {
         do {
             if let updated = try await contactClient.updateContact(
                 contactId: contact.id,
-                displayName: trimmedName,
+                displayName: nameToSave,
                 notes: trimmedNotes.isEmpty ? nil : trimmedNotes
             ) {
-                guardianEditedName = updated.displayName
+                guardianEditedName = updated.displayName.hasPrefix("vellum-principal-") ? "" : updated.displayName
                 guardianEditedNotes = updated.notes ?? ""
                 viewModel.loadContacts()
                 showToast?("Contact saved", .success)
@@ -301,7 +300,7 @@ struct ContactsContainerView: View {
     @State private var isCreatingContact: Bool = false
     @State private var createContactError: String?
 
-    @State private var cachedAssistantName: String = AssistantDisplayName.placeholder
+    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.loadFromDiskCache()?.name)
 
     /// Assistant detail — header + channels.
     @ViewBuilder
@@ -318,7 +317,7 @@ struct ContactsContainerView: View {
                 .padding(.horizontal, VSpacing.lg)
 
                 if let store {
-                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, isEmailEnabled: isEmailEnabled, showCardBorders: false)
+                    AssistantChannelsDetailView(store: store, connectionManager: connectionManager, conversationManager: conversationManager, assistantName: cachedAssistantName, showCardBorders: false)
                         .padding(.horizontal, VSpacing.lg)
                         .padding(.bottom, VSpacing.lg)
                 }

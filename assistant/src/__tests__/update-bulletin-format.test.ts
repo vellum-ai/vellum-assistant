@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   appendReleaseBlock,
   extractReleaseIds,
+  filterNewContentBlocks,
   hasReleaseBlock,
   releaseMarker,
 } from "../prompts/update-bulletin-format.js";
@@ -80,6 +81,64 @@ describe("appendReleaseBlock", () => {
 
     // Double newline separates the blocks when there was no trailing newline
     expect(result).toContain("First.\n\n<!-- vellum-update-release:1.1.0 -->");
+  });
+});
+
+describe("filterNewContentBlocks", () => {
+  const blockA = [
+    "<!-- vellum-update-release:entry-a -->",
+    "## Entry A",
+    "Content for A.",
+    "<!-- /vellum-update-release:entry-a -->",
+  ].join("\n");
+
+  const blockB = [
+    "<!-- vellum-update-release:entry-b -->",
+    "## Entry B",
+    "Content for B.",
+    "<!-- /vellum-update-release:entry-b -->",
+  ].join("\n");
+
+  const blockC = [
+    "<!-- vellum-update-release:entry-c -->",
+    "## Entry C",
+    "Content for C.",
+    "<!-- /vellum-update-release:entry-c -->",
+  ].join("\n");
+
+  test("returns body unchanged when no block structure exists", () => {
+    const body = "## What's New\n\nPlain text notes.\n";
+    expect(filterNewContentBlocks(body, "anything")).toBe(body);
+  });
+
+  test("returns all blocks when none are present in existing content", () => {
+    const body = `${blockA}\n\n${blockB}`;
+    const result = filterNewContentBlocks(body, "no markers here");
+    expect(result).toContain("entry-a");
+    expect(result).toContain("entry-b");
+  });
+
+  test("returns empty string when all blocks are already present", () => {
+    const body = `${blockA}\n\n${blockB}`;
+    const existing = `<!-- vellum-update-release:0.9.0 -->\n${blockA}\n\n${blockB}\n`;
+    expect(filterNewContentBlocks(body, existing)).toBe("");
+  });
+
+  test("returns only new blocks when some are already present", () => {
+    const body = `${blockA}\n\n${blockB}\n\n${blockC}`;
+    const existing = `<!-- vellum-update-release:0.9.0 -->\n${blockA}\n\n${blockB}\n`;
+
+    const result = filterNewContentBlocks(body, existing);
+    expect(result).toContain("entry-c");
+    expect(result).toContain("Content for C.");
+    expect(result).not.toContain("entry-a");
+    expect(result).not.toContain("entry-b");
+  });
+
+  test("handles single-block template", () => {
+    const result = filterNewContentBlocks(blockA, "no markers");
+    expect(result).toContain("entry-a");
+    expect(result).toContain("Content for A.");
   });
 });
 

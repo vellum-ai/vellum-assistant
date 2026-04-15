@@ -35,6 +35,12 @@ export class McpClient {
     | null = null;
   private connected = false;
   private oauthProvider: McpOAuthProvider | null = null;
+  private _lastError: Error | null = null;
+
+  /** The last connection error, if any. Null when connected or not yet attempted. */
+  get lastError(): Error | null {
+    return this._lastError;
+  }
 
   get isConnected(): boolean {
     return this.connected;
@@ -46,6 +52,16 @@ export class McpClient {
       name: "vellum-assistant",
       version: "1.0.0",
     });
+
+    // Prevent SDK-internal transport errors (e.g. SSE reconnection auth
+    // failures) from surfacing as unhandled rejections that crash the daemon
+    // via the global unhandledRejection → shutdown handler.
+    this.client.onerror = (error) => {
+      log.warn(
+        { serverId: this.serverId, err: error },
+        "MCP SDK transport error (non-fatal)",
+      );
+    };
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
@@ -102,34 +118,24 @@ export class McpClient {
       }
       this.transport = null;
 
-      if (isHttpTransport) {
-        const isAuthError =
-          err instanceof UnauthorizedError ||
-          (err instanceof Error &&
-            /\b(401|403|unauthorized|forbidden)\b/i.test(err.message)) ||
-          (err != null &&
-            typeof err === "object" &&
-            "code" in err &&
-            (err.code === 401 || err.code === 403));
-
-        if (isAuthError) {
-          // Auth-related — user can run `assistant mcp auth <name>` to authenticate.
-          log.info(
-            { serverId: this.serverId, err },
-            "MCP server requires authentication",
-          );
-          return;
-        }
-
-        // Non-auth error (DNS, TLS, timeout, etc.) — log and re-throw
-        log.error(
+      if (isHttpTransport && isAuthRelatedError(err)) {
+        // Auth-related — user can run `assistant mcp auth <name>` to authenticate.
+        log.info(
           { serverId: this.serverId, err },
-          "MCP server connection failed",
+          "MCP server requires authentication",
         );
-        throw err;
+        return;
       }
 
-      throw err;
+      // Non-auth error (DNS, TLS, timeout, etc.) — log but never propagate
+      // an MCP connection failure to the caller.  The daemon must keep
+      // running even when individual MCP servers are unreachable.
+      this._lastError = err instanceof Error ? err : new Error(String(err));
+      log.error(
+        { serverId: this.serverId, err },
+        "MCP server connection failed",
+      );
+      return;
     }
 
     this.connected = true;
@@ -257,4 +263,33 @@ export class McpClient {
         });
     }
   }
+}
+
+/**
+ * Returns true when `err` looks like an authentication / authorization failure
+ * from the MCP SDK or the remote server.  Used to distinguish "needs auth"
+ * from genuine transport failures so we can log guidance instead of crashing.
+ */
+function isAuthRelatedError(err: unknown): boolean {
+  if (err instanceof UnauthorizedError) return true;
+
+  if (
+    err instanceof Error &&
+    /\b(401|403|unauthorized|forbidden|authorizationCode is required|prepareTokenRequest)\b/i.test(
+      err.message,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    err != null &&
+    typeof err === "object" &&
+    "code" in err &&
+    (err.code === 401 || err.code === 403)
+  ) {
+    return true;
+  }
+
+  return false;
 }

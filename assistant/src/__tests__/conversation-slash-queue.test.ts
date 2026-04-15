@@ -90,6 +90,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   provenanceFromTrustContext: () => ({
@@ -113,6 +114,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+  getMessageById: () => null,
+  getLastUserTimestampBefore: () => 0,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -296,7 +299,7 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     pendingRuns = [];
   });
 
-  test("queued slash-like input does not stall queue — passes through", async () => {
+  test("queued slash-like input does not stall queue — batches with siblings", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -313,7 +316,8 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     );
     await waitForPendingRun(1);
 
-    // Enqueue a slash-like message and a normal message after it
+    // Enqueue a slash-like passthrough and a normal passthrough after it.
+    // Both resolve to passthrough, so the batch builder groups them into one run.
     conversation.enqueueMessage(
       "/not-a-skill",
       [],
@@ -323,30 +327,19 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(conversation.getQueueDepth()).toBe(2);
 
-    // Complete first run — triggers drain
+    // Complete first run — drain pulls both queued messages into one batched run.
     resolveRun(0);
     await p1;
-
-    // The slash-like message should go through agent loop (passthrough)
     await waitForPendingRun(2);
 
-    // Slash-like message events: dequeued (agent loop started)
+    // Both batched clients see their own message_dequeued.
     expect(eventsSlash.some((e) => e.type === "message_dequeued")).toBe(true);
-
-    // It goes through the agent loop — so 2 agent runs total (msg-1 and /not-a-skill)
-    expect(pendingRuns.length).toBe(2);
-
-    // Complete the slash run so msg-3 can drain
-    resolveRun(1);
-    await waitForPendingRun(3);
-
-    // msg-3 events: dequeued (agent loop started)
     expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
 
-    // 3 total agent loop runs: msg-1, /not-a-skill, msg-3
-    expect(pendingRuns.length).toBe(3);
+    // Exactly 2 runs total: msg-1 + batched [/not-a-skill, msg-3].
+    expect(pendingRuns.length).toBe(2);
 
-    resolveRun(2);
+    resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
   });
 
@@ -391,6 +384,53 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     expect(text).toContain("/start-the-day");
 
     resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test("passthrough batch is terminated by a /compact in the middle of the queue", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const eventsHi: ServerMessage[] = [];
+    const eventsCompact: ServerMessage[] = [];
+    const eventsBye: ServerMessage[] = [];
+
+    // Start in-flight message
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    // Enqueue ["hi", "/compact", "bye"]. /compact is non-passthrough, so the
+    // batch builder stops at "hi" (length-1 batch → drainSingleMessage). Then
+    // /compact takes its short-circuit path (no new runAgentLoop), and "bye"
+    // drains as its own run.
+    conversation.enqueueMessage("hi", [], (e) => eventsHi.push(e), "req-hi");
+    conversation.enqueueMessage(
+      "/compact",
+      [],
+      (e) => eventsCompact.push(e),
+      "req-compact",
+    );
+    conversation.enqueueMessage("bye", [], (e) => eventsBye.push(e), "req-bye");
+    expect(conversation.getQueueDepth()).toBe(3);
+
+    // Resolve msg-1 → drain pulls only "hi" (batch builder stops at /compact).
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(pendingRuns.length).toBe(2);
+    expect(eventsHi.some((e) => e.type === "message_dequeued")).toBe(true);
+
+    // Resolve "hi" → /compact short-circuits without a new runAgentLoop, then
+    // drains "bye" as its own run.
+    resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(eventsCompact.some((e) => e.type === "message_complete")).toBe(true);
+    expect(eventsBye.some((e) => e.type === "message_dequeued")).toBe(true);
+    expect(pendingRuns.length).toBe(3);
+
+    resolveRun(2);
     await new Promise((r) => setTimeout(r, 50));
   });
 });

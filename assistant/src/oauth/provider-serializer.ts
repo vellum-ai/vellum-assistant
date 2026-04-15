@@ -30,6 +30,7 @@ export interface SerializedProviderSummary {
   dashboard_url: string | null;
   client_id_placeholder: string | null;
   requires_client_secret: boolean;
+  logo_url: string | null;
   supports_managed_mode: boolean;
   feature_flag: string | null;
 }
@@ -77,9 +78,11 @@ function _serializeProvider(
     providerKey: provider,
     authUrl: authorizeUrl,
     tokenUrl: tokenExchangeUrl,
+    refreshUrl: row.refreshUrl ?? null,
     displayName: displayLabel ?? null,
     description: row.description ?? null,
     dashboardUrl: row.dashboardUrl ?? null,
+    logoUrl: row.logoUrl ?? null,
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
     supportsManagedMode: !!row.managedServiceConfigKey,
@@ -89,6 +92,10 @@ function _serializeProvider(
     extraParams: authorizeParams ? JSON.parse(authorizeParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
+    revokeUrl: row.revokeUrl || null,
+    revokeBodyTemplate: row.revokeBodyTemplate
+      ? JSON.parse(row.revokeBodyTemplate)
+      : null,
     loopbackPort: row.loopbackPort ?? null,
     injectionTemplates: row.injectionTemplates
       ? JSON.parse(row.injectionTemplates)
@@ -131,6 +138,7 @@ export function serializeProviderSummary(
     dashboard_url: row.dashboardUrl ?? null,
     client_id_placeholder: row.clientIdPlaceholder ?? null,
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
+    logo_url: row.logoUrl ?? null,
     supports_managed_mode: !!row.managedServiceConfigKey,
     feature_flag: row.featureFlag ?? null,
   };

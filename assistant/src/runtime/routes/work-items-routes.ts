@@ -19,6 +19,7 @@ import {
   getToolDescription,
   sanitizeToolList,
 } from "../../tasks/tool-sanitizer.js";
+import { createAbortReason } from "../../util/abort-reasons.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { resolveRequiredTools } from "../../work-items/resolve-required-tools.js";
@@ -587,7 +588,13 @@ export function workItemRouteDefinitions(
           const conversation = deps.findConversation(conversationId);
           if (conversation) {
             conversation.headlessLock = false;
-            conversation.abort();
+            conversation.abort(
+              createAbortReason(
+                "work_item_aborted",
+                "work-items-routes.cancel",
+                conversationId,
+              ),
+            );
             getSubagentManager().abortAllForParent(conversationId);
           }
         }

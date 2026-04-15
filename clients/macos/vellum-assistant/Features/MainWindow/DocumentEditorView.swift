@@ -247,8 +247,8 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
 
     body {
       font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      background: var(--v-bg);
-      color: var(--v-text);
+      background: var(--v-surface-base);
+      color: var(--v-content-default);
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -263,17 +263,17 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
       font-weight: 600;
       background: transparent;
       border: none;
-      color: var(--v-text);
+      color: var(--v-content-default);
       outline: none;
       flex: 1;
       min-width: 0;
     }
 
-    .title-input::placeholder { color: var(--v-text-muted); }
+    .title-input::placeholder { color: var(--v-content-tertiary); }
 
     .status {
       font-size: 12px;
-      color: var(--v-text-secondary);
+      color: var(--v-content-secondary);
       margin-left: 16px;
       white-space: nowrap;
     }
@@ -288,37 +288,37 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     }
 
     /* Override Toast UI Editor theme colors to match Vellum */
-    .toastui-editor-defaultUI { border: none !important; background: var(--v-bg) !important; }
-    .toastui-editor-defaultUI-toolbar { background: var(--v-surface) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
-    .toastui-editor-toolbar { background: var(--v-surface) !important; border-top: 1px solid var(--v-surface-border) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
-    .toastui-editor-toolbar-icons { color: var(--v-text) !important; background-color: transparent !important; border: none !important; }
-    .toastui-editor-toolbar-icons:hover { background-color: var(--v-surface-border) !important; }
-    .toastui-editor-toolbar-icons.active { background-color: var(--v-surface-border) !important; }
-    .toastui-editor-toolbar-divider { background: var(--v-surface-border) !important; }
-    .toastui-editor-toolbar-group { border-right-color: var(--v-surface-border) !important; }
-    .toastui-editor-popup { background: var(--v-surface) !important; border-color: var(--v-surface-border) !important; }
-    .toastui-editor-popup-body { background: var(--v-surface) !important; }
+    .toastui-editor-defaultUI { border: none !important; background: var(--v-surface-base) !important; }
+    .toastui-editor-defaultUI-toolbar { background: var(--v-surface-overlay) !important; border-bottom: 1px solid var(--v-border-base) !important; }
+    .toastui-editor-toolbar { background: var(--v-surface-overlay) !important; border-top: 1px solid var(--v-border-base) !important; border-bottom: 1px solid var(--v-border-base) !important; }
+    .toastui-editor-toolbar-icons { color: var(--v-content-default) !important; background-color: transparent !important; border: none !important; }
+    .toastui-editor-toolbar-icons:hover { background-color: var(--v-border-base) !important; }
+    .toastui-editor-toolbar-icons.active { background-color: var(--v-border-base) !important; }
+    .toastui-editor-toolbar-divider { background: var(--v-border-base) !important; }
+    .toastui-editor-toolbar-group { border-right-color: var(--v-border-base) !important; }
+    .toastui-editor-popup { background: var(--v-surface-overlay) !important; border-color: var(--v-border-base) !important; }
+    .toastui-editor-popup-body { background: var(--v-surface-overlay) !important; }
     .toastui-editor-md-container,
-    .toastui-editor-ww-container { background: var(--v-bg) !important; color: var(--v-text) !important; }
-    .toastui-editor-contents { color: var(--v-text) !important; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; padding: 24px 32px !important; }
+    .toastui-editor-ww-container { background: var(--v-surface-base) !important; color: var(--v-content-default) !important; }
+    .toastui-editor-contents { color: var(--v-content-default) !important; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; padding: 24px 32px !important; }
     .toastui-editor-ww-content { padding: 24px 32px !important; }
     .ProseMirror { padding: 24px 32px !important; }
     .toastui-editor-md-container .toastui-editor { padding: 24px 32px !important; }
-    .toastui-editor-contents h1 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 28px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
-    .toastui-editor-contents h2 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 22px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
-    .toastui-editor-contents h3 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 18px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
+    .toastui-editor-contents h1 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 28px !important; font-weight: 600 !important; color: var(--v-content-default) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
+    .toastui-editor-contents h2 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 22px !important; font-weight: 600 !important; color: var(--v-content-default) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
+    .toastui-editor-contents h3 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 18px !important; font-weight: 600 !important; color: var(--v-content-default) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
     .toastui-editor-contents p { margin-bottom: 12px !important; }
-    .toastui-editor-contents pre { background: var(--v-surface) !important; border-radius: 8px !important; padding: 12px 16px !important; }
-    .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; font-family: "DMMono-Regular", "SF Mono", monospace !important; border-radius: 4px !important; padding: 2px 5px !important; font-size: 13px !important; }
-    .toastui-editor-contents blockquote { border-left-color: var(--v-accent) !important; color: var(--v-text-secondary) !important; }
+    .toastui-editor-contents pre { background: var(--v-surface-overlay) !important; border-radius: 8px !important; padding: 12px 16px !important; }
+    .toastui-editor-contents code { background: var(--v-surface-overlay) !important; color: var(--v-content-default) !important; font-family: "DMMono-Regular", "SF Mono", monospace !important; border-radius: 4px !important; padding: 2px 5px !important; font-size: 13px !important; }
+    .toastui-editor-contents blockquote { border-left-color: var(--v-primary-base) !important; color: var(--v-content-secondary) !important; }
     .toastui-editor-contents table td,
-    .toastui-editor-contents table th { border-color: var(--v-surface-border) !important; }
+    .toastui-editor-contents table th { border-color: var(--v-border-base) !important; }
     /* Hide mode switch (Markdown / WYSIWYG toggle) */
     .toastui-editor-mode-switch { display: none !important; }
     /* Scrollbar styling */
     .toastui-editor-contents::-webkit-scrollbar { width: 6px; }
     .toastui-editor-contents::-webkit-scrollbar-track { background: transparent; }
-    .toastui-editor-contents::-webkit-scrollbar-thumb { background: var(--v-surface-border); border-radius: 3px; }
+    .toastui-editor-contents::-webkit-scrollbar-thumb { background: var(--v-border-base); border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -407,12 +407,28 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
       // Initial word count
       updateWordCount();
 
+      // Sync dark mode class when system appearance changes (fixes race
+      // condition where WKWebView appearance may not be resolved at init)
+      const darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+      function syncDarkClass(e) {
+        const editorEl = document.querySelector('.toastui-editor-defaultUI');
+        if (!editorEl) return;
+        if (e.matches) {
+          editorEl.classList.add('toastui-editor-dark');
+        } else {
+          editorEl.classList.remove('toastui-editor-dark');
+        }
+      }
+      // Apply immediately in case JS ran before appearance was resolved
+      syncDarkClass(darkMQ);
+      darkMQ.addEventListener('change', syncDarkClass);
+
       // Focus editor
       setTimeout(() => window.editor.focus(), 100);
     } catch (e) {
       var msg = String(e && e.message ? e.message : e).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       document.getElementById('editor').innerHTML =
-        '<div style="padding: 32px; color: var(--v-text-secondary); font-size: 14px;">' +
+        '<div style="padding: 32px; color: var(--v-content-secondary); font-size: 14px;">' +
         '<strong>Editor failed to load</strong><br><br>' +
         'The document editor could not be initialized. This may be due to a network issue preventing ' +
         'external assets from loading.<br><br>' +

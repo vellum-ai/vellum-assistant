@@ -171,10 +171,6 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// racing with the final decode failure always transitions the attachment out of the
     /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
-    /// Sharing services pre-loaded per file extension so the context menu Share
-    /// submenu never triggers a synchronous XPC call during body evaluation.
-    @State private var sharingServicesByExt: [String: [NSSharingService]] = [:]
-
     @Environment(\.displayScale) private var displayScale
 
     /// Single images render at full width; multiple images use a compact grid.
@@ -198,17 +194,6 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     }
                         .onTapGesture {
                             onTap(attachment, nsImage)
-                        }
-                        .contextMenu {
-                            let ext = (attachment.filename as NSString).pathExtension.lowercased()
-                            let key = ext.isEmpty ? "png" : ext
-                            ImageActions.contextMenuItems(
-                                image: nsImage,
-                                filename: attachment.filename,
-                                base64Data: attachment.data.isEmpty ? nil : attachment.data,
-                                lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil,
-                                sharingServices: sharingServicesByExt[key] ?? []
-                            )
                         }
                         .onDrag {
                             NotificationCenter.default.post(name: .internalImageDragStarted, object: nil)
@@ -373,16 +358,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 }
             }
         }
-        .task(id: imageAttachments.map(\.filename)) {
-            let extensions = Set(imageAttachments.map {
-                let ext = ($0.filename as NSString).pathExtension.lowercased()
-                return ext.isEmpty ? "png" : ext
-            })
-            for ext in extensions where sharingServicesByExt[ext] == nil {
-                let services = await ImageActions.loadSharingServices(for: "probe.\(ext)")
-                sharingServicesByExt[ext] = services
-            }
-        }
+
+
     }
 
     /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
@@ -463,7 +440,15 @@ extension ChatBubble {
                 lazyAttachmentId: attachment.data.isEmpty && !attachment.id.isEmpty ? attachment.id : nil
             )
         }) { attachment in
-            fileAttachmentChip(attachment)
+            if attachment.isTextPreviewable {
+                InlineFilePreviewView(
+                    attachment: attachment,
+                    isUser: isUser,
+                    messageId: message.id
+                )
+            } else {
+                fileAttachmentChip(attachment)
+            }
         }
     }
 

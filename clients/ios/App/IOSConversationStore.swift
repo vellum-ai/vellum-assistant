@@ -184,6 +184,11 @@ class IOSConversationStore: ObservableObject {
     @Published var selectionRequest: ConversationSelectionRequest?
     @Published var pendingConversationAnchorRequest: PendingConversationAnchorRequest?
 
+    /// Diagnostic detail from the most recent page-one conversation fetch failure.
+    /// Set after both parallel foreground/background fetches resolve so race conditions
+    /// cannot clobber the value. Observable by SwiftUI views when developer mode is enabled.
+    @Published var lastFetchError: String?
+
     /// ViewModels keyed by conversation ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private var connectionManager: GatewayConnectionManager
@@ -574,9 +579,11 @@ class IOSConversationStore: ObservableObject {
                     hasMore: foreground.hasMore
                 )
                 self.expectedConversationListGeneration = currentGeneration
+                self.lastFetchError = nil
                 self.handleConversationListResponse(merged)
             } else {
                 guard currentGeneration == self.conversationListGeneration else { return }
+                self.lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
                 self.isLoadingInitialConversations = false
             }
         }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
@@ -15,6 +16,7 @@ describe("VellumAcpClientHandler", () => {
   let handler: VellumAcpClientHandler;
 
   beforeEach(() => {
+    _setOverridesForTesting({});
     sent = [];
     sendToVellum = (msg) => sent.push(msg);
     handler = new VellumAcpClientHandler(
@@ -227,6 +229,47 @@ describe("VellumAcpClientHandler", () => {
 
       const msg = sent[0] as any;
       expect(msg.riskLevel).toBe("medium");
+    });
+
+    test("suppresses ACP confirmation UI under v2 and chooses the allow option", async () => {
+      _setOverridesForTesting({ "permission-controls-v2": true });
+
+      const result = await handler.requestPermission({
+        toolCall: {
+          title: "Read file",
+          kind: "read",
+          rawInput: "/tmp/example.txt",
+        },
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "deny", name: "Deny", kind: "reject_once" },
+        ],
+      } as any);
+
+      expect(result).toEqual({
+        outcome: { outcome: "selected", optionId: "allow" },
+      });
+      expect(sent).toHaveLength(0);
+      expect(handler.pendingRequestIds.size).toBe(0);
+    });
+
+    test("suppresses ACP confirmation UI under v2 and cancels when no allow option exists", async () => {
+      _setOverridesForTesting({ "permission-controls-v2": true });
+
+      const result = await handler.requestPermission({
+        toolCall: {
+          title: "Read file",
+          kind: "read",
+          rawInput: "/tmp/example.txt",
+        },
+        options: [{ optionId: "deny", name: "Deny", kind: "reject_once" }],
+      } as any);
+
+      expect(result).toEqual({
+        outcome: { outcome: "cancelled" },
+      });
+      expect(sent).toHaveLength(0);
+      expect(handler.pendingRequestIds.size).toBe(0);
     });
 
     test("ACP registration survives sendToVellum overwrite (makeEventSender race)", async () => {

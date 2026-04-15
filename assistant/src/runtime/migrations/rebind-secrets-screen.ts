@@ -194,18 +194,63 @@ export function markTaskPending(
 
 /**
  * Build the task list from definitions and completion state.
+ *
+ * When credential import results are provided:
+ * - If all credentials were imported successfully, the re-enter-secrets task
+ *   is marked as auto-completed with an updated description.
+ * - If some credentials failed, the description is updated to list only the
+ *   failed credentials that need manual re-entry.
+ * - If no credentials were in the bundle (legacy), the original behavior is kept.
  */
-function buildTasks(completionState: RebindTaskCompletionState): RebindTask[] {
-  return TASK_DEFINITIONS.map((def) => ({
-    id: def.id,
-    title: def.title,
-    description: def.description,
-    status: completionState[def.id]
-      ? ("complete" as const)
-      : ("pending" as const),
-    required: def.required,
-    ...(def.helpText !== undefined ? { helpText: def.helpText } : {}),
-  }));
+function buildTasks(
+  completionState: RebindTaskCompletionState,
+  credentialsImported?: MigrationWizardState["credentialsImported"],
+): RebindTask[] {
+  return TASK_DEFINITIONS.map((def) => {
+    // Apply credential import awareness to the re-enter-secrets task
+    if (def.id === "re-enter-secrets" && credentialsImported) {
+      if (credentialsImported.failed === 0 && credentialsImported.total > 0) {
+        // All credentials imported successfully — auto-complete this task
+        return {
+          id: def.id,
+          title: "API keys and secrets transferred",
+          description: `All ${credentialsImported.total} credential(s) were automatically imported from the bundle. No manual re-entry needed.`,
+          status: "complete" as const,
+          required: def.required,
+          helpText:
+            "Credentials were securely transferred as part of the migration bundle. You can verify them in Settings > Models & Services.",
+        };
+      }
+
+      if (credentialsImported.failed > 0) {
+        // Partial failure — show only the failed credentials
+        const failedList = credentialsImported.failedAccounts
+          .map((a) => `"${a}"`)
+          .join(", ");
+        return {
+          id: def.id,
+          title: "Re-enter failed credentials",
+          description: `${credentialsImported.succeeded} of ${credentialsImported.total} credential(s) were imported automatically. The following failed and need manual re-entry: ${failedList}.`,
+          status: completionState[def.id]
+            ? ("complete" as const)
+            : ("pending" as const),
+          required: def.required,
+          helpText: `Navigate to Settings > Models & Services to re-enter the failed credential(s): ${failedList}.`,
+        };
+      }
+    }
+
+    return {
+      id: def.id,
+      title: def.title,
+      description: def.description,
+      status: completionState[def.id]
+        ? ("complete" as const)
+        : ("pending" as const),
+      required: def.required,
+      ...(def.helpText !== undefined ? { helpText: def.helpText } : {}),
+    };
+  });
 }
 
 /**
@@ -235,6 +280,7 @@ export function deriveRebindSecretsScreenState(
   completionState: RebindTaskCompletionState,
 ): RebindSecretsScreenState {
   const rebindStep = wizardState.steps["rebind-secrets"];
+  const credInfo = wizardState.credentialsImported;
 
   // Not yet accessible -- earlier steps incomplete
   if (
@@ -246,15 +292,22 @@ export function deriveRebindSecretsScreenState(
     }
   }
 
+  // Apply credential-aware completion state: if all credentials imported
+  // successfully, treat re-enter-secrets as auto-completed.
+  let effectiveCompletion = completionState;
+  if (credInfo && credInfo.total > 0 && credInfo.failed === 0) {
+    effectiveCompletion = markTaskComplete(completionState, "re-enter-secrets");
+  }
+
   // Already completed (viewing from a later step or after completion)
   if (rebindStep.status === "success") {
-    const tasks = buildTasks(completionState);
+    const tasks = buildTasks(effectiveCompletion, credInfo);
     return { phase: "complete", tasks };
   }
 
   // Active -- show the checklist
   if (wizardState.currentStep === "rebind-secrets") {
-    const tasks = buildTasks(completionState);
+    const tasks = buildTasks(effectiveCompletion, credInfo);
     const requiredTasks = tasks.filter((t) => t.required);
     const completedTasks = tasks.filter((t) => t.status === "complete");
     const requiredCompletedTasks = requiredTasks.filter(
@@ -264,7 +317,7 @@ export function deriveRebindSecretsScreenState(
     return {
       phase: "active",
       tasks,
-      allRequiredComplete: areAllRequiredTasksComplete(completionState),
+      allRequiredComplete: areAllRequiredTasksComplete(effectiveCompletion),
       completedCount: completedTasks.length,
       totalCount: tasks.length,
       requiredCount: requiredTasks.length,
@@ -289,7 +342,15 @@ export function completeMigration(
   wizardState: MigrationWizardState,
   completionState: RebindTaskCompletionState,
 ): MigrationWizardState {
-  if (!areAllRequiredTasksComplete(completionState)) {
+  // Apply credential-aware effective completion: if all credentials were
+  // imported successfully, treat re-enter-secrets as auto-completed
+  // (mirrors the logic in deriveRebindSecretsScreenState).
+  let effectiveCompletion = completionState;
+  const credInfo = wizardState?.credentialsImported;
+  if (credInfo && credInfo.total > 0 && credInfo.failed === 0) {
+    effectiveCompletion = { ...completionState, "re-enter-secrets": true };
+  }
+  if (!areAllRequiredTasksComplete(effectiveCompletion)) {
     throw new Error(
       "Cannot complete migration: not all required tasks are done",
     );

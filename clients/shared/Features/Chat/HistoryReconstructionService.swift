@@ -57,9 +57,9 @@ enum HistoryReconstructionService {
                     // Decode images eagerly — NSImage/UIImage init from Data is
                     // thread-safe and the views expect cachedImages to be populated.
                     toolCall.cachedImages = (tc.imageDataList ?? []).compactMap { ToolCallData.decodeImage(from: $0) }
-                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
+                    toolCall.reasonDescription = ((tc.input["activity"]?.value as? String)
                         ?? (tc.input["reason"]?.value as? String)
-                        ?? (tc.input["reasoning"]?.value as? String)
+                        ?? (tc.input["reasoning"]?.value as? String)).map { ToolCallData.displaySafe($0) }
                     if let startMs = tc.startedAt {
                         toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
                     }
@@ -148,14 +148,6 @@ enum HistoryReconstructionService {
             }
             if let orderStrings = item.contentOrder {
                 chatMsg.contentOrder = parseContentOrder(orderStrings)
-            } else if role == .assistant {
-                chatMsg.contentOrder = synthesizeContentOrder(
-                    thinkingCount: chatMsg.thinkingSegments.count,
-                    toolCallCount: toolCalls.count,
-                    textSegmentCount: chatMsg.textSegments.count,
-                    surfaceCount: inlineSurfaces.count,
-                    toolsBeforeText: toolsBeforeText
-                )
             }
 
             if role == .assistant {
@@ -204,48 +196,6 @@ enum HistoryReconstructionService {
             default: return nil
             }
         }
-    }
-
-    // MARK: - Content order synthesis
-
-    /// Synthesize a contentOrder array from available content block counts when
-    /// the daemon doesn't provide one. Uses the `toolCallsBeforeText` flag to
-    /// determine tool-call placement relative to text segments, matching the
-    /// order that the streaming path would have produced.
-    nonisolated static func synthesizeContentOrder(
-        thinkingCount: Int,
-        toolCallCount: Int,
-        textSegmentCount: Int,
-        surfaceCount: Int,
-        toolsBeforeText: Bool
-    ) -> [ContentBlockRef] {
-        var order: [ContentBlockRef] = []
-
-        for i in 0..<thinkingCount {
-            order.append(.thinking(i))
-        }
-
-        if toolsBeforeText {
-            for i in 0..<toolCallCount {
-                order.append(.toolCall(i))
-            }
-        }
-
-        for i in 0..<textSegmentCount {
-            order.append(.text(i))
-        }
-
-        if !toolsBeforeText {
-            for i in 0..<toolCallCount {
-                order.append(.toolCall(i))
-            }
-        }
-
-        for i in 0..<surfaceCount {
-            order.append(.surface(i))
-        }
-
-        return order
     }
 
     // MARK: - Tool input helpers

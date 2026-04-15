@@ -114,9 +114,8 @@ struct SkillDetailView: View {
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            // Only fetch detail and files for locally available skills (bundled or installed).
-            // Remote catalog search results are not in the local resolved catalog, so
-            // GET /skills/:id and GET /skills/:id/files would 404 for them.
+            // iOS does not yet surface catalog previews; file and detail
+            // fetches are gated on locally-installed skills.
             if skill.isInstalled {
                 skillsStore.fetchSkillDetail(skillId: skill.id)
                 skillsStore.fetchSkillFiles(skillId: skill.id)
@@ -176,6 +175,18 @@ struct SkillDetailView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
+    }
+
+    private func detailLinkRow(label: String, text: String, destination: URL) -> some View {
+        HStack {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+            Spacer()
+            VLink(text, destination: destination, font: VFont.bodyMediumLighter)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(text)")
     }
 
     // MARK: - File Row
@@ -242,15 +253,24 @@ struct SkillDetailView: View {
     private var detailsSection: some View {
         switch skill.originMeta {
         case .clawhub(let meta):
-            if !meta.author.isEmpty {
-                detailRow(label: "Author", value: meta.author)
+            if let url = meta.hubURL {
+                detailLinkRow(label: "Source", text: meta.sourceLabel, destination: url)
+            } else {
+                detailRow(label: "Source", value: meta.sourceLabel)
             }
-            if meta.stars > 0 {
-                detailRow(label: "Stars", value: "\(meta.stars)")
+            if meta.installs > 0 {
+                detailRow(label: "Installs", value: "\(meta.installs)")
             }
         case .skillssh(let meta):
             if !meta.sourceRepo.isEmpty {
-                detailRow(label: "Source Repo", value: meta.sourceRepo)
+                if let url = meta.hubURL {
+                    detailLinkRow(label: "Source", text: meta.sourceRepo, destination: url)
+                } else {
+                    detailRow(label: "Source", value: meta.sourceRepo)
+                }
+            }
+            if meta.installs > 0 {
+                detailRow(label: "Installs", value: "\(meta.installs)")
             }
         case .vellum, .custom:
             EmptyView()
@@ -294,8 +314,8 @@ struct SkillDetailView: View {
     private func originLabel(_ origin: String) -> String {
         switch origin {
         case "vellum": return "Core"
-        case "clawhub": return "Community"
-        case "skillssh": return "Community"
+        case "clawhub": return "Clawhub"
+        case "skillssh": return "skills.sh"
         case "custom": return "Created"
         default: return origin.capitalized
         }

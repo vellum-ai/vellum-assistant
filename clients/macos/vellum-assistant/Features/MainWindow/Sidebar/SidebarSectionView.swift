@@ -23,11 +23,7 @@ struct SidebarSectionView: View {
     let isDropTarget: Bool
     let countMode: CountMode
 
-    let isRenaming: Bool
-    @Binding var renamingName: String
     var onRename: ((String) -> Void)?
-    var onCommitRename: ((String) -> Void)?
-    var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
     var onMarkAllRead: (() -> Void)? = nil
     var onMarkAllReadInSubGroup: ((String, [UUID]) -> Void)? = nil
@@ -56,6 +52,7 @@ struct SidebarSectionView: View {
     /// (mirrors showAll at the section level but per sub-group key).
     @State private var showAllInSubGroup: Set<String> = []
     @State private var hoveredSubGroupKey: String?
+    @State private var menuOpenSubGroupKey: String?
 
     enum CountMode {
         case items
@@ -116,12 +113,8 @@ struct SidebarSectionView: View {
             isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
             groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
             aggregateState: aggregateState,
-            isRenaming: isRenaming,
-            renamingName: $renamingName,
             onToggleExpand: onToggleExpand,
             onRename: onRename,
-            onCommitRename: onCommitRename,
-            onCancelRename: onCancelRename,
             onDelete: onDelete,
             onMarkAllRead: onMarkAllRead,
             hasUnreadConversations: unreadCount > 0,
@@ -182,45 +175,12 @@ struct SidebarSectionView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .dropDestination(for: String.self) { items, _ in
-                        guard let droppedId = items.first,
-                              let sourceUUID = UUID(uuidString: droppedId),
-                              sourceUUID != conversation.id else {
-                            sidebar.endConversationDrag()
-                            return false
-                        }
-                        // Block within-Recents reorder — Recents uses recency sorting.
-                        // Compare actual conversation groupIds (not section group.id) so
-                        // cross-group moves still work when custom groups are folded into Recents.
-                        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceUUID })?.groupId
-                        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
-                            sidebar.endConversationDrag()
-                            return false
-                        }
-                        let insertAfter = sidebar.dropIndicatorAtBottom
-                        let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id, insertAfterTarget: insertAfter)
-                        sidebar.endConversationDrag()
-                        return moved
-                    } isTargeted: { isTargeted in
-                        if isTargeted && conversation.id != sidebar.draggingConversationId {
-                            // Suppress drop indicator for within-Recents drags
-                            if conversation.groupId == ConversationGroup.all.id,
-                               let dragId = sidebar.draggingConversationId,
-                               conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
-                                return
-                            }
-                            sidebar.dropTargetConversationId = conversation.id
-                            if let dragId = sidebar.draggingConversationId {
-                                let groupConversations = conversationManager.groupedConversations
-                                    .first { $0.group?.id == group.id }?.conversations ?? []
-                                let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
-                                let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                            }
-                        } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                            sidebar.dropTargetConversationId = nil
-                        }
-                    }
+                    .onDrop(of: [.plainText], delegate: SidebarConversationRowDropDelegate(
+                        conversation: conversation,
+                        sectionGroupId: group.id,
+                        sidebar: sidebar,
+                        conversationManager: conversationManager
+                    ))
             }
         } else {
             ForEach(displayed) { conversation in
@@ -279,47 +239,45 @@ struct SidebarSectionView: View {
     private func scheduleSubGroupDisclosure(_ subGroup: ScheduleSubGroup) -> some View {
         let isSubGroupExpanded = expandedScheduleGroups?.wrappedValue.contains(subGroup.key) ?? false
         let hasUnread = subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+        let isSubGroupHovered = hoveredSubGroupKey == subGroup.key
+        let isSubGroupMenuOpen = menuOpenSubGroupKey == subGroup.key
+        let showEllipsis = isSubGroupHovered || isSubGroupMenuOpen
 
         // Disclosure header — layout matches SidebarConversationItem's skeleton
         // so the chevron aligns with the pin icon and the badge aligns with the ellipsis.
-        Button {
-            withAnimation(VAnimation.fast) {
-                if isSubGroupExpanded {
-                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
-                } else {
-                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
-                }
-            }
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                // Leading 20x20 slot — chevron centered, matching pin icon position
-                VIconView(.chevronRight, size: 10)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
-                    .animation(VAnimation.fast, value: isSubGroupExpanded)
-                    .frame(width: 20, height: 20)
+        // Uses .onTapGesture instead of Button so overlay VButtons sit above the
+        // tap gesture in the hit-test chain and absorb taps without triggering the
+        // toggle (same pattern as SidebarSectionHeader and SidebarConversationItem).
+        HStack(spacing: VSpacing.xs) {
+            // Leading 20x20 slot — chevron centered, matching pin icon position
+            VIconView(.chevronRight, size: 10)
+                .foregroundStyle(VColor.contentTertiary)
+                .rotationEffect(.degrees(isSubGroupExpanded ? 90 : 0))
+                .animation(VAnimation.fast, value: isSubGroupExpanded)
+                .frame(width: 20, height: 20)
 
-                VMarqueeText(
-                    text: subGroup.label,
-                    font: VFont.bodySmallDefault,
-                    measuringFont: VFont.nsBodySmallDefault,
-                    foregroundStyle: VColor.contentTertiary,
-                    isHovered: hoveredSubGroupKey == subGroup.key
-                )
-                Spacer()
-                if hasUnread {
-                    VBadge(style: .dot, color: VColor.systemMidStrong)
-                        .transition(.opacity)
-                }
+            VMarqueeText(
+                text: subGroup.label,
+                font: VFont.bodySmallDefault,
+                measuringFont: VFont.nsBodySmallDefault,
+                foregroundStyle: VColor.contentTertiary,
+                isHovered: isSubGroupHovered
+            )
+            Spacer()
+            if hasUnread && !showEllipsis {
+                VBadge(style: .dot, color: VColor.systemMidStrong)
+                    .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .contentShape(Rectangle())
-            // Count badge — trailing overlay matching ellipsis button position
-            .overlay(alignment: .trailing) {
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, SidebarLayoutMetrics.trailingIconPadding)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .contentShape(Rectangle())
+        // Count badge — hidden on hover when the ellipsis button takes over
+        .overlay(alignment: .trailing) {
+            if !showEllipsis {
                 Text("\(subGroup.conversations.count)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(VColor.contentTertiary)
@@ -332,8 +290,67 @@ struct SidebarSectionView: View {
                     .padding(.trailing, VSpacing.xs)
             }
         }
-        .buttonStyle(.plain)
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+                } else {
+                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
+                }
+            }
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Toggle \(subGroup.label)")
+        .accessibilityAction(.default) {
+            withAnimation(VAnimation.fast) {
+                if isSubGroupExpanded {
+                    expandedScheduleGroups?.wrappedValue.remove(subGroup.key)
+                } else {
+                    expandedScheduleGroups?.wrappedValue.insert(subGroup.key)
+                }
+            }
+        }
         .pointerCursor()
+        .animation(VAnimation.fast, value: showEllipsis)
+        // Ellipsis button overlay — rendered after .onTapGesture so it sits
+        // above it in the hit-test chain and absorbs taps without triggering
+        // the disclosure toggle (same pattern as SidebarConversationItem).
+        .overlay(alignment: .trailing) {
+            if showEllipsis {
+                VButton(
+                    label: "More options for \(subGroup.label)",
+                    iconOnly: VIcon.ellipsis.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: "More options",
+                    iconColor: VColor.contentSecondary
+                ) {
+                    guard menuOpenSubGroupKey != subGroup.id else { return }
+                    menuOpenSubGroupKey = subGroup.id
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            let unread = subGroup.conversations.filter(\.hasUnseenLatestAssistantMessage)
+                            VMenuItem(icon: VIcon.circleCheck.rawValue, label: "Mark All as Read") {
+                                onMarkAllReadInSubGroup?(subGroup.label, subGroup.conversations.map(\.id))
+                            }
+                            .disabled(unread.isEmpty)
+                            let archivable = subGroup.conversations.filter { !$0.isChannelConversation }
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive All\u{2026}") {
+                                onArchiveAllInSubGroup?(subGroup.label, archivable.map(\.id))
+                            }
+                            .disabled(archivable.isEmpty)
+                        }
+                    } onDismiss: {
+                        menuOpenSubGroupKey = nil
+                    }
+                }
+                .padding(.trailing, VSpacing.xs)
+            }
+        }
         .onHover { hovering in
             if hovering {
                 hoveredSubGroupKey = subGroup.key
@@ -524,6 +541,68 @@ struct SectionBodyDropModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Drop delegate for individual conversation rows within a section.
+/// Replaces `.dropDestination(for: String.self)` to avoid synchronous
+/// `Transferable` conformance resolution on every `ForEachChild` update.
+struct SidebarConversationRowDropDelegate: DropDelegate {
+    let conversation: ConversationModel
+    let sectionGroupId: String
+    let sidebar: SidebarInteractionState
+    let conversationManager: ConversationManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let sourceId = sidebar.draggingConversationId,
+              sourceId != conversation.id else { return false }
+        // Block within-Recents reorder — Recents uses recency sorting.
+        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+            return false
+        }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard conversation.id != sidebar.draggingConversationId else { return }
+        // Suppress drop indicator for within-Recents drags
+        if conversation.groupId == ConversationGroup.all.id,
+           let dragId = sidebar.draggingConversationId,
+           conversationManager.conversations.first(where: { $0.id == dragId })?.groupId == ConversationGroup.all.id {
+            return
+        }
+        sidebar.dropTargetConversationId = conversation.id
+        if let dragId = sidebar.draggingConversationId {
+            let groupConversations = conversationManager.groupedConversations
+                .first { $0.group?.id == sectionGroupId }?.conversations ?? []
+            let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+            let tIdx = groupConversations.firstIndex(where: { $0.id == conversation.id }) ?? 0
+            sidebar.dropIndicatorAtBottom = sIdx < tIdx
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        if sidebar.dropTargetConversationId == conversation.id {
+            sidebar.dropTargetConversationId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingConversationId
+        sidebar.endConversationDrag()
+        guard let sourceId, sourceId != conversation.id else { return false }
+        // Block within-Recents reorder
+        let sourceGroup = conversationManager.conversations.first(where: { $0.id == sourceId })?.groupId
+        if sourceGroup == ConversationGroup.all.id && conversation.groupId == ConversationGroup.all.id {
+            return false
+        }
+        let insertAfter = sidebar.dropIndicatorAtBottom
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: conversation.id, insertAfterTarget: insertAfter)
     }
 }
 

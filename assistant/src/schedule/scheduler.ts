@@ -1,3 +1,4 @@
+import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
@@ -23,6 +24,7 @@ const log = getLogger("scheduler");
 
 export interface ScheduleMessageOptions {
   trustClass?: "guardian" | "trusted_contact" | "unknown";
+  taskRunId?: string;
 }
 
 export type ScheduleMessageProcessor = (
@@ -140,11 +142,21 @@ async function runScheduleOnce(
         });
         if (isOneShot) {
           completeOneShot(job.id);
+          emitScheduleFeedEvent({
+            title: job.name,
+            summary: "Reminder fired.",
+            dedupKey: `schedule-notify-oneshot:${job.id}`,
+          });
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
           // and retryCount clears after a transient failure.
           const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
           completeScheduleRun(runId, { status: "ok" });
+          emitScheduleFeedEvent({
+            title: job.name,
+            summary: "Scheduled notification fired.",
+            dedupKey: `schedule-run:${runId}`,
+          });
         }
       } catch (err) {
         log.warn(
@@ -196,11 +208,12 @@ async function runScheduleOnce(
             source: "schedule",
             scheduleJobId: job.id,
           },
-          processMessage as (
-            conversationId: string,
-            message: string,
-            taskRunId: string,
-          ) => Promise<void>,
+          async (conversationId, message, taskRunId) => {
+            await processMessage(conversationId, message, {
+              trustClass: "guardian",
+              taskRunId,
+            });
+          },
         );
 
         onScheduleConversationCreated?.({
@@ -221,6 +234,11 @@ async function runScheduleOnce(
           completeScheduleRun(runId, { status: "ok" });
           if (!job.quiet) {
             notifySchedule({ id: job.id, name: job.name });
+            emitScheduleFeedEvent({
+              title: job.name,
+              summary: "Scheduled task ran.",
+              dedupKey: `schedule-run:${runId}`,
+            });
           }
           if (isOneShot) completeOneShot(job.id);
         }
@@ -315,6 +333,11 @@ async function runScheduleOnce(
       completeScheduleRun(runId, { status: "ok" });
       if (!job.quiet) {
         notifySchedule({ id: job.id, name: job.name });
+        emitScheduleFeedEvent({
+          title: job.name,
+          summary: isOneShot ? "One-shot reminder ran." : "Scheduled job ran.",
+          dedupKey: `schedule-run:${runId}`,
+        });
       }
       if (isOneShot) completeOneShot(job.id);
       processed += 1;
@@ -381,4 +404,33 @@ async function runScheduleOnce(
     log.info({ processed }, "Schedule tick complete");
   }
   return processed;
+}
+
+/**
+ * Fire-and-forget home-feed emit for a successful schedule run.
+ *
+ * Wraps {@link emitFeedEvent} with local error handling so a schema
+ * failure or writer hiccup can never interrupt the scheduler tick
+ * loop. The dedupKey is always derived from the schedule run id (or
+ * the job id, for one-shot notify-mode which fires before a run
+ * record is created) so each run lands as its own entry in the
+ * activity log — the writer's per-source cap keeps total volume
+ * bounded.
+ */
+function emitScheduleFeedEvent(params: {
+  title: string;
+  summary: string;
+  dedupKey: string;
+}): void {
+  void emitFeedEvent({
+    source: "assistant",
+    title: params.title,
+    summary: params.summary,
+    dedupKey: params.dedupKey,
+  }).catch((err) => {
+    log.warn(
+      { err, dedupKey: params.dedupKey },
+      "Failed to emit schedule feed event",
+    );
+  });
 }

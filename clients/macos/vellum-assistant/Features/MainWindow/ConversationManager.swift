@@ -56,8 +56,16 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
+    private let conversationHostAccessClient: any ConversationHostAccessClientProtocol
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
+
+    // MARK: - Pre-Chat Onboarding
+
+    /// Pre-chat onboarding context from the onboarding flow. Set by AppDelegate
+    /// on first launch; consumed by the first draft ChatViewModel so the first
+    /// message POST includes it for assistant personalization.
+    var preChatContext: PreChatOnboardingContext?
 
     // MARK: - Notification Catch-Up
 
@@ -108,10 +116,6 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     var restoreRecentConversations: Bool {
         selectionStore.restoreRecentConversations
-    }
-
-    var lastActiveConversationIdString: String? {
-        selectionStore.lastActiveConversationIdString
     }
 
     var activeConversationId: UUID? {
@@ -166,8 +170,10 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
+        conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
-        isFirstLaunch: Bool = false
+        isFirstLaunch: Bool = false,
+        preChatContext: PreChatOnboardingContext? = nil
     ) {
         Self.migrateStorageKeysIfNeeded()
         self.connectionManager = connectionManager
@@ -175,9 +181,14 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
+        self.conversationHostAccessClient = conversationHostAccessClient
         self.conversationAnalysisClient = conversationAnalysisClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
+
+        // Set pre-chat context before enterDraftMode() so the first draft VM
+        // picks it up when it checks preChatContext.
+        self.preChatContext = preChatContext
 
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
@@ -205,6 +216,11 @@ final class ConversationManager: ConversationRestorerDelegate {
                 switch message {
                 case .conversationIdResolved(let localId, let serverId):
                     self.resolveConversationId(from: localId, to: serverId)
+                case .conversationHostAccessUpdated(let message):
+                    self.applyConversationHostAccessUpdate(
+                        serverConversationId: message.conversationId,
+                        hostAccess: message.hostAccess
+                    )
                 default:
                     break
                 }
@@ -312,8 +328,11 @@ final class ConversationManager: ConversationRestorerDelegate {
         // loadHistoryIfNeeded fetches fresh data from the daemon.
         if let conversation = listStore.conversations.first(where: { $0.id == id }),
            conversation.isChannelConversation,
-           let vm = selectionStore.chatViewModels[id], vm.isHistoryLoaded {
-            vm.prepareForChannelRefresh()
+           let vm = selectionStore.chatViewModels[id] {
+            vm.isChannelConversation = true
+            if vm.isHistoryLoaded {
+                vm.prepareForChannelRefresh()
+            }
         }
 
         selectionStore.performActivation(for: id)
@@ -481,6 +500,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true
+        // Forward pending pre-chat onboarding context to the draft VM so
+        // the first message POST includes it. Consume from the manager so
+        // only the first draft conversation gets the context.
+        if let context = preChatContext {
+            viewModel.pendingOnboardingContext = context
+            preChatContext = nil
+        }
         viewModel.onUserMessageSent = { [weak self] in
             self?.promoteDraft(fromUserSend: true)
         }
@@ -673,9 +699,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if let conversationId = listStore.conversations[index].conversationId {
             selectionStore.chatViewModels[id]?.stopGenerating()
-            var archived = listStore.archivedConversationIds
-            archived.insert(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(conversationId)
             selectionStore.removeChatViewModel(for: id)
         } else if selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && selectionStore.chatViewModels[id]?.isBootstrapping != true {
@@ -722,9 +746,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations = draft
 
         if !newlyArchivedServerIds.isEmpty {
-            var archived = listStore.archivedConversationIds
-            archived.formUnion(newlyArchivedServerIds)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(newlyArchivedServerIds)
         }
 
         for id in ids {
@@ -771,9 +793,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations[index].isArchived = false
         selectionStore.getOrCreateViewModel(for: id)
         if let conversationId = listStore.conversations[index].conversationId {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversationId)
         }
         log.info("Unarchived conversation \(id)")
     }
@@ -795,6 +815,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         if selectionStore.chatViewModels[id] == nil {
             let viewModel = makeViewModel()
             viewModel.conversationId = conversation.conversationId
+            viewModel.isChannelConversation = conversation.isChannelConversation
             selectionStore.chatViewModels[id] = viewModel
             activityStore.observeBusyState(for: id, messageManager: viewModel.messageManager)
             activityStore.observeAssistantActivity(for: id, messageManager: viewModel.messageManager)
@@ -804,8 +825,11 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         selectionStore.touchVMAccessOrder(id)
 
-        if conversation.isChannelConversation, let vm = selectionStore.chatViewModels[id], vm.isHistoryLoaded {
-            vm.prepareForChannelRefresh()
+        if conversation.isChannelConversation, let vm = selectionStore.chatViewModels[id] {
+            vm.isChannelConversation = true
+            if vm.isHistoryLoaded {
+                vm.prepareForChannelRefresh()
+            }
         }
 
         selectionStore.performActivation(for: id)
@@ -857,9 +881,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard conversation.conversationType != "private" else { return false }
 
         if listStore.isConversationArchived(conversation.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversation.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversation.id)
         }
 
         guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
@@ -898,9 +920,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
 
         if listStore.isConversationArchived(conversation.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(conversation.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(conversation.id)
         }
 
         guard let localConversationId = upsertConversation(from: conversation, isArchived: false) else {
@@ -1020,9 +1040,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.conversations = updated
 
         if !newlyArchivedServerIds.isEmpty {
-            var archived = listStore.archivedConversationIds
-            archived.formUnion(newlyArchivedServerIds)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(newlyArchivedServerIds)
         }
 
         for id in idsToArchive {
@@ -1070,6 +1088,32 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func updateConversationTitle(id: UUID, title: String) {
         listStore.updateConversationTitle(id: id, title: title)
+    }
+
+    func setConversationHostAccess(id localId: UUID, enabled: Bool) async -> Bool {
+        guard let index = listStore.conversations.firstIndex(where: { $0.id == localId }),
+              let conversationId = listStore.conversations[index].conversationId else {
+            return false
+        }
+
+        let previousHostAccess = listStore.conversations[index].hostAccess
+        guard previousHostAccess != enabled else { return true }
+
+        listStore.updateConversationHostAccess(id: localId, hostAccess: enabled)
+        let response = await conversationHostAccessClient.updateConversationHostAccess(
+            conversationId: conversationId,
+            hostAccess: enabled
+        )
+        guard let response else {
+            listStore.updateConversationHostAccess(id: localId, hostAccess: previousHostAccess)
+            return false
+        }
+
+        applyConversationHostAccessUpdate(
+            serverConversationId: response.conversationId,
+            hostAccess: response.hostAccess
+        )
+        return true
     }
 
     func renameConversation(id: UUID, title: String) {
@@ -1244,22 +1288,22 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard item.conversationType != "private" else { return nil }
 
         if !isArchived && listStore.isConversationArchived(item.id) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(item.id)
-            listStore.archivedConversationIds = archived
+            listStore.unmarkArchived(item.id)
         }
 
         if let existingIdx = listStore.conversations.firstIndex(where: { $0.conversationId == item.id }) {
             let existingConversation = listStore.conversations[existingIdx]
-            listStore.conversations[existingIdx] = listStore.conversationModel(
+            let updatedConversation = listStore.conversationModel(
                 from: item,
                 localId: existingConversation.id,
                 createdAt: existingConversation.createdAt,
                 isArchived: isArchived
             )
+            listStore.conversations[existingIdx] = updatedConversation
             listStore.mergeAssistantAttention(from: item, intoConversationAt: existingIdx)
             if let viewModel = selectionStore.chatViewModels[existingConversation.id] {
                 viewModel.conversationId = item.id
+                viewModel.isChannelConversation = updatedConversation.isChannelConversation
                 viewModel.ensureMessageLoopStarted()
             }
             return existingConversation.id
@@ -1268,6 +1312,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         let conversationModel = listStore.conversationModel(from: item, isArchived: isArchived)
         let viewModel = makeViewModel()
         viewModel.conversationId = item.id
+        viewModel.isChannelConversation = conversationModel.isChannelConversation
         viewModel.startMessageLoop()
 
         listStore.conversations.insert(conversationModel, at: 0)
@@ -1304,12 +1349,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         if let override = listStore.pendingAttentionOverrides.removeValue(forKey: syntheticId) {
             listStore.pendingAttentionOverrides[serverId] = override
         }
-        if listStore.archivedConversationIds.contains(syntheticId) {
-            var archived = listStore.archivedConversationIds
-            archived.remove(syntheticId)
-            archived.insert(serverId)
-            listStore.archivedConversationIds = archived
-        }
+        // Preserves the original archive timestamp across the synthetic → server id swap.
+        listStore.replaceArchivedKey(from: syntheticId, to: serverId)
         if let idx = listStore.pendingSeenConversationIds.firstIndex(of: syntheticId) {
             listStore.pendingSeenConversationIds[idx] = serverId
         }
@@ -1350,9 +1391,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         // Persist archive state now that we have a server ID.
         if listStore.conversations[index].isArchived {
-            var archived = listStore.archivedConversationIds
-            archived.insert(conversationId)
-            listStore.archivedConversationIds = archived
+            listStore.markArchived(conversationId)
             // The conversation was archived while waiting for a server ID.
             // Now that backfill is complete, release the ViewModel we were
             // keeping alive solely for the correlation ID callback.
@@ -1372,6 +1411,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         if localId == selectionStore.activeConversationId {
             conversationRestorer.loadHistoryIfNeeded(conversationId: localId)
         }
+    }
+
+    private func applyConversationHostAccessUpdate(serverConversationId: String, hostAccess: Bool) {
+        guard let localId = listStore.conversations.first(where: { $0.conversationId == serverConversationId })?.id else {
+            return
+        }
+        listStore.updateConversationHostAccess(id: localId, hostAccess: hostAccess)
     }
 
     // MARK: - Assistant Activity Handling

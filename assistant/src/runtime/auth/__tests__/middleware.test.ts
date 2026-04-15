@@ -34,7 +34,15 @@ mock.module("../../../config/env.js", () => ({
 }));
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
-import { authenticateRequest } from "../middleware.js";
+import {
+  mintHostBrowserCapability,
+  resetCapabilityTokenSecretForTests,
+  setCapabilityTokenSecretForTests,
+} from "../../capability-tokens.js";
+import {
+  authenticateHostBrowserResultRequest,
+  authenticateRequest,
+} from "../middleware.js";
 import { initAuthSigningKey, mintToken } from "../token-service.js";
 import type { ScopeProfile, TokenAudience } from "../types.js";
 
@@ -259,6 +267,113 @@ describe("authenticateRequest", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// authenticateHostBrowserResultRequest — capability-token-aware auth for the
+// /v1/host-browser-result POST route. Verifies that both the capability-token
+// and JWT paths are accepted, and that a garbage bearer falls through to the
+// JWT path and emits a 401 like any other invalid token.
+// ---------------------------------------------------------------------------
+
+describe("authenticateHostBrowserResultRequest", () => {
+  const CAPABILITY_SECRET = Buffer.alloc(32, 7);
+
+  beforeEach(() => {
+    // Pin the capability-token HMAC secret so mint/verify agree across
+    // the test run. The module-level secret cache is reset between
+    // tests so dev-bypass flipping doesn't leak stale state.
+    setCapabilityTokenSecretForTests(CAPABILITY_SECRET);
+  });
+
+  afterAll(() => {
+    resetCapabilityTokenSecretForTests();
+  });
+
+  test("accepts a valid capability token and synthesizes an actor AuthContext", () => {
+    const { token } = mintHostBrowserCapability("guardian-cap-happy");
+    const req = new Request("http://localhost/v1/host-browser-result", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const result = authenticateHostBrowserResultRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.principalType).toBe("actor");
+      expect(result.context.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+      expect(result.context.actorPrincipalId).toBe("guardian-cap-happy");
+      expect(result.context.scopeProfile).toBe("actor_client_v1");
+      // The synthetic context must carry the scopes the route policy
+      // requires — otherwise the router would 403 the POST even though
+      // auth succeeded.
+      expect(result.context.scopes.has("approval.write")).toBe(true);
+    }
+  });
+
+  test("accepts a valid daemon-audience JWT (regression for the legacy path)", () => {
+    const token = mintValidToken({ sub: "actor:self:jwt-principal" });
+    const req = new Request("http://localhost/v1/host-browser-result", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const result = authenticateHostBrowserResultRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.principalType).toBe("actor");
+      expect(result.context.actorPrincipalId).toBe("jwt-principal");
+      expect(result.context.scopes.has("approval.write")).toBe(true);
+    }
+  });
+
+  test("returns 401 when the Authorization header is missing entirely", () => {
+    const req = new Request("http://localhost/v1/host-browser-result", {
+      method: "POST",
+    });
+
+    const result = authenticateHostBrowserResultRequest(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
+
+  test("malformed bearer falls through to JWT path and 401s", () => {
+    // A bearer that is neither a valid capability token (bad HMAC) nor a
+    // parseable JWT must fail the JWT path and return 401. This is the
+    // primary regression guard against someone accidentally making the
+    // capability-token branch "allow-anything" by swallowing
+    // verification failures.
+    const req = new Request("http://localhost/v1/host-browser-result", {
+      method: "POST",
+      headers: { Authorization: "Bearer not-a-token.xxxxxxxxxxxxx" },
+    });
+
+    const result = authenticateHostBrowserResultRequest(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
+
+  test("dev bypass returns synthetic AuthContext without Authorization header", () => {
+    authDisabled = true;
+
+    const req = new Request("http://localhost/v1/host-browser-result", {
+      method: "POST",
+    });
+
+    const result = authenticateHostBrowserResultRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Same synthetic context shape as authenticateRequest's dev
+      // bypass — the tests share the same invariant because a single
+      // helper builds both.
+      expect(result.context.principalType).toBe("actor");
+      expect(result.context.actorPrincipalId).toBe("dev-bypass");
     }
   });
 });

@@ -450,6 +450,39 @@ export async function deleteSecureKeyAsync(
   }, "error");
 }
 
+/**
+ * Bulk-set multiple credentials in a single operation.
+ *
+ * Uses the backend's native `bulkSet` when available (CES RPC / HTTP),
+ * otherwise falls back to individual `set` calls.
+ */
+export async function bulkSetSecureKeysAsync(
+  credentials: Array<{ account: string; value: string }>,
+): Promise<Array<{ account: string; ok: boolean }>> {
+  return withCredentialTimeout(
+    async () => {
+      const backend = await resolveBackendAsync();
+      if (backend.bulkSet) {
+        const results = await backend.bulkSet(credentials);
+        const anyFailed = results.some((r) => !r.ok);
+        updateCesHttpReachability(backend, anyFailed);
+        return results;
+      }
+      // Fallback: loop individual sets
+      const results = [];
+      let anyFailed = false;
+      for (const { account, value } of credentials) {
+        const ok = await backend.set(account, value);
+        if (!ok) anyFailed = true;
+        results.push({ account, ok });
+      }
+      updateCesHttpReachability(backend, anyFailed);
+      return results;
+    },
+    credentials.map((c) => ({ account: c.account, ok: false })),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Provider API key lookup — secure store + env var fallback
 // ---------------------------------------------------------------------------

@@ -17,6 +17,9 @@ extension DynamicPageSurfaceView {
         /// The page currently displayed in a multi-page app (e.g. "settings.html").
         var currentPage: String = "index.html"
         let sandboxMode: Bool
+        /// Allowed base URL for native fetch bridge requests (e.g. "http://127.0.0.1:7830").
+        /// Requests to other origins are rejected to prevent arbitrary network access.
+        let allowedFetchBaseURL: String?
         weak var webView: WKWebView?
         var lastTopInset: Int = 0
         var lastBottomInset: Int = 0
@@ -54,7 +57,8 @@ extension DynamicPageSurfaceView {
             onSnapshotCaptured: ((String) -> Void)?,
             onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
             currentHTML: String,
-            sandboxMode: Bool = false
+            sandboxMode: Bool = false,
+            allowedFetchBaseURL: String? = nil
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
@@ -63,6 +67,7 @@ extension DynamicPageSurfaceView {
             self.onLinkOpen = onLinkOpen
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
+            self.allowedFetchBaseURL = allowedFetchBaseURL
         }
 
         func userContentController(
@@ -83,6 +88,7 @@ extension DynamicPageSurfaceView {
                 default:
                     log.info("[WebView] \(msg, privacy: .public)")
                 }
+
                 return
             }
 
@@ -100,6 +106,134 @@ extension DynamicPageSurfaceView {
                     log.error("data_request received but onDataRequest callback is nil — appId was likely not set")
                 }
                 onDataRequest?(callId, method, recordId, data)
+                return
+            }
+
+            // Handle fetch_request messages from the native fetch bridge.
+            // Routes HTTP requests through URLSession to bypass WKWebView's
+            // mixed-content blocking (HTTPS page → HTTP localhost gateway).
+            if let type = body["type"] as? String, type == "fetch_request" {
+                if sandboxMode {
+                    log.warning("fetch_request: blocked in sandbox mode")
+                    if let callId = body["callId"] as? String {
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                        webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: sandbox mode')", completionHandler: nil)
+                    }
+                    return
+                }
+                guard let callId = body["callId"] as? String,
+                      let urlString = body["url"] as? String,
+                      let method = body["method"] as? String else {
+                    log.error("fetch_request: missing required fields: \(String(describing: body), privacy: .public)")
+                    return
+                }
+                let headers = body["headers"] as? [String: String] ?? [:]
+                let bodyString = body["body"] as? String
+
+                guard let url = URL(string: urlString) else {
+                    log.error("[vellum.fetch] Invalid URL: \(urlString, privacy: .public)")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Invalid URL')", completionHandler: nil)
+                    return
+                }
+
+                // Validate that the URL targets the expected gateway origin.
+                // When allowedFetchBaseURL is nil (no credentials), reject all requests.
+                guard let allowed = allowedFetchBaseURL, urlString.hasPrefix(allowed + "/") else {
+                    log.error("[vellum.fetch] Blocked request to disallowed origin: \(urlString, privacy: .public) (allowed: \(self.allowedFetchBaseURL ?? "nil", privacy: .public))")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: disallowed origin')", completionHandler: nil)
+                    return
+                }
+
+                // SECURITY: Scope authenticated fetch to custom routes (/v1/x/) only.
+                // The JS bridge rewrites paths through the assistant prefix, so a
+                // call to `/v1/x/foo` becomes `/v1/assistants/<id>/x/foo`. We
+                // canonicalize the URL path first to prevent dot-segment bypasses
+                // like `/v1/x/../secrets`. (ATL-83)
+                let canonicalPath = url.standardized.path
+                let isCustomRoute = canonicalPath.hasPrefix("/v1/x/")
+                    || canonicalPath.range(of: #"^/v1/assistants/[^/]+/x/"#, options: .regularExpression) != nil
+                guard isCustomRoute else {
+                    log.error("[vellum.fetch] Blocked request to disallowed path: \(canonicalPath, privacy: .public)")
+                    let safeCallId = callId
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "'", with: "\\'")
+                        .replacingOccurrences(of: "\n", with: "\\n")
+                        .replacingOccurrences(of: "\r", with: "\\r")
+                    webView?.evaluateJavaScript("window.vellum._rejectFetch('\(safeCallId)', 'Request blocked: path not allowed')", completionHandler: nil)
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = method
+                for (key, value) in headers {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+                if let bodyString, !bodyString.isEmpty {
+                    request.httpBody = bodyString.data(using: .utf8)
+                }
+
+                let targetWebView = webView
+                Task.detached(priority: .userInitiated) {
+                    do {
+                        let (data, response) = try await URLSession.shared.data(for: request)
+                        let httpResponse = response as? HTTPURLResponse
+                        let statusCode = httpResponse?.statusCode ?? 0
+                        let statusText = HTTPURLResponse.localizedString(forStatusCode: statusCode)
+                        let responseBody = String(data: data, encoding: .utf8) ?? ""
+
+                        let escapedBody = responseBody
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+                            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                        let safeStatusText = statusText
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+
+                        let js = "window.vellum._resolveFetch('\(safeCallId)', \(statusCode), '\(safeStatusText)', '\(escapedBody)')"
+                        await MainActor.run {
+                            targetWebView?.evaluateJavaScript(js, completionHandler: nil)
+                        }
+                    } catch {
+                        let safeCallId = callId
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                        let errorMessage = error.localizedDescription
+                            .replacingOccurrences(of: "\\", with: "\\\\")
+                            .replacingOccurrences(of: "'", with: "\\'")
+                            .replacingOccurrences(of: "\n", with: "\\n")
+                            .replacingOccurrences(of: "\r", with: "\\r")
+                        let js = "window.vellum._rejectFetch('\(safeCallId)', '\(errorMessage)')"
+                        await MainActor.run {
+                            targetWebView?.evaluateJavaScript(js, completionHandler: nil)
+                        }
+                    }
+                }
                 return
             }
 

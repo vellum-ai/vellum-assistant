@@ -166,7 +166,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             }
 
             // Fetch the latest stable release from the platform API
-            let platformBase = AuthService.shared.baseURL
+            let platformBase = VellumEnvironment.resolvedPlatformURL
             guard let releasesURL = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
                 log.error("Service group update check failed: could not construct releases URL from base \(platformBase, privacy: .public)")
                 clearServiceGroupFlags()

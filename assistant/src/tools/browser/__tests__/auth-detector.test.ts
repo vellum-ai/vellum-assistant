@@ -3,48 +3,60 @@ import { describe, expect, it } from "bun:test";
 import {
   type AuthChallenge,
   detectAuthChallenge,
+  detectCaptchaChallenge,
   formatAuthChallenge,
   identifyService,
   isAuthUrl,
 } from "../auth-detector.js";
-import type { Page } from "../browser-manager.js";
+import { CdpError } from "../cdp-client/errors.js";
+import type { CdpClient } from "../cdp-client/types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Build a minimal mock Page whose `url()` returns the given URL and
- * `evaluate()` runs a callback that simulates a DOM structure.
+ * Programmable fake CdpClient used in place of a Playwright Page.
  *
- * `evaluateResult` is the value that `page.evaluate()` will resolve with,
- * matching the shape returned by the DOM_DETECT_EXPRESSION IIFE inside
- * auth-detector.ts.
+ * `urlValue` drives the response to `document.location.href` reads,
+ * `domResult` drives the auth-detector DOM IIFE, and `captchaResult`
+ * drives the CAPTCHA detector IIFE. Any of these can be replaced with
+ * a function to throw for specific call counts.
  */
-function mockPage(url: string, evaluateResult: unknown = null): Page {
+function fakeCdp(opts: {
+  urlValue: string;
+  domResult?: unknown;
+  captchaResult?: boolean;
+  throwOn?: (expression: string) => boolean;
+}): CdpClient {
   return {
-    close: async () => {},
-    isClosed: () => false,
-    goto: async () => null,
-    title: async () => "",
-    url: () => url,
-    evaluate: async (_expr: string) => evaluateResult,
-    click: async () => {},
-    fill: async () => {},
-    press: async () => {},
-    selectOption: async () => [] as string[],
-    hover: async () => {},
-    waitForSelector: async () => null,
-    waitForFunction: async () => null,
-    route: async () => {},
-    unroute: async () => {},
-    screenshot: async () => Buffer.from(""),
-    keyboard: { press: async () => {} },
-    mouse: {
-      click: async () => {},
-      move: async () => {},
-      wheel: async () => {},
+    async send<T>(
+      method: string,
+      params?: Record<string, unknown>,
+    ): Promise<T> {
+      if (method !== "Runtime.evaluate") {
+        throw new Error(
+          `unexpected CDP method in auth-detector test: ${method}`,
+        );
+      }
+      const expression = String(
+        (params as Record<string, unknown>)?.["expression"] ?? "",
+      );
+      if (opts.throwOn?.(expression)) {
+        throw new CdpError("cdp_error", "synthetic failure", {
+          cdpMethod: method,
+          cdpParams: params,
+        });
+      }
+      if (expression === "document.location.href") {
+        return { result: { value: opts.urlValue } } as T;
+      }
+      // CAPTCHA detector expression starts with "(() => {\n  // Cloudflare"
+      if (/just a moment/.test(expression)) {
+        return { result: { value: opts.captchaResult === true } } as T;
+      }
+      // Anything else is treated as the auth-detector DOM IIFE.
+      return { result: { value: opts.domResult ?? null } } as T;
     },
-    bringToFront: async () => {},
-    on: () => {},
+    dispose() {},
   };
 }
 
@@ -187,33 +199,39 @@ describe("isAuthUrl", () => {
 
 describe("detectAuthChallenge - login pages", () => {
   it("detects a generic login page with password input", async () => {
-    const page = mockPage("https://example.com/login", {
-      type: "login",
-      fields: [
-        { type: "email", selector: 'input[type="email"]', label: "email" },
-        {
-          type: "password",
-          selector: 'input[type="password"]',
-          label: "password",
-        },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/login",
+      domResult: {
+        type: "login",
+        fields: [
+          { type: "email", selector: 'input[type="email"]', label: "email" },
+          {
+            type: "password",
+            selector: 'input[type="password"]',
+            label: "password",
+          },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("login");
     expect(result!.fields.some((f) => f.type === "password")).toBe(true);
   });
 
   it("detects Google email step via #identifierId", async () => {
-    const page = mockPage("https://accounts.google.com/v3/signin/identifier", {
-      type: "login",
-      fields: [
-        { type: "email", selector: "#identifierId", label: "Google email" },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://accounts.google.com/v3/signin/identifier",
+      domResult: {
+        type: "login",
+        fields: [
+          { type: "email", selector: "#identifierId", label: "Google email" },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("login");
     expect(result!.service).toBe("Google");
@@ -221,27 +239,33 @@ describe("detectAuthChallenge - login pages", () => {
   });
 
   it("detects Google password step", async () => {
-    const page = mockPage("https://accounts.google.com/v3/signin/challenge", {
-      type: "login",
-      fields: [
-        {
-          type: "password",
-          selector: 'input[type="password"][name="Passwd"]',
-          label: "Google password",
-        },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://accounts.google.com/v3/signin/challenge",
+      domResult: {
+        type: "login",
+        fields: [
+          {
+            type: "password",
+            selector: 'input[type="password"][name="Passwd"]',
+            label: "Google password",
+          },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("login");
     expect(result!.service).toBe("Google");
   });
 
   it("falls back to URL-only detection when DOM has no auth elements", async () => {
-    const page = mockPage("https://accounts.google.com/ServiceLogin", null);
+    const cdp = fakeCdp({
+      urlValue: "https://accounts.google.com/ServiceLogin",
+      domResult: null,
+    });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("login");
     expect(result!.service).toBe("Google");
@@ -253,36 +277,42 @@ describe("detectAuthChallenge - login pages", () => {
 
 describe("detectAuthChallenge - 2FA pages", () => {
   it("detects a 2FA page with code input", async () => {
-    const page = mockPage("https://accounts.google.com/signin/v2/challenge", {
-      type: "2fa",
-      fields: [
-        {
-          type: "code",
-          selector: 'input[name="code"]',
-          label: "verification code",
-        },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://accounts.google.com/signin/v2/challenge",
+      domResult: {
+        type: "2fa",
+        fields: [
+          {
+            type: "code",
+            selector: 'input[name="code"]',
+            label: "verification code",
+          },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("2fa");
     expect(result!.fields.some((f) => f.type === "code")).toBe(true);
   });
 
   it("detects 2FA via text patterns even without specific input", async () => {
-    const page = mockPage("https://example.com/verify", {
-      type: "2fa",
-      fields: [
-        {
-          type: "code",
-          selector: "",
-          label: "verification code (text detected)",
-        },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/verify",
+      domResult: {
+        type: "2fa",
+        fields: [
+          {
+            type: "code",
+            selector: "",
+            label: "verification code (text detected)",
+          },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("2fa");
   });
@@ -292,18 +322,21 @@ describe("detectAuthChallenge - 2FA pages", () => {
 
 describe("detectAuthChallenge - OAuth consent", () => {
   it("detects an OAuth consent page with Allow button", async () => {
-    const page = mockPage("https://accounts.google.com/o/oauth2/v2/auth", {
-      type: "oauth_consent",
-      fields: [
-        {
-          type: "approval",
-          selector: "#submit_approve_access",
-          label: "Allow",
-        },
-      ],
+    const cdp = fakeCdp({
+      urlValue: "https://accounts.google.com/o/oauth2/v2/auth",
+      domResult: {
+        type: "oauth_consent",
+        fields: [
+          {
+            type: "approval",
+            selector: "#submit_approve_access",
+            label: "Allow",
+          },
+        ],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("oauth_consent");
     expect(result!.service).toBe("Google");
@@ -311,12 +344,15 @@ describe("detectAuthChallenge - OAuth consent", () => {
   });
 
   it("detects consent with Approve button", async () => {
-    const page = mockPage("https://github.com/login/oauth/authorize", {
-      type: "oauth_consent",
-      fields: [{ type: "approval", selector: "button", label: "Approve" }],
+    const cdp = fakeCdp({
+      urlValue: "https://github.com/login/oauth/authorize",
+      domResult: {
+        type: "oauth_consent",
+        fields: [{ type: "approval", selector: "button", label: "Approve" }],
+      },
     });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).not.toBeNull();
     expect(result!.type).toBe("oauth_consent");
   });
@@ -326,36 +362,94 @@ describe("detectAuthChallenge - OAuth consent", () => {
 
 describe("detectAuthChallenge - non-auth pages", () => {
   it("returns null for a regular page", async () => {
-    const page = mockPage("https://example.com/dashboard", null);
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/dashboard",
+      domResult: null,
+    });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).toBeNull();
   });
 
   it("returns null for a regular github.com page with no auth elements", async () => {
-    const page = mockPage(
-      "https://github.com/vellum-ai/vellum-assistant",
-      null,
-    );
+    const cdp = fakeCdp({
+      urlValue: "https://github.com/vellum-ai/vellum-assistant",
+      domResult: null,
+    });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).toBeNull();
   });
 
   it("returns null for a regular page with no auth elements", async () => {
-    const page = mockPage("https://news.ycombinator.com/", null);
+    const cdp = fakeCdp({
+      urlValue: "https://news.ycombinator.com/",
+      domResult: null,
+    });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
     expect(result).toBeNull();
   });
 
-  it("returns null when page.evaluate throws", async () => {
-    const page = mockPage("https://example.com/login", null);
-    page.evaluate = async () => {
-      throw new Error("page closed");
-    };
+  it("returns null when Runtime.evaluate throws a CdpError", async () => {
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/login",
+      domResult: null,
+      throwOn: (expr) =>
+        !expr.startsWith("document.location.href") &&
+        !/just a moment/.test(expr),
+    });
 
-    const result = await detectAuthChallenge(page);
+    const result = await detectAuthChallenge(cdp);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when getCurrentUrl throws a CdpError", async () => {
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/login",
+      domResult: null,
+      throwOn: (expr) => expr === "document.location.href",
+    });
+
+    const result = await detectAuthChallenge(cdp);
+    expect(result).toBeNull();
+  });
+});
+
+// ── CAPTCHA detection ────────────────────────────────────────────────
+
+describe("detectCaptchaChallenge", () => {
+  it("returns a captcha AuthChallenge when the IIFE returns true", async () => {
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/blocked",
+      captchaResult: true,
+    });
+
+    const result = await detectCaptchaChallenge(cdp);
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe("captcha");
+    expect(result!.url).toBe("https://example.com/blocked");
+    expect(result!.fields).toEqual([]);
+  });
+
+  it("returns null when the IIFE returns false", async () => {
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/home",
+      captchaResult: false,
+    });
+
+    const result = await detectCaptchaChallenge(cdp);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when Runtime.evaluate throws", async () => {
+    const cdp = fakeCdp({
+      urlValue: "https://example.com/home",
+      captchaResult: true,
+      throwOn: (expr) => /just a moment/.test(expr),
+    });
+
+    const result = await detectCaptchaChallenge(cdp);
     expect(result).toBeNull();
   });
 });

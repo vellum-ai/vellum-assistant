@@ -35,39 +35,49 @@ extension ChatBubble {
 
         if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
-            AssistantProgressView(
-                toolCalls: message.toolCalls,
-                isStreaming: message.isStreaming,
-                hasText: hasText,
-                isProcessing: shouldShowProcessing,
-                processingStatusText: shouldShowProcessing ? processingStatusText : nil,
-                streamingCodePreview: message.streamingCodePreview,
-                streamingCodeToolName: message.streamingCodeToolName,
-                decidedConfirmations: effectiveConfirmations,
-                onRehydrate: onRehydrate,
-                onConfirmationAllow: onConfirmationAllow,
-                onConfirmationDeny: onConfirmationDeny,
-                onAlwaysAllow: onAlwaysAllow,
-                onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId,
-                expandedStepIds: $expandedStepIds,
-                cardExpansionOverrides: $cardExpansionOverrides
-            )
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            HStack(spacing: 0) {
+                AssistantProgressView(
+                    toolCalls: message.toolCalls,
+                    isStreaming: message.isStreaming,
+                    hasText: hasText,
+                    isProcessing: shouldShowProcessing,
+                    processingStatusText: shouldShowProcessing ? processingStatusText : nil,
+                    streamingCodePreview: message.streamingCodePreview,
+                    streamingCodeToolName: message.streamingCodeToolName,
+                    decidedConfirmations: effectiveConfirmations,
+                    onRehydrate: onRehydrate,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    activeConfirmationRequestId: activeConfirmationRequestId,
+                    progressUIState: $progressUIState
+                )
+                Spacer(minLength: 0)
+            }
 
             // Inline image previews from completed tool calls (e.g. image generation)
             inlineToolCallImages(from: message.toolCalls)
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
-                        compactPermissionChip(confirmation)
-                    }
-                    Spacer()
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            HStack(alignment: .center, spacing: VSpacing.sm) {
+                ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
+                    compactPermissionChip(confirmation)
                 }
+                Spacer(minLength: 0)
             }
             .padding(.top, VSpacing.xxs)
+        } else if isStreamingContinuation {
+            // Assistant is still generating after producing initial text.
+            // Show a subtle typing indicator so the user knows more content is coming.
+            HStack(spacing: 0) {
+                TypingIndicatorView()
+                Spacer(minLength: 0)
+            }
+            .padding(.top, VSpacing.xxs)
+            .transition(.opacity)
         }
     }
 
@@ -86,20 +96,18 @@ extension ChatBubble {
         let chipColor: Color = isApproved ? VColor.primaryBase : isDenied ? VColor.systemNegativeStrong : VColor.contentTertiary
 
         return HStack(spacing: VSpacing.xs) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    VIconView(.circleCheck, size: 12)
-                        .foregroundStyle(chipColor)
-                case .denied:
-                    VIconView(.circleAlert, size: 12)
-                        .foregroundStyle(chipColor)
-                case .timedOut:
-                    VIconView(.clock, size: 12)
-                        .foregroundStyle(chipColor)
-                default:
-                    EmptyView()
-                }
+            switch confirmation.state {
+            case .approved:
+                VIconView(.circleCheck, size: 12)
+                    .foregroundStyle(chipColor)
+            case .denied:
+                VIconView(.circleAlert, size: 12)
+                    .foregroundStyle(chipColor)
+            case .timedOut:
+                VIconView(.clock, size: 12)
+                    .foregroundStyle(chipColor)
+            default:
+                EmptyView()
             }
 
             Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :

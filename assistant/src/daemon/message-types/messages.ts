@@ -60,6 +60,13 @@ export interface UserMessageEcho {
   type: "user_message_echo";
   text: string;
   conversationId?: string;
+  /** Database ID of the persisted user message, used by the originating
+   *  client to dedupe its optimistic row. Absent for synthetic echoes
+   *  (e.g. surface-action prompts) where no distinct user row is persisted. */
+  messageId?: string;
+  /** Server-generated request ID for the send. Allows correlation with
+   *  `message_queued` / `message_dequeued` events for the same turn. */
+  requestId?: string;
 }
 
 export interface AssistantTextDelta {
@@ -194,6 +201,13 @@ export interface MessageComplete {
   attachmentWarnings?: string[];
   /** Database ID of the persisted assistant message, if any. */
   messageId?: string;
+  /**
+   * Distinguishes a real main-turn completion from auxiliary events such as
+   * call transcripts, call summaries, and watch notifier outputs. Clients
+   * gate turn-completion side effects (e.g. the task_complete sound) on
+   * `source !== "aux"`. Absent is treated as main for backwards compatibility.
+   */
+  source?: "main" | "aux";
 }
 
 export interface ErrorMessage {
@@ -307,10 +321,10 @@ export interface AssistantActivityState {
   statusText?: string;
 }
 
-/** Broadcast to clients when the two-axis permission mode changes. */
-export interface PermissionModeUpdate {
-  type: "permission_mode_update";
-  askBeforeActing: boolean;
+/** Broadcast to clients when a conversation's host-access setting changes. */
+export interface ConversationHostAccessUpdated {
+  type: "conversation_host_access_updated";
+  conversationId: string;
   hostAccess: boolean;
 }
 
@@ -376,4 +390,4 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
-  | PermissionModeUpdate;
+  | ConversationHostAccessUpdated;

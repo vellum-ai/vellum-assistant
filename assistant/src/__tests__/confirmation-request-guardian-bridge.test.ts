@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -133,6 +135,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     resetTables();
     emittedSignals.length = 0;
     mockOnConversationCreatedCallbacks.length = 0;
+    _setOverridesForTesting({});
   });
 
   test("emits guardian.question for trusted-contact sessions", () => {
@@ -219,6 +222,26 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect("skipped" in result && result.skipped).toBe(true);
     if ("skipped" in result) {
       expect(result.reason).toBe("missing_guardian_identity");
+    }
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("skips trusted-contact bridging entirely under permission-controls-v2", () => {
+    _setOverridesForTesting({ "permission-controls-v2": true });
+
+    const canonicalRequest = makeCanonicalRequest();
+    const trustContext = makeTrustedContactContext();
+
+    const result = bridgeConfirmationRequestToGuardian({
+      canonicalRequest,
+      trustContext,
+      conversationId: "conv-1",
+      toolName: "bash",
+    });
+
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("v2_model_mediated");
     }
     expect(emittedSignals).toHaveLength(0);
   });

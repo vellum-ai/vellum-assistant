@@ -31,9 +31,11 @@ struct ChatEmptyStateView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
+    @State private var avatarBounceScale: CGFloat = 1.0
 
     // Stable random pick from SOUL.md (loaded asynchronously, computed once per view lifecycle)
     @State private var soulGreeting: String?
@@ -99,16 +101,30 @@ struct ChatEmptyStateView: View {
         HStack(spacing: VSpacing.md) {
             Group {
                 if appearance.customAvatarImage != nil {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture {
+                            SoundManager.shared.play(.characterPoke)
+                            triggerBounce()
+                        }
                 } else if let body = appearance.characterBodyShape,
                    let eyes = appearance.characterEyeStyle,
                    let color = appearance.characterColor {
-                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 32)
-                        .frame(width: 32, height: 32)
+                    // Sound is played by AnimatedAvatarView.mouseDown; don't double up here.
+                    AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color, size: 40)
+                        .frame(width: 40, height: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture { triggerBounce() }
                 } else {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 32)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
+                        .scaleEffect(avatarBounceScale)
+                        .onTapGesture {
+                            SoundManager.shared.play(.characterPoke)
+                            triggerBounce()
+                        }
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
 
             Group {
                 if let greeting = effectiveGreeting {
@@ -129,28 +145,32 @@ struct ChatEmptyStateView: View {
     }
 
     private var composerSection: some View {
-        ComposerView(
-            inputText: $inputText,
-            isSending: isSending,
-            isAssistantBusy: isAssistantBusy,
-            hasPendingConfirmation: false,
-            isRecording: isRecording,
-            suggestion: suggestion,
-            pendingAttachments: pendingAttachments,
-            isLoadingAttachment: isLoadingAttachment,
-            onSend: onSend,
-            onStop: onStop,
-            onAcceptSuggestion: onAcceptSuggestion,
-            onAttach: onAttach,
-            onRemoveAttachment: onRemoveAttachment,
-            onPaste: onPaste,
-            onMicrophoneToggle: onMicrophoneToggle,
-            recordingAmplitude: recordingAmplitude,
-            onDictateToggle: onDictateToggle,
-            onVoiceModeToggle: onVoiceModeToggle,
-            placeholderText: fallbackPlaceholder,
-            conversationId: conversationId
-        )
+        VStack(spacing: VSpacing.sm) {
+            ComposerView(
+                inputText: $inputText,
+                isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
+                hasPendingConfirmation: false,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                placeholderText: fallbackPlaceholder,
+                conversationId: conversationId,
+                conversationHostAccessControl: conversationHostAccessControl
+            )
+            .equatable()
+        }
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
         .opacity(visible ? 1 : 0)
         .offset(y: visible ? 0 : 10)
@@ -178,6 +198,17 @@ struct ChatEmptyStateView: View {
         onFetchConversationStarters?()
         withAnimation(.easeOut(duration: 0.5)) {
             visible = true
+        }
+    }
+
+    private func triggerBounce() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
+            avatarBounceScale = 1.15
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                avatarBounceScale = 1.0
+            }
         }
     }
 
@@ -239,7 +270,9 @@ struct ConversationStarterPill: View {
             Text(label)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
@@ -307,8 +340,14 @@ struct FlowLayout: Layout {
         var rowHeight: CGFloat = 0
         var totalWidth: CGFloat = 0
 
+        // Propose the full row width so each subview measures at its actual
+        // wrapped size. Without this, multi-line children (like FactChipView
+        // with `.frame(maxWidth: 200)` + `.lineLimit(2)`) would report a
+        // single-line height under `.unspecified` and overlap the row below.
+        let childProposal = ProposedViewSize(width: maxWidth, height: nil)
+
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(childProposal)
             if x + size.width > maxWidth, x > 0 {
                 x = 0
                 y += rowHeight + spacing
@@ -351,6 +390,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -375,28 +415,32 @@ struct ChatTemporaryChatEmptyStateView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.bottom, VSpacing.xxl)
 
-            ComposerView(
-                inputText: $inputText,
-                isSending: isSending,
-                isAssistantBusy: isAssistantBusy,
-                hasPendingConfirmation: false,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                recordingAmplitude: recordingAmplitude,
-                onDictateToggle: onDictateToggle,
-                onVoiceModeToggle: onVoiceModeToggle,
-                placeholderText: "Ask anything...",
-                conversationId: conversationId
-            )
+            VStack(spacing: VSpacing.sm) {
+                ComposerView(
+                    inputText: $inputText,
+                    isSending: isSending,
+                    isAssistantBusy: isAssistantBusy,
+                    hasPendingConfirmation: false,
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
+                    placeholderText: "Ask anything...",
+                    conversationId: conversationId,
+                    conversationHostAccessControl: conversationHostAccessControl
+                )
+                .equatable()
+            }
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 
             Spacer()

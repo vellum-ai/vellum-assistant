@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -264,7 +265,40 @@ function materializeAttachmentIntoConversation(
     copyFileSync(readablePath, targetPath);
   }
 
+  // Remember the old file path before updating the DB row, so we can
+  // clean up the staging copy (e.g. in data/attachments/) after the
+  // canonical path moves to the conversation directory.
+  const previousFilePath = row.filePath;
+
   persistAttachmentFilePath(row.id, targetPath, sourcePath);
+
+  // Remove the old staging file now that the canonical copy lives in
+  // the conversation directory.  Only delete files that live in the
+  // staging area (workspace/data/attachments/).  When an attachment is
+  // cloned across conversations (e.g. during a fork), previousFilePath
+  // may point to another conversation's directory — deleting that would
+  // cause data loss for the source conversation.
+  const stagingDirRaw = join(getWorkspaceDir(), "data", "attachments");
+  let stagingDir: string;
+  try {
+    stagingDir = existsSync(stagingDirRaw)
+      ? realpathSync(stagingDirRaw)
+      : stagingDirRaw;
+  } catch {
+    stagingDir = stagingDirRaw;
+  }
+  if (
+    previousFilePath &&
+    previousFilePath !== targetPath &&
+    dirname(previousFilePath) === stagingDir &&
+    existsSync(previousFilePath)
+  ) {
+    try {
+      unlinkSync(previousFilePath);
+    } catch {
+      /* file may already be gone */
+    }
+  }
 }
 
 function scopeAttachmentToConversation(

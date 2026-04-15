@@ -31,6 +31,7 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { tryRevokeOAuthToken } from "./revoke.js";
 
 const log = getLogger("oauth-store");
 
@@ -49,14 +50,15 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
 /**
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authorizeUrl, tokenExchangeUrl,
- * tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
+ * pingUrl, pingMethod, pingHeaders, pingBody, revokeUrl, revokeBodyTemplate,
+ * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
  * scopeSeparator)
  * and display metadata (displayLabel, description, dashboardUrl,
- * clientIdPlaceholder, requiresClientSecret) propagate to existing
+ * clientIdPlaceholder, logoUrl, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
  * (defaultScopes, scopePolicy) are only written on the
  * initial insert. baseUrl is backfilled from seed data when null
@@ -68,12 +70,16 @@ export function seedProviders(
     provider: string;
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl?: string;
     tokenEndpointAuthMethod?: string;
+    tokenExchangeBodyFormat?: string;
     userinfoUrl?: string;
     pingUrl?: string;
     pingMethod?: string;
     pingHeaders?: Record<string, string>;
     pingBody?: unknown;
+    revokeUrl?: string;
+    revokeBodyTemplate?: Record<string, string>;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -84,6 +90,7 @@ export function seedProviders(
     description?: string;
     dashboardUrl?: string | null;
     clientIdPlaceholder?: string | null;
+    logoUrl?: string | null;
     requiresClientSecret?: boolean;
     loopbackPort?: number;
     injectionTemplates?: Array<{
@@ -109,13 +116,24 @@ export function seedProviders(
   for (const p of profiles) {
     const authorizeUrl = p.authorizeUrl;
     const tokenExchangeUrl = p.tokenExchangeUrl;
-    const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
+    const refreshUrl = p.refreshUrl ?? null;
+    // Coerce undefined and empty string to the default. The schema declares
+    // this column as NOT NULL with default "client_secret_post"; passing null
+    // here would be a type error, and an empty string is never a valid OAuth
+    // token endpoint auth method.
+    const tokenEndpointAuthMethod =
+      p.tokenEndpointAuthMethod || "client_secret_post";
+    const tokenExchangeBodyFormat = p.tokenExchangeBodyFormat || "form";
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
     const pingMethod = p.pingMethod ?? null;
     const pingHeaders = p.pingHeaders ? JSON.stringify(p.pingHeaders) : null;
     const pingBody =
       p.pingBody !== undefined ? JSON.stringify(p.pingBody) : null;
+    const revokeUrl = p.revokeUrl ?? null;
+    const revokeBodyTemplate = p.revokeBodyTemplate
+      ? JSON.stringify(p.revokeBodyTemplate)
+      : null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
@@ -131,6 +149,7 @@ export function seedProviders(
     const description = p.description ?? null;
     const dashboardUrl = p.dashboardUrl ?? null;
     const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
+    const logoUrl = p.logoUrl ?? null;
     const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;
     const loopbackPort = p.loopbackPort ?? null;
     const injectionTemplates = p.injectionTemplates
@@ -157,7 +176,9 @@ export function seedProviders(
         provider: p.provider,
         authorizeUrl,
         tokenExchangeUrl,
+        refreshUrl,
         tokenEndpointAuthMethod,
+        tokenExchangeBodyFormat,
         userinfoUrl,
         baseUrl,
         defaultScopes,
@@ -168,11 +189,14 @@ export function seedProviders(
         pingMethod,
         pingHeaders,
         pingBody,
+        revokeUrl,
+        revokeBodyTemplate,
         managedServiceConfigKey,
         displayLabel,
         description,
         dashboardUrl,
         clientIdPlaceholder,
+        logoUrl,
         requiresClientSecret,
         loopbackPort,
         injectionTemplates,
@@ -194,7 +218,9 @@ export function seedProviders(
         set: {
           authorizeUrl,
           tokenExchangeUrl,
+          refreshUrl,
           tokenEndpointAuthMethod,
+          tokenExchangeBodyFormat,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           scopeSeparator,
@@ -203,11 +229,14 @@ export function seedProviders(
           pingMethod,
           pingHeaders,
           pingBody,
+          revokeUrl,
+          revokeBodyTemplate,
           managedServiceConfigKey,
           displayLabel,
           description,
           dashboardUrl,
           clientIdPlaceholder,
+          logoUrl,
           requiresClientSecret,
           loopbackPort,
           injectionTemplates,
@@ -252,12 +281,16 @@ export function registerProvider(params: {
   provider: string;
   authorizeUrl: string;
   tokenExchangeUrl: string;
+  refreshUrl?: string;
   tokenEndpointAuthMethod?: string;
+  tokenExchangeBodyFormat?: string;
   userinfoUrl?: string;
   pingUrl?: string;
   pingMethod?: string;
   pingHeaders?: Record<string, string>;
   pingBody?: unknown;
+  revokeUrl?: string;
+  revokeBodyTemplate?: Record<string, string>;
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
@@ -268,6 +301,7 @@ export function registerProvider(params: {
   description?: string;
   dashboardUrl?: string;
   clientIdPlaceholder?: string;
+  logoUrl?: string | null;
   requiresClientSecret?: number;
   loopbackPort?: number;
   injectionTemplates?: Array<{
@@ -299,7 +333,10 @@ export function registerProvider(params: {
     provider: params.provider,
     authorizeUrl: params.authorizeUrl,
     tokenExchangeUrl: params.tokenExchangeUrl,
-    tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? null,
+    refreshUrl: params.refreshUrl ?? null,
+    tokenEndpointAuthMethod:
+      params.tokenEndpointAuthMethod || "client_secret_post",
+    tokenExchangeBodyFormat: params.tokenExchangeBodyFormat || "form",
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
@@ -314,11 +351,16 @@ export function registerProvider(params: {
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
     pingBody:
       params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
+    revokeUrl: params.revokeUrl ?? null,
+    revokeBodyTemplate: params.revokeBodyTemplate
+      ? JSON.stringify(params.revokeBodyTemplate)
+      : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     displayLabel: params.displayLabel ?? null,
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,
     clientIdPlaceholder: params.clientIdPlaceholder ?? null,
+    logoUrl: params.logoUrl ?? null,
     requiresClientSecret: params.requiresClientSecret ?? 1,
     loopbackPort: params.loopbackPort ?? null,
     injectionTemplates: params.injectionTemplates
@@ -364,12 +406,16 @@ export function updateProvider(
   params: Partial<{
     authorizeUrl: string;
     tokenExchangeUrl: string;
+    refreshUrl: string;
     tokenEndpointAuthMethod: string;
+    tokenExchangeBodyFormat: string;
     userinfoUrl: string;
     pingUrl: string;
     pingMethod: string;
     pingHeaders: Record<string, string>;
     pingBody: unknown;
+    revokeUrl: string | null;
+    revokeBodyTemplate: Record<string, string> | null;
     baseUrl: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -379,6 +425,7 @@ export function updateProvider(
     description: string;
     dashboardUrl: string;
     clientIdPlaceholder: string;
+    logoUrl: string | null;
     requiresClientSecret: boolean;
     loopbackPort: number;
     injectionTemplates: Array<{
@@ -408,8 +455,12 @@ export function updateProvider(
   if (params.authorizeUrl !== undefined) set.authorizeUrl = params.authorizeUrl;
   if (params.tokenExchangeUrl !== undefined)
     set.tokenExchangeUrl = params.tokenExchangeUrl;
+  if (params.refreshUrl !== undefined) set.refreshUrl = params.refreshUrl;
   if (params.tokenEndpointAuthMethod !== undefined)
-    set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
+    set.tokenEndpointAuthMethod =
+      params.tokenEndpointAuthMethod || "client_secret_post";
+  if (params.tokenExchangeBodyFormat !== undefined)
+    set.tokenExchangeBodyFormat = params.tokenExchangeBodyFormat || "form";
   if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
   if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
   if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;
@@ -417,6 +468,12 @@ export function updateProvider(
     set.pingHeaders = JSON.stringify(params.pingHeaders);
   if (params.pingBody !== undefined)
     set.pingBody = JSON.stringify(params.pingBody);
+  if (params.revokeUrl !== undefined) set.revokeUrl = params.revokeUrl;
+  if (params.revokeBodyTemplate !== undefined)
+    set.revokeBodyTemplate =
+      params.revokeBodyTemplate === null
+        ? null
+        : JSON.stringify(params.revokeBodyTemplate);
   if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
   if (params.defaultScopes !== undefined)
     set.defaultScopes = JSON.stringify(params.defaultScopes);
@@ -432,6 +489,7 @@ export function updateProvider(
   if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
   if (params.clientIdPlaceholder !== undefined)
     set.clientIdPlaceholder = params.clientIdPlaceholder;
+  if (params.logoUrl !== undefined) set.logoUrl = params.logoUrl;
   if (params.requiresClientSecret !== undefined)
     set.requiresClientSecret = params.requiresClientSecret ? 1 : 0;
   if (params.loopbackPort !== undefined) set.loopbackPort = params.loopbackPort;
@@ -916,14 +974,22 @@ export function deleteConnection(id: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Fully disconnect an OAuth provider: delete the new-format secure keys
- * (access_token and refresh_token) and remove the connection row from SQLite.
+ * Fully disconnect an OAuth provider:
+ * 1. Best-effort upstream token revoke when the provider has `revokeUrl`
+ *    configured (mirrors platform's `try_revoke_token`).
+ * 2. Delete the new-format secure keys (access_token and refresh_token).
+ * 3. Remove the connection row from SQLite.
+ *
+ * The upstream revoke step is strictly best-effort: any failure (network
+ * error, non-2xx response, missing access token, etc.) is logged as a
+ * warning and the local cleanup proceeds anyway. The connection is always
+ * cleaned up locally regardless of whether the upstream call succeeds.
  *
  * When `connectionId` is provided, disconnects that specific connection
  * (useful for multi-account providers). Otherwise falls back to the most
  * recent active connection.
  *
- * Returns `"disconnected"` if a connection was found and cleaned up,
+ * Returns `"disconnected"` if a connection was found and locally cleaned up,
  * `"not-found"` if no active connection existed for the given provider,
  * or `"error"` if secure key deletion failed (connection row is preserved
  * to avoid orphaning secrets).
@@ -937,6 +1003,48 @@ export async function disconnectOAuthProvider(
     ? getConnection(connectionId)
     : getActiveConnection(provider, { clientId });
   if (!conn) return "not-found";
+
+  // Best-effort upstream revoke. Mirrors platform's try_revoke_token in
+  // django/app/assistant/oauth/providers/base.py. Failures here never
+  // block local cleanup — the connection is always cleaned up locally
+  // regardless of whether the upstream call succeeds.
+  try {
+    const providerRow = getProvider(conn.provider);
+    if (providerRow?.revokeUrl) {
+      const app = getApp(conn.oauthAppId);
+      const accessToken = await getSecureKeyAsync(
+        oauthConnectionAccessTokenPath(conn.id),
+      );
+      if (app && accessToken) {
+        const bodyTemplate = providerRow.revokeBodyTemplate
+          ? (JSON.parse(providerRow.revokeBodyTemplate) as Record<
+              string,
+              unknown
+            >)
+          : null;
+        await tryRevokeOAuthToken({
+          provider: conn.provider,
+          revokeUrl: providerRow.revokeUrl,
+          bodyTemplate,
+          accessToken,
+          clientId: app.clientId,
+        });
+      }
+    }
+  } catch (err) {
+    // tryRevokeOAuthToken already swallows fetch errors, but the lookups
+    // (getProvider/getApp/getSecureKeyAsync/JSON.parse) could throw too.
+    // Defense in depth: never let the local cleanup path die because of
+    // anything in the revoke setup.
+    log.warn(
+      {
+        provider: conn.provider,
+        connectionId: conn.id,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Error preparing upstream OAuth revoke (best-effort, continuing local cleanup)",
+    );
+  }
 
   // Wrap the assistant's secure-key functions into the SecureKeyBackend
   // interface expected by the shared deleteOAuthTokens helper.

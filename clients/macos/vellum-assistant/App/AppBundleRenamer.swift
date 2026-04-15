@@ -133,12 +133,10 @@ enum AppBundleRenamer {
 
         // Write restart sentinel so the relaunched instance passes the
         // single-instance guard (same pattern as performRestart).
-        let sentinelDir = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum")
-        try? FileManager.default.createDirectory(
-            at: sentinelDir, withIntermediateDirectories: true
-        )
-        let sentinelPath = sentinelDir.appendingPathComponent("restart-in-progress")
+        // Uses NSTemporaryDirectory() instead of ~/.vellum to avoid
+        // workspace disk assumptions.
+        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("vellum-restart-in-progress")
         let timestamp = "\(Date().timeIntervalSince1970)"
         try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
 

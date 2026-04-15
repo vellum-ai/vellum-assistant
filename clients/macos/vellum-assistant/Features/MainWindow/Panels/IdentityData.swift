@@ -3,8 +3,9 @@ import VellumAssistantShared
 
 // MARK: - Home Location
 
-enum AssistantHome {
+enum AssistantHome: Equatable {
     case local(workspacePath: String)
+    case appleContainer(instanceDir: String, mgmtSocket: String?)
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
     case custom(ip: String, port: String)
@@ -13,6 +14,7 @@ enum AssistantHome {
     var displayLabel: String {
         switch self {
         case .local: return "Local"
+        case .appleContainer: return "Apple Containers"
         case .gcp: return "GCP"
         case .aws: return "AWS"
         case .custom: return "Custom"
@@ -24,6 +26,12 @@ enum AssistantHome {
         switch self {
         case .local(let workspacePath):
             return [("Path", workspacePath)]
+        case .appleContainer(let instanceDir, let mgmtSocket):
+            var details: [(label: String, value: String)] = [("Path", instanceDir)]
+            if let mgmtSocket {
+                details.append(("Socket", mgmtSocket))
+            }
+            return details
         case .gcp(let project, let zone, let instance):
             return [("Project", project), ("Zone", zone), ("Instance", instance)]
         case .aws(let project, let region, let instance):
@@ -120,42 +128,120 @@ enum AssistantDisplayName {
 
 // MARK: - Identity Info (parsed from IDENTITY.md)
 
-struct IdentityInfo {
+struct IdentityInfo: Codable, Equatable {
     let name: String
     let role: String
     let personality: String
     let emoji: String
+    /// Parsed home location. Not persisted across launches because
+    /// `AssistantHome` is an enum with associated values and the field is
+    /// only consumed from a fresh fetch. After a `IdentityInfoStore` reload
+    /// this will be `nil` until the next live `loadAsync()`.
     let home: AssistantHome?
 
-    // MARK: - In-memory cache
-
-    /// Most-recently loaded identity, cached in memory so that
-    /// hot paths (menu bar, command palette, session overlay) never
-    /// block on the main thread.
-    ///
-    /// All reads and writes are confined to `@MainActor` to eliminate
-    /// data races between the async `refreshCache()` writer and the
-    /// synchronous `current` reader.
-    @MainActor private static var cached: IdentityInfo?
-
-    /// Returns the cached identity if available (nil before first refresh).
-    @MainActor static var current: IdentityInfo? {
-        cached
+    init(name: String, role: String, personality: String, emoji: String, home: AssistantHome?) {
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.home = home
     }
 
-    /// Populate (or refresh) the in-memory cache via the gateway API.
-    /// Call this at app launch, on workspace switch, and whenever
-    /// IDENTITY.md is known to have changed.
+    // MARK: - Codable (skips `home`)
+
+    private enum CodingKeys: String, CodingKey {
+        case name, role, personality, emoji
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.role = try container.decode(String.self, forKey: .role)
+        self.personality = try container.decode(String.self, forKey: .personality)
+        self.emoji = try container.decode(String.self, forKey: .emoji)
+        self.home = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(role, forKey: .role)
+        try container.encode(personality, forKey: .personality)
+        try container.encode(emoji, forKey: .emoji)
+    }
+
+    // MARK: - Per-assistant cache
+
+    /// Map of `assistantId → identity`, persisted across launches via
+    /// `IdentityInfoStore`. Populated incrementally as the user visits each
+    /// assistant: every successful identity fetch writes the result under
+    /// the currently active assistant id and is then available for any UI
+    /// surface that needs to render that assistant by id (e.g. the menu-bar
+    /// switcher rendering names for non-active rows).
+    ///
+    /// All reads and writes are confined to `@MainActor` to eliminate
+    /// data races between async writers and synchronous readers.
+    @MainActor private static var cachedByAssistantId: [String: IdentityInfo] = IdentityInfoStore.load()
+
+    /// The cached identity for the currently active assistant, if any.
+    /// Equivalent to the legacy `IdentityInfo.current` singleton — kept
+    /// under that name so existing call sites (menu bar, command palette,
+    /// session overlay) read unchanged.
+    @MainActor static var current: IdentityInfo? {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else { return nil }
+        return cachedByAssistantId[activeId]
+    }
+
+    /// Reads the persisted identity for the currently active assistant
+    /// directly from disk. Safe to call from any isolation context (e.g.
+    /// SwiftUI view initializers and default property values) because it
+    /// bypasses the `@MainActor`-isolated in-memory cache.
+    static func loadFromDiskCache() -> IdentityInfo? {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else { return nil }
+        return IdentityInfoStore.load()[activeId]
+    }
+
+    /// Look up the cached identity for an arbitrary assistant id. Used by
+    /// the menu-bar switcher to render names for non-active rows.
+    @MainActor static func cached(for assistantId: String) -> IdentityInfo? {
+        cachedByAssistantId[assistantId]
+    }
+
+    /// Populate (or refresh) the cache for the currently active assistant
+    /// via the gateway API. Call this at app launch, on workspace switch,
+    /// and whenever IDENTITY.md is known to have changed.
     @MainActor @discardableResult
     static func refreshCache() async -> IdentityInfo? {
         let info = await loadAsync()
-        cached = info
+        store(info)
         return info
     }
 
-    /// Seeds the cache via the gateway API.
+    /// Seeds the cache for the currently active assistant via the gateway API.
     @MainActor static func warmCache() async {
-        cached = await loadAsync()
+        let info = await loadAsync()
+        store(info)
+    }
+
+    /// Writes `info` into the per-assistant cache under the currently active
+    /// id and persists the map to disk. No-op when there's no active id or
+    /// the fetch returned nil — we never want to evict a known-good entry
+    /// just because a single fetch failed.
+    @MainActor private static func store(_ info: IdentityInfo?) {
+        guard let info, let activeId = LockfileAssistant.loadActiveAssistantId() else { return }
+        if cachedByAssistantId[activeId] == info { return }
+        persist(info, for: activeId)
+    }
+
+    /// Seeds a placeholder identity so the switcher can show the name before a gateway fetch.
+    @MainActor static func seedCache(name: String, forAssistantId assistantId: String) {
+        guard cachedByAssistantId[assistantId] == nil else { return }
+        persist(IdentityInfo(name: name, role: "", personality: "", emoji: "", home: nil), for: assistantId)
+    }
+
+    @MainActor private static func persist(_ info: IdentityInfo, for assistantId: String) {
+        cachedByAssistantId[assistantId] = info
+        IdentityInfoStore.save(cachedByAssistantId)
     }
 
     /// Load identity from the gateway API (assistant-side IDENTITY.md parsing).
@@ -278,6 +364,22 @@ extension LockfileAssistant {
             return .custom(ip: "", port: "")
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
+        case "apple-container":
+            // instanceDir is not written to the lockfile for apple-container
+            // entries. Construct it from the assistantId — the convention is
+            // {appSupportDir}/apple-containers/{assistantId}/.
+            let base: String = {
+                let appSupport = FileManager.default.urls(
+                    for: .applicationSupportDirectory, in: .userDomainMask
+                ).first ?? FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+                return appSupport
+                    .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
+                    .appendingPathComponent("apple-containers", isDirectory: true)
+                    .appendingPathComponent(assistantId, isDirectory: true)
+                    .path
+            }()
+            return .appleContainer(instanceDir: base, mgmtSocket: mgmtSocket)
         default:
             let base = instanceDir ?? NSHomeDirectory()
             return .local(workspacePath: base + "/.vellum/workspace")
@@ -313,22 +415,65 @@ struct WorkspaceFileNode: Identifiable {
     let path: String
     let exists: Bool
 
-    /// Check file existence via the gateway workspace tree API.
+    /// Static nodes used as a last-resort fallback when the gateway is
+    /// unreachable. Mirrors the server's static entries in `settings-routes.ts`
+    /// (minus the guardian's dynamic `users/<slug>.md`, which we obviously
+    /// can't resolve client-side).
+    private static let fallbackNodes: [WorkspaceFileNode] = [
+        WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
+        WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
+        WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
+    ]
+
+    /// Fetch the well-known workspace files from the gateway.
+    ///
+    /// Uses `GET /workspace-files`, which the daemon builds dynamically:
+    /// it includes the static identity/soul/skills entries plus the
+    /// guardian's resolved per-user persona file at `users/<slug>.md`.
+    /// The client renders whatever the server returns — the guardian slug
+    /// is decided server-side and surfaced as a single "User Profile" node.
     static func scanAsync() async -> [WorkspaceFileNode] {
-        guard let tree = await WorkspaceClient().fetchWorkspaceTree(path: "", showHidden: false) else {
-            return [
-                WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: false),
-                WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: false),
-                WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: false),
-                WorkspaceFileNode(label: "skills/", path: "skills", exists: false),
-            ]
+        guard let response = await WorkspaceClient().fetchWorkspaceFilesList() else {
+            return fallbackNodes
         }
-        let names = Set(tree.entries.map { $0.name })
-        return [
-            WorkspaceFileNode(label: "IDENTITY.md", path: "IDENTITY.md", exists: names.contains("IDENTITY.md")),
-            WorkspaceFileNode(label: "SOUL.md", path: "SOUL.md", exists: names.contains("SOUL.md")),
-            WorkspaceFileNode(label: "USER.md", path: "USER.md", exists: names.contains("USER.md")),
-            WorkspaceFileNode(label: "skills/", path: "skills", exists: names.contains("skills")),
-        ]
+        return buildNodes(from: response.files)
+    }
+
+    /// Pure transformation from the server's `workspace-files` response to
+    /// the nodes rendered by the identity panel. Factored out for easier
+    /// reasoning and future unit testing — contains no I/O.
+    static func buildNodes(from entries: [WorkspaceFilesListResponseFile]) -> [WorkspaceFileNode] {
+        var nodes: [WorkspaceFileNode] = []
+        for entry in entries {
+            nodes.append(
+                WorkspaceFileNode(
+                    label: displayLabel(for: entry),
+                    path: entry.path,
+                    exists: entry.exists
+                )
+            )
+        }
+        return nodes
+    }
+
+    /// True when `path` points at the guardian-owned per-user persona file
+    /// (any markdown file directly under `users/`). The client does not care
+    /// which slug the guardian chose — the server decides and we render it.
+    private static func isGuardianUserPersonaPath(_ path: String) -> Bool {
+        guard path.hasPrefix("users/") else { return false }
+        let remainder = path.dropFirst("users/".count)
+        return !remainder.isEmpty
+            && !remainder.contains("/")
+            && remainder.hasSuffix(".md")
+    }
+
+    /// Maps a server entry to a user-facing label. The guardian's
+    /// `users/<slug>.md` is shown as "User Profile" so the UI doesn't surface
+    /// a slug. All other entries render their server-provided name verbatim.
+    private static func displayLabel(for entry: WorkspaceFilesListResponseFile) -> String {
+        if isGuardianUserPersonaPath(entry.path) {
+            return "User Profile"
+        }
+        return entry.name
     }
 }

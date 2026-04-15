@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { SttServiceSchema } from "./stt.js";
+import { TtsServiceSchema } from "./tts.js";
+
 export const ServiceModeSchema = z.enum(["managed", "your-own"]);
 export type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
@@ -61,6 +64,21 @@ export const LinearOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
 
+export const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
+
+export const NotionOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
+
+export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -69,6 +87,12 @@ export const ServicesSchema = z.object({
   "web-search": WebSearchServiceSchema.default(
     WebSearchServiceSchema.parse({}),
   ),
+  stt: SttServiceSchema.default({
+    mode: "your-own" as const,
+    provider: "deepgram" as const,
+    providers: {},
+  }),
+  tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
   "google-oauth": GoogleOAuthServiceSchema.default(
     GoogleOAuthServiceSchema.parse({}),
   ),
@@ -77,6 +101,15 @@ export const ServicesSchema = z.object({
   ),
   "linear-oauth": LinearOAuthServiceSchema.default(
     LinearOAuthServiceSchema.parse({}),
+  ),
+  "github-oauth": GitHubOAuthServiceSchema.default(
+    GitHubOAuthServiceSchema.parse({}),
+  ),
+  "notion-oauth": NotionOAuthServiceSchema.default(
+    NotionOAuthServiceSchema.parse({}),
+  ),
+  "twitter-oauth": TwitterOAuthServiceSchema.default(
+    TwitterOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

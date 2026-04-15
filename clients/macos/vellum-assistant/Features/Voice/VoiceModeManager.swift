@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Speech
 import VellumAssistantShared
 import os
 
@@ -30,6 +31,11 @@ final class VoiceModeManager: ObservableObject {
 
     let voiceService: any VoiceServiceProtocol
 
+    /// Adapter for speech recognition authorization checks.
+    /// Injected separately from `voiceService` so VoiceModeManager does not
+    /// need to know about `OpenAIVoiceService` or any concrete voice service type.
+    private let speechRecognizerAdapter: any SpeechRecognizerAdapter
+
     /// Typed accessor for UI views that need @Published properties (amplitude, speakingAmplitude).
     var openAIVoiceService: OpenAIVoiceService? {
         voiceService as? OpenAIVoiceService
@@ -58,8 +64,12 @@ final class VoiceModeManager: ObservableObject {
     /// deduplicate redundant same-value writes and only act on actual transitions.
     private var lastObservedIsThinking: Bool = false
 
-    init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
+    init(
+        voiceService: any VoiceServiceProtocol = OpenAIVoiceService(),
+        speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+    ) {
         self.voiceService = voiceService
+        self.speechRecognizerAdapter = speechRecognizerAdapter
     }
 
     var stateLabel: String {
@@ -84,19 +94,33 @@ final class VoiceModeManager: ObservableObject {
         guard state == .off else { return }
         wasAutoDeactivated = false
 
-        guard OpenAIVoiceService.isSpeechRecognitionAuthorized() else {
+        // When an LLM-based STT provider is configured (e.g. Deepgram, OpenAI
+        // Whisper), native speech recognition permission is not required — the
+        // service handles transcription. Skip the speech auth guard entirely.
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
+
+        guard sttConfigured || speechRecognizerAdapter.authorizationStatus() == .authorized else {
             log.error("Voice mode: speech recognition not authorized")
             awaitingAuthorization = true
-            OpenAIVoiceService.requestSpeechRecognitionAuthorization { [weak self] authorized in
-                guard let self, self.awaitingAuthorization else { return }
-                self.awaitingAuthorization = false
-                if authorized {
-                    log.info("Speech recognition authorized — retrying activation")
-                    self.activate(chatViewModel: chatViewModel, settingsStore: settingsStore)
-                    self.startListening()
-                } else {
-                    log.warning("Speech recognition authorization denied")
+            let status = speechRecognizerAdapter.authorizationStatus()
+            if status == .notDetermined {
+                speechRecognizerAdapter.requestAuthorization { [weak self] newStatus in
+                    Task { @MainActor in
+                        guard let self, self.awaitingAuthorization else { return }
+                        self.awaitingAuthorization = false
+                        if newStatus == .authorized {
+                            log.info("Speech recognition authorized — retrying activation")
+                            self.activate(chatViewModel: chatViewModel, settingsStore: settingsStore)
+                            self.startListening()
+                        } else {
+                            log.warning("Speech recognition authorization denied")
+                        }
+                    }
                 }
+            } else {
+                // Already determined but not authorized (denied/restricted) — nothing to request.
+                awaitingAuthorization = false
+                log.warning("Speech recognition authorization denied (status: \(status.rawValue))")
             }
             return
         }
@@ -104,6 +128,12 @@ final class VoiceModeManager: ObservableObject {
         awaitingAuthorization = false
         self.chatViewModel = chatViewModel
         self.settingsStore = settingsStore
+
+        // Provide the conversation ID to the voice service so the gateway TTS
+        // endpoint can resolve the correct provider context.
+        if let service = voiceService as? OpenAIVoiceService {
+            service.conversationId = chatViewModel.conversationId
+        }
 
         // Keep the user's current model — don't downgrade for voice mode.
         // Capable models (Opus) are much better at tool use (osascript, etc.).
@@ -149,7 +179,7 @@ final class VoiceModeManager: ObservableObject {
         }
 
         state = .idle
-        log.info("Voice mode activated (daemon + Haiku + streaming TTS)")
+        log.info("Voice mode activated (daemon + gateway TTS)")
     }
 
     func deactivate() {
@@ -182,6 +212,11 @@ final class VoiceModeManager: ObservableObject {
         previousOnVoiceTextDelta = nil
         stopVoiceServiceObservation()
         pendingPermissionIds = []
+
+        // Clear the conversation ID from the voice service.
+        if let service = voiceService as? OpenAIVoiceService {
+            service.conversationId = nil
+        }
 
         chatViewModel = nil
         settingsStore = nil
@@ -303,7 +338,7 @@ final class VoiceModeManager: ObservableObject {
         }
 
         // Start monitoring mic for barge-in BEFORE finishTextStream,
-        // because finishTextStream may complete synchronously (no ElevenLabs key)
+        // because finishTextStream may complete synchronously (e.g. TTS not configured)
         // and its completion calls startListening() which installs a recording tap.
         // Starting barge-in after that would install a conflicting second tap.
         voiceService.startBargeInMonitor()

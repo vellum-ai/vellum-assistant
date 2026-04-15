@@ -16,21 +16,47 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatA
 /// Async-compatible semaphore that suspends (not blocks) waiting tasks.
 /// Drop-in replacement for DispatchSemaphore in structured concurrency contexts,
 /// avoiding thread starvation on the cooperative thread pool.
+///
+/// Cancellation-safe: if a waiting task is cancelled, its continuation is
+/// removed from the queue and resumed with `false` (no slot consumed).
 private actor AsyncSemaphore {
     private var count: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextID: UInt64 = 0
+    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     init(value: Int) { self.count = value }
 
-    func wait() async {
-        if count > 0 { count -= 1; return }
-        await withCheckedContinuation { waiters.append($0) }
+    /// Waits for a slot. Returns `true` if a slot was acquired, `false` if the
+    /// task was cancelled while waiting (no slot consumed). The caller must only
+    /// call `signal()` when this returns `true`.
+    func wait() async -> Bool {
+        if count > 0 { count -= 1; return true }
+        let id = nextID
+        nextID += 1
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                waiters.append((id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+        return acquired
+    }
+
+    /// Removes a cancelled waiter from the queue (no slot consumed → resumes
+    /// with `false`). If signal() already resumed this waiter (slot consumed →
+    /// resumed with `true`), does nothing.
+    private func cancelWaiter(id: UInt64) {
+        if let idx = waiters.firstIndex(where: { $0.id == id }) {
+            let removed = waiters.remove(at: idx)
+            removed.continuation.resume(returning: false)
+        }
     }
 
     func signal() {
-        if let next = waiters.first {
+        if let waiter = waiters.first {
             waiters.removeFirst()
-            next.resume()
+            waiter.continuation.resume(returning: true)
         } else {
             count += 1
         }
@@ -195,6 +221,9 @@ public final class ChatAttachmentManager {
         let thumbnailData: Data?
         let dataLength: Int
         let filePath: String?
+        /// Original file size in bytes. Set for file-backed attachments where
+        /// base64 encoding is skipped.
+        let originalFileSize: Int?
     }
 
     /// Reads, compresses, and thumbnails an attachment from a file URL.
@@ -204,16 +233,81 @@ public final class ChatAttachmentManager {
         let attachmentId = UUID().uuidString
         let filename = url.lastPathComponent
         log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
-        await loadSemaphore.wait()
+        let acquired = await loadSemaphore.wait()
+        guard acquired else { return .failure(.message("Attachment load cancelled.")) }
+        // Resolve connection mode before entering the detached task so the
+        // file-backed upload optimisation is only used when the assistant is
+        // running locally and can read the file from disk.
+        let useFileBackedUpload = (try? GatewayHTTPClient.isConnectionManaged()) != true
+        // Resolve the workspace staging directory so the detached task can copy
+        // the source file into it. The assistant's file-backed upload allowlist
+        // only permits paths inside the workspace; files from arbitrary locations
+        // (e.g. ~/Downloads) must be staged there first.
+        let stagingDir: String? = useFileBackedUpload ? Self.resolveWorkspaceStagingDir() : nil
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileSize = attrs[.size] as? Int,
-               fileSize > Self.memorySafetyLimit {
+            let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+
+            // Check file size from attributes before reading data.
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let fileSize = attrs[.size] as? Int else {
+                log.error("[Attachment] failed id=\(attachmentId) reason=statError")
+                return .failure(.message("Could not read file."))
+            }
+            if fileSize > Self.memorySafetyLimit {
                 let sizeMB = fileSize / (1024 * 1024)
                 log.error("[Attachment] failed id=\(attachmentId) reason=fileTooLarge sizeMB=\(sizeMB)")
                 return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
+            // For non-image files on a local connection, use file-backed upload:
+            // skip reading the file into memory entirely. The assistant reads the
+            // file directly from disk, avoiding the 33% base64 overhead and the
+            // large HTTP body that can hit cloud proxy limits.
+            //
+            // In managed mode the assistant runs in a remote container that
+            // cannot access the client's local filesystem, so we fall back to
+            // reading the file and base64-encoding it inline.
+            if !isImage && useFileBackedUpload {
+                log.info("[Attachment] using file-backed upload id=\(attachmentId) sizeBytes=\(fileSize)")
+
+                // Copy the file into the workspace staging directory so the
+                // path falls inside the assistant's upload allowlist. Without
+                // this, files picked from arbitrary locations (~/Downloads,
+                // ~/Desktop, etc.) are rejected by the server.
+                var uploadPath = url.path
+                if let stagingDir {
+                    let fm = FileManager.default
+                    try? fm.createDirectory(atPath: stagingDir, withIntermediateDirectories: true)
+                    let safeName = filename.replacingOccurrences(
+                        of: "[^a-zA-Z0-9._-]",
+                        with: "_",
+                        options: .regularExpression
+                    )
+                    let destFilename = "\(Int(Date().timeIntervalSince1970 * 1000))-\(safeName)"
+                    let destPath = (stagingDir as NSString).appendingPathComponent(destFilename)
+                    do {
+                        try fm.copyItem(atPath: url.path, toPath: destPath)
+                        uploadPath = destPath
+                        log.info("[Attachment] staged id=\(attachmentId) dest=\(destPath, privacy: .public)")
+                    } catch {
+                        log.warning("[Attachment] staging copy failed id=\(attachmentId) error=\(error.localizedDescription, privacy: .public), falling back to original path")
+                    }
+                }
+
+                return .success(ProcessedAttachmentData(
+                    id: attachmentId,
+                    filename: filename,
+                    mimeType: mimeType,
+                    base64: "",
+                    thumbnailData: nil,
+                    dataLength: 0,
+                    filePath: uploadPath,
+                    originalFileSize: fileSize
+                ))
+            }
+
+            // Read the file data for inline base64 encoding.
             let data: Data
             do {
                 data = try Data(contentsOf: url)
@@ -222,57 +316,48 @@ public final class ChatAttachmentManager {
                 return .failure(.message("Could not read file."))
             }
 
-            if data.count > Self.memorySafetyLimit {
-                let sizeMB = data.count / (1024 * 1024)
-                log.error("[Attachment] failed id=\(attachmentId) reason=dataTooLarge sizeMB=\(sizeMB)")
-                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
-            }
+            let finalData: Data
+            var finalMimeType = mimeType
+            let thumbnail: Data?
 
-            var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-
-            var finalData = data
-            var wasCompressed = false
-            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-                let (compressedData, didCompress) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
+            if isImage {
+                let (compressedData, wasCompressed) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
                 finalData = compressedData
-                wasCompressed = didCompress
 
                 if wasCompressed && finalData.count < data.count {
                     let header = [UInt8](finalData.prefix(4))
                     if header[0] == 0xFF && header[1] == 0xD8 {
-                        mimeType = "image/jpeg"
+                        finalMimeType = "image/jpeg"
                     } else if header == [0x89, 0x50, 0x4E, 0x47] {
-                        mimeType = "image/png"
+                        finalMimeType = "image/png"
                     }
+                    let originalMB = Double(data.count) / (1024 * 1024)
+                    let compressedMB = Double(finalData.count) / (1024 * 1024)
+                    log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
                 }
+
+                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
+            } else {
+                finalData = data
+                thumbnail = nil
             }
 
-            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(mimeType) originalBytes=\(data.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
+            log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(finalMimeType) originalBytes=\(data.count) finalBytes=\(finalData.count)")
 
             let base64 = finalData.base64EncodedString()
-
-            var thumbnail: Data?
-            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
-            }
-
-            if wasCompressed {
-                let originalMB = Double(data.count) / (1024 * 1024)
-                let compressedMB = Double(finalData.count) / (1024 * 1024)
-                log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
-            }
 
             return .success(ProcessedAttachmentData(
                 id: attachmentId,
                 filename: filename,
-                mimeType: mimeType,
+                mimeType: finalMimeType,
                 base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                filePath: url.path
+                filePath: url.path,
+                originalFileSize: nil
             ))
         }.value
-        await loadSemaphore.signal()
+        Task { await loadSemaphore.signal() }
 
         switch taskResult {
         case .failure(let error):
@@ -292,6 +377,7 @@ public final class ChatAttachmentManager {
                 data: processed.base64,
                 thumbnailData: processed.thumbnailData,
                 dataLength: processed.dataLength,
+                sizeBytes: processed.originalFileSize,
                 thumbnailImage: thumbnailImage,
                 filePath: processed.filePath
             ))
@@ -304,7 +390,8 @@ public final class ChatAttachmentManager {
     private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
         let attachmentId = UUID().uuidString
         log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
-        await loadSemaphore.wait()
+        let acquired = await loadSemaphore.wait()
+        guard acquired else { return .failure(.message("Attachment load cancelled.")) }
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             // Validate that ImageIO can decode the data.
             guard Self.loadCGImage(from: imageData) != nil else {
@@ -361,10 +448,11 @@ public final class ChatAttachmentManager {
                 base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                filePath: nil
+                filePath: nil,
+                originalFileSize: nil
             ))
         }.value
-        await loadSemaphore.signal()
+        Task { await loadSemaphore.signal() }
 
         switch taskResult {
         case .failure(let error):
@@ -387,6 +475,25 @@ public final class ChatAttachmentManager {
                 thumbnailImage: thumbnailImage
             ))
         }
+    }
+
+    // MARK: - Workspace staging
+
+    /// Returns the workspace staging directory for file-backed uploads, or nil
+    /// if the workspace directory cannot be resolved (e.g. no lockfile entry).
+    /// The returned path is `<workspaceDir>/data/attachments` which falls inside
+    /// the assistant's upload allowlist.
+    nonisolated private static func resolveWorkspaceStagingDir() -> String? {
+        #if os(macOS)
+        guard let activeId = LockfileAssistant.loadActiveAssistantId(),
+              let assistant = LockfileAssistant.loadByName(activeId),
+              let workspaceDir = assistant.workspaceDir else {
+            return nil
+        }
+        return (workspaceDir as NSString).appendingPathComponent("data/attachments")
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Thread-safe ImageIO helpers

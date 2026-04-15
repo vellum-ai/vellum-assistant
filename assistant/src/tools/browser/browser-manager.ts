@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
+import type { CdpClientKind } from "./cdp-client/types.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
 import { importPlaywright } from "./runtime-check.js";
 
@@ -203,7 +204,23 @@ class BrowserManager {
   private pages = new Map<string, Page>();
   private rawPages = new Map<string, unknown>();
   private cdpSessions = new Map<string, CDPSession>();
-  private snapshotMaps = new Map<string, Map<string, string>>();
+  /**
+   * CDP backendNodeId lookup per conversation, populated by the
+   * AX-tree-based `executeBrowserSnapshot`. Click/type/hover/etc. tools
+   * resolve an element_id against this map and talk to CDP with the
+   * resulting backendNodeId.
+   */
+  private snapshotBackendNodeMaps = new Map<string, Map<string, number>>();
+  /**
+   * The CDP backend kind that a conversation resolved to on an earlier
+   * tool call. When a subsequent browser_* call arrives with
+   * `browser_mode: "auto"`, the factory is pinned to this kind so
+   * navigate and screenshot cannot land on different Chromes within
+   * the same conversation. Explicit non-auto modes overwrite the entry.
+   * Cleared when the conversation's page is closed or all pages are
+   * closed.
+   */
+  private preferredBackendKinds = new Map<string, CdpClientKind>();
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
   private interactiveModeSessions = new Set<string>();
@@ -358,7 +375,7 @@ class BrowserManager {
           this.rawPages.clear();
           this.cdpSessions.clear();
 
-          this.snapshotMaps.clear();
+          this.snapshotBackendNodeMaps.clear();
           this.downloads.clear();
           for (const pending of this.pendingDownloads.values()) {
             for (const waiter of pending)
@@ -384,7 +401,7 @@ class BrowserManager {
     }
 
     // Clear stale snapshot mappings and CDP state when replacing a closed page
-    this.snapshotMaps.delete(conversationId);
+    this.snapshotBackendNodeMaps.delete(conversationId);
     await this.stopScreencast(conversationId);
 
     const page = await context.newPage();
@@ -437,7 +454,8 @@ class BrowserManager {
     }
     this.pages.delete(conversationId);
     this.rawPages.delete(conversationId);
-    this.snapshotMaps.delete(conversationId);
+    this.snapshotBackendNodeMaps.delete(conversationId);
+    this.preferredBackendKinds.delete(conversationId);
     this.downloads.delete(conversationId);
     // Reject any pending download waiters
     const pending = this.pendingDownloads.get(conversationId);
@@ -470,7 +488,8 @@ class BrowserManager {
     }
     this.pages.clear();
     this.rawPages.clear();
-    this.snapshotMaps.clear();
+    this.snapshotBackendNodeMaps.clear();
+    this.preferredBackendKinds.clear();
     this.downloads.clear();
     for (const pending of this.pendingDownloads.values()) {
       for (const waiter of pending) waiter.reject(new Error("Browser closed"));
@@ -526,19 +545,69 @@ class BrowserManager {
     }
   }
 
-  storeSnapshotMap(conversationId: string, map: Map<string, string>): void {
-    this.snapshotMaps.set(conversationId, map);
+  /**
+   * Look up the backend kind this conversation has been using. Returns
+   * `null` before the first successful CDP send or after an explicit
+   * teardown. Callers should pass the result to the factory as a
+   * pinned mode so `auto`-mode calls stay consistent across tool
+   * invocations.
+   */
+  getPreferredBackendKind(conversationId: string): CdpClientKind | null {
+    return this.preferredBackendKinds.get(conversationId) ?? null;
   }
 
-  clearSnapshotMap(conversationId: string): void {
-    this.snapshotMaps.delete(conversationId);
+  /**
+   * Record the backend kind that a tool call resolved to. Overwrites
+   * any prior value so an explicit `browser_mode` override on one call
+   * becomes the default for subsequent `auto`-mode calls.
+   */
+  setPreferredBackendKind(
+    conversationId: string,
+    kind: CdpClientKind,
+  ): void {
+    this.preferredBackendKinds.set(conversationId, kind);
   }
 
-  resolveSnapshotSelector(
+  /**
+   * Drop the remembered backend kind for a conversation. Called on
+   * explicit teardown (browser_close, closeAllPages) so the next call
+   * re-runs the auto priority list.
+   */
+  clearPreferredBackendKind(conversationId: string): void {
+    this.preferredBackendKinds.delete(conversationId);
+  }
+
+  /**
+   * Store the backendNodeId lookup produced by the AX-tree-based
+   * `executeBrowserSnapshot`. Callers overwrite any prior map for the
+   * conversation so each snapshot fully supersedes the previous one.
+   */
+  storeSnapshotBackendNodeMap(
+    conversationId: string,
+    map: Map<string, number>,
+  ): void {
+    this.snapshotBackendNodeMaps.set(conversationId, map);
+  }
+
+  /**
+   * Drop the backendNodeId lookup for a conversation so stale element
+   * IDs from a previous snapshot cannot resolve after a navigation or
+   * page close.
+   */
+  clearSnapshotBackendNodeMap(conversationId: string): void {
+    this.snapshotBackendNodeMaps.delete(conversationId);
+  }
+
+  /**
+   * Look up the CDP backendNodeId for an element id produced by the
+   * most recent AX-tree snapshot. Returns `null` if no snapshot has
+   * been taken or the id is unknown.
+   */
+  resolveSnapshotBackendNodeId(
     conversationId: string,
     elementId: string,
-  ): string | null {
-    const map = this.snapshotMaps.get(conversationId);
+  ): number | null {
+    const map = this.snapshotBackendNodeMaps.get(conversationId);
     if (!map) return null;
     return map.get(elementId) ?? null;
   }

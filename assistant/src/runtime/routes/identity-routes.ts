@@ -3,12 +3,11 @@
  */
 
 import { existsSync, readFileSync, statfsSync, statSync } from "node:fs";
-import { cpus, totalmem } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
+import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -16,6 +15,7 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
+import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
@@ -133,10 +133,56 @@ function getContainerMemoryLimitBytes(): number | null {
   return null;
 }
 
+/**
+ * Read the container's current memory usage from cgroup files.
+ *
+ * Tries cgroups v2 (`memory.current`) first, then cgroups v1
+ * (`memory/memory.usage_in_bytes`), mirroring the v2-then-v1 fallback used by
+ * `getContainerMemoryLimitBytes`. Returns null if neither file is available
+ * or readable.
+ *
+ * Unlike the limit lookup, no env-var override is needed: the gVisor issue
+ * that motivates VELLUM_MEMORY_LIMIT is specifically about the *limit* files
+ * exposing the host node's memory instead of the sandbox limit. The *usage*
+ * files (memory.current / memory.usage_in_bytes) reflect the sandbox's own
+ * accounting and are accurate under gVisor.
+ */
+function getContainerMemoryUsageBytes(): number | null {
+  // 1. Try cgroups v2.
+  try {
+    const v2 = readFileSync("/sys/fs/cgroup/memory.current", "utf-8").trim();
+    const bytes = parseInt(v2, 10);
+    if (!isNaN(bytes) && bytes > 0) return bytes;
+  } catch {
+    /* not available */
+  }
+
+  // 2. Try cgroups v1.
+  try {
+    const v1 = readFileSync(
+      "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+      "utf-8",
+    ).trim();
+    const bytes = parseInt(v1, 10);
+    if (!isNaN(bytes) && bytes > 0) return bytes;
+  } catch {
+    /* not available */
+  }
+  return null;
+}
+
 function getMemoryInfo(): MemoryInfo {
   const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+  // In platform-managed mode the daemon shares its Node process with whatever
+  // the container is doing as a whole; `process.memoryUsage().rss` only sees
+  // this process's resident set, which understates the container footprint
+  // operators care about. Read the cgroup usage file directly so /v1/health
+  // matches what the StatefulSet's memory limit is enforced against.
+  const currentBytes =
+    (getIsPlatform() ? getContainerMemoryUsageBytes() : null) ??
+    process.memoryUsage().rss;
   return {
-    currentMb: bytesToMb(process.memoryUsage().rss),
+    currentMb: bytesToMb(currentBytes),
     maxMb: bytesToMb(getContainerMemoryLimitBytes() ?? totalmem()),
   };
 }
@@ -146,50 +192,181 @@ interface CpuInfo {
   maxCores: number;
 }
 
+/**
+ * Parse a Kubernetes-style CPU string (e.g. "2000m", "1", "500m") into
+ * fractional cores. Returns null if the value is not a recognized format.
+ */
+function parseK8sCpuCores(value: string): number | null {
+  const trimmed = value.trim();
+  const milliMatch = trimmed.match(/^(\d+)m$/);
+  if (milliMatch) {
+    const millis = parseInt(milliMatch[1], 10);
+    return millis > 0 ? millis / 1000 : null;
+  }
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const num = parseFloat(trimmed);
+    return !isNaN(num) && num > 0 ? num : null;
+  }
+  return null;
+}
+
+/**
+ * Read the container's CPU core limit.
+ *
+ * Resolution order:
+ * 1. VELLUM_CPU_LIMIT env var (K8s resource format, e.g. "2000m" or "2").
+ *    In platform mode the container runs under gVisor where cgroup files may
+ *    report the node's CPU count rather than the sandbox limit.
+ * 2. cgroups v2 cpu.max (quota / period → fractional cores).
+ * 3. cgroups v1 cpu.cfs_quota_us / cpu.cfs_period_us.
+ * 4. os.cpus().length as last resort.
+ */
+function getContainerCpuCores(): number {
+  // 1. Prefer the explicit env var set by the platform StatefulSet template.
+  try {
+    const envLimit = getCpuLimit();
+    if (envLimit) {
+      const parsed = parseK8sCpuCores(envLimit);
+      if (parsed !== null) return parsed;
+    }
+  } catch {
+    /* env var parsing failed – fall through */
+  }
+
+  // 2. Try cgroups v2: /sys/fs/cgroup/cpu.max contains "$MAX $PERIOD".
+  try {
+    const raw = readFileSync("/sys/fs/cgroup/cpu.max", "utf-8").trim();
+    if (!raw.startsWith("max")) {
+      const parts = raw.split(/\s+/);
+      const quota = parseInt(parts[0], 10);
+      const period = parseInt(parts[1], 10);
+      if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
+        const cores = quota / period;
+        // Sanity check: if the value looks like the node's full CPU count
+        // and we're on a platform pod, it's likely gVisor leaking the host value.
+        if (cores < cpus().length * 0.9 || !getIsPlatform()) {
+          return cores;
+        }
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  // 3. Try cgroups v1.
+  try {
+    const quota = parseInt(
+      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_quota_us", "utf-8").trim(),
+      10,
+    );
+    const period = parseInt(
+      readFileSync("/sys/fs/cgroup/cpu/cpu.cfs_period_us", "utf-8").trim(),
+      10,
+    );
+    if (!isNaN(quota) && !isNaN(period) && period > 0 && quota > 0) {
+      const cores = quota / period;
+      if (cores < cpus().length * 0.9 || !getIsPlatform()) {
+        return cores;
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  return cpus().length || availableParallelism();
+}
+
+/**
+ * Read the container's CPU usage from cgroup accounting files.
+ *
+ * Returns total CPU microseconds consumed by the container since boot.
+ * We use the delta between two samples to compute percentage.
+ */
+function getContainerCpuUsageUs(): number | null {
+  // cgroups v2: cpu.stat has a "usage_usec" line.
+  try {
+    const stat = readFileSync("/sys/fs/cgroup/cpu.stat", "utf-8");
+    for (const line of stat.split("\n")) {
+      if (line.startsWith("usage_usec")) {
+        const val = parseInt(line.split(/\s+/)[1], 10);
+        if (!isNaN(val) && val > 0) return val;
+      }
+    }
+  } catch {
+    /* not available */
+  }
+
+  // cgroups v1: cpuacct.usage is in nanoseconds.
+  try {
+    const ns = parseInt(
+      readFileSync("/sys/fs/cgroup/cpuacct/cpuacct.usage", "utf-8").trim(),
+      10,
+    );
+    if (!isNaN(ns) && ns > 0) return ns / 1000; // convert ns → µs
+  } catch {
+    /* not available */
+  }
+
+  return null;
+}
+
 // Track CPU usage over a rolling window so /v1/health reports near-real-time
 // utilization instead of a lifetime average (total CPU time / total uptime).
 const CPU_SAMPLE_INTERVAL_MS = 5_000;
-let _lastCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastProcessCpuUsage: NodeJS.CpuUsage = process.cpuUsage();
+let _lastCgroupCpuUs: number | null = getContainerCpuUsageUs();
 let _lastCpuTime: number = Date.now();
 let _cachedCpuPercent = 0;
 
 // Kick off the background sampler. unref() so it never prevents process exit.
 setInterval(() => {
   const now = Date.now();
-  const newUsage = process.cpuUsage();
   const elapsedMs = now - _lastCpuTime;
-  if (elapsedMs > 0) {
-    const deltaCpuUs =
-      newUsage.user -
-      _lastCpuUsage.user +
-      (newUsage.system - _lastCpuUsage.system);
-    const deltaCpuMs = deltaCpuUs / 1000;
-    const numCores = cpus().length;
+  if (elapsedMs <= 0) return;
+
+  const numCores = getContainerCpuCores();
+
+  // Always sample process-level CPU so the baseline stays fresh. This
+  // prevents a spike if the platform cgroup path later falls back to
+  // process.cpuUsage() after cgroup stats were previously available.
+  const newProcessUsage = process.cpuUsage();
+  const processDeltaUs =
+    newProcessUsage.user -
+    _lastProcessCpuUsage.user +
+    (newProcessUsage.system - _lastProcessCpuUsage.system);
+  _lastProcessCpuUsage = newProcessUsage;
+
+  if (getIsPlatform()) {
+    // In platform mode, prefer cgroup-level CPU usage so we see the full
+    // container footprint, not just this process.
+    const cgroupUs = getContainerCpuUsageUs();
+    if (cgroupUs !== null && _lastCgroupCpuUs !== null) {
+      const deltaCpuUs = cgroupUs - _lastCgroupCpuUs;
+      const deltaCpuMs = deltaCpuUs / 1000;
+      _cachedCpuPercent =
+        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+    } else {
+      // cgroup CPU stats unavailable (e.g. gVisor) – fall back to process-level.
+      const deltaCpuMs = processDeltaUs / 1000;
+      _cachedCpuPercent =
+        Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
+    }
+    _lastCgroupCpuUs = cgroupUs;
+  } else {
+    // Non-platform: use process.cpuUsage() (accurate for single-process mode).
+    const deltaCpuMs = processDeltaUs / 1000;
     _cachedCpuPercent =
       Math.round((deltaCpuMs / (elapsedMs * numCores)) * 10000) / 100;
   }
-  _lastCpuUsage = newUsage;
+
   _lastCpuTime = now;
 }, CPU_SAMPLE_INTERVAL_MS).unref();
 
 function getCpuInfo(): CpuInfo {
   return {
     currentPercent: _cachedCpuPercent,
-    maxCores: cpus().length,
+    maxCores: Math.ceil(getContainerCpuCores()),
   };
-}
-
-function getPackageVersion(): string | undefined {
-  try {
-    const pkgPath = join(
-      dirname(fileURLToPath(import.meta.url)),
-      "../../../package.json",
-    );
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.version;
-  } catch {
-    return undefined;
-  }
 }
 
 export function handleHealth(): Response {
@@ -207,7 +384,7 @@ export function handleDetailedHealth(): Response {
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    version: getPackageVersion(),
+    version: APP_VERSION,
     disk: getDiskSpaceInfo(),
     memory: getMemoryInfo(),
     cpu: getCpuInfo(),
@@ -233,7 +410,7 @@ export function handleGetIdentity(): Response {
   const content = readFileSync(identityPath, "utf-8");
   const fields = parseIdentityFields(content);
 
-  const version = getPackageVersion();
+  const version = APP_VERSION;
 
   // Read createdAt from IDENTITY.md file birthtime
   let createdAt: string | undefined;

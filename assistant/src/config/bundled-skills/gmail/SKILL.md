@@ -12,9 +12,9 @@ This skill provides Gmail-specific tools. For cross-platform messaging (send, re
 
 ## Email Routing Priority
 
-When the user mentions "email" - sending, reading, checking, decluttering, drafting, or anything else - **always default to the user's own email (Gmail)** unless they explicitly ask about the assistant's own email address (e.g., "set up your email", "send from your address", "check your inbox"). The vast majority of email requests are about the user's Gmail, not the assistant's AgentMail address.
+When the user mentions "email" - sending, reading, checking, decluttering, drafting, or anything else - **always default to the user's own email (Gmail)** unless they explicitly ask about the assistant's own email address (e.g., "set up your email", "send from your address", "check your inbox"). The vast majority of email requests are about the user's Gmail, not the assistant's @vellum.me address.
 
-Do not offer AgentMail as an option or mention it unless the user specifically asks. If Gmail is not connected, guide them through Gmail setup - do not suggest AgentMail as an alternative.
+Do not offer the assistant's own email as an option unless the user specifically asks. If Gmail is not connected, guide them through Gmail setup.
 
 ## Communication Style
 
@@ -161,7 +161,7 @@ Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` tha
 
 Before composing any email that references a date or time:
 
-1. Check the `timestamp:` field in the `<turn_context>` block for today's date and timezone
+1. Check the `current_time:` field in the `<turn_context>` block for today's date and timezone
 2. Verify that "tomorrow" means the day after today's date, "next week" means the upcoming Monday–Friday, etc.
 3. If the email references a date from another message, cross-check it against the turn context to ensure it's in the future
 

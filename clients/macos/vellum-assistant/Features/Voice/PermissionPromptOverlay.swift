@@ -17,9 +17,13 @@ final class PermissionPromptOverlay {
 
     enum Kind {
         /// Pre-permission primer shown before the native system dialog.
-        case firstUse
+        /// Parameters indicate which permissions still need to be requested.
+        case firstUse(needsMicrophone: Bool, needsSpeechRecognition: Bool)
         /// Post-denial prompt directing to System Settings.
         case denied(DeniedPermission)
+        /// Speech recognition fallback prompt shown after an STT service failure.
+        /// Explains that enabling speech recognition improves reliability.
+        case speechFallback
     }
 
     enum DeniedPermission {
@@ -36,8 +40,21 @@ final class PermissionPromptOverlay {
 
         let contentView: AnyView
         switch kind {
-        case .firstUse:
+        case .firstUse(let needsMicrophone, let needsSpeechRecognition):
             contentView = AnyView(FirstUsePromptView(
+                needsMicrophone: needsMicrophone,
+                needsSpeechRecognition: needsSpeechRecognition,
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                    onDismiss()
+                },
+                onContinue: { [weak self] in
+                    self?.dismiss()
+                    onContinue()
+                }
+            ))
+        case .speechFallback:
+            contentView = AnyView(SpeechFallbackPromptView(
                 onDismiss: { [weak self] in
                     self?.dismiss()
                     onDismiss()
@@ -121,28 +138,50 @@ final class PermissionPromptOverlay {
 // MARK: - First-Use Primer
 
 private struct FirstUsePromptView: View {
+    let needsMicrophone: Bool
+    let needsSpeechRecognition: Bool
     let onDismiss: () -> Void
     let onContinue: () -> Void
+
+    private var title: String {
+        if needsMicrophone && needsSpeechRecognition {
+            return "Enable Voice Permissions"
+        } else if needsMicrophone {
+            return "Enable Microphone Access"
+        } else {
+            return "Enable Speech Recognition"
+        }
+    }
+
+    private var subtitle: String {
+        if needsMicrophone {
+            return "Required for voice dictation and conversation."
+        } else {
+            return "Improves transcription accuracy with real-time feedback."
+        }
+    }
+
+    private var icon: VIcon {
+        needsMicrophone ? .mic : .audioWaveform
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: VSpacing.sm) {
-                VIconView(.mic, size: 20)
+                VIconView(icon, size: 20)
                     .foregroundStyle(VColor.primaryBase)
 
-                Text("Enable Speech Recognition")
+                Text(title)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
 
-                Text("So your words come out the way you meant them.")
+                Text(subtitle)
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Not Now", style: .outlined, size: .compact) {
@@ -152,8 +191,54 @@ private struct FirstUsePromptView: View {
                     onContinue()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
+        }
+        .frame(width: 320)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Speech Fallback Prompt
+
+/// Shown after an STT service failure to suggest enabling native speech recognition
+/// as a reliable fallback. Uses informational styling (not error) since the user
+/// hasn't done anything wrong — their cloud STT provider just didn't work.
+private struct SpeechFallbackPromptView: View {
+    let onDismiss: () -> Void
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: VSpacing.sm) {
+                VIconView(.audioWaveform, size: 20)
+                    .foregroundStyle(VColor.primaryBase)
+
+                Text("Enable Speech Recognition")
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+
+                Text("Improves transcription accuracy and provides a reliable fallback when the cloud service is unavailable.")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Not Now", style: .outlined, size: .compact) {
+                    onDismiss()
+                }
+                VButton(label: "Enable", style: .primary, size: .compact) {
+                    onContinue()
+                }
+            }
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)
@@ -182,7 +267,7 @@ private struct DeniedPromptView: View {
 
     private var subtitle: String {
         switch deniedPermission {
-        case .microphone: "Dictation requires microphone access. Grant access in System Settings."
+        case .microphone: "Voice features require microphone access. Grant access in System Settings."
         case .speechRecognition: "Dictation requires speech recognition access. Grant access in System Settings."
         case .both: "Dictation requires microphone and speech recognition access. Grant access in System Settings."
         }
@@ -211,9 +296,7 @@ private struct DeniedPromptView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: VSpacing.xl, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Dismiss", style: .outlined, size: .compact) {
@@ -223,8 +306,7 @@ private struct DeniedPromptView: View {
                     onOpenSettings()
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.bottom, VSpacing.lg)
+            .padding(EdgeInsets(top: 0, leading: VSpacing.xl, bottom: VSpacing.lg, trailing: VSpacing.xl))
         }
         .frame(width: 320)
         .background(VColor.surfaceOverlay)

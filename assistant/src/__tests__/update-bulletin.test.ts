@@ -31,6 +31,13 @@ mock.module("../memory/checkpoints.js", () => ({
   ),
 }));
 
+// --- Mutable config stub for updates.enabled tests ---
+const updatesConfig = { enabled: true };
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ updates: updatesConfig }),
+}));
+
 // --- Temp directory for template files ---
 // Avoids mutating the real source-controlled UPDATES.md template, preventing
 // race conditions with parallel test execution and working tree corruption
@@ -60,6 +67,7 @@ const COMMENT_ONLY_TEMPLATE =
 describe("syncUpdateBulletinOnStartup", () => {
   beforeEach(() => {
     store.clear();
+    updatesConfig.enabled = true;
     // Remove any leftover workspace UPDATES.md from a previous test
     if (existsSync(workspacePath)) {
       rmSync(workspacePath);
@@ -90,6 +98,18 @@ describe("syncUpdateBulletinOnStartup", () => {
     const content = readFileSync(workspacePath, "utf-8");
     expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
     expect(content).toContain("What's New");
+  });
+
+  it("skips materialization entirely when updates.enabled is false", () => {
+    updatesConfig.enabled = false;
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(false);
+    // No checkpoint writes should have happened either.
+    expect(store.get("updates:active_releases")).toBeUndefined();
+    expect(store.get("updates:completed_releases")).toBeUndefined();
   });
 
   it("appends release block when workspace file exists without current marker", () => {
@@ -133,28 +153,34 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("marks active releases as completed when UPDATES.md is deleted", () => {
-    // Pre-populate active releases in the store
-    store.set("updates:active_releases", JSON.stringify(["0.8.0", "0.9.0"]));
+    // Pre-populate active releases including the current one — simulates
+    // a normal session where 1.0.0 was materialized alongside leftover
+    // entries from prior versions.
+    store.set(
+      "updates:active_releases",
+      JSON.stringify(["0.8.0", "0.9.0", "1.0.0"]),
+    );
 
     // Workspace file does not exist — simulates the assistant having deleted it
     expect(existsSync(workspacePath)).toBe(false);
 
     syncUpdateBulletinOnStartup();
 
-    // Active set should be cleared (except for the newly-added current release)
+    // Active set should be cleared
     const activeRaw = store.get("updates:active_releases");
     expect(activeRaw).toBeDefined();
     const active: string[] = JSON.parse(activeRaw!);
-    // The old releases should not be in the active set
     expect(active).not.toContain("0.8.0");
     expect(active).not.toContain("0.9.0");
+    expect(active).not.toContain("1.0.0");
 
-    // The old releases should now be completed
+    // All releases should now be completed
     const completedRaw = store.get("updates:completed_releases");
     expect(completedRaw).toBeDefined();
     const completed: string[] = JSON.parse(completedRaw!);
     expect(completed).toContain("0.8.0");
     expect(completed).toContain("0.9.0");
+    expect(completed).toContain("1.0.0");
   });
 
   it("does not recreate completed release after deletion", () => {
@@ -171,6 +197,82 @@ describe("syncUpdateBulletinOnStartup", () => {
 
     // The file should NOT be recreated since the release is now completed
     expect(existsSync(workspacePath)).toBe(false);
+  });
+
+  it("treats an empty UPDATES.md as dismissal of the current release", () => {
+    // Pre-populate active so we're past the fresh-install guard.
+    store.set("updates:active_releases", JSON.stringify(["1.0.0"]));
+    writeFileSync(workspacePath, "", "utf-8");
+
+    syncUpdateBulletinOnStartup();
+
+    // File should be left alone (still empty, not refilled).
+    expect(existsSync(workspacePath)).toBe(true);
+    expect(readFileSync(workspacePath, "utf-8")).toBe("");
+
+    const completed: string[] = JSON.parse(
+      store.get("updates:completed_releases")!,
+    );
+    expect(completed).toContain("1.0.0");
+  });
+
+  it("treats a whitespace-only UPDATES.md as dismissal of the current release", () => {
+    // Pre-populate active with the current release so the dismissal branch
+    // is scoped correctly to this version.
+    store.set("updates:active_releases", JSON.stringify(["1.0.0"]));
+    writeFileSync(workspacePath, "   \n\n\t\n", "utf-8");
+
+    syncUpdateBulletinOnStartup();
+
+    // File should be left alone — content must not be re-appended.
+    const content = readFileSync(workspacePath, "utf-8");
+    expect(content).not.toContain("<!-- vellum-update-release:1.0.0 -->");
+
+    const completed: string[] = JSON.parse(
+      store.get("updates:completed_releases")!,
+    );
+    expect(completed).toContain("1.0.0");
+  });
+
+  it("materializes new version bulletin after a prior release was dismissed", () => {
+    // Verifies that a new version's bulletin is materialized even when a
+    // prior release exists in the completed set. Dismissal detection is
+    // scoped to the current release — only suppress if this version was
+    // already active or completed, not because an unrelated version was.
+    store.set("updates:completed_releases", JSON.stringify(["0.9.0"]));
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    expect(existsSync(workspacePath)).toBe(true);
+    const content = readFileSync(workspacePath, "utf-8");
+    expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
+    expect(content).toContain("What's New");
+
+    // 1.0.0 must NOT have been auto-completed.
+    const completed: string[] = JSON.parse(
+      store.get("updates:completed_releases")!,
+    );
+    expect(completed).not.toContain("1.0.0");
+
+    // 1.0.0 should be in the active set.
+    const active: string[] = JSON.parse(store.get("updates:active_releases")!);
+    expect(active).toContain("1.0.0");
+  });
+
+  it("creates file on fresh install even though it is missing", () => {
+    // Both active and completed are empty — brand-new DB.
+    expect(store.get("updates:active_releases")).toBeUndefined();
+    expect(store.get("updates:completed_releases")).toBeUndefined();
+    expect(existsSync(workspacePath)).toBe(false);
+
+    syncUpdateBulletinOnStartup();
+
+    // Fresh install should materialize, not dismiss.
+    expect(existsSync(workspacePath)).toBe(true);
+    expect(readFileSync(workspacePath, "utf-8")).toContain(
+      "<!-- vellum-update-release:1.0.0 -->",
+    );
   });
 
   it("merges pending old block with new release block", () => {
@@ -237,6 +339,105 @@ describe("syncUpdateBulletinOnStartup", () => {
     syncUpdateBulletinOnStartup();
 
     expect(existsSync(workspacePath)).toBe(false);
+  });
+
+  it("only appends new content blocks on version bump with extended template", () => {
+    // Workspace already has entries A and B from a prior release
+    const oldContent = [
+      "<!-- vellum-update-release:0.9.0 -->",
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "Content for A.",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "Content for B.",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(workspacePath, oldContent, "utf-8");
+
+    // Template now has A, B, C — C is the only new entry
+    const extendedTemplate = [
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "Content for A.",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "Content for B.",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+      "<!-- vellum-update-release:entry-c -->",
+      "## Entry C",
+      "New content for C.",
+      "<!-- /vellum-update-release:entry-c -->",
+      "",
+    ].join("\n");
+    writeFileSync(
+      join(tempTemplateDir, "UPDATES.md"),
+      extendedTemplate,
+      "utf-8",
+    );
+
+    syncUpdateBulletinOnStartup();
+
+    const content = readFileSync(workspacePath, "utf-8");
+
+    // New release block should be present
+    expect(content).toContain("<!-- vellum-update-release:1.0.0 -->");
+
+    // Entry C should appear
+    expect(content).toContain("entry-c");
+    expect(content).toContain("New content for C.");
+
+    // Entries A and B should NOT be duplicated
+    const countA = (
+      content.match(/<!-- vellum-update-release:entry-a -->/g) || []
+    ).length;
+    const countB = (
+      content.match(/<!-- vellum-update-release:entry-b -->/g) || []
+    ).length;
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+  });
+
+  it("skips append when all template content blocks already exist in workspace", () => {
+    // Workspace already has entries A and B from a prior release
+    const oldContent = [
+      "<!-- vellum-update-release:0.9.0 -->",
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(workspacePath, oldContent, "utf-8");
+
+    // Template has the same A and B — nothing new
+    const sameTemplate = [
+      "<!-- vellum-update-release:entry-a -->",
+      "## Entry A",
+      "<!-- /vellum-update-release:entry-a -->",
+      "",
+      "<!-- vellum-update-release:entry-b -->",
+      "## Entry B",
+      "<!-- /vellum-update-release:entry-b -->",
+      "",
+    ].join("\n");
+    writeFileSync(join(tempTemplateDir, "UPDATES.md"), sameTemplate, "utf-8");
+
+    syncUpdateBulletinOnStartup();
+
+    const content = readFileSync(workspacePath, "utf-8");
+
+    // No 1.0.0 block should be added — all content already present
+    expect(content).not.toContain("<!-- vellum-update-release:1.0.0 -->");
   });
 
   it("preserves existing file when atomic write fails", () => {

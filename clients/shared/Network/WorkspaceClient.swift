@@ -3,10 +3,18 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkspaceClient")
 
+/// Typed errors emitted by workspace file operations so callers can
+/// distinguish "file absent" (legitimate first-run state) from generic
+/// transport failures.
+public enum WorkspaceFileError: Error {
+    case notFound
+}
+
 /// Focused client for workspace file-system operations routed through the gateway.
 public protocol WorkspaceClientProtocol {
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse?
     func fetchWorkspaceFile(path: String, showHidden: Bool) async -> WorkspaceFileResponse?
+    func fetchWorkspaceFilesList() async -> WorkspaceFilesListResponse?
     func deleteWorkspaceItem(path: String) async -> Bool
     func writeWorkspaceFile(path: String, content: Data) async -> Bool
     func createWorkspaceDirectory(path: String) async -> Bool
@@ -48,6 +56,23 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         }
         guard let data = response?.data else { return nil }
         return try? JSONDecoder().decode(WorkspaceFileResponse.self, from: data)
+    }
+
+    /// Fetches the server-curated list of well-known workspace files via
+    /// `GET /workspace-files`. Unlike ``fetchWorkspaceTree``, this endpoint
+    /// returns a flat list that the daemon builds dynamically — including
+    /// the guardian's per-user persona file at `users/<slug>.md` when
+    /// present — so the UI doesn't need to hardcode which files to look for.
+    public func fetchWorkspaceFilesList() async -> WorkspaceFilesListResponse? {
+        let response = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/workspace-files", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Fetch workspace files list failed (HTTP \(statusCode))")
+            return nil
+        }
+        guard let data = response?.data else { return nil }
+        return try? JSONDecoder().decode(WorkspaceFilesListResponse.self, from: data)
     }
 
     public func deleteWorkspaceItem(path: String) async -> Bool {
@@ -113,6 +138,9 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         let response = try await GatewayHTTPClient.get(
             path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
         )
+        if response.statusCode == 404 {
+            throw WorkspaceFileError.notFound
+        }
         guard response.isSuccess else {
             log.error("Workspace file content fetch failed (HTTP \(response.statusCode)) for \(path)")
             throw URLError(.badServerResponse)

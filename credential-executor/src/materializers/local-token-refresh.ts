@@ -46,7 +46,9 @@ interface OAuthAppRow {
 interface OAuthProviderRow {
   provider_key: string;
   token_url: string;
+  refresh_url: string | null;
   token_endpoint_auth_method: string | null;
+  token_exchange_body_format: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,7 @@ interface RefreshConfig {
   clientId: string;
   clientSecret?: string;
   authMethod: TokenEndpointAuthMethod;
+  bodyFormat: "form" | "json";
 }
 
 /**
@@ -108,7 +111,7 @@ async function resolveRefreshConfig(
     // 3. Look up the provider to get token_url and auth method
     const provider = db
       .query<OAuthProviderRow, [string]>(
-        `SELECT provider_key, token_url, token_endpoint_auth_method FROM oauth_providers WHERE provider_key = ? LIMIT 1`,
+        `SELECT provider_key, token_url, refresh_url, token_endpoint_auth_method, token_exchange_body_format FROM oauth_providers WHERE provider_key = ? LIMIT 1`,
       )
       .get(conn.provider_key);
 
@@ -116,7 +119,10 @@ async function resolveRefreshConfig(
       return { error: `No OAuth provider found for "${conn.provider_key}"` };
     }
 
-    if (!provider.token_url || !app.client_id) {
+    // Resolve the effective token URL: prefer refresh_url, fall back to token_url
+    const tokenUrl = provider.refresh_url || provider.token_url;
+
+    if (!tokenUrl || !app.client_id) {
       return { error: `Missing OAuth2 refresh config for "${conn.provider_key}"` };
     }
 
@@ -126,12 +132,14 @@ async function resolveRefreshConfig(
     );
 
     const authMethod = (provider.token_endpoint_auth_method as TokenEndpointAuthMethod | null) ?? "client_secret_post";
+    const bodyFormat = (provider.token_exchange_body_format as "form" | "json" | null) ?? "form";
 
     return {
-      tokenUrl: provider.token_url,
+      tokenUrl,
       clientId: app.client_id,
       clientSecret,
       authMethod,
+      bodyFormat,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -161,7 +169,10 @@ async function performTokenRefresh(
   };
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
+    "Content-Type":
+      config.bodyFormat === "json"
+        ? "application/json"
+        : "application/x-www-form-urlencoded",
   };
 
   if (config.clientSecret && config.authMethod === "client_secret_basic") {
@@ -179,7 +190,10 @@ async function performTokenRefresh(
   const resp = await fetch(config.tokenUrl, {
     method: "POST",
     headers,
-    body: new URLSearchParams(body),
+    body:
+      config.bodyFormat === "json"
+        ? JSON.stringify(body)
+        : new URLSearchParams(body),
   });
 
   if (!resp.ok) {

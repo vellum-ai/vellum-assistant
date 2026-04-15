@@ -13,7 +13,7 @@ enum BundleSandbox {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
         return appSupport
-            .appendingPathComponent("vellum-assistant")
+            .appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName)
             .appendingPathComponent("shared-apps")
     }
 

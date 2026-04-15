@@ -110,6 +110,7 @@ final class VellumCli: AssistantManagementClient {
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     nonisolated private static let forwardedEnvKeys: [String] = [
+        "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
         "VELLUM_WORKSPACE_DIR",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
@@ -157,8 +158,10 @@ final class VellumCli: AssistantManagementClient {
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
     /// waits for the socket, and registers the assistant entry.
     ///
-    /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, restart: Bool = false, configValues: [String: String] = [:]) async throws {
+    /// - Parameters:
+    ///   - name: Optional assistant name to reuse.
+    ///   - configValues: Key-value pairs forwarded as `--config k=v` flags.
+    override func hatch(name: String? = nil, configValues: [String: String] = [:]) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -167,9 +170,6 @@ final class VellumCli: AssistantManagementClient {
         log.info("Running hatch via CLI at \(binaryURL.path, privacy: .public)")
 
         var arguments = ["hatch", "-d"]
-        if restart {
-            arguments.append("--restart")
-        }
         // NOTE: --watch runs daemon from source via `bun --watch` which breaks
         // Playwright's CDP websocket connection. Omit it for now.
         // #if DEBUG
@@ -214,20 +214,24 @@ final class VellumCli: AssistantManagementClient {
     /// Times out after 5 minutes; on timeout the CLI process is terminated.
     /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
     /// in Console.app.
-    func retire(name: String) async throws {
+    override func retire(name: String? = nil) async throws -> LockfileAssistant? {
+        guard let resolvedName = name ?? LockfileAssistant.loadActiveAssistantId() else {
+            throw ManagementClientError.noActiveAssistant
+        }
+
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping retire (dev mode)")
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(name, privacy: .public)'")
-        log.info("[audit] CLI invoke: retire args=\(name, privacy: .public)")
+        log.info("Running retire via CLI at \(binaryURL.path, privacy: .public) for '\(resolvedName, privacy: .public)'")
+        log.info("[audit] CLI invoke: retire args=\(resolvedName, privacy: .public)")
         let retireStartTime = ContinuousClock.now
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
             proc.executableURL = binaryURL
-            proc.arguments = ["retire", name]
+            proc.arguments = ["retire", resolvedName]
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
@@ -302,11 +306,21 @@ final class VellumCli: AssistantManagementClient {
         if status != 0 {
             log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             log.warning("[audit] CLI done: retire exit=\(status) duration=\(retireMs)ms")
+
             throw CLIError.executionFailed(stderr)
         }
 
         log.info("CLI retire completed successfully")
         log.info("[audit] CLI done: retire exit=0 duration=\(retireMs)ms")
+
+        // The CLI does not have access to credential storage, so platform
+        // deregistration must happen here in the macOS app layer, after the
+        // CLI retire succeeds but before lockfile/active-ID cleanup.
+        await deregisterFromPlatformIfNeeded(runtimeAssistantId: resolvedName)
+
+        // The CLI already removed the lockfile entry on the success path.
+        // Clear the active ID and find a replacement assistant.
+        return await findReplacementAfterRetire(retiredId: resolvedName)
     }
 
     /// How long to wait for the `sleep` CLI before giving up.
@@ -581,11 +595,7 @@ final class VellumCli: AssistantManagementClient {
         var env = Self.makeBaseEnvironment()
 
         if env["VELLUM_PLATFORM_URL"] == nil {
-            #if DEBUG
-            env["VELLUM_PLATFORM_URL"] = "https://dev-platform.vellum.ai"
-            #else
-            env["VELLUM_PLATFORM_URL"] = "https://platform.vellum.ai"
-            #endif
+            env["VELLUM_PLATFORM_URL"] = VellumEnvironment.current.containerPlatformURL
         }
 
         for (envVar, value) in config.providerApiKeys where !value.isEmpty {

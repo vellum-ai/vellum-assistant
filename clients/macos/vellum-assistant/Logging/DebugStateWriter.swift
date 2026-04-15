@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DebugStateWriter")
@@ -24,7 +25,7 @@ final class DebugStateWriter {
         } else {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
-            dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+            dir = appSupport.appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("debug-state.json")

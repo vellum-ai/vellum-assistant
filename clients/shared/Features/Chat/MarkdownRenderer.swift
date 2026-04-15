@@ -42,7 +42,6 @@ private struct CodeBlockView: View {
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
         .background(VColor.surfaceActive)
@@ -222,25 +221,78 @@ private enum MarkdownParser {
     }
 }
 
+// MARK: - Cache Entry Wrappers
+
+/// NSObject wrapper for `[MarkdownBlock]` to satisfy NSCache's value requirement.
+private final class BlocksCacheEntry: NSObject {
+    let blocks: [MarkdownBlock]
+    init(_ blocks: [MarkdownBlock]) { self.blocks = blocks }
+}
+
+/// NSObject wrapper for `AttributedString` to satisfy NSCache's value requirement.
+private final class AttributedStringCacheEntry: NSObject {
+    let attributedString: AttributedString
+    init(_ attributedString: AttributedString) { self.attributedString = attributedString }
+}
+
 // MARK: - MarkdownRenderer
 
 /// Renders markdown text as a structured SwiftUI view, with support for
 /// code blocks, headings, lists, horizontal rules, and inline formatting.
-public struct MarkdownRenderer: View {
+///
+/// Caches parsed blocks and `AttributedString` results to avoid redundant
+/// CoreText typesetter initialization during repeated SwiftUI layout passes.
+public struct MarkdownRenderer: View, Equatable {
     public let text: String
 
     public init(text: String) {
         self.text = text
     }
 
+    // MARK: - Caches
+
+    /// Cache for parsed markdown blocks, keyed by input text.
+    /// Avoids re-running the block-level parser on every SwiftUI body evaluation.
+    @MainActor private static var blockCache: NSCache<NSString, BlocksCacheEntry> = {
+        let cache = NSCache<NSString, BlocksCacheEntry>()
+        cache.countLimit = 200
+        cache.totalCostLimit = 5_000_000
+        return cache
+    }()
+
+    /// Cache for `AttributedString` results from `inlineMarkdown(_:)`.
+    /// Each `Text(AttributedString)` triggers CoreText typesetter initialization
+    /// during SwiftUI layout measurement (`TTypesetterAttrString::Initialize`).
+    /// Caching prevents redundant initialization across repeated body evaluations
+    /// and nested layout passes — the root cause of the 2s+ app hang in LUM-712.
+    @MainActor private static var attributedStringCache: NSCache<NSString, AttributedStringCacheEntry> = {
+        let cache = NSCache<NSString, AttributedStringCacheEntry>()
+        cache.countLimit = 500
+        cache.totalCostLimit = 10_000_000
+        return cache
+    }()
+
+    /// Maximum text length eligible for caching. Text exceeding this limit
+    /// is parsed/rendered but not stored, preventing a single huge entry
+    /// from evicting many smaller, more frequently accessed entries.
+    private static let maxCacheableTextLength = 10_000
+
+    /// Clears all internal caches. Call when switching contexts or under
+    /// memory pressure to reclaim memory.
+    public static func clearCaches() {
+        blockCache.removeAllObjects()
+        attributedStringCache.removeAllObjects()
+    }
+
+    // MARK: - Body
+
     public var body: some View {
-        let blocks = MarkdownParser.parse(text)
+        let blocks = Self.cachedParse(text)
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 blockView(for: block)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -250,14 +302,12 @@ public struct MarkdownRenderer: View {
             Text(inlineMarkdown(text))
                 .font(level == 1 ? VFont.titleSmall : level == 2 ? VFont.bodyLargeEmphasised : VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let text):
             Text(inlineMarkdown(text))
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
                 .tint(VColor.primaryBase)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
         case .codeBlock(let lang, let code):
@@ -275,7 +325,6 @@ public struct MarkdownRenderer: View {
                             .font(VFont.bodyMediumLighter)
                             .foregroundStyle(VColor.contentDefault)
                             .tint(VColor.primaryBase)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
                 }
@@ -284,13 +333,40 @@ public struct MarkdownRenderer: View {
         case .horizontalRule:
             Rectangle()
                 .fill(VColor.borderBase)
-                .frame(maxWidth: .infinity)
                 .frame(height: 1)
         }
     }
 
+    // MARK: - Cached Parsing
+
+    /// Returns cached parsed blocks for the given text, parsing and caching
+    /// on first access.
+    @MainActor
+    private static func cachedParse(_ text: String) -> [MarkdownBlock] {
+        let key = text as NSString
+        if let cached = blockCache.object(forKey: key) {
+            return cached.blocks
+        }
+        let blocks = MarkdownParser.parse(text)
+        if text.count <= maxCacheableTextLength {
+            blockCache.setObject(
+                BlocksCacheEntry(blocks),
+                forKey: key,
+                cost: text.utf8.count * 5
+            )
+        }
+        return blocks
+    }
+
     /// Parse inline markdown (bold, italic, code) using AttributedString.
+    /// Results are cached to avoid redundant CoreText typesetter initialization
+    /// during repeated layout passes.
     private func inlineMarkdown(_ text: String) -> AttributedString {
+        let key = text as NSString
+        if let cached = Self.attributedStringCache.object(forKey: key) {
+            return cached.attributedString
+        }
+
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
@@ -311,6 +387,14 @@ public struct MarkdownRenderer: View {
             var leading = AttributedString("\u{2009}")
             leading.backgroundColor = VColor.surfaceActive
             result.insert(leading, at: range.lowerBound)
+        }
+
+        if text.count <= Self.maxCacheableTextLength {
+            Self.attributedStringCache.setObject(
+                AttributedStringCacheEntry(result),
+                forKey: key,
+                cost: text.utf8.count * 10
+            )
         }
         return result
     }

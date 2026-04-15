@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Speech
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OpenAIVoiceService")
@@ -8,9 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OpenA
 enum VoiceServiceError: Error, LocalizedError {
     case speechRecognitionUnavailable
     case notAuthorized
-    case noAPIKey
     case invalidResponse
-    case apiError(statusCode: Int, message: String)
     case noAudioData
     case noTranscription
 
@@ -18,23 +17,28 @@ enum VoiceServiceError: Error, LocalizedError {
         switch self {
         case .speechRecognitionUnavailable: return "Speech recognition unavailable"
         case .notAuthorized: return "Speech recognition not authorized"
-        case .noAPIKey: return "API key not configured"
         case .invalidResponse: return "Invalid API response"
-        case .apiError(let code, let msg): return "API error (\(code)): \(msg)"
         case .noAudioData: return "No audio data recorded"
         case .noTranscription: return "No transcription result"
         }
     }
 }
 
-/// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
-/// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
+/// Voice service: service-first STT + Apple fallback + gateway TTS.
+/// Records audio, detects silence, captures per-turn PCM for service STT,
+/// runs live SFSpeechRecognizer for partial text and fallback transcription,
+/// speaks via the assistant's `/v1/tts/synthesize` endpoint.
 @MainActor
 @Observable
 final class OpenAIVoiceService: VoiceServiceProtocol {
     var amplitude: Float = 0
     var speakingAmplitude: Float = 0
     var livePartialText: String = ""
+
+    // MARK: - Speech Recognizer Adapter
+
+    /// Injected adapter wrapping SFSpeechRecognizer static APIs and instance creation.
+    @ObservationIgnored let speechRecognizerAdapter: any SpeechRecognizerAdapter
 
     // MARK: - Recording State
 
@@ -70,55 +74,60 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
     /// Continuation to deliver the final transcription when recording stops.
     @ObservationIgnored private var transcriptionContinuation: CheckedContinuation<String?, Never>?
 
-    // MARK: - ElevenLabs TTS State
+    // MARK: - Per-Turn Audio Capture (for service STT)
 
-    /// Accumulated text from streaming deltas — sent to ElevenLabs when response completes.
+    /// Raw 16-bit PCM samples accumulated during the current recording turn.
+    /// Converted from the tap's float32 buffers on the fly, then WAV-encoded
+    /// and sent to the STT service at turn end.
+    @ObservationIgnored private var capturedPCMData = Data()
+    /// Sample rate of the captured audio, recorded from the tap's buffer format.
+    @ObservationIgnored private var capturedSampleRate: Int = 16000
+
+    /// Gateway STT client — routes through the assistant's configured STT service.
+    @ObservationIgnored private let sttClient: any STTClientProtocol
+
+    // MARK: - TTS State
+
+    /// Accumulated text from streaming deltas — sent to the gateway when response completes.
     @ObservationIgnored private var ttsTextBuffer = ""
     @ObservationIgnored private var ttsOnComplete: (() -> Void)?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
     @ObservationIgnored private var speakingTimer: Timer?
     @ObservationIgnored private var ttsTask: Task<Void, Never>?
 
-    /// Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
-    /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
-    private static let defaultVoiceId = "ZF6FPAbjXT4488VcRRnw"
+    /// Gateway TTS client — routes through the provider selected by `services.tts.provider`.
+    @ObservationIgnored private let ttsClient: any TTSClientProtocol
 
-    /// Override voice ID set by daemon broadcasts (client_settings_update).
-    static var overrideVoiceId: String?
+    /// Current conversation ID, set by VoiceModeManager on activation.
+    /// Passed to TTSClient for provider context.
+    @ObservationIgnored var conversationId: String?
 
-    /// ElevenLabs voice ID — reads from daemon-provided override, then UserDefaults
-    /// (so the user's last-configured value survives app restarts), falls back to Amelia.
-    private static var elevenLabsVoiceId: String {
-        overrideVoiceId.flatMap { $0.isEmpty ? nil : $0 }
-            ?? UserDefaults.standard.string(forKey: "ttsVoiceId").flatMap { $0.isEmpty ? nil : $0 }
-            ?? Self.defaultVoiceId
+    nonisolated init(
+        ttsClient: any TTSClientProtocol = TTSClient(),
+        sttClient: any STTClientProtocol = STTClient(),
+        speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
+    ) {
+        self.ttsClient = ttsClient
+        self.sttClient = sttClient
+        self.speechRecognizerAdapter = speechRecognizerAdapter
     }
-
-    nonisolated init() {}
-
-    // MARK: - API Keys
-
-    func elevenLabsKey() async -> String? { APIKeyManager.getKey(for: "elevenlabs") }
-    func hasElevenLabsKey() async -> Bool { await elevenLabsKey() != nil }
 
     // MARK: - Speech Recognition Authorization
 
     /// Check if speech recognition is authorized. Returns true if authorized.
-    nonisolated static func isSpeechRecognitionAuthorized() -> Bool {
-        SFSpeechRecognizer.authorizationStatus() == .authorized
+    nonisolated func isSpeechRecognitionAuthorized() -> Bool {
+        speechRecognizerAdapter.authorizationStatus() == .authorized
     }
 
     /// Request speech recognition authorization if not yet determined.
-    nonisolated static func requestSpeechRecognitionAuthorization(completion: @escaping (Bool) -> Void) {
-        let status = SFSpeechRecognizer.authorizationStatus()
+    nonisolated func requestSpeechRecognitionAuthorization(completion: @escaping (Bool) -> Void) {
+        let status = speechRecognizerAdapter.authorizationStatus()
         switch status {
         case .authorized:
             completion(true)
         case .notDetermined:
-            SFSpeechRecognizer.requestAuthorization { newStatus in
-                DispatchQueue.main.async {
-                    completion(newStatus == .authorized)
-                }
+            speechRecognizerAdapter.requestAuthorization { newStatus in
+                completion(newStatus == .authorized)
             }
         default:
             completion(false)
@@ -151,75 +160,96 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         rmsLogCounter = 0
         latestTranscription = ""
         livePartialText = ""
+        capturedPCMData = Data()
+
+        let sttConfigured = STTProviderRegistry.isServiceConfigured
 
         // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
         // release delays that make isAvailable return false on the second turn.
         // Recreate if transiently unavailable (e.g. after sleep/wake or heavy use).
         if speechRecognizer == nil || speechRecognizer?.isAvailable != true {
-            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            speechRecognizer = speechRecognizerAdapter.makeRecognizer(locale: Locale(identifier: "en-US"))
         }
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+
+        // When STT is configured, the native recognizer is optional — we can
+        // record audio and rely entirely on the STT service for transcription.
+        // When STT is NOT configured, the recognizer is required.
+        let recognizerAvailable = speechRecognizer != nil && speechRecognizer!.isAvailable
+        guard sttConfigured || recognizerAvailable else {
             log.error("SFSpeechRecognizer not available")
             return false
         }
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-        request.addsPunctuation = false
-        recognitionRequest = request
+        // Set up native recognition request and task only when the recognizer
+        // is available. In STT-only mode (recognizer unavailable), the audio
+        // tap still runs, PCM accumulates, and silence detection works — but
+        // livePartialText remains empty and resolveLocalTranscription returns nil.
+        if let recognizer = speechRecognizer, recognizer.isAvailable {
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            if recognizer.supportsOnDeviceRecognition {
+                request.requiresOnDeviceRecognition = true
+            }
+            request.addsPunctuation = false
+            recognitionRequest = request
 
-        // Start recognition task
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
+            // Start recognition task
+            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                guard let self else { return }
 
-            if let result {
-                let text = result.bestTranscription.formattedString
-                log.debug("Partial transcription: \(text, privacy: .public)")
-                Task { @MainActor [weak self] in
-                    self?.latestTranscription = text
-                    self?.livePartialText = text
+                if let result {
+                    let text = result.bestTranscription.formattedString
+                    log.debug("Partial transcription: \(text, privacy: .public)")
+                    Task { @MainActor [weak self] in
+                        self?.latestTranscription = text
+                        self?.livePartialText = text
+                    }
+
+                    if result.isFinal {
+                        let finalText = text
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            log.info("Final transcription: \(finalText, privacy: .public)")
+                            self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
+                            self.transcriptionContinuation = nil
+                        }
+                    }
                 }
 
-                if result.isFinal {
-                    let finalText = text
+                if let error {
+                    let nsError = error as NSError
+                    // Ignore cancellation errors (code 216) — expected when we call endAudio()
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                        return
+                    }
+                    // Code 1110 = "no speech detected" — not a real error, just empty input
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                        log.info("No speech detected in audio")
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.transcriptionContinuation?.resume(returning: nil)
+                            self.transcriptionContinuation = nil
+                        }
+                        return
+                    }
+                    log.error("Recognition error: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        log.info("Final transcription: \(finalText, privacy: .public)")
-                        self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
+                        // If we have partial transcription, use it despite the error
+                        let text = self.latestTranscription
+                        self.transcriptionContinuation?.resume(returning: text.isEmpty ? nil : text)
                         self.transcriptionContinuation = nil
                     }
                 }
             }
-
-            if let error {
-                let nsError = error as NSError
-                // Ignore cancellation errors (code 216) — expected when we call endAudio()
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    return
-                }
-                // Code 1110 = "no speech detected" — not a real error, just empty input
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    log.info("No speech detected in audio")
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.transcriptionContinuation?.resume(returning: nil)
-                        self.transcriptionContinuation = nil
-                    }
-                    return
-                }
-                log.error("Recognition error: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    // If we have partial transcription, use it despite the error
-                    let text = self.latestTranscription
-                    self.transcriptionContinuation?.resume(returning: text.isEmpty ? nil : text)
-                    self.transcriptionContinuation = nil
-                }
-            }
+        } else {
+            log.info("Recording without native recognizer — STT service will handle transcription")
         }
+
+        // Capture a local reference to the recognition request (may be nil in
+        // STT-only mode) so the audio tap closure doesn't need to capture self
+        // to read the property.
+        let activeRequest = recognitionRequest
 
         // Atomically validate format, install tap, and start engine.
         // Passes nil for format so AVAudioEngine uses its internal hardware
@@ -229,8 +259,18 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
 
-            // Feed buffer to speech recognizer
-            request.append(buffer)
+            // Feed buffer to speech recognizer (when available)
+            activeRequest?.append(buffer)
+
+            // Capture raw PCM for service STT: convert float32 to 16-bit PCM
+            // and accumulate alongside the live recognizer path.
+            let sampleRate = Int(buffer.format.sampleRate)
+            var pcmChunk = Data(capacity: frameCount * MemoryLayout<Int16>.size)
+            for i in 0..<frameCount {
+                let clamped = max(-1.0, min(1.0, floatData[0][i]))
+                let sample = Int16(clamped * Float(Int16.max))
+                withUnsafeBytes(of: sample.littleEndian) { pcmChunk.append(contentsOf: $0) }
+            }
 
             // Compute RMS for amplitude display and silence detection
             var sum: Float = 0
@@ -242,6 +282,11 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
 
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
+
+                // Accumulate PCM data for service STT
+                self.capturedPCMData.append(pcmChunk)
+                self.capturedSampleRate = sampleRate
+
                 self.amplitude = min(rms * 5, 1.0)
 
                 // Log RMS every ~50 buffers (~1s) for diagnostics
@@ -276,11 +321,15 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         isRecording = true
         lastSpeechTime = Date()
         recordingStartTime = Date()
-        log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+        log.info("Recording started (recognizer: \(recognizerAvailable ? "active" : "none (STT-only)"), sttConfigured: \(sttConfigured, privacy: .public))")
         return true
     }
 
-    /// Stop recording and return the transcription from SFSpeechRecognizer.
+    /// Stop recording and return the final transcription.
+    ///
+    /// Uses a service-first strategy: attempts STT via the gateway service with
+    /// the captured WAV audio, falling back to the local SFSpeechRecognizer
+    /// transcription when the service is unavailable or unconfigured.
     func stopRecordingAndGetTranscription() async -> String? {
         guard isRecording else { return nil }
 
@@ -292,13 +341,47 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         // Signal end of audio to the recognizer
         recognitionRequest?.endAudio()
 
-        // If we already have transcription text, return it immediately
-        // (the final callback may not fire for short utterances)
+        // Snapshot captured PCM and local recognizer text before async work
+        let pcmData = capturedPCMData
+        let sampleRate = capturedSampleRate
+        capturedPCMData = Data()
+
+        // Run local and service transcriptions concurrently so the total wait
+        // time is max(local, service) instead of local + service. Under
+        // degraded conditions this avoids blocking in .processing for up to
+        // 17 s (2 s local + 15 s service) — instead the ceiling is ~15 s.
+        async let localTextTask = resolveLocalTranscription()
+        async let serviceTextTask = resolveServiceTranscription(pcmData: pcmData, sampleRate: sampleRate)
+
+        let localText = await localTextTask
+        let serviceText = await serviceTextTask
+
+        tearDownRecognition()
+        recordingStartTime = nil
+
+        // Prefer service result, fall back to local recognizer
+        let finalText = serviceText ?? localText
+        log.info("Recording stopped, transcription: \(finalText ?? "<none>", privacy: .public) (source: \(serviceText != nil ? "service" : "local", privacy: .public))")
+        return finalText
+    }
+
+    /// Resolve the local SFSpeechRecognizer transcription. Returns the current
+    /// partial text immediately if available, otherwise waits briefly for the
+    /// final recognition callback.
+    ///
+    /// When no recognition task exists (STT-only mode — native recognizer was
+    /// unavailable), returns nil immediately rather than waiting for a result
+    /// that will never arrive.
+    private func resolveLocalTranscription() async -> String? {
+        // In STT-only mode there is no recognition task — return nil
+        // immediately so we don't block waiting for a callback that won't come.
+        guard recognitionTask != nil else {
+            log.info("No native recognition task — skipping local transcription")
+            return nil
+        }
+
         let currentText = latestTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !currentText.isEmpty {
-            log.info("Returning current transcription: \(currentText, privacy: .public)")
-            tearDownRecognition()
-            recordingStartTime = nil
             return currentText
         }
 
@@ -316,12 +399,42 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
                 }
             }
         }
-
-        tearDownRecognition()
-        recordingStartTime = nil
-
-        log.info("Recording stopped, transcription: \(result ?? "<none>", privacy: .public)")
         return result
+    }
+
+    /// Attempt STT transcription via the gateway service. Returns nil if the
+    /// service is unconfigured, unavailable, or if no audio was captured.
+    private func resolveServiceTranscription(pcmData: Data, sampleRate: Int) async -> String? {
+        guard !pcmData.isEmpty else {
+            log.info("STT service: no captured audio, skipping")
+            return nil
+        }
+
+        let wavFormat = AudioWavEncoder.Format(sampleRate: sampleRate, channels: 1, bitsPerSample: 16)
+        let wavData = await Task.detached(priority: .userInitiated) {
+            AudioWavEncoder.encode(pcmData: pcmData, format: wavFormat)
+        }.value
+
+        let result = await sttClient.transcribe(audioData: wavData)
+        switch result {
+        case .success(let text):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                log.info("STT service: empty transcription, falling back to local")
+                return nil
+            }
+            log.info("STT service: transcription succeeded (\(trimmed.count) chars)")
+            return text
+        case .notConfigured:
+            log.info("STT service: not configured, falling back to local recognizer")
+            return nil
+        case .serviceUnavailable:
+            log.warning("STT service: unavailable, falling back to local recognizer")
+            return nil
+        case .error(let statusCode, let message):
+            log.warning("STT service: error (HTTP \(statusCode ?? 0)): \(message), falling back to local recognizer")
+            return nil
+        }
     }
 
     /// Force stop recording without returning transcription.
@@ -329,6 +442,7 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard isRecording else { return }
         isRecording = false
         amplitude = 0
+        capturedPCMData = Data()
         engineController.stopAndRemoveTap()
         // Resume any waiting continuation with nil
         transcriptionContinuation?.resume(returning: nil)
@@ -358,14 +472,14 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         livePartialText = ""
     }
 
-    // MARK: - ElevenLabs TTS (REST API)
+    // MARK: - Gateway TTS
 
     /// Called with each text delta — just accumulates text.
     func feedTextDelta(_ delta: String) {
         ttsTextBuffer += delta
     }
 
-    /// Called when the full response is complete — sends accumulated text to ElevenLabs.
+    /// Called when the full response is complete — sends accumulated text to the gateway TTS endpoint.
     func finishTextStream(onComplete: @escaping () -> Void) {
         let raw = ttsTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = TTSRedactor.redact(raw)
@@ -381,32 +495,39 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         startSpeakingAmplitudePolling()
 
         ttsTask = Task {
-            // Fetch the key once at the start of the task.
-            guard await elevenLabsKey() != nil else {
-                log.info("TTS: no ElevenLabs key, completing immediately")
-                self.finishSpeaking()
-                self.ttsOnComplete?()
-                self.ttsOnComplete = nil
-                return
-            }
             guard !Task.isCancelled else { return }
             do {
-                let audioData = try await fetchElevenLabsTTS(text: text)
+                let result = await ttsClient.synthesizeText(text, context: "voice-mode", conversationId: conversationId)
                 guard !Task.isCancelled else { return }
 
-                let player = try AVAudioPlayer(data: audioData)
-                self.audioPlayer = player
-                player.delegate = nil // We poll for completion below
-                player.play()
-                log.info("TTS: playing \(audioData.count) bytes of audio")
+                switch result {
+                case .success(let audioData):
+                    let player = try AVAudioPlayer(data: audioData)
+                    self.audioPlayer = player
+                    player.delegate = nil // We poll for completion below
+                    player.play()
+                    log.info("TTS: playing \(audioData.count) bytes of audio")
 
-                // Poll until playback finishes
-                while player.isPlaying && !Task.isCancelled {
-                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    // Poll until playback finishes
+                    while player.isPlaying && !Task.isCancelled {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+
+                    guard !Task.isCancelled else { return }
+                    log.info("TTS: playback complete")
+
+                case .notConfigured:
+                    log.info("TTS: provider not configured, completing immediately")
+
+                case .featureDisabled:
+                    log.info("TTS: feature disabled, completing immediately")
+
+                case .notFound:
+                    log.warning("TTS: endpoint returned not found")
+
+                case .error(let statusCode, let message):
+                    log.error("TTS endpoint error (HTTP \(statusCode ?? 0)): \(message)")
                 }
-
-                guard !Task.isCancelled else { return }
-                log.info("TTS: playback complete")
             } catch {
                 if !Task.isCancelled {
                     log.error("TTS error: \(error.localizedDescription)")
@@ -489,51 +610,6 @@ final class OpenAIVoiceService: VoiceServiceProtocol {
         guard bargeInMonitorActive else { return }
         bargeInMonitorActive = false
         engineController.stopAndRemoveTap()
-    }
-
-    /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
-    private func fetchElevenLabsTTS(text: String) async throws -> Data {
-        guard let elevenLabsKey = await elevenLabsKey() else {
-            throw VoiceServiceError.noAPIKey
-        }
-
-        let voiceId = Self.elevenLabsVoiceId
-        let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(voiceId)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(elevenLabsKey, forHTTPHeaderField: "xi-api-key")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
-
-        let body: [String: Any] = [
-            "text": text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": [
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "speed": 1.1
-            ]
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw VoiceServiceError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            log.error("ElevenLabs API error (\(httpResponse.statusCode)): \(errorBody)")
-            throw VoiceServiceError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
-        }
-
-        guard !data.isEmpty else {
-            throw VoiceServiceError.noAudioData
-        }
-
-        return data
     }
 
     // MARK: - Speaking Amplitude

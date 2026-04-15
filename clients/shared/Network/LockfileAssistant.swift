@@ -60,9 +60,8 @@ public struct LockfileAssistant {
     public let baseDataDir: String?
     public let gatewayPort: Int?
     public let instanceDir: String?
-    public let serviceGroupVersion: String?
     public let containerInfo: ContainerInfo?
-    public let previousServiceGroupVersion: String?
+    public let mgmtSocket: String?
     public let previousContainerInfo: ContainerInfo?
     public init(
         assistantId: String,
@@ -77,9 +76,8 @@ public struct LockfileAssistant {
         baseDataDir: String?,
         gatewayPort: Int?,
         instanceDir: String?,
-        serviceGroupVersion: String? = nil,
         containerInfo: ContainerInfo? = nil,
-        previousServiceGroupVersion: String? = nil,
+        mgmtSocket: String? = nil,
         previousContainerInfo: ContainerInfo? = nil
     ) {
         self.assistantId = assistantId
@@ -94,9 +92,8 @@ public struct LockfileAssistant {
         self.baseDataDir = baseDataDir
         self.gatewayPort = gatewayPort
         self.instanceDir = instanceDir
-        self.serviceGroupVersion = serviceGroupVersion
         self.containerInfo = containerInfo
-        self.previousServiceGroupVersion = previousServiceGroupVersion
+        self.mgmtSocket = mgmtSocket
         self.previousContainerInfo = previousContainerInfo
     }
 
@@ -118,10 +115,8 @@ public struct LockfileAssistant {
     public var isCurrentEnvironment: Bool {
         guard isManaged else { return true }
         guard let runtimeUrl = runtimeUrl, !runtimeUrl.isEmpty else { return true }
-        let expected = AuthService.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        ).lowercased().replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        let expected = VellumEnvironment.resolvedPlatformURL
+            .lowercased().replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
         let actual = runtimeUrl.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
@@ -156,8 +151,25 @@ public struct LockfileAssistant {
     }
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
-    public static func loadAll() -> [LockfileAssistant] {
-        guard let json = LockfilePaths.read(),
+    ///
+    /// - Parameter lockfilePath: Optional explicit lockfile path. When `nil`
+    ///   reads the primary path via `LockfilePaths.read()` (which includes
+    ///   legacy-path migration). Tests and the connection coordinator pass
+    ///   an explicit path to stay consistent with the same file the writes
+    ///   target.
+    public static func loadAll(lockfilePath: String? = nil) -> [LockfileAssistant] {
+        let json: [String: Any]?
+        if let lockfilePath {
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: lockfilePath)),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json = parsed
+            } else {
+                json = nil
+            }
+        } else {
+            json = LockfilePaths.read()
+        }
+        guard let json,
               let assistants = json["assistants"] as? [[String: Any]] else {
             return []
         }
@@ -171,7 +183,6 @@ public struct LockfileAssistant {
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
             let resources = entry["resources"] as? [String: Any]
-            let serviceGroupVersion = entry["serviceGroupVersion"] as? String
             var containerInfo: ContainerInfo? = nil
             if let ci = entry["containerInfo"] as? [String: Any] {
                 containerInfo = ContainerInfo(
@@ -184,7 +195,6 @@ public struct LockfileAssistant {
                     networkName: ci["networkName"] as? String
                 )
             }
-            let previousServiceGroupVersion = entry["previousServiceGroupVersion"] as? String
             var previousContainerInfo: ContainerInfo? = nil
             if let pci = entry["previousContainerInfo"] as? [String: Any] {
                 previousContainerInfo = ContainerInfo(
@@ -210,9 +220,8 @@ public struct LockfileAssistant {
                 baseDataDir: entry["baseDataDir"] as? String,
                 gatewayPort: resources?["gatewayPort"] as? Int,
                 instanceDir: resources?["instanceDir"] as? String,
-                serviceGroupVersion: serviceGroupVersion,
                 containerInfo: containerInfo,
-                previousServiceGroupVersion: previousServiceGroupVersion,
+                mgmtSocket: entry["mgmtSocket"] as? String,
                 previousContainerInfo: previousContainerInfo
             )
         }
@@ -226,8 +235,15 @@ public struct LockfileAssistant {
     }
 
     /// Find an assistant by its ID in the lockfile.
-    public static func loadByName(_ name: String) -> LockfileAssistant? {
-        loadAll().first { $0.assistantId == name }
+    ///
+    /// - Parameter lockfilePath: Optional explicit lockfile path. When `nil`
+    ///   reads the primary path. Pass the same path the corresponding write
+    ///   used so reads and writes stay in sync.
+    public static func loadByName(
+        _ name: String,
+        lockfilePath: String? = nil
+    ) -> LockfileAssistant? {
+        loadAll(lockfilePath: lockfilePath).first { $0.assistantId == name }
     }
 
     /// Resolve the instance directory for the currently connected assistant.
@@ -435,6 +451,40 @@ public struct LockfileAssistant {
             s.fileSource = nil
             s.dirSource?.cancel()
             s.dirSource = nil
+        }
+    }
+
+    // MARK: - Entry Removal
+
+    /// Removes the lockfile entry for the given assistant ID.
+    ///
+    /// Used by management clients to clean up after a retire (successful or
+    /// failed-but-managed). This is the shared equivalent of the per-launcher
+    /// `removeLockfileEntry` helpers.
+    ///
+    /// - Parameters:
+    ///   - assistantId: The assistant ID whose entry should be removed.
+    ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
+    public static func removeEntry(
+        assistantId: String,
+        lockfilePath: String? = nil
+    ) {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var lockfile = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+        assistants.removeAll { ($0["assistantId"] as? String) == assistantId }
+        lockfile["assistants"] = assistants
+
+        if let updated = try? JSONSerialization.data(
+            withJSONObject: lockfile, options: [.prettyPrinted, .sortedKeys]
+        ) {
+            try? updated.write(to: fileURL, options: .atomic)
         }
     }
 

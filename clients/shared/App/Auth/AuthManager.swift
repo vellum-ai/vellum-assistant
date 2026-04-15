@@ -60,6 +60,7 @@ public final class AuthManager {
                 let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
                     state = .authenticated(user)
+                    await resolveOrganizationIdAfterAuth()
                     return
                 } else {
                     // Server responded but session is invalid — no retry needed
@@ -83,7 +84,7 @@ public final class AuthManager {
             }
         }
         // All retries exhausted — network likely still unavailable
-        log.error("Session check failed after 3 attempts: baseURL=\(self.authService.baseURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
+        log.error("Session check failed after 3 attempts: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
         state = .unauthenticated
     }
 
@@ -157,19 +158,21 @@ public final class AuthManager {
             )
 
             log.info(
-                "Provider-token auth completed with platformURL=\(self.authService.baseURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
+                "Provider-token auth completed with platformURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
             )
 
             if response.status == 200, response.meta?.is_authenticated != false {
                 if let user = response.data?.user {
                     state = .authenticated(user)
                     log.info("WorkOS login completed from provider-token response for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                    await resolveOrganizationIdAfterAuth()
                 } else {
                     log.info("Provider-token auth returned no user payload; validating session via auth/session")
                     let session = try await authService.getSession()
                     if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                         state = .authenticated(user)
                         log.info("WorkOS login completed after session revalidation for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                        await resolveOrganizationIdAfterAuth()
                     } else {
                         log.error(
                             "Session revalidation after provider-token auth did not return an authenticated user. status=\(session.status, privacy: .public) isAuthenticated=\(session.meta?.is_authenticated == true, privacy: .public) hasUser=\(session.data?.user != nil, privacy: .public)"
@@ -186,7 +189,7 @@ public final class AuthManager {
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             log.info("User cancelled WorkOS login")
         } catch {
-            log.error("WorkOS login failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            log.error("WorkOS login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             let bundlePath = Bundle.main.bundlePath
             let isTranslocated = bundlePath.contains("/AppTranslocation/")
             log.error("WorkOS login failed environment: bundlePath=\(bundlePath, privacy: .public) isTranslocated=\(isTranslocated, privacy: .public)")
@@ -207,7 +210,7 @@ public final class AuthManager {
         do {
             _ = try await authService.logout()
         } catch {
-            log.error("Logout request failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            log.error("Logout request failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             logoutError = error.localizedDescription
         }
         await SessionTokenManager.deleteTokenAsync()
@@ -220,6 +223,17 @@ public final class AuthManager {
         UserDefaults.standard.removeObject(forKey: "managed_platform_base_url")
         state = .unauthenticated
         return logoutError
+    }
+
+    /// Best-effort org resolution after a successful authentication.
+    /// Failures are logged, not thrown: a transient network error here
+    /// must not block the transition to `.authenticated`.
+    private func resolveOrganizationIdAfterAuth() async {
+        do {
+            _ = try await authService.resolveOrganizationId()
+        } catch {
+            log.warning("Failed to resolve organization ID post-auth: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func generateCodeVerifier() -> String {

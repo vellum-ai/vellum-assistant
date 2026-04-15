@@ -81,10 +81,40 @@ export function getWorkspaceDirOverride(): string | undefined {
   return str("VELLUM_WORKSPACE_DIR");
 }
 
+/**
+ * VELLUM_BACKUP_DIR — string, default: undefined
+ * Overrides the default backup root directory (~/.vellum/backups/).
+ * Used in containerized deployments where the backup directory must be
+ * on a persistent volume.
+ */
+export function getBackupDirOverride(): string | undefined {
+  return str("VELLUM_BACKUP_DIR");
+}
+
+/**
+ * VELLUM_BACKUP_KEY_PATH — string, default: undefined
+ * Overrides the default backup encryption key path (~/.vellum/protected/backup.key).
+ * Used in containerized deployments where the key must be on a persistent volume.
+ */
+export function getBackupKeyPathOverride(): string | undefined {
+  return str("VELLUM_BACKUP_KEY_PATH");
+}
+
 // ── Profiler env vars ───────────────────────────────────────────────────
 // These are injected by the platform when running a managed assistant in
 // profiler mode. The runtime uses them to locate, scope, and budget-limit
 // profiler output on the workspace volume.
+
+/**
+ * VELLUM_CPU_LIMIT — string (K8s resource format), default: undefined
+ * The CPU resource limit for the container (e.g. "2000m", "2").
+ * Set by the platform StatefulSet template to the exact K8s CPU limit.
+ * Used by the health endpoint to report accurate CPU core count inside
+ * gVisor sandboxes where cgroup files may expose the host node's CPUs.
+ */
+export function getCpuLimit(): string | undefined {
+  return str("VELLUM_CPU_LIMIT");
+}
 
 /**
  * VELLUM_PROFILER_RUN_ID — string, default: undefined
@@ -140,16 +170,21 @@ export function getProfilerMinFreeMb(): number | undefined {
  */
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
+  "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_AWS_ROLE_ARN",
+  "VELLUM_BACKUP_DIR",
+  "VELLUM_BACKUP_KEY_PATH",
   "VELLUM_CLOUD",
   "VELLUM_CUSTOM_QR_CODE_PATH",
   "VELLUM_DAEMON_AUTOSTART",
   "VELLUM_DAEMON_NOAUTH",
   "VELLUM_DATA_DIR",
+  "VELLUM_DEBUG",
   "VELLUM_DESKTOP_APP",
   "VELLUM_DEV",
   "VELLUM_DOCS_BASE_URL",
   "VELLUM_ENABLE_INSECURE_LAN_PAIRING",
+  "VELLUM_ENVIRONMENT",
   "VELLUM_HATCHED_BY",
   "VELLUM_HOOK_EVENT",
   "VELLUM_HOOK_NAME",
@@ -165,6 +200,8 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_SSH_USER",
   "VELLUM_UNSAFE_AUTH_BYPASS",
   "VELLUM_WORKSPACE_DIR",
+  "VELLUM_CPU_LIMIT",
+  "VELLUM_MEMORY_LIMIT",
 ]);
 
 /**

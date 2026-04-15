@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "providers": [
+    {
+      "id": "deepgram",
+      "displayName": "Deepgram",
+      "subtitle": "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Deepgram API key to enable speech-to-text.",
+      "apiKeyProviderName": "deepgram",
+      "conversationStreamingMode": "realtime-ws",
+      "credentialsGuide": {
+        "description": "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
+        "url": "https://console.deepgram.com/",
+        "linkLabel": "Open Deepgram Console"
+      }
+    },
+    {
+      "id": "google-gemini",
+      "displayName": "Google Gemini",
+      "subtitle": "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Gemini API key to enable Google Gemini transcription.",
+      "apiKeyProviderName": "gemini",
+      "conversationStreamingMode": "incremental-batch",
+      "credentialsGuide": {
+        "description": "Visit Google AI Studio, sign in with your Google account, and create an API key.",
+        "url": "https://aistudio.google.com/apikey",
+        "linkLabel": "Open Google AI Studio"
+      }
+    },
+    {
+      "id": "openai-whisper",
+      "displayName": "OpenAI Whisper",
+      "subtitle": "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your OpenAI API key to enable Whisper transcription.",
+      "apiKeyProviderName": "openai",
+      "conversationStreamingMode": "incremental-batch",
+      "credentialsGuide": {
+        "description": "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
+        "url": "https://platform.openai.com/api-keys",
+        "linkLabel": "Open OpenAI Platform"
+      }
+    }
+  ]
+}

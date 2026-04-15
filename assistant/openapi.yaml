@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.6.2
+  version: 0.6.3
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1118,6 +1118,172 @@ paths:
                 - eyeStyle
                 - color
               additionalProperties: false
+  /v1/backups:
+    get:
+      operationId: backups_get
+      summary: List backup snapshots
+      description:
+        Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting
+        whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is
+        empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than
+        `offsite.length`.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: array
+                    items: {}
+                  offsite:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        destination:
+                          type: object
+                          properties: {}
+                          additionalProperties: {}
+                        snapshots:
+                          type: array
+                          items: {}
+                        reachable:
+                          type: boolean
+                      required:
+                        - destination
+                        - snapshots
+                        - reachable
+                      additionalProperties: false
+                  offsiteEnabled:
+                    type: boolean
+                  nextRunAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - local
+                  - offsite
+                  - offsiteEnabled
+                  - nextRunAt
+                additionalProperties: false
+  /v1/backups/create:
+    post:
+      operationId: backups_create_post
+      summary: Create a backup snapshot immediately
+      description:
+        Trigger a manual snapshot. Bypasses the enabled and interval gates, but honors the in-progress mutex — a
+        concurrent caller receives 409.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  local:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  offsite:
+                    type: array
+                    items: {}
+                  durationMs:
+                    type: number
+                required:
+                  - local
+                  - offsite
+                  - durationMs
+                additionalProperties: false
+  /v1/backups/restore:
+    post:
+      operationId: backups_restore_post
+      summary: Restore from a backup snapshot
+      description:
+        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files
+        before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust
+        caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore."
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  restoredFiles:
+                    type: number
+                required:
+                  - manifest
+                  - restoredFiles
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to restore
+              required:
+                - path
+              additionalProperties: false
+  /v1/backups/verify:
+    post:
+      operationId: backups_verify_post
+      summary: Verify a backup snapshot
+      description:
+        Validates a snapshot without restoring. Decrypts encrypted bundles to a temp file, runs the vbundle
+        validator, and returns a pass/fail status.
+      tags:
+        - backups
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  manifest:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  error:
+                    type: string
+                required:
+                  - valid
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the snapshot file to verify
+              required:
+                - path
+              additionalProperties: false
   /v1/brain-graph:
     get:
       operationId: braingraph_get
@@ -1166,18 +1332,6 @@ paths:
       description: Return the brain-graph HTML visualization page with an embedded auth token.
       tags:
         - brain-graph
-      responses:
-        "200":
-          description: Successful response
-  /v1/browser-relay/command:
-    post:
-      operationId: browserrelay_command_post
-      responses:
-        "200":
-          description: Successful response
-  /v1/browser-relay/status:
-    get:
-      operationId: browserrelay_status_get
       responses:
         "200":
           description: Successful response
@@ -2126,6 +2280,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/contacts/guardian/channel:
+    post:
+      operationId: contacts_guardian_channel_post
+      summary: Add a channel to the guardian contact
+      description: Used by the guardian to auto-verify their own channel.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  contact:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                    description: Updated guardian contact
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  description: Channel type, e.g. 'email'
+                address:
+                  type: string
+                  description: Channel address, e.g. 'user@example.com'
+                externalUserId:
+                  type: string
+                  description: External user ID for trust resolution
+                status:
+                  description: "Channel status (default: active)"
+                  type: string
+              required:
+                - type
+                - address
+                - externalUserId
+              additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get
@@ -2412,7 +2616,12 @@ paths:
                     description: Total number of available starters
                   status:
                     type: string
-                    description: "One of: ready, empty, generating"
+                    enum:
+                      - ready
+                      - refreshing
+                      - empty
+                      - generating
+                    description: "One of: ready, refreshing, empty, generating"
                 required:
                   - starters
                   - total
@@ -2553,6 +2762,75 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/host-access:
+    get:
+      operationId: conversations_by_id_hostaccess_get
+      summary: Get conversation host access
+      description: Return whether the conversation can use host tools.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  hostAccess:
+                    type: boolean
+                required:
+                  - conversationId
+                  - hostAccess
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: conversations_by_id_hostaccess_patch
+      summary: Update conversation host access
+      description: Enable or disable host access for a conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  hostAccess:
+                    type: boolean
+                required:
+                  - conversationId
+                  - hostAccess
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hostAccess:
+                  type: boolean
+              required:
+                - hostAccess
+              additionalProperties: false
   /v1/conversations/{id}/name:
     patch:
       operationId: conversations_by_id_name_patch
@@ -2825,10 +3103,13 @@ paths:
                     type: string
                   conversationType:
                     type: string
+                  hostAccess:
+                    type: boolean
                 required:
                   - conversationId
                   - title
                   - conversationType
+                  - hostAccess
                 additionalProperties: false
       requestBody:
         required: true
@@ -3152,6 +3433,76 @@ paths:
                   description: Upper bound epoch ms
                   type: number
               additionalProperties: false
+  /v1/filing/config:
+    get:
+      operationId: filing_config_get
+      summary: Get filing config
+      description: Return the current filing schedule configuration.
+      tags:
+        - filing
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  activeHoursStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  activeHoursEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - enabled
+                  - intervalMs
+                  - activeHoursStart
+                  - activeHoursEnd
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/filing/run-now:
+    post:
+      operationId: filing_runnow_post
+      summary: Run filing now
+      description: Trigger an immediate filing run.
+      tags:
+        - filing
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ran:
+                    type: boolean
+                    description: Whether the filing actually ran
+                required:
+                  - success
+                  - ran
+                additionalProperties: false
   /v1/groups:
     get:
       operationId: groups_get
@@ -3800,6 +4151,396 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20)
+  /v1/home/feed:
+    get:
+      operationId: home_feed_get
+      summary: Get home activity feed
+      description:
+        Return the current Home activity feed with TTL + time-away filtering applied. Also returns a context banner
+        (greeting, relative time-away label, new-item count).
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - nudge
+                            - digest
+                            - action
+                            - thread
+                        priority:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                        title:
+                          type: string
+                        summary:
+                          type: string
+                        source:
+                          type: string
+                          enum:
+                            - gmail
+                            - slack
+                            - calendar
+                            - assistant
+                        timestamp:
+                          type: string
+                        status:
+                          default: new
+                          type: string
+                          enum:
+                            - new
+                            - seen
+                            - acted_on
+                        expiresAt:
+                          type: string
+                        minTimeAway:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        actions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              label:
+                                type: string
+                              prompt:
+                                type: string
+                            required:
+                              - id
+                              - label
+                              - prompt
+                            additionalProperties: false
+                        author:
+                          type: string
+                          enum:
+                            - assistant
+                            - platform
+                        createdAt:
+                          type: string
+                      required:
+                        - id
+                        - type
+                        - priority
+                        - title
+                        - summary
+                        - timestamp
+                        - status
+                        - author
+                        - createdAt
+                      additionalProperties: false
+                  updatedAt:
+                    type: string
+                  contextBanner:
+                    type: object
+                    properties:
+                      greeting:
+                        type: string
+                      timeAwayLabel:
+                        type: string
+                      newCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                    required:
+                      - greeting
+                      - timeAwayLabel
+                      - newCount
+                    additionalProperties: false
+                required:
+                  - items
+                  - updatedAt
+                  - contextBanner
+                additionalProperties: false
+      parameters:
+        - name: timeAwaySeconds
+          in: query
+          required: true
+          schema:
+            type: integer
+          description:
+            Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to
+            compute the context-banner relative-time label.
+  /v1/home/feed/{id}:
+    patch:
+      operationId: home_feed_by_id_patch
+      summary: Patch home feed item status
+      description:
+        Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item
+        on success, 404 if the item does not exist, 500 if the underlying write fails.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  type:
+                    type: string
+                    enum:
+                      - nudge
+                      - digest
+                      - action
+                      - thread
+                  priority:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  title:
+                    type: string
+                  summary:
+                    type: string
+                  source:
+                    type: string
+                    enum:
+                      - gmail
+                      - slack
+                      - calendar
+                      - assistant
+                  timestamp:
+                    type: string
+                  status:
+                    default: new
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                  expiresAt:
+                    type: string
+                  minTimeAway:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  actions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        prompt:
+                          type: string
+                      required:
+                        - id
+                        - label
+                        - prompt
+                      additionalProperties: false
+                  author:
+                    type: string
+                    enum:
+                      - assistant
+                      - platform
+                  createdAt:
+                    type: string
+                required:
+                  - id
+                  - type
+                  - priority
+                  - title
+                  - summary
+                  - timestamp
+                  - status
+                  - author
+                  - createdAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+              required:
+                - status
+              additionalProperties: false
+  /v1/home/feed/{id}/actions/{actionId}:
+    post:
+      operationId: home_feed_by_id_actions_by_actionId_post
+      summary: Trigger home feed action
+      description:
+        Create a new conversation pre-seeded with the action's prompt as the first user message. Returns the new
+        `conversationId`.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                required:
+                  - conversationId
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/home/state:
+    get:
+      operationId: home_state_get
+      summary: Get relationship state
+      description:
+        Return the current `RelationshipState` snapshot. Reads the persisted `relationship-state.json` when
+        present; falls back to an on-demand compute so fresh installs never see a 404.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                  assistantId:
+                    type: string
+                  tier:
+                    anyOf:
+                      - type: number
+                        const: 1
+                      - type: number
+                        const: 2
+                      - type: number
+                        const: 3
+                      - type: number
+                        const: 4
+                  progressPercent:
+                    type: number
+                  facts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        category:
+                          type: string
+                          enum:
+                            - voice
+                            - world
+                            - priorities
+                        text:
+                          type: string
+                        confidence:
+                          type: string
+                          enum:
+                            - strong
+                            - uncertain
+                        source:
+                          type: string
+                          enum:
+                            - onboarding
+                            - inferred
+                      required:
+                        - id
+                        - category
+                        - text
+                        - confidence
+                        - source
+                      additionalProperties: false
+                  capabilities:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        tier:
+                          type: string
+                          enum:
+                            - unlocked
+                            - next-up
+                            - earned
+                        gate:
+                          type: string
+                        unlockHint:
+                          type: string
+                        ctaLabel:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - tier
+                        - gate
+                      additionalProperties: false
+                  conversationCount:
+                    type: number
+                  hatchedDate:
+                    type: string
+                  assistantName:
+                    type: string
+                  userName:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - version
+                  - assistantId
+                  - tier
+                  - progressPercent
+                  - facts
+                  - capabilities
+                  - conversationCount
+                  - hatchedDate
+                  - assistantName
+                  - updatedAt
+                additionalProperties: false
   /v1/host-bash-result:
     post:
       operationId: hostbashresult_post
@@ -3972,6 +4713,9 @@ paths:
                 isError:
                   type: boolean
                   description: Whether the result is an error
+                imageData:
+                  type: string
+                  description: Optional base64-encoded image bytes for successful image reads
               required:
                 - requestId
               additionalProperties: false
@@ -4683,7 +5427,7 @@ paths:
     post:
       operationId: messages_by_id_tts_post
       summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using Fish Audio TTS.
+      description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
         - messages
       responses:
@@ -5156,63 +5900,6 @@ paths:
           schema:
             type: string
           description: Conversation ID
-  /v1/permission-mode:
-    get:
-      operationId: permissionmode_get
-      summary: Get permission mode
-      description: Return the current two-axis permission mode (askBeforeActing, hostAccess).
-      tags:
-        - settings
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  askBeforeActing:
-                    type: boolean
-                  hostAccess:
-                    type: boolean
-                required:
-                  - askBeforeActing
-                  - hostAccess
-                additionalProperties: false
-    put:
-      operationId: permissionmode_put
-      summary: Update permission mode
-      description: Update the two-axis permission mode. Requires the permission-controls-v2 feature flag.
-      tags:
-        - settings
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  askBeforeActing:
-                    type: boolean
-                  hostAccess:
-                    type: boolean
-                required:
-                  - askBeforeActing
-                  - hostAccess
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                askBeforeActing:
-                  type: boolean
-                hostAccess:
-                  type: boolean
-              additionalProperties: false
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
@@ -6159,7 +6846,9 @@ paths:
     get:
       operationId: skills_get
       summary: List all skills
-      description: Return all installed skills. Pass ?include=catalog to also include available catalog skills.
+      description:
+        "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports
+        optional filter params: origin, kind, q, category."
       tags:
         - skills
       responses:
@@ -6244,6 +6933,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -6256,6 +6947,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:
@@ -6288,6 +6980,32 @@ paths:
                               type: string
                             installs:
                               type: number
+                            audit:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: object
+                                properties:
+                                  risk:
+                                    type: string
+                                    enum:
+                                      - safe
+                                      - low
+                                      - medium
+                                      - high
+                                      - critical
+                                      - unknown
+                                  alerts:
+                                    type: number
+                                  score:
+                                    type: number
+                                  analyzedAt:
+                                    type: string
+                                required:
+                                  - risk
+                                  - analyzedAt
+                                additionalProperties: false
                           required:
                             - id
                             - name
@@ -6333,6 +7051,16 @@ paths:
                             - origin
                           additionalProperties: false
                     description: Skill objects
+                  categoryCounts:
+                    description: Count of skills per category (before category filter is applied)
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total number of skills matching non-category filters
+                    type: number
                 required:
                   - skills
                 additionalProperties: false
@@ -6345,6 +7073,30 @@ paths:
             enum:
               - catalog
           description: Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind."
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Text search across skill name, description, id, and origin label.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by inferred category (e.g. 'communication', 'productivity').
     post:
       operationId: skills_post
       summary: Create skill
@@ -6487,6 +7239,8 @@ paths:
                             type: number
                           publishedAt:
                             type: string
+                          version:
+                            type: string
                           owner:
                             anyOf:
                               - type: object
@@ -6553,6 +7307,7 @@ paths:
                           - stars
                           - installs
                           - reports
+                          - version
                         additionalProperties: false
                       - type: object
                         properties:
@@ -6585,6 +7340,32 @@ paths:
                             type: string
                           installs:
                             type: number
+                          audit:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: object
+                              properties:
+                                risk:
+                                  type: string
+                                  enum:
+                                    - safe
+                                    - low
+                                    - medium
+                                    - high
+                                    - critical
+                                    - unknown
+                                alerts:
+                                  type: number
+                                score:
+                                  type: number
+                                analyzedAt:
+                                  type: string
+                              required:
+                                - risk
+                                - analyzedAt
+                              additionalProperties: false
                         required:
                           - id
                           - name
@@ -6757,6 +7538,57 @@ paths:
           required: true
           schema:
             type: string
+  /v1/skills/{id}/files/content:
+    get:
+      operationId: skills_by_id_files_content_get
+      summary: Get skill file content
+      description: Return the content of a single file belonging to an installed or catalog skill.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  name:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  mimeType:
+                    type: string
+                  isBinary:
+                    type: boolean
+                  content:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - path
+                  - name
+                  - size
+                  - mimeType
+                  - isBinary
+                  - content
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Relative path of the file within the skill directory
   /v1/skills/{id}/inspect:
     get:
       operationId: skills_by_id_inspect_get
@@ -6862,6 +7694,8 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  skillId:
+                    type: string
                 required:
                   - ok
                 additionalProperties: false
@@ -6984,6 +7818,8 @@ paths:
                               type: number
                             publishedAt:
                               type: string
+                            version:
+                              type: string
                           required:
                             - id
                             - name
@@ -6996,6 +7832,7 @@ paths:
                             - stars
                             - installs
                             - reports
+                            - version
                           additionalProperties: false
                         - type: object
                           properties:
@@ -7028,6 +7865,32 @@ paths:
                               type: string
                             installs:
                               type: number
+                            audit:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: object
+                                properties:
+                                  risk:
+                                    type: string
+                                    enum:
+                                      - safe
+                                      - low
+                                      - medium
+                                      - high
+                                      - critical
+                                      - unknown
+                                  alerts:
+                                    type: number
+                                  score:
+                                    type: number
+                                  analyzedAt:
+                                    type: string
+                                required:
+                                  - risk
+                                  - analyzedAt
+                                additionalProperties: false
                           required:
                             - id
                             - name
@@ -7099,6 +7962,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/stt/transcribe:
+    post:
+      operationId: stt_transcribe_post
+      summary: Transcribe audio to text
+      description:
+        Transcribe base64-encoded audio to text using the configured STT provider. Provider selection is resolved
+        globally via config.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                audioBase64:
+                  type: string
+                  description: Base64-encoded audio data to transcribe
+                mimeType:
+                  type: string
+                  description: MIME type of the audio data (must start with "audio/", e.g. "audio/wav", "audio/ogg")
+                source:
+                  description: Optional source identifier for analytics (e.g. 'dictation', 'voice-mode')
+                  type: string
+              required:
+                - audioBase64
+                - mimeType
+              additionalProperties: false
   /v1/subagents/{id}:
     get:
       operationId: subagents_by_id_get
@@ -7267,6 +8162,11 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                  conversationId:
+                    type: string
+                    description:
+                      Id of a newly launched conversation when the action dispatched one (e.g. launch_conversation). Omitted
+                      otherwise.
                 required:
                   - ok
                 additionalProperties: false
@@ -7715,6 +8615,39 @@ paths:
                 - decision
                 - priority
               additionalProperties: false
+  /v1/tts/synthesize:
+    post:
+      operationId: tts_synthesize_post
+      summary: Synthesize text to speech
+      description:
+        Synthesize arbitrary text to audio using the configured TTS provider. Provider selection is resolved
+        globally via config — callers do not specify a provider.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to synthesize into speech
+                context:
+                  description:
+                    Optional context hint for output policy or capability selection (e.g. voice-mode). Does not affect provider
+                    selection.
+                  type: string
+                conversationId:
+                  description: Optional conversation ID for scoping or analytics.
+                  type: string
+              required:
+                - text
+              additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
@@ -7800,6 +8733,14 @@ paths:
               - daily
               - hourly
           description: 'Bucket granularity: "daily" (default) or "hourly"'
+        - name: tz
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            IANA timezone identifier (e.g. "America/Los_Angeles"). Bucket boundaries and display labels are computed in
+            this timezone. Defaults to "UTC" for backwards compatibility.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get

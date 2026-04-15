@@ -24,9 +24,17 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
+import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
+
+const log = getLogger("vbundle-importer");
+
+/** Archive path for the legacy guardian user persona file. */
+const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -227,6 +235,12 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   let backupsCreated = 0;
 
   for (const fileEntry of manifest.files) {
+    // Credential entries are handled separately by extractCredentialsFromBundle()
+    // in migration-routes.ts — skip them silently without warnings or skip counts.
+    if (fileEntry.path.startsWith("credentials/")) {
+      continue;
+    }
+
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     if (!diskPath) {
@@ -260,6 +274,33 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       warnings.push(
         `Skipped "${fileEntry.path}": declared in manifest but not found in archive`,
       );
+      continue;
+    }
+
+    // Legacy guardian persona (prompts/USER.md) is translated to the
+    // current guardian's users/<slug>.md by DefaultPathResolver. If
+    // that target already holds user-authored content, skip rather
+    // than clobber — the user has curated their persona since the
+    // bundle was exported.
+    if (
+      fileEntry.path === LEGACY_USER_MD_ARCHIVE_PATH &&
+      isGuardianPersonaCustomized(diskPath)
+    ) {
+      log.warn(
+        { archivePath: fileEntry.path, diskPath },
+        "Skipping legacy prompts/USER.md import: guardian persona is already customized",
+      );
+      warnings.push(
+        `Skipped "${fileEntry.path}": guardian persona at "${diskPath}" is already customized`,
+      );
+      importedFiles.push({
+        path: fileEntry.path,
+        disk_path: diskPath,
+        action: "skipped",
+        size: fileEntry.size,
+        sha256: fileEntry.sha256,
+        backup_path: null,
+      });
       continue;
     }
 
@@ -315,9 +356,20 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       }
     }
 
+    // Sanitize config files to strip environment-specific fields (defense-in-depth)
+    let dataToWrite: Uint8Array = archiveEntry.data;
+    if (
+      fileEntry.path === "workspace/config.json" ||
+      fileEntry.path === "config/settings.json"
+    ) {
+      const configJson = new TextDecoder().decode(archiveEntry.data);
+      const sanitized = sanitizeConfigForTransfer(configJson);
+      dataToWrite = new TextEncoder().encode(sanitized);
+    }
+
     // Write the file
     try {
-      writeFileSync(diskPath, archiveEntry.data);
+      writeFileSync(diskPath, dataToWrite);
     } catch (err) {
       return {
         ok: false,
@@ -335,14 +387,17 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
 
     // Step 3: Post-write integrity check — verify the written file
+    // Use the SHA of the data we actually wrote (which may differ from the
+    // manifest SHA if the config was sanitized during import).
+    const expectedSha256 = sha256Hex(dataToWrite);
     try {
       const writtenData = new Uint8Array(readFileSync(diskPath));
       const writtenSha256 = sha256Hex(writtenData);
 
-      if (writtenSha256 !== fileEntry.sha256) {
+      if (writtenSha256 !== expectedSha256) {
         warnings.push(
           `Post-write integrity warning for "${fileEntry.path}": ` +
-            `expected SHA-256 ${fileEntry.sha256}, got ${writtenSha256}`,
+            `expected SHA-256 ${expectedSha256}, got ${writtenSha256}`,
         );
       }
     } catch {
@@ -355,8 +410,8 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       path: fileEntry.path,
       disk_path: diskPath,
       action,
-      size: archiveEntry.size,
-      sha256: fileEntry.sha256,
+      size: dataToWrite.length,
+      sha256: expectedSha256,
       backup_path: backupPath,
     });
   }
@@ -378,6 +433,35 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   };
 
   return { ok: true, report };
+}
+
+// ---------------------------------------------------------------------------
+// Credential extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract credential entries from a validated vbundle tar entries map.
+ *
+ * Credentials are stored under the `credentials/` prefix in the archive,
+ * where the remainder of the path is the account name and the entry data
+ * is the credential value.
+ */
+export function extractCredentialsFromBundle(
+  entries: Map<string, VBundleTarEntry>,
+  manifest: ManifestType,
+): Array<{ account: string; value: string }> {
+  const manifestPaths = new Set(manifest.files.map((f) => f.path));
+  const credentials: Array<{ account: string; value: string }> = [];
+  for (const [path, entry] of entries) {
+    if (path.startsWith("credentials/") && manifestPaths.has(path)) {
+      const account = path.slice("credentials/".length);
+      if (account) {
+        const value = new TextDecoder().decode(entry.data);
+        credentials.push({ account, value });
+      }
+    }
+  }
+  return credentials;
 }
 
 // ---------------------------------------------------------------------------

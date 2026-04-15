@@ -120,7 +120,14 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
   }
 
   const mimeType = Bun.file(resolved).type;
-  const isText = isTextMimeType(mimeType, basename(resolved));
+  // Empty files with unknown MIME type default to text — there is no binary
+  // content to protect, and files created via the UI "New File" action are
+  // always 0 bytes. Without this override, extensionless files (e.g. "Test")
+  // would be classified as binary and rendered in a non-editable fallback view.
+  const isText =
+    stat.size === 0 && mimeType === "application/octet-stream"
+      ? true
+      : isTextMimeType(mimeType, basename(resolved));
   const isBinary = !isText;
 
   let content: string | undefined = undefined;

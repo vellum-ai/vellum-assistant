@@ -91,9 +91,23 @@ final class FileMenuPatchDelegate: NSObject, NSMenuDelegate {
         currentItem.tag = Self.injectedTag
         menu.insertItem(currentItem, at: 1)
 
+        let markUnreadShortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        let markUnreadItem: NSMenuItem
+        if markUnreadShortcut.isEmpty {
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: "")
+        } else {
+            let (muModifiers, muKey) = ShortcutHelper.parseShortcut(markUnreadShortcut)
+            markUnreadItem = NSMenuItem(title: "Mark Conversation as Unread", action: #selector(AppDelegate.markCurrentConversationUnread), keyEquivalent: muKey)
+            markUnreadItem.keyEquivalentModifierMask = muModifiers
+        }
+        markUnreadItem.target = appDelegate
+        markUnreadItem.tag = Self.injectedTag
+        menu.insertItem(markUnreadItem, at: 2)
+        appDelegate.markConversationUnreadMenuItem = markUnreadItem
+
         let separator = NSMenuItem.separator()
         separator.tag = Self.injectedTag
-        menu.insertItem(separator, at: 2)
+        menu.insertItem(separator, at: 3)
     }
 }
 
@@ -122,6 +136,15 @@ extension AppDelegate {
 
         rebindConnectionStatusObserver()
 
+        // Read the multi-platform-assistant flag exactly once when the
+        // status item is constructed. Flag changes require relaunch.
+        multiAssistantSwitcherEnabled = featureFlagStore.isEnabled("multi-platform-assistant")
+        if multiAssistantSwitcherEnabled {
+            assistantSwitcherViewModel = makeAssistantSwitcherViewModel()
+        } else {
+            assistantSwitcherViewModel = nil
+        }
+
         // Update menu bar icon when the assistant's avatar changes.
         if avatarChangeObserver == nil {
             avatarChangeObserver = NotificationCenter.default.addObserver(
@@ -130,6 +153,7 @@ extension AppDelegate {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
+                    self?.cachedMenuBarAvatar = nil
                     self?.updateMenuBarIcon()
                 }
             }
@@ -186,6 +210,7 @@ extension AppDelegate {
 
         updateNewChatMenuItemShortcut()
         updateCurrentConversationMenuItemShortcut()
+        updateMarkConversationUnreadMenuItemShortcut()
     }
 
     /// Updates the File > New Conversation menu item's key equivalent to match
@@ -220,6 +245,21 @@ extension AppDelegate {
         item.keyEquivalentModifierMask = modifiers
     }
 
+    /// Updates the File > Mark Conversation as Unread menu item's key equivalent
+    /// to match the current `markConversationUnreadShortcut` preference.
+    func updateMarkConversationUnreadMenuItemShortcut() {
+        guard let item = markConversationUnreadMenuItem else { return }
+        let shortcut = UserDefaults.standard.string(forKey: "markConversationUnreadShortcut") ?? "cmd+shift+u"
+        guard !shortcut.isEmpty else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = modifiers
+    }
+
     // MARK: - Menu Item Validation
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -227,7 +267,22 @@ extension AppDelegate {
         if action == #selector(markAllConversationsSeen) {
             return (mainWindow?.conversationManager.unseenVisibleConversationCount ?? 0) > 0
         }
+        if action == #selector(markCurrentConversationUnread) {
+            return canMarkCurrentConversationUnread()
+        }
         return true
+    }
+
+    /// Returns whether the mark-as-unread action is currently executable.
+    /// Shared by `validateMenuItem(_:)` and the keyboard-shortcut monitor so
+    /// both gates stay in sync and the shortcut falls through to the responder
+    /// chain when the action cannot run.
+    func canMarkCurrentConversationUnread() -> Bool {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId,
+              let idx = conversationManager.listStore.conversations.firstIndex(where: { $0.id == activeId })
+        else { return false }
+        return conversationManager.listStore.canMarkConversationUnread(conversationId: activeId, at: idx)
     }
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
@@ -244,21 +299,21 @@ extension AppDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon: NSImage = {
-            // Use the assistant's avatar (same image used for dock icon / chat),
-            // rendered as a circle at menu-bar size.
+        let appIcon: NSImage = cachedMenuBarAvatar ?? {
             let avatarManager = AvatarAppearanceManager.shared
             let avatar = avatarManager.customAvatarImage
                 ?? avatarManager.fullAvatarImage
 
             let size = iconSize
             let square = AvatarAppearanceManager.resizedImage(avatar, to: size)
-            return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let circular = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
                 NSBezierPath(ovalIn: rect).addClip()
                 square.draw(in: rect, from: NSRect(origin: .zero, size: square.size),
                             operation: .copy, fraction: 1.0)
                 return true
             }
+            cachedMenuBarAvatar = circular
+            return circular
         }()
 
         let status = currentAssistantStatus
@@ -411,6 +466,37 @@ extension AppDelegate {
             restartItem.target = self
             restartItem.image = VIcon.refreshCw.nsImage(size: 16)
             menu.addItem(restartItem)
+
+            let soundsEnabled = SoundManager.shared.config.globalEnabled
+            let muteTitle = soundsEnabled ? "Mute Sound Effects" : "Unmute Sound Effects"
+            let muteItem = NSMenuItem(title: muteTitle, action: #selector(toggleSoundEffectsMute), keyEquivalent: "")
+            muteItem.target = self
+            muteItem.image = VIcon.volume2.nsImage(size: 16)
+            menu.addItem(muteItem)
+
+            menu.addItem(NSMenuItem.separator())
+
+            let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+            feedbackItem.target = self
+            feedbackItem.image = VIcon.messageCircle.nsImage(size: 16)
+            menu.addItem(feedbackItem)
+        }
+
+        if multiAssistantSwitcherEnabled, onboardingWindow == nil, let switcherVM = assistantSwitcherViewModel {
+            // Force a re-read of the lockfile before rebuilding so items
+            // reflect any changes the active assistant may have missed
+            // (e.g. just after a create).
+            switcherVM.refresh()
+            menu.addItem(NSMenuItem.separator())
+            for item in AssistantSwitcherMenu.buildItems(
+                viewModel: switcherVM,
+                target: self,
+                selectAction: #selector(assistantSwitcherDidSelect(_:)),
+                createAction: #selector(assistantSwitcherDidRequestCreate(_:)),
+                retireAction: #selector(assistantSwitcherDidRequestRetire(_:))
+            ) {
+                menu.addItem(item)
+            }
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -466,6 +552,12 @@ extension AppDelegate {
         markAllSeenItem.target = self
         menu.addItem(markAllSeenItem)
 
+        menu.addItem(NSMenuItem.separator())
+
+        let feedbackItem = NSMenuItem(title: "Share Feedback", action: #selector(sendFeedback), keyEquivalent: "")
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
+
         return menu
     }
 
@@ -488,6 +580,13 @@ extension AppDelegate {
             mainWindow?.windowState.selection = nil
         }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
+    }
+
+    @objc public func markCurrentConversationUnread() {
+        guard let conversationManager = mainWindow?.conversationManager,
+              let activeId = conversationManager.selectionStore.activeConversationId
+        else { return }
+        conversationManager.markConversationUnread(conversationId: activeId)
     }
 
     @objc func activateChatSearch() {
@@ -514,6 +613,12 @@ extension AppDelegate {
         }
         // Local topology: use Sparkle
         updateManager.checkForUpdates()
+    }
+
+    @objc func toggleSoundEffectsMute() {
+        var updated = SoundManager.shared.config
+        updated.globalEnabled.toggle()
+        SoundManager.shared.saveConfig(updated)
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
@@ -543,15 +648,22 @@ extension AppDelegate {
         refreshAppsTask?.cancel()
         refreshAppsTask = Task {
             let response = await AppsClient().fetchAppsList()
-            guard let response, response.success else { return }
-            self.cachedApps = response.apps
+            guard let response, response.success || !response.apps.isEmpty else { return }
+            // When success is false but apps is non-empty, the response is
+            // a partial decode (some items dropped). Still sync to pick up
+            // new/updated apps, but skip pruning to avoid removing apps
+            // that merely failed to decode.
+            let isPartial = !response.success
+            if !isPartial {
+                self.cachedApps = response.apps
+            }
             let daemonItems = response.apps.map {
                 AppListManager.AppItem_Daemon(
                     id: $0.id, name: $0.name, description: $0.description,
                     icon: $0.icon, appType: nil, createdAt: $0.createdAt
                 )
             }
-            self.mainWindow?.appListManager.syncFromDaemon(daemonItems)
+            self.mainWindow?.appListManager.syncFromDaemon(daemonItems, skipPrune: isPartial)
         }
     }
 
@@ -697,6 +809,169 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Assistant Switcher (multi-platform-assistant)
+
+    /// Build the view model used by the menu-bar switcher. Production
+    /// handlers wrap the existing `performSwitchAssistant(to:)` path, the
+    /// hatch path, and the existing vellum CLI retire path.
+    func makeAssistantSwitcherViewModel() -> AssistantSwitcherViewModel {
+        return AssistantSwitcherViewModel(
+            switchHandler: { [weak self] assistantId in
+                guard let self else { return }
+                // Delegate to the existing full-switch path rather than
+                // `ManagedAssistantConnectionCoordinator.switchToManagedAssistant`.
+                // The coordinator only handles SSE teardown + reconnect; it
+                // does not close/recreate the main window, reset the avatar,
+                // clear the cached organization id, cancel actor-token
+                // bootstrap, or re-bootstrap the managed assistant. Wiring
+                // the switcher straight into `performSwitchAssistant(to:)`
+                // gives us the same battle-tested code path that
+                // TeleportSection and the post-retire fallback already use.
+                guard let target = LockfileAssistant.loadByName(assistantId) else {
+                    throw AssistantSwitcherError.assistantNotFound(assistantId)
+                }
+                self.performSwitchAssistant(to: target)
+            },
+            createHandler: { [weak self] name in
+                guard let self else { return }
+                try await self.hatchAndPersistManagedAssistant(name: name)
+            },
+            retireHandler: { [weak self] assistantId in
+                guard let self else { return }
+                try await self.retireManagedAssistantFromSwitcher(assistantId: assistantId)
+            }
+        )
+    }
+
+    /// Hatch a new managed assistant against the platform and persist it to
+    /// the lockfile. The organization id is read from UserDefaults —
+    /// matching the path the onboarding flow and TeleportSection use. There
+    /// is no centralized constant for this key yet; see TeleportSection for
+    /// the other call site that reads it directly.
+    private func hatchAndPersistManagedAssistant(name: String) async throws {
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !organizationId.isEmpty else {
+            throw AssistantSwitcherError.noOrganizationConnected
+        }
+        let result = try await AuthService.shared.hatchAssistant(
+            organizationId: organizationId,
+            name: name
+        )
+        let platformAssistant: PlatformAssistant
+        switch result {
+        case .reusedExisting(let assistant), .createdNew(let assistant):
+            platformAssistant = assistant
+        }
+        let success = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: VellumEnvironment.resolvedPlatformURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+        )
+        guard success else {
+            throw AssistantSwitcherError.lockfilePersistenceFailed
+        }
+
+        Task {
+            try? await AuthService.shared.updateAssistant(
+                id: platformAssistant.id,
+                organizationId: organizationId,
+                name: name
+            )
+        }
+
+        IdentityInfo.seedCache(name: name, forAssistantId: platformAssistant.id)
+    }
+
+    /// Retire an assistant requested from the switcher. Today the switcher
+    /// only exposes a retire row for the currently active assistant (the
+    /// menu builder enforces this), so we always delegate to the existing
+    /// `performRetireAsync()` path which handles fallback selection and
+    /// tear-down. Retiring a non-active managed assistant requires a
+    /// variant that targets an arbitrary id without tearing down the
+    /// current connection — tracked as a follow-up.
+    private func retireManagedAssistantFromSwitcher(assistantId: String) async throws {
+        let activeId = LockfileAssistant.loadActiveAssistantId()
+        guard assistantId == activeId else {
+            // Defensive: the menu should never surface this row, but throw
+            // a typed error rather than silently no-op if it ever does.
+            throw AssistantSwitcherError.retireNonActiveNotSupported
+        }
+        _ = await performRetireAsync()
+    }
+
+    @objc func assistantSwitcherDidSelect(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+        Task { @MainActor in
+            do {
+                try await vm.select(assistantId: assistantId)
+            } catch {
+                log.error("Assistant switch failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not switch assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestCreate(_ sender: NSMenuItem) {
+        guard let vm = assistantSwitcherViewModel else { return }
+        guard let name = AssistantSwitcherMenu.promptForNewAssistantName() else { return }
+        Task { @MainActor in
+            do {
+                try await vm.createNewAssistant(name: name)
+            } catch {
+                log.error("New managed assistant failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not create assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func assistantSwitcherDidRequestRetire(_ sender: NSMenuItem) {
+        guard let assistantId = sender.representedObject as? String else { return }
+        guard let vm = assistantSwitcherViewModel else { return }
+
+        let assistantName = IdentityInfo.cached(for: assistantId)?.name
+        let displayName = AssistantDisplayName.resolve(assistantName, assistantId)
+
+        let confirmAlert = NSAlert()
+        confirmAlert.messageText = "Retire \(displayName)?"
+        confirmAlert.alertStyle = .warning
+        if vm.assistants.count > 1 {
+            confirmAlert.informativeText = "This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed."
+        } else {
+            confirmAlert.informativeText = "This will stop the assistant, remove local data, and return to initial setup. This action cannot be undone."
+        }
+        confirmAlert.addButton(withTitle: "Retire")
+        confirmAlert.addButton(withTitle: "Cancel")
+
+        // Style the primary button as destructive via key equivalent
+        // so Enter triggers "Retire" and Escape triggers "Cancel".
+        confirmAlert.buttons[0].hasDestructiveAction = true
+
+        let response = confirmAlert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        Task { @MainActor in
+            do {
+                try await vm.retire(assistantId: assistantId)
+            } catch {
+                log.error("Retire from switcher failed: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Could not retire assistant"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
     #if DEBUG
     @objc func showComponentGallery() {
         AvatarGallerySection.registerInGallery()
@@ -705,4 +980,28 @@ extension AppDelegate {
     }
 
     #endif
+}
+
+/// Typed errors surfaced from the menu-bar assistant switcher. Defined here
+/// (rather than alongside `ManagedAssistantConnectionCoordinatorError`)
+/// because these are UI-layer failures — no organization connected, the
+/// lockfile write failed, etc. — that never originate from the coordinator.
+enum AssistantSwitcherError: LocalizedError {
+    case noOrganizationConnected
+    case lockfilePersistenceFailed
+    case retireNonActiveNotSupported
+    case assistantNotFound(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noOrganizationConnected:
+            return "No organization connected. Sign in first, then try again."
+        case .lockfilePersistenceFailed:
+            return "Failed to save the new assistant to your lockfile."
+        case .retireNonActiveNotSupported:
+            return "Retiring a non-active assistant from the switcher isn't supported yet. Switch to the assistant first, then retire it."
+        case .assistantNotFound(let id):
+            return "Could not find assistant \(id) in the lockfile."
+        }
+    }
 }

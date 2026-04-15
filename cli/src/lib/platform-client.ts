@@ -146,10 +146,173 @@ export interface HatchedAssistant {
   status: string;
 }
 
+export interface HatchAssistantResult {
+  assistant: HatchedAssistant;
+  /** true when the platform returned an existing assistant (HTTP 200) */
+  reusedExisting: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Self-hosted local assistant registration
+// ---------------------------------------------------------------------------
+
+export interface EnsureRegistrationResponse {
+  assistant: { id: string; name: string };
+  registration: {
+    client_installation_id: string;
+    runtime_assistant_id: string;
+    client_platform: string;
+  };
+  assistant_api_key: string | null;
+  webhook_secret: string;
+}
+
+/**
+ * Register (or re-confirm) a self-hosted local assistant with the platform.
+ *
+ * Calls `POST /v1/assistants/self-hosted-local/ensure-registration/`.
+ * The endpoint is idempotent: the first call provisions an API key;
+ * subsequent calls return `assistant_api_key: null`.
+ */
+export async function ensureSelfHostedLocalRegistration(
+  token: string,
+  organizationId: string,
+  clientInstallationId: string,
+  runtimeAssistantId: string,
+  clientPlatform: string,
+  assistantVersion?: string,
+  platformUrl?: string,
+): Promise<EnsureRegistrationResponse> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, string> = {
+    client_installation_id: clientInstallationId,
+    runtime_assistant_id: runtimeAssistantId,
+    client_platform: clientPlatform,
+  };
+  if (assistantVersion) {
+    body.assistant_version = assistantVersion;
+  }
+
+  const response = await fetch(
+    `${resolvedUrl}/v1/assistants/self-hosted-local/ensure-registration/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Session-Token": token,
+        "Vellum-Organization-Id": organizationId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication required for assistant registration.");
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Registration failed (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as EnsureRegistrationResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Credential injection into running assistant via gateway
+// ---------------------------------------------------------------------------
+
+/**
+ * Inject a single credential into the assistant's secret store via the
+ * gateway's `POST /v1/secrets` endpoint.
+ *
+ * Mirrors the desktop app's `GatewayHTTPClient.post(path: "secrets", …)`
+ * calls in `LocalAssistantBootstrapService.swift`.
+ */
+async function injectGatewayCredential(
+  gatewayUrl: string,
+  name: string,
+  value: string,
+  bearerToken?: string,
+): Promise<boolean> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (bearerToken) {
+    headers["Authorization"] = `Bearer ${bearerToken}`;
+  }
+
+  const response = await fetch(`${gatewayUrl}/v1/secrets`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ type: "credential", name, value }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return response.ok;
+}
+
+export interface CredentialInjectionParams {
+  gatewayUrl: string;
+  bearerToken?: string;
+  assistantApiKey?: string | null;
+  platformAssistantId: string;
+  platformBaseUrl: string;
+  organizationId: string;
+  userId?: string;
+  webhookSecret?: string | null;
+}
+
+/**
+ * Inject platform credentials into a running assistant via the gateway,
+ * mirroring `LocalAssistantBootstrapService.injectKeyIntoAssistant` et al.
+ *
+ * Each credential is posted individually. Failures are collected but do
+ * not prevent the remaining credentials from being injected.
+ *
+ * Returns true if all injections succeeded.
+ */
+export async function injectCredentialsIntoAssistant(
+  params: CredentialInjectionParams,
+): Promise<boolean> {
+  const inject = (name: string, value: string) =>
+    injectGatewayCredential(params.gatewayUrl, name, value, params.bearerToken);
+
+  const promises: Promise<boolean>[] = [];
+
+  if (params.assistantApiKey) {
+    promises.push(inject("vellum:assistant_api_key", params.assistantApiKey));
+  }
+
+  promises.push(
+    inject("vellum:platform_assistant_id", params.platformAssistantId),
+  );
+
+  promises.push(inject("vellum:platform_base_url", params.platformBaseUrl));
+
+  promises.push(
+    inject("vellum:platform_organization_id", params.organizationId),
+  );
+
+  if (params.userId) {
+    promises.push(inject("vellum:platform_user_id", params.userId));
+  }
+
+  if (params.webhookSecret) {
+    promises.push(inject("vellum:webhook_secret", params.webhookSecret));
+  }
+
+  const results = await Promise.all(promises);
+  return results.every(Boolean);
+}
+
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,
-): Promise<HatchedAssistant> {
+): Promise<HatchAssistantResult> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/hatch/`;
 
@@ -160,7 +323,8 @@ export async function hatchAssistant(
   });
 
   if (response.ok) {
-    return (await response.json()) as HatchedAssistant;
+    const assistant = (await response.json()) as HatchedAssistant;
+    return { assistant, reusedExisting: response.status === 200 };
   }
 
   if (response.status === 401 || response.status === 403) {
@@ -184,6 +348,37 @@ export async function hatchAssistant(
     errorBody.detail ??
       `Platform API error: ${response.status} ${response.statusText}`,
   );
+}
+
+/**
+ * Lightweight pre-check: returns the first active managed assistant for the
+ * authenticated user, or `null` if none exists. Calls `GET /v1/assistants/`
+ * and looks for any assistant with status "active".
+ *
+ * Used by the teleport flow to block BEFORE the expensive GCS upload when
+ * the user already has a platform assistant.
+ */
+export async function checkExistingPlatformAssistant(
+  token: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/`;
+
+  const response = await fetch(url, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (!response.ok) {
+    // Non-fatal: if the list call fails, fall through and let hatch handle it.
+    return null;
+  }
+
+  const body = (await response.json()) as {
+    results?: HatchedAssistant[];
+  };
+  const active = body.results?.find((a) => a.status === "active");
+  return active ?? null;
 }
 
 export interface PlatformUser {
@@ -529,7 +724,7 @@ export async function platformImportBundleFromGcs(
       method: "POST",
       headers: await authHeaders(token, platformUrl),
       body: JSON.stringify({ bundle_key: bundleKey }),
-      signal: AbortSignal.timeout(300_000),
+      signal: AbortSignal.timeout(60_000),
     },
   );
 
@@ -542,4 +737,44 @@ export async function platformImportBundleFromGcs(
     unknown
   >;
   return { statusCode: response.status, body };
+}
+
+export async function platformPollImportStatus(
+  jobId: string,
+  token: string,
+  platformUrl?: string,
+): Promise<{
+  status: string;
+  result?: Record<string, unknown>;
+  error?: string;
+}> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import/${jobId}/status/`,
+    {
+      headers: await authHeaders(token, platformUrl),
+    },
+  );
+
+  if (response.status === 404) {
+    throw new Error("Import job not found");
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Import status check failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const body = (await response.json()) as {
+    status: string;
+    job_id?: string;
+    result?: Record<string, unknown>;
+    error?: string;
+  };
+  return {
+    status: body.status,
+    result: body.result,
+    error: body.error,
+  };
 }

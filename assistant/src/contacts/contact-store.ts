@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -29,16 +29,27 @@ function escapeLike(value: string): string {
 }
 
 /**
- * Generate a collision-free slugified filename for a contact's per-user persona file.
- * Produces filenames like "alice.md", "alice-2.md", "alice-3.md", etc.
+ * Pure slug transform applied to a display name. No DB lookup, no collision
+ * handling — callers that need a collision-free filename should use
+ * `generateUserFileSlug` instead. Exported so the migration classifier can
+ * recompute the expected base slug for a given display name.
  */
-export function generateUserFileSlug(displayName: string): string {
-  const slug =
+export function computeUserFileBaseSlug(displayName: string): string {
+  return (
     displayName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 100) || "user";
+      .slice(0, 100) || "user"
+  );
+}
+
+/**
+ * Generate a collision-free slugified filename for a contact's per-user persona file.
+ * Produces filenames like "alice.md", "alice-2.md", "alice-3.md", etc.
+ */
+export function generateUserFileSlug(displayName: string): string {
+  const slug = computeUserFileBaseSlug(displayName);
 
   const db = getDb();
   const rows = db
@@ -273,10 +284,27 @@ export function upsertContact(params: {
 
   // Create new contact
   contactId = contactId ?? uuid();
-  const userFileValue =
-    params.userFile !== undefined
-      ? params.userFile
-      : generateUserFileSlug(params.displayName);
+  // Sibling contacts sharing a principal_id must share a user_file so every
+  // channel for one principal resolves to the same persona + journal slug.
+  let resolvedUserFile: string | null;
+  if (params.userFile !== undefined) {
+    resolvedUserFile = params.userFile;
+  } else if (params.principalId) {
+    const sibling = db
+      .select({ userFile: contacts.userFile })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.principalId, params.principalId),
+          isNotNull(contacts.userFile),
+        ),
+      )
+      .get();
+    resolvedUserFile =
+      sibling?.userFile ?? generateUserFileSlug(params.displayName);
+  } else {
+    resolvedUserFile = generateUserFileSlug(params.displayName);
+  }
   db.insert(contacts)
     .values({
       id: contactId,
@@ -285,7 +313,7 @@ export function upsertContact(params: {
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
-      userFile: userFileValue ?? null,
+      userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,
     })
@@ -809,6 +837,23 @@ export function findContactChannel(params: {
     }
   }
   return null;
+}
+
+/**
+ * Find the guardian contact regardless of channel.
+ * Returns the first contact with role='guardian', or null if none exists.
+ */
+export function findGuardianContact(): ContactWithChannels | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.role, "guardian"))
+    .orderBy(asc(contacts.createdAt))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  return withChannels(parseContact(row));
 }
 
 /**

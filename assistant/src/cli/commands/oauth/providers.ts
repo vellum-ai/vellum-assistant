@@ -24,6 +24,41 @@ const log = getCliLogger("cli");
 const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 
 /**
+ * Resolve a logo URL from CLI flags, enforcing mutual exclusion between
+ * --logo-url and --logo-simpleicons-slug. Returns:
+ *   - `undefined` when neither flag is set (caller should leave the field unchanged)
+ *   - `null` when `--logo-url ""` is passed (clear the stored value)
+ *   - a non-empty string URL otherwise
+ * Throws when both flags are set simultaneously.
+ */
+function resolveLogoUrlFromFlags(opts: {
+  logoUrl?: string;
+  logoSimpleiconsSlug?: string;
+}): string | null | undefined {
+  if (opts.logoUrl !== undefined && opts.logoSimpleiconsSlug !== undefined) {
+    throw new Error(
+      "--logo-url and --logo-simpleicons-slug are mutually exclusive. Provide at most one.",
+    );
+  }
+  if (opts.logoSimpleiconsSlug !== undefined) {
+    const slug = opts.logoSimpleiconsSlug.trim();
+    if (!slug) {
+      throw new Error("--logo-simpleicons-slug cannot be empty.");
+    }
+    return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`;
+  }
+  if (opts.logoUrl !== undefined) {
+    // Trim whitespace so copy-paste-padded URLs don't fail to parse on the
+    // client. Empty string (after trimming) clears the stored value
+    // (matches --revoke-url semantics documented in the `update` command
+    // help text).
+    const trimmed = opts.logoUrl.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  return undefined;
+}
+
+/**
  * Resolve the redirect URI for a provider based on its loopback port.
  *
  * Resolves the loopback redirect URI for display purposes. Gateway
@@ -220,6 +255,10 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
@@ -233,6 +272,11 @@ Examples:
     .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+    )
+    .option(
+      "--token-exchange-body-format <format>",
+      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
+      "form",
     )
     .option(
       "--ping-url <url>",
@@ -251,6 +295,14 @@ Examples:
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
     )
     .option(
+      "--revoke-url <url>",
+      'OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream (e.g. "https://oauth2.googleapis.com/revoke"). When omitted, disconnect is local-only — the upstream token is left valid until it naturally expires.',
+    )
+    .option(
+      "--revoke-body-template <json>",
+      'JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution (e.g. \'{"token":"{access_token}","client_id":"{client_id}"}\'). The body is form-encoded and POSTed to --revoke-url.',
+    )
+    .option(
       "--display-name <name>",
       "Human-readable display name for the provider",
     )
@@ -258,6 +310,14 @@ Examples:
     .option(
       "--dashboard-url <url>",
       "URL to the provider's developer console / dashboard",
+    )
+    .option(
+      "--logo-url <url>",
+      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
+    )
+    .option(
+      "--logo-simpleicons-slug <slug>",
+      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
     )
     .option(
       "--client-id-placeholder <text>",
@@ -351,13 +411,30 @@ Examples:
       --scopes read,write \\
       --scope-separator ","
   $ assistant oauth providers register \\
+      --provider-key split-grants \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --refresh-url https://example.com/oauth/refresh
+  $ assistant oauth providers register \\
       --provider-key my-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
       --loopback-port 17400 \\
       --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
       --identity-url https://api.example.com/me \\
-      --identity-response-paths email,name`,
+      --identity-response-paths email,name
+  $ assistant oauth providers register \\
+      --provider-key custom-revokable \\
+      --auth-url https://example.com/oauth/authorize \\
+      --token-url https://example.com/oauth/token \\
+      --revoke-url https://example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}","client_id":"{client_id}"}'
+  $ assistant oauth providers register \\
+      --provider-key notion-custom \\
+      --auth-url https://api.notion.com/v1/oauth/authorize \\
+      --token-url https://api.notion.com/v1/oauth/token \\
+      --token-exchange-body-format json \\
+      --logo-simpleicons-slug notion`,
     )
     .action(
       (
@@ -365,18 +442,24 @@ Examples:
           providerKey: string;
           authUrl: string;
           tokenUrl: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
           scopeSeparator?: string;
           tokenAuthMethod?: string;
+          tokenExchangeBodyFormat?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
+          logoUrl?: string;
+          logoSimpleiconsSlug?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
           loopbackPort?: string;
@@ -394,25 +477,39 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+          if (resolvedLogoUrl === null) {
+            throw new Error(
+              "Cannot clear logo_url with empty --logo-url during registration. Omit the flag instead.",
+            );
+          }
+
           const row = registerProvider({
             provider: opts.providerKey,
             authorizeUrl: opts.authUrl,
             tokenExchangeUrl: opts.tokenUrl,
+            refreshUrl: opts.refreshUrl,
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
             scopePolicy: {},
             scopeSeparator: opts.scopeSeparator,
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
+            tokenExchangeBodyFormat: opts.tokenExchangeBodyFormat,
             pingUrl: opts.pingUrl,
             pingMethod: opts.pingMethod,
             pingHeaders: opts.pingHeaders
               ? JSON.parse(opts.pingHeaders)
               : undefined,
             pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
+            revokeUrl: opts.revokeUrl,
+            revokeBodyTemplate: opts.revokeBodyTemplate
+              ? JSON.parse(opts.revokeBodyTemplate)
+              : undefined,
             displayLabel: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,
+            logoUrl: resolvedLogoUrl,
             clientIdPlaceholder: opts.clientIdPlaceholder,
             requiresClientSecret: opts.clientSecret ? 1 : 0,
             loopbackPort: opts.loopbackPort
@@ -467,6 +564,10 @@ Examples:
       "--token-url <url>",
       "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
     )
+    .option(
+      "--refresh-url <url>",
+      "OAuth token refresh endpoint URL. Defaults to --token-url when omitted. Set this when the provider uses a different endpoint for the refresh_token grant than for the authorization_code grant.",
+    )
     .option("--base-url <url>", "API base URL for the service")
     .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
     .option(
@@ -480,6 +581,10 @@ Examples:
     .option(
       "--token-auth-method <method>",
       'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+    )
+    .option(
+      "--token-exchange-body-format <format>",
+      'Body encoding for the token exchange request: "form" (application/x-www-form-urlencoded, default) or "json" (application/json)',
     )
     .option(
       "--ping-url <url>",
@@ -498,6 +603,14 @@ Examples:
       'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
     )
     .option(
+      "--revoke-url <url>",
+      "OAuth token revocation endpoint URL. Called best-effort during disconnect to invalidate the access token upstream. Pass an empty string to clear.",
+    )
+    .option(
+      "--revoke-body-template <json>",
+      "JSON object body template for the revoke request, supporting {access_token} and {client_id} substitution. Pass an empty string to clear.",
+    )
+    .option(
       "--display-name <name>",
       "Human-readable display name for the provider",
     )
@@ -505,6 +618,14 @@ Examples:
     .option(
       "--dashboard-url <url>",
       "URL to the provider's developer console / dashboard",
+    )
+    .option(
+      "--logo-url <url>",
+      "URL to the provider's logo image (SVG or PNG). Mutually exclusive with --logo-simpleicons-slug.",
+    )
+    .option(
+      "--logo-simpleicons-slug <slug>",
+      'Simple Icons slug (e.g. "notion", "linear"). Resolves to https://cdn.simpleicons.org/<slug>. Mutually exclusive with --logo-url.',
     )
     .option(
       "--client-id-placeholder <text>",
@@ -579,11 +700,17 @@ Examples:
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
   $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
   $ assistant oauth providers update custom-api --scope-separator ","
+  $ assistant oauth providers update custom-api --refresh-url https://example.com/oauth/refresh
   $ assistant oauth providers update custom-api \\
       --identity-url https://api.example.com/me \\
       --identity-response-paths email,name
   $ assistant oauth providers update custom-api \\
-      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
+  $ assistant oauth providers update custom-api \\
+      --revoke-url https://api.example.com/oauth/revoke \\
+      --revoke-body-template '{"token":"{access_token}"}'
+  $ assistant oauth providers update custom-api --logo-simpleicons-slug notion
+  $ assistant oauth providers update custom-api --logo-url ""`,
     )
     .action(
       (
@@ -591,18 +718,24 @@ Examples:
         opts: {
           authUrl?: string;
           tokenUrl?: string;
+          refreshUrl?: string;
           baseUrl?: string;
           userinfoUrl?: string;
           scopes?: string;
           scopeSeparator?: string;
           tokenAuthMethod?: string;
+          tokenExchangeBodyFormat?: string;
           pingUrl?: string;
           pingMethod?: string;
           pingHeaders?: string;
           pingBody?: string;
+          revokeUrl?: string;
+          revokeBodyTemplate?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
+          logoUrl?: string;
+          logoSimpleiconsSlug?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
           loopbackPort?: string;
@@ -656,6 +789,8 @@ Examples:
           if (opts.authUrl !== undefined) params.authorizeUrl = opts.authUrl;
           if (opts.tokenUrl !== undefined)
             params.tokenExchangeUrl = opts.tokenUrl;
+          if (opts.refreshUrl !== undefined)
+            params.refreshUrl = opts.refreshUrl;
           if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
           if (opts.userinfoUrl !== undefined)
             params.userinfoUrl = opts.userinfoUrl;
@@ -665,6 +800,8 @@ Examples:
             params.scopeSeparator = opts.scopeSeparator;
           if (opts.tokenAuthMethod !== undefined)
             params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
+          if (opts.tokenExchangeBodyFormat !== undefined)
+            params.tokenExchangeBodyFormat = opts.tokenExchangeBodyFormat;
           if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
           if (opts.pingMethod !== undefined)
             params.pingMethod = opts.pingMethod;
@@ -672,6 +809,22 @@ Examples:
             params.pingHeaders = JSON.parse(opts.pingHeaders);
           if (opts.pingBody !== undefined)
             params.pingBody = JSON.parse(opts.pingBody);
+          if (opts.revokeUrl !== undefined) {
+            // Empty string means "clear" — normalize to null so the stored
+            // value matches the "disabled" semantics documented in the help
+            // text. `updateProvider`'s Partial type accepts `string | null`
+            // for this field so drizzle writes `null` to clear the column.
+            params.revokeUrl = opts.revokeUrl === "" ? null : opts.revokeUrl;
+          }
+          if (opts.revokeBodyTemplate !== undefined) {
+            // Empty string means "clear" — normalize to null to match --revoke-url's
+            // empty-string-clear semantics documented in the help text. The
+            // updateProvider type accepts `Record<string, string> | null` for this.
+            params.revokeBodyTemplate =
+              opts.revokeBodyTemplate === ""
+                ? null
+                : JSON.parse(opts.revokeBodyTemplate);
+          }
           if (opts.displayName !== undefined)
             params.displayLabel = opts.displayName;
           if (opts.description !== undefined)
@@ -680,6 +833,11 @@ Examples:
             params.dashboardUrl = opts.dashboardUrl;
           if (opts.clientIdPlaceholder !== undefined)
             params.clientIdPlaceholder = opts.clientIdPlaceholder;
+
+          const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
+          if (resolvedLogoUrl !== undefined) {
+            params.logoUrl = resolvedLogoUrl;
+          }
 
           // Handle the negated --no-client-* flag: Commander defaults
           // opts.clientSecret to true; the negated form sets it to false.

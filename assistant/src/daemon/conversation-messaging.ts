@@ -287,6 +287,42 @@ export async function persistUserMessage(
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
+  try {
+    return await persistQueuedMessageBody(
+      ctx,
+      content,
+      attachments,
+      reqId,
+      metadata,
+      displayContent,
+    );
+  } catch (err) {
+    ctx.processing = false;
+    ctx.abortController = null;
+    ctx.currentRequestId = undefined;
+    throw err;
+  }
+}
+
+// ── persistQueuedMessageBody ─────────────────────────────────────────
+
+/**
+ * Persists a user message body (DB row, attachment indexing, origin
+ * channel/interface updates, meta file write) without touching the
+ * `ctx.processing` flag or request-id bookkeeping.
+ *
+ * Used by `persistUserMessage` (which sets the processing flag first) and
+ * by the batched drain path, which persists multiple sibling messages
+ * under a single in-flight turn.
+ */
+export async function persistQueuedMessageBody(
+  ctx: MessagingConversationContext,
+  content: string,
+  attachments: UserMessageAttachment[],
+  requestId: string,
+  metadata: Record<string, unknown> | undefined,
+  displayContent: string | undefined,
+): Promise<string> {
   const attachmentInputs = attachments.map((attachment) => ({
     id: attachment.id,
     filename: attachment.filename,
@@ -302,6 +338,7 @@ export async function persistUserMessage(
   );
   log.info(
     {
+      requestId,
       contentBlockTypes: Array.isArray(llmMessage.content)
         ? llmMessage.content.map((b) => b.type)
         : typeof llmMessage.content,
@@ -443,9 +480,6 @@ export async function persistUserMessage(
     return persistedUserMessage.id;
   } catch (err) {
     ctx.messages.pop();
-    ctx.processing = false;
-    ctx.abortController = null;
-    ctx.currentRequestId = undefined;
     throw err;
   }
 }

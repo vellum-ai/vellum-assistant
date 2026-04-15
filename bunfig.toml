@@ -1,0 +1,5 @@
+[install]
+exact = true
+
+[test]
+preload = ["./test-preload.ts"]

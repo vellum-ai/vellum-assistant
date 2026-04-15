@@ -26,6 +26,7 @@ import {
 } from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
+import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
@@ -192,8 +193,9 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // Handle approve_always: persist a trust rule when the confirmation
     // explicitly allows persistence and provides explicit options.
     if (
-      decision.action === "approve_always" ||
-      decision.action === "approve_once"
+      !isPermissionControlsV2Enabled() &&
+      (decision.action === "approve_always" ||
+        decision.action === "approve_once")
     ) {
       const details = interaction.confirmationDetails;
       if (
@@ -237,19 +239,23 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // temporal modes (approve_10m, approve_conversation) reach the session with
     // the correct UserDecision instead of collapsing to plain "allow".
     let userDecision: UserDecision;
-    switch (decision.action) {
-      case "reject":
-        userDecision = "deny";
-        break;
-      case "approve_10m":
-        userDecision = "allow_10m";
-        break;
-      case "approve_conversation":
-        userDecision = "allow_conversation";
-        break;
-      default:
-        userDecision = "allow";
-        break;
+    if (isPermissionControlsV2Enabled()) {
+      userDecision = decision.action === "reject" ? "deny" : "allow";
+    } else {
+      switch (decision.action) {
+        case "reject":
+          userDecision = "deny";
+          break;
+        case "approve_10m":
+          userDecision = "allow_10m";
+          break;
+        case "approve_conversation":
+          userDecision = "allow_conversation";
+          break;
+        default:
+          userDecision = "allow";
+          break;
+      }
     }
     resolved.conversation!.handleConfirmationResponse(
       request.id,

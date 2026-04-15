@@ -1,11 +1,13 @@
 import type { Message } from "../../providers/types.js";
 
-/** The 14 browser tool names provided by the browser skill. */
+/** The browser tool names provided by the browser skill. */
 export const BROWSER_TOOL_NAMES = [
   "browser_navigate",
   "browser_snapshot",
   "browser_screenshot",
   "browser_close",
+  "browser_attach",
+  "browser_detach",
   "browser_click",
   "browser_type",
   "browser_press_key",
@@ -16,6 +18,7 @@ export const BROWSER_TOOL_NAMES = [
   "browser_extract",
   "browser_wait_for_download",
   "browser_fill_credential",
+  "browser_status",
 ] as const;
 
 /** Number of browser tools provided by the skill. */

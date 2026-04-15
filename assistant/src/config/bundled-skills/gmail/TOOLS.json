@@ -494,7 +494,7 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 5000, cap 10000)"
+            "description": "Maximum messages to scan (default 2000, cap 5000)"
           },
           "max_senders": {
             "type": "number",
@@ -502,7 +502,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 10,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
           },
           "activity": {
             "type": "string",

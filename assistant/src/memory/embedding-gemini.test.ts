@@ -253,4 +253,58 @@ describe("GeminiEmbeddingBackend", () => {
       expect(result[1]).toEqual([0.2, 0.4]);
     });
   });
+
+  describe("managed proxy transport", () => {
+    test("routes through managed proxy base URL when managedBaseUrl is set", async () => {
+      const backend = new GeminiEmbeddingBackend(
+        "ast-managed-key",
+        "gemini-embedding-2-preview",
+        {
+          managedBaseUrl:
+            "https://platform.example.com/v1/runtime-proxy/gemini",
+        },
+      );
+      await backend.embed(["hello"]);
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        "https://platform.example.com/v1/runtime-proxy/gemini/v1beta/models/gemini-embedding-2-preview:embedContent",
+      );
+      // Should NOT have key= query param
+      expect(url).not.toContain("key=");
+      // Should have Bearer auth header
+      const headers = init.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBe("Bearer ast-managed-key");
+    });
+
+    test("uses direct Google API URL when managedBaseUrl is not set", async () => {
+      const backend = new GeminiEmbeddingBackend("direct-key", "test-model");
+      await backend.embed(["hello"]);
+
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("generativelanguage.googleapis.com");
+      expect(url).toContain("key=direct-key");
+      // Should NOT have Authorization header
+      const headers = init.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+    });
+
+    test("includes outputDimensionality with managed proxy", async () => {
+      const backend = new GeminiEmbeddingBackend(
+        "ast-managed-key",
+        "gemini-embedding-2-preview",
+        {
+          managedBaseUrl:
+            "https://platform.example.com/v1/runtime-proxy/gemini",
+          dimensions: 3072,
+        },
+      );
+      await backend.embed(["hello"]);
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.outputDimensionality).toBe(3072);
+    });
+  });
 });

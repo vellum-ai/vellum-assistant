@@ -450,8 +450,10 @@ describe("buildSanitizedEnv", () => {
     delete process.env.LC_ALL;
 
     const env = buildSanitizedEnv();
-    expect(env.LANG).toBe("C.UTF-8");
-    expect(env.LC_ALL).toBe("C.UTF-8");
+    const expectedLocale =
+      process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+    expect(env.LANG).toBe(expectedLocale);
+    expect(env.LC_ALL).toBe(expectedLocale);
   });
 
   test("injects INTERNAL_GATEWAY_BASE_URL from gateway config", () => {

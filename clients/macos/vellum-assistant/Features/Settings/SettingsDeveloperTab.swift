@@ -71,15 +71,10 @@ struct SettingsDeveloperTab: View {
     @State private var featureFlagSearchText: String = ""
     @State private var featureFlagScopeFilter: String = "all"
 
-    @State private var platformUrlText: String = ""
-    @FocusState private var isPlatformUrlFocused: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Platform URL (dev mode only)
-            if devModeManager.isDevMode {
-                platformUrlSection
-            }
+            // Platform URL (inferred from environment)
+            platformUrlSection
             // Assistant Info
             assistantInfoSection
             // Switch Assistant
@@ -125,10 +120,23 @@ struct SettingsDeveloperTab: View {
                 ToolPermissionTesterView(model: model)
             }
 
+            // Browser backend (cdp-inspect host Chrome) — gated behind
+            // `devModeManager.isDevMode` to match the other developer-only
+            // sections (`platformUrlSection`, `revokeAssistantApiKeySection`).
+            // The Developer tab itself is flagged behind `developer`, but this
+            // card bypasses the managed browser sandbox so we require the
+            // additional dev-mode gate to keep regular developer-tab users
+            // from stumbling into it.
+            if devModeManager.isDevMode {
+                browserBackendSection
+            }
+
             // Feature Flags
             featureFlagSection
             // Environment Variables
             environmentVariablesSection
+            // Hello World VM
+            DeveloperHelloWorldVMSection()
             // Sentry Testing
             sentryTestingSection
         }
@@ -239,27 +247,10 @@ struct SettingsDeveloperTab: View {
 
     private var platformUrlSection: some View {
         SettingsCard(title: "Platform URL") {
-            HStack(spacing: VSpacing.sm) {
-                VTextField(
-                    placeholder: "https://platform.vellum.ai",
-                    text: $platformUrlText,
-                    isFocused: $isPlatformUrlFocused
-                )
-
-                VButton(label: "Save", style: .primary, isDisabled: platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    store.savePlatformBaseUrl(platformUrlText)
-                    isPlatformUrlFocused = false
-                }
-            }
-        }
-        .onAppear {
-            store.refreshPlatformConfig()
-            platformUrlText = store.platformBaseUrl
-        }
-        .onChange(of: store.platformBaseUrl) { _, newValue in
-            if !isPlatformUrlFocused {
-                platformUrlText = newValue
-            }
+            Text(VellumEnvironment.resolvedPlatformURL)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
         }
     }
 
@@ -579,6 +570,12 @@ struct SettingsDeveloperTab: View {
         for assistant in lockfileAssistants {
             if let name = assistant.loadDisplayName() {
                 displayNames[assistant.assistantId] = name
+            } else {
+                let cachedName = IdentityInfo.cached(for: assistant.assistantId)?.name
+                if let resolved = AssistantDisplayName.firstUserFacing(from: [cachedName]),
+                   resolved != AssistantDisplayName.placeholder {
+                    displayNames[assistant.assistantId] = resolved
+                }
             }
         }
     }
@@ -675,8 +672,7 @@ struct SettingsDeveloperTab: View {
     private func performLocalRestart() async {
         do {
             try await AppDelegate.shared?.vellumCli.hatch(
-                name: selectedAssistantId,
-                restart: true
+                name: selectedAssistantId
             )
         } catch {}
     }
@@ -858,9 +854,10 @@ struct SettingsDeveloperTab: View {
             if response.isSuccess || response.statusCode == 404 {
                 // Clear the locally-cached credential so the key is not
                 // re-injected on the next daemon restart or bootstrap.
-                let credStorage = FileCredentialStorage()
-                let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: targetAssistantId)
-                _ = credStorage.delete(account: credentialAccount)
+                LocalAssistantBootstrapService.clearBootstrapCredential(
+                    runtimeAssistantId: targetAssistantId,
+                    credentialStorage: FileCredentialStorage()
+                )
 
                 showRevokeStatus("Assistant API key revoked", isError: false)
             } else {
@@ -880,6 +877,17 @@ struct SettingsDeveloperTab: View {
             withAnimation {
                 if revokeApiKeyStatus == message { revokeApiKeyStatus = nil }
             }
+        }
+    }
+
+    // MARK: - Browser Backend (cdp-inspect)
+
+    private var browserBackendSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Browser backend")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentEmphasized)
+            BrowserBackendCard(store: store)
         }
     }
 

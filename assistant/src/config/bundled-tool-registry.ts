@@ -23,8 +23,10 @@ import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
 // ── browser ────────────────────────────────────────────────────────────────────
+import * as browserAttach from "./bundled-skills/browser/tools/browser-attach.js";
 import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
 import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
+import * as browserDetach from "./bundled-skills/browser/tools/browser-detach.js";
 import * as browserExtract from "./bundled-skills/browser/tools/browser-extract.js";
 import * as browserFillCredential from "./bundled-skills/browser/tools/browser-fill-credential.js";
 import * as browserHover from "./bundled-skills/browser/tools/browser-hover.js";
@@ -34,6 +36,7 @@ import * as browserScreenshot from "./bundled-skills/browser/tools/browser-scree
 import * as browserScroll from "./bundled-skills/browser/tools/browser-scroll.js";
 import * as browserSelectOption from "./bundled-skills/browser/tools/browser-select-option.js";
 import * as browserSnapshot from "./bundled-skills/browser/tools/browser-snapshot.js";
+import * as browserStatus from "./bundled-skills/browser/tools/browser-status.js";
 import * as browserType from "./bundled-skills/browser/tools/browser-type.js";
 import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for.js";
 import * as browserWaitForDownload from "./bundled-skills/browser/tools/browser-wait-for-download.js";
@@ -207,6 +210,8 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["browser:tools/browser-snapshot.ts", browserSnapshot],
   ["browser:tools/browser-screenshot.ts", browserScreenshot],
   ["browser:tools/browser-close.ts", browserClose],
+  ["browser:tools/browser-attach.ts", browserAttach],
+  ["browser:tools/browser-detach.ts", browserDetach],
   ["browser:tools/browser-click.ts", browserClick],
   ["browser:tools/browser-type.ts", browserType],
   ["browser:tools/browser-press-key.ts", browserPressKey],
@@ -217,6 +222,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["browser:tools/browser-extract.ts", browserExtract],
   ["browser:tools/browser-wait-for-download.ts", browserWaitForDownload],
   ["browser:tools/browser-fill-credential.ts", browserFillCredential],
+  ["browser:tools/browser-status.ts", browserStatus],
 
   // chatgpt-import
   ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],

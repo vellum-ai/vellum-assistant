@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
@@ -2954,5 +2955,350 @@ final class ChatViewModelTests: XCTestCase {
                        "The single text segment should contain all buffered text")
         XCTAssertTrue(viewModel.streamingDeltaBuffer.isEmpty,
                       "Buffer should be empty after flush")
+    }
+
+    // MARK: - Queue Helpers: queuedMessages, tailQueuedMessageId, editQueuedTail
+
+    func test_queuedMessages_filtersUserRoleAndSortsByPosition() {
+        // Mix of user / assistant / sent / queued messages — ensure queuedMessages
+        // returns only user messages with .queued status, sorted by position.
+        let assistantQueued = ChatMessage(role: .assistant, text: "Assistant reply", status: .queued(position: 0))
+        let sentUser = ChatMessage(role: .user, text: "Already sent", status: .sent)
+        let queuedLater = ChatMessage(role: .user, text: "Third in queue", status: .queued(position: 2))
+        let queuedFirst = ChatMessage(role: .user, text: "First in queue", status: .queued(position: 0))
+        let queuedMiddle = ChatMessage(role: .user, text: "Second in queue", status: .queued(position: 1))
+
+        viewModel.messages = [assistantQueued, sentUser, queuedLater, queuedFirst, queuedMiddle]
+
+        let result = viewModel.queuedMessages
+        XCTAssertEqual(result.count, 3, "Only user-role queued messages should be returned")
+        XCTAssertEqual(result.map(\.text), ["First in queue", "Second in queue", "Third in queue"],
+                       "Queued messages should be sorted by position ascending")
+        XCTAssertTrue(result.allSatisfy { $0.role == .user }, "All returned messages should be user-role")
+    }
+
+    func test_tailQueuedMessageId_returnsHighestPositionId() {
+        let p0 = ChatMessage(role: .user, text: "m0", status: .queued(position: 0))
+        let p1 = ChatMessage(role: .user, text: "m1", status: .queued(position: 1))
+        let p2 = ChatMessage(role: .user, text: "m2", status: .queued(position: 2))
+        viewModel.messages = [p0, p1, p2]
+
+        XCTAssertEqual(viewModel.tailQueuedMessageId, p2.id,
+                       "Tail should be the queued user message with the highest position")
+
+        // And nil when no messages are queued.
+        viewModel.messages = [
+            ChatMessage(role: .user, text: "Sent", status: .sent),
+            ChatMessage(role: .assistant, text: "Reply", status: .sent)
+        ]
+        XCTAssertNil(viewModel.tailQueuedMessageId,
+                     "Tail should be nil when no queued user messages exist")
+    }
+
+    func test_tailQueuedMessageId_prefersNewestOnPositionTie() {
+        // Repro for Codex P1 feedback on #25289: before `message_queued` acks
+        // arrive, multiple queued messages all live at position 0. The tail
+        // should be the most recently added (last in chronological order), not
+        // the first.
+        let first = ChatMessage(role: .user, text: "first", status: .queued(position: 0))
+        let second = ChatMessage(role: .user, text: "second", status: .queued(position: 0))
+        let third = ChatMessage(role: .user, text: "third", status: .queued(position: 0))
+        viewModel.messages = [first, second, third]
+
+        XCTAssertEqual(viewModel.tailQueuedMessageId, third.id,
+                       "On a position-0 tie, tail should be the most recently added message")
+    }
+
+    func test_editQueuedTail_operatesOnNewestWhenPositionsTie() async {
+        // When multiple messages are queued pre-ack (all at position 0),
+        // editQueuedTail must pop the NEWEST, not the oldest.
+        let mockQueueClient = MockConversationQueueClient()
+        mockQueueClient.deleteResult = true
+
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-tie"
+
+        let oldest = ChatMessage(role: .user, text: "oldest", status: .queued(position: 0))
+        let middle = ChatMessage(role: .user, text: "middle", status: .queued(position: 0))
+        let newest = ChatMessage(role: .user, text: "newest", status: .queued(position: 0))
+        vm.messages = [oldest, middle, newest]
+        vm.requestIdToMessageId = [
+            "req-oldest": oldest.id,
+            "req-middle": middle.id,
+            "req-newest": newest.id
+        ]
+        vm.pendingQueuedCount = 3
+
+        var composerText = ""
+        var composerAttachments: [ChatAttachment] = []
+        let textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        let attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        XCTAssertEqual(composerText, "newest",
+                       "Composer should receive the newest queued message's text, not the oldest")
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while mockQueueClient.calls.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(mockQueueClient.calls.count, 1)
+        XCTAssertEqual(mockQueueClient.calls.first?.requestId, "req-newest",
+                       "delete_queued_message should target the newest queued message on ties")
+    }
+
+    func test_editQueuedTail_copiesContentAndDeletesOriginal() async {
+        let mockQueueClient = MockConversationQueueClient()
+        mockQueueClient.deleteResult = true
+
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-edit-tail"
+
+        // Seed tail queued message with text + one attachment, mapped to a requestId.
+        let attachment = ChatAttachment(
+            id: "att-1",
+            filename: "note.txt",
+            mimeType: "text/plain",
+            data: "ZGF0YQ==",
+            thumbnailData: nil,
+            dataLength: 8,
+            thumbnailImage: nil
+        )
+        let head = ChatMessage(role: .user, text: "First queued", status: .queued(position: 0))
+        var tail = ChatMessage(role: .user, text: "Tail content", status: .queued(position: 1))
+        tail.attachments = [attachment]
+        vm.messages = [head, tail]
+        vm.requestIdToMessageId = ["req-tail": tail.id]
+        vm.pendingQueuedCount = 2
+
+        // Bindings the composer would pass.
+        var composerText = ""
+        var composerAttachments: [ChatAttachment] = []
+        let textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        let attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        XCTAssertEqual(composerText, "Tail content",
+                       "Composer text binding should receive the tail message text")
+        XCTAssertEqual(composerAttachments.count, 1)
+        XCTAssertEqual(composerAttachments.first?.id, attachment.id,
+                       "Composer attachments binding should receive the tail message attachments")
+
+        // Wait for the async deleteQueuedMessage Task to dispatch the delete call.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while mockQueueClient.calls.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(mockQueueClient.calls.count, 1,
+                       "editQueuedTail should dispatch exactly one delete_queued_message call")
+        XCTAssertEqual(mockQueueClient.calls.first?.conversationId, "sess-edit-tail")
+        XCTAssertEqual(mockQueueClient.calls.first?.requestId, "req-tail")
+    }
+
+    func test_editQueuedTail_isNoOpWhenNoQueue() async {
+        let mockQueueClient = MockConversationQueueClient()
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-empty"
+        vm.messages = [
+            ChatMessage(role: .user, text: "Hello", status: .sent),
+            ChatMessage(role: .assistant, text: "Hi", status: .sent)
+        ]
+
+        var composerText = "unchanged"
+        var composerAttachments: [ChatAttachment] = []
+        let textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        let attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        // Give any spurious Task a chance to run before asserting no call was made.
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(composerText, "unchanged", "Text binding should not be modified when queue is empty")
+        XCTAssertTrue(composerAttachments.isEmpty, "Attachments binding should not be modified when queue is empty")
+        XCTAssertTrue(mockQueueClient.calls.isEmpty, "No delete_queued_message call should be dispatched")
+    }
+
+    func test_editQueuedTail_whenComposerNonEmpty_isNoOp() async {
+        // Regression guard for the one-click composer-clobber bug: clicking the
+        // pencil with an in-progress draft must not overwrite text or
+        // attachments, and must not dispatch a delete_queued_message.
+        let mockQueueClient = MockConversationQueueClient()
+        mockQueueClient.deleteResult = true
+
+        let connection = GatewayConnectionManager()
+        connection.isConnected = true
+        let vm = ChatViewModel(
+            connectionManager: connection,
+            eventStreamClient: connection.eventStreamClient,
+            conversationQueueClient: mockQueueClient
+        )
+        vm.conversationId = "sess-guard"
+
+        let queuedAttachment = ChatAttachment(
+            id: "queued-att",
+            filename: "queued.txt",
+            mimeType: "text/plain",
+            data: "cXVldWVk",
+            thumbnailData: nil,
+            dataLength: 6,
+            thumbnailImage: nil
+        )
+        var tail = ChatMessage(role: .user, text: "Tail content", status: .queued(position: 0))
+        tail.attachments = [queuedAttachment]
+        vm.messages = [tail]
+        vm.requestIdToMessageId = ["req-tail": tail.id]
+        vm.pendingQueuedCount = 1
+
+        let draftAttachment = ChatAttachment(
+            id: "draft-att",
+            filename: "draft.txt",
+            mimeType: "text/plain",
+            data: "ZHJhZnQ=",
+            thumbnailData: nil,
+            dataLength: 5,
+            thumbnailImage: nil
+        )
+
+        // Case A: composer has text only.
+        var composerText = "in-progress draft"
+        var composerAttachments: [ChatAttachment] = []
+        var textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        var attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(composerText, "in-progress draft",
+                       "Composer text must not be overwritten when a draft is present")
+        XCTAssertTrue(composerAttachments.isEmpty,
+                      "Attachments binding must not be populated when composer has draft text")
+        XCTAssertTrue(mockQueueClient.calls.isEmpty,
+                      "No delete_queued_message must be dispatched while composer has content")
+
+        // Case B: composer has attachments only (no text).
+        composerText = ""
+        composerAttachments = [draftAttachment]
+        textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(composerText, "",
+                       "Composer text must remain empty when only attachments are staged")
+        XCTAssertEqual(composerAttachments.count, 1)
+        XCTAssertEqual(composerAttachments.first?.id, "draft-att",
+                       "Staged attachment must not be overwritten by the queued attachment")
+        XCTAssertTrue(mockQueueClient.calls.isEmpty,
+                      "No delete_queued_message must be dispatched while composer has attachments")
+
+        // Case C: composer has whitespace-only text — still treated as empty,
+        // so the guard should permit the overwrite.
+        composerText = "   \n  "
+        composerAttachments = []
+        textBinding = Binding<String>(
+            get: { composerText },
+            set: { composerText = $0 }
+        )
+        attachmentsBinding = Binding<[ChatAttachment]>(
+            get: { composerAttachments },
+            set: { composerAttachments = $0 }
+        )
+
+        vm.editQueuedTail(into: textBinding, attachments: attachmentsBinding)
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while mockQueueClient.calls.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(composerText, "Tail content",
+                       "Whitespace-only composer should be treated as empty and accept the overwrite")
+        XCTAssertEqual(composerAttachments.count, 1)
+        XCTAssertEqual(composerAttachments.first?.id, "queued-att")
+        XCTAssertEqual(mockQueueClient.calls.count, 1,
+                       "Whitespace-only composer should permit the delete_queued_message dispatch")
+    }
+}
+
+// MARK: - Mock Queue Client
+
+/// Mock `ConversationQueueClientProtocol` used by queue-drawer tests to record
+/// delete_queued_message dispatches without hitting the network.
+final class MockConversationQueueClient: ConversationQueueClientProtocol, @unchecked Sendable {
+    struct Call: Equatable {
+        let conversationId: String
+        let requestId: String
+    }
+
+    private let queue = DispatchQueue(label: "MockConversationQueueClient.calls")
+    private var _calls: [Call] = []
+    var calls: [Call] {
+        queue.sync { _calls }
+    }
+    var deleteResult: Bool = true
+
+    init() {}
+
+    func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool {
+        queue.sync {
+            _calls.append(Call(conversationId: conversationId, requestId: requestId))
+        }
+        return deleteResult
     }
 }

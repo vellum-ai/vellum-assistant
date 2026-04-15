@@ -236,6 +236,7 @@ final class ConversationSelectionStore {
         guard let conversation = listStore.conversations.first(where: { $0.id == conversationId }) else { return nil }
         guard let viewModel = viewModelFactory?() else { return nil }
         viewModel.conversationId = conversation.conversationId
+        viewModel.isChannelConversation = conversation.isChannelConversation
         if conversation.conversationId == nil {
             viewModel.isHistoryLoaded = true
         }
@@ -358,37 +359,12 @@ final class ConversationSelectionStore {
 
     // MARK: - Restoration
 
-    /// Restore the last active conversation from UserDefaults after conversation restoration completes.
-    ///
-    /// If `handleConversationListResponse` already activated the correct conversation,
-    /// this is a no-op — `activeConversationId` already matches the saved UUID.
+    /// Final restoration tail — the app always cold-launches into the draft VM
+    /// created by ConversationManager, so no activation happens here. This call
+    /// just clears the restoration flag and fires the completion callback (used
+    /// to drive seen-state bookkeeping).
     func restoreLastActiveConversation() {
         defer { onRestorationComplete?() }
-
-        guard restoreRecentConversations else {
-            isRestoringConversations = false
-            return
-        }
-        guard let savedUUIDString = lastActiveConversationIdString,
-              let savedUUID = UUID(uuidString: savedUUIDString) else {
-            isRestoringConversations = false
-            return
-        }
-
-        // Only restore if conversation exists and is visible (not archived).
-        // Skip when already active to avoid redundant activation side effects.
-        if listStore.conversations.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
-            if activeConversationId != savedUUID {
-                performActivation(for: savedUUID)
-                log.info("Restored last active conversation: \(savedUUID)")
-            } else {
-                log.info("Last active conversation \(savedUUID) already active, skipping")
-            }
-        } else {
-            lastActiveConversationIdString = nil
-            log.info("Saved conversation not found, falling back to default")
-        }
-
         isRestoringConversations = false
     }
 
@@ -465,5 +441,6 @@ final class ConversationSelectionStore {
         ChatBubble.segmentCache.removeAllObjects()
         ChatBubble.lastStreamingSegments = nil
         MarkdownSegmentView.clearAttributedStringCache()
+        MarkdownRenderer.clearCaches()
     }
 }

@@ -16,8 +16,10 @@ struct MessageCellView: View, Equatable {
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.subagentsByParent[lhs.message.id] == rhs.subagentsByParent[rhs.message.id]
             && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.typographyGeneration == rhs.typographyGeneration
             && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
             && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.isStreamingContinuation == rhs.isStreamingContinuation
             && lhs.hideInlineAvatar == rhs.hideInlineAvatar
             && lhs.showAnchoredThinkingIndicator == rhs.showAnchoredThinkingIndicator
             && lhs.anchoredThinkingLabel == rhs.anchoredThinkingLabel
@@ -41,8 +43,10 @@ struct MessageCellView: View, Equatable {
     let activePendingRequestId: String?
     let subagentsByParent: [UUID: [SubagentInfo]]
     let isLatestAssistantMessage: Bool
+    let typographyGeneration: Int
     let isProcessingAfterTools: Bool
     let processingStatusText: String?
+    let isStreamingContinuation: Bool
     let hideInlineAvatar: Bool
     let showAnchoredThinkingIndicator: Bool
     let anchoredThinkingLabel: String
@@ -124,8 +128,10 @@ struct MessageCellView: View, Equatable {
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
                 isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
+                isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: hideInlineAvatar
             )
@@ -135,11 +141,14 @@ struct MessageCellView: View, Equatable {
 
     @ViewBuilder
     private func thinkingIndicatorRow() -> some View {
-        RunningIndicator(
-            label: anchoredThinkingLabel,
-            showIcon: false
-        )
-        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            RunningIndicator(
+                label: anchoredThinkingLabel,
+                showIcon: false
+            )
+            Spacer(minLength: 0)
+        }
         .id("thinking-indicator")
     }
 
@@ -211,8 +220,10 @@ struct MessageCellView: View, Equatable {
                 onRetryFailedMessage: onRetryFailedMessage,
                 onRetryConversationError: message.isError ? { onRetryConversationError?(message.id) } : nil,
                 isLatestAssistantMessage: isLatestAssistantMessage,
+                typographyGeneration: typographyGeneration,
                 isProcessingAfterTools: isProcessingAfterTools,
                 processingStatusText: processingStatusText,
+                isStreamingContinuation: isStreamingContinuation,
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: hideInlineAvatar
             )
@@ -227,14 +238,16 @@ struct MessageCellView: View, Equatable {
         }
 
         ForEach(subagentsByParent[message.id] ?? []) { subagent in
-            SubagentEventsReader(
-                store: subagentDetailStore,
-                subagent: subagent,
-                onAbort: { onAbortSubagent?(subagent.id) },
-                onTap: { onSubagentTap?(subagent.id) }
-            )
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                .id("subagent-\(subagent.id)")
+            HStack(spacing: 0) {
+                SubagentEventsReader(
+                    store: subagentDetailStore,
+                    subagent: subagent,
+                    onAbort: { onAbortSubagent?(subagent.id) },
+                    onTap: { onSubagentTap?(subagent.id) }
+                )
+                Spacer(minLength: 0)
+            }
+            .id("subagent-\(subagent.id)")
         }
 
         if showAnchoredThinkingIndicator {

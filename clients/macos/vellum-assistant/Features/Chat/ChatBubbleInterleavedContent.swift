@@ -326,26 +326,27 @@ extension ChatBubble {
                 return result
             }()
 
-            AssistantProgressView(
-                toolCalls: groupedToolCalls,
-                isStreaming: isLatestGroup ? message.isStreaming : false,
-                hasText: hasTrailingText,
-                isProcessing: isLatestGroup && isProcessingAfterTools,
-                processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
-                streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
-                streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
-                decidedConfirmations: groupConfirmations,
-                onRehydrate: onRehydrate,
-                onConfirmationAllow: onConfirmationAllow,
-                onConfirmationDeny: onConfirmationDeny,
-                onAlwaysAllow: onAlwaysAllow,
-                onTemporaryAllow: onTemporaryAllow,
-                activeConfirmationRequestId: activeConfirmationRequestId,
-                expandedStepIds: $expandedStepIds,
-                cardExpansionOverrides: $cardExpansionOverrides
-            )
-            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            HStack(spacing: 0) {
+                AssistantProgressView(
+                    toolCalls: groupedToolCalls,
+                    isStreaming: isLatestGroup ? message.isStreaming : false,
+                    hasText: hasTrailingText,
+                    isProcessing: isLatestGroup && isProcessingAfterTools,
+                    processingStatusText: isLatestGroup && isProcessingAfterTools ? processingStatusText : nil,
+                    streamingCodePreview: isLatestGroup ? message.streamingCodePreview : nil,
+                    streamingCodeToolName: isLatestGroup ? message.streamingCodeToolName : nil,
+                    decidedConfirmations: groupConfirmations,
+                    onRehydrate: onRehydrate,
+                    onConfirmationAllow: onConfirmationAllow,
+                    onConfirmationDeny: onConfirmationDeny,
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow,
+                    activeConfirmationRequestId: activeConfirmationRequestId,
+                    progressUIState: $progressUIState
+                )
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -409,7 +410,7 @@ extension ChatBubble {
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n")
                 if !joined.isEmpty {
-                    textBubble(for: joined)
+                    textBubble(for: joined, textGroupIndex: indices.first ?? 0)
                 }
                 // Render deferred tool call images from the preceding tool group,
                 // so descriptive text appears before the screenshot it introduces.
@@ -463,7 +464,12 @@ extension ChatBubble {
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n")
                     if !joined.isEmpty {
-                        ThinkingBlockView(content: joined, isStreaming: message.isStreaming)
+                        ThinkingBlockView(
+                            content: joined,
+                            isStreaming: message.isStreaming,
+                            expansionKey: "\(message.id.uuidString)-th\(indices.first ?? 0)",
+                            typographyGeneration: typographyGeneration
+                        )
                     }
                 }
             }
@@ -502,7 +508,15 @@ extension ChatBubble {
         if !partitioned.files.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(partitioned.files) { attachment in
-                    fileAttachmentChip(attachment)
+                    if attachment.isTextPreviewable {
+                        InlineFilePreviewView(
+                            attachment: attachment,
+                            isUser: isUser,
+                            messageId: message.id
+                        )
+                    } else {
+                        fileAttachmentChip(attachment)
+                    }
                 }
             }
         }

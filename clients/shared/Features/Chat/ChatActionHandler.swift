@@ -101,10 +101,81 @@ final class ChatActionHandler {
 
         case .userMessageEcho(let echo):
             guard belongsToConversation(echo.conversationId) else { return }
-            let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+
+            // Dedup: if this echo carries a messageId that matches an existing
+            // optimistic row (tagged by the HTTP 202 response), the
+            // originating client already has the row — skip the append.
+            if let echoId = echo.messageId,
+               vm.messages.contains(where: { $0.daemonMessageId == echoId }) {
+                // Originating client — optimistic row already present.
+                // Skip isSending/isThinking toggles too; they were set
+                // locally by MessageSendCoordinator before the POST fired.
+                break
+            }
+
+            // Race-condition fallback: the echo may arrive before the HTTP 202
+            // response tags the optimistic row with daemonMessageId. Match by
+            // text against the oldest untagged optimistic user row (firstIndex
+            // matches userMessagePersisted's oldest-first order since both SSE
+            // echoes and 202 responses arrive in send order). Scoped to .sent
+            // status to avoid matching stale .sendFailed rows.
+            if let echoId = echo.messageId,
+               let idx = vm.messages.firstIndex(where: {
+                   $0.role == .user
+                       && $0.text == echo.text
+                       && $0.daemonMessageId == nil
+                       && $0.status == .sent
+               }) {
+                // Tag the optimistic row so the 202 handler (userMessagePersisted)
+                // and future echoes can match by ID.
+                vm.messages[idx].daemonMessageId = echoId
+                break
+            }
+
+            // History-loaded dedup: surface-action echoes (from
+            // conversation-surfaces.ts) can arrive with a nil messageId. For
+            // channel conversations, if an existing user row already has
+            // matching text and a daemonMessageId (loaded from history), treat
+            // the echo as a redundant notification and do not append.
+            // Channel-inbound echoes always carry a messageId, so check 1 above
+            // handles them correctly by exact-id match — scoping this branch to
+            // nil messageId avoids suppressing legitimate repeat sends (e.g. a
+            // user sending "hello" twice on Slack would otherwise collapse into
+            // a single visible bubble).
+            if echo.messageId == nil,
+               vm.isChannelConversation,
+               vm.messages.contains(where: {
+                   $0.role == .user
+                       && $0.text == echo.text
+                       && $0.daemonMessageId != nil
+               }) {
+                break
+            }
+
+            // Passive client (or nil messageId for back-compat surface-action
+            // echoes): append a new user row and enter "reply incoming" state.
+            var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+            userMsg.daemonMessageId = echo.messageId
             vm.messages.append(userMsg)
             vm.isSending = true
             vm.isThinking = true
+
+        case .userMessagePersisted(let conversationId, let content, let messageId):
+            guard belongsToConversation(conversationId) else { return }
+            // If the echo fallback already tagged a row with this messageId,
+            // skip — avoids cross-tagging a different row with duplicate text.
+            guard !vm.messages.contains(where: { $0.daemonMessageId == messageId }) else { break }
+            // Tag the oldest untagged optimistic user row matching `content`
+            // with the daemon-assigned `messageId`. Oldest-first order is
+            // correct because HTTP 202 responses arrive in send order (the
+            // EventStreamClient Task is sequential per-message).
+            if let idx = vm.messages.firstIndex(where: {
+                $0.role == .user
+                    && $0.text == content
+                    && $0.daemonMessageId == nil
+            }) {
+                vm.messages[idx].daemonMessageId = messageId
+            }
 
         case .assistantThinkingDelta(let delta):
             guard belongsToConversation(delta.conversationId) else { return }
@@ -345,14 +416,20 @@ final class ChatActionHandler {
     private func handleMessageComplete(_ complete: MessageCompleteMessage, vm: ChatViewModel) {
         guard belongsToConversation(complete.conversationId) else { return }
         // Auxiliary message_complete events (watch notifiers, call notifications)
-        // that lack a messageId should not reset the main agent turn state.
+        // tagged with source == "aux" — plus legacy events lacking a messageId —
+        // must not reset the main agent turn state. Some aux notifiers (watch
+        // commentary, watch completion, call question) emit both a messageId and
+        // source: "aux", so filtering on messageId alone is insufficient.
         // Filter when a main agent turn is actively streaming (currentAssistantMessageId
         // is set) OR still in the thinking phase (isThinking is true but
         // currentAssistantMessageId hasn't been set yet by the first streaming flush).
         // This allows slash commands and other non-auxiliary completions to process normally.
-        if complete.messageId == nil && (vm.currentAssistantMessageId != nil || vm.isThinking) {
+        if (complete.messageId == nil || complete.source == "aux") && (vm.currentAssistantMessageId != nil || vm.isThinking) {
             return
         }
+        // Capture before dispatchPendingSendDirect clears the flag so we can
+        // tell a real turn end from a cancel-acknowledgement completion.
+        let wasCancelAck = vm.pendingSendDirectText != nil
         // Flush any buffered streaming text before finalizing the message.
         vm.flushStreamingBuffer()
         vm.flushPartialOutputBuffer()
@@ -365,13 +442,79 @@ final class ChatActionHandler {
         }
         // Strip heavy binary data from old messages to cap memory growth.
         vm.trimOldMessagesIfNeeded()
+        // Fallback: mark any remaining dynamic page surfaces as complete.
+        // handleToolResult sets isToolCallComplete per-surface when an app tool
+        // finishes, but it can miss surfaces if the tool_result was dropped
+        // (e.g. during workspace refinement) or if the surface ended up in a
+        // different message than the tool call. By message_complete, all tool
+        // calls have definitely finished so it's safe to enable Open App.
+        //
+        // Three cases to handle:
+        // 1. Normal turn with a single message: scope to currentAssistantMessageId.
+        // 2. Multi-message turn (tool-call overflow rotated to new messages):
+        //    scan backward from current message through recent assistant messages.
+        // 3. Workspace refinement (currentAssistantMessageId is nil because text
+        //    goes to refinementTextBuffer and handleToolUseStart is blocked):
+        //    iterate all messages as a safety net.
         let wasRefinement = vm.isWorkspaceRefinementInFlight || vm.cancelledDuringRefinement
+        if let currentMsgId = vm.currentAssistantMessageId,
+           let msgIdx = vm.messages.firstIndex(where: { $0.id == currentMsgId }) {
+            // Scan backward from the current message through recent assistant
+            // messages in this turn to catch rotated overflow messages.
+            for i in stride(from: msgIdx, through: max(0, msgIdx - 10), by: -1) {
+                // Stop at the turn boundary — a user message means we've
+                // left the current assistant turn and shouldn't touch older surfaces.
+                guard vm.messages[i].role == .assistant else { break }
+                for surfIdx in vm.messages[i].inlineSurfaces.indices {
+                    if !vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete,
+                       case .dynamicPage = vm.messages[i].inlineSurfaces[surfIdx].data {
+                        vm.messages[i].inlineSurfaces[surfIdx].isToolCallComplete = true
+                    }
+                }
+            }
+        } else if wasRefinement {
+            // During workspace refinement, currentAssistantMessageId is typically
+            // nil. Constrain the fallback to assistant messages in the current
+            // turn (after the last user message) so we don't flip unrelated
+            // historical or cancelled surfaces to complete.
+            //
+            // When a user queues a new prompt while refinement is in-flight,
+            // MessageSendCoordinator appends the queued user message immediately.
+            // Using the raw last user message would push turnStart past the
+            // in-flight refinement surfaces, leaving dynamic-page cards stuck
+            // incomplete. Instead, find the last user message that actually has
+            // an assistant response after it — queued-but-unanswered messages
+            // won't have one yet.
+            let answeredUserIndex = vm.messages.lastIndex(where: { msg in
+                guard msg.role == .user else { return false }
+                guard let idx = vm.messages.firstIndex(where: { $0.id == msg.id }) else { return false }
+                return vm.messages[(idx + 1)...].contains(where: { $0.role == .assistant })
+            })
+            let turnStart = (answeredUserIndex ?? -1) + 1
+            for msgIdx in turnStart..<vm.messages.count {
+                guard vm.messages[msgIdx].role == .assistant else { continue }
+                for surfIdx in vm.messages[msgIdx].inlineSurfaces.indices {
+                    if !vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete,
+                       case .dynamicPage = vm.messages[msgIdx].inlineSurfaces[surfIdx].data {
+                        vm.messages[msgIdx].inlineSurfaces[surfIdx].isToolCallComplete = true
+                    }
+                }
+            }
+        }
         vm.isWorkspaceRefinementInFlight = false
         vm.cancelledDuringRefinement = false
         vm.cancelTimeoutTask?.cancel()
         vm.cancelTimeoutTask = nil
         vm.isCancelling = false
         vm.isThinking = false
+        // Only clear the compaction indicator on main-turn completions. Aux
+        // `message_complete` events (call notifiers, watch updates) can arrive
+        // while `/compact` is still running — activity phase may be `tool_running`
+        // (so `isThinking == false`) with no assistant message yet, so the
+        // nil-messageId filter above does not catch them.
+        if complete.source != "aux" {
+            vm.isCompacting = false
+        }
         // When a send-direct is pending, this messageComplete is the
         // cancel acknowledgment. Reset all queue state so the follow-up
         // sendMessage() starts a fresh send instead of re-queuing.
@@ -519,6 +662,15 @@ final class ChatActionHandler {
             } else {
                 callback("Response complete")
             }
+        }
+        // Signal turn completion to observers (e.g. the `task_complete` sound).
+        // Cancel-acknowledgements are user-initiated aborts, not real turn ends,
+        // so they stay silent. Auxiliary `message_complete` events (call
+        // transcript updates, summaries, watch notifiers) are tagged with
+        // `source == "aux"` and must not be counted as turn ends. Absent
+        // source is treated as main for backwards compatibility.
+        if !wasCancelAck && complete.source != "aux" {
+            vm.messageManager.turnCompletionTick &+= 1
         }
     }
 

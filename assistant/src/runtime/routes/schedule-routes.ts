@@ -25,6 +25,10 @@ import type { RouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
 
 const log = getLogger("schedule-routes");
+const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
+  sourceChannel: "vellum",
+  trustClass: "guardian",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -202,17 +206,23 @@ async function handleRunScheduleNow(
             );
           }
           const conversation =
-            await sendMessageDeps.getOrCreateConversation(conversationId);
+            await sendMessageDeps.getOrCreateConversation(conversationId, {
+              trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+            });
           conversation.taskRunId = taskRunId;
-          await conversation.processMessage(
-            message,
-            [],
-            () => {}, // no event callback for HTTP mode
-            undefined,
-            undefined,
-            undefined,
-            { isInteractive: false },
-          );
+          try {
+            await conversation.processMessage(
+              message,
+              [],
+              () => {}, // no event callback for HTTP mode
+              undefined,
+              undefined,
+              undefined,
+              { isInteractive: false },
+            );
+          } finally {
+            conversation.taskRunId = undefined;
+          }
         },
       );
 
@@ -276,7 +286,10 @@ async function handleRunScheduleNow(
       throw new Error("sendMessageDeps not available for schedule execution");
     }
     const activeConversation =
-      await sendMessageDeps.getOrCreateConversation(conversationId);
+      await sendMessageDeps.getOrCreateConversation(conversationId, {
+        trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+      });
+    activeConversation.taskRunId = undefined;
     await activeConversation.processMessage(
       schedule.message,
       [],

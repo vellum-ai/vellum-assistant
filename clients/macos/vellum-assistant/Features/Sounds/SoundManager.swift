@@ -39,34 +39,142 @@ final class SoundManager {
     /// that hammers the workspace/tree API with 429s.
     @ObservationIgnored private var isRefreshingAvailableSounds = false
 
+    /// Number of `saveConfig(_:)` writes currently in flight. The daemon
+    /// watches `data/sounds/` and broadcasts `soundsConfigUpdated` after any
+    /// write, including our own — refetching while writes are still in flight
+    /// can read a truncated payload and clobber local state with
+    /// `.defaultConfig`. `handleSoundsConfigBroadcast()` drops broadcasts
+    /// while this is non-zero. A counter (not a bool) correctly handles
+    /// overlapping saves from e.g. rapid slider drags.
+    @ObservationIgnored private var inFlightSaveCount: Int = 0
+
+    /// Timestamp of the most recent `saveConfig(_:)` completion (success or
+    /// failure). `handleSoundsConfigBroadcast()` also suppresses broadcasts
+    /// within a short grace window after this stamp to cover the daemon's
+    /// 200 ms watcher debounce plus broadcast delivery latency after the
+    /// final save settles. Outside this window, legitimate non-echo
+    /// broadcasts (e.g. sound file additions or edits from another client)
+    /// are processed normally.
+    @ObservationIgnored private var lastSaveCompletedAt: Date?
+
+    /// Grace window after the last save completes during which broadcasts
+    /// are still treated as potential self-echoes. Sized to cover the
+    /// daemon's 200 ms watcher debounce plus broadcast delivery slack,
+    /// without significantly delaying legitimate cross-client updates.
+    private static let postSaveGraceWindow: TimeInterval = 0.5
+
+    /// Set when a broadcast is dropped because a save was in flight or the
+    /// post-save grace window had not elapsed. The save task flushes this
+    /// after the grace window so a cross-client update that arrived during
+    /// the suppression window isn't permanently missed.
+    @ObservationIgnored private var pendingReloadAfterSuppression = false
+
+    /// Whether a valid config currently exists in memory for the active
+    /// assistant context. Not monotonic: the `.notFound` branch in
+    /// `fetchConfig()` resets this to `false` when the gateway reports the
+    /// file is absent, so switching to an assistant with no sounds config
+    /// loads defaults instead of retaining the previous assistant's state.
+    ///
+    /// Only the generic `catch` branch in `fetchConfig()` consults this flag
+    /// to preserve known-good state on transient errors (empty body from a
+    /// read that raced a concurrent write, decode errors, network errors).
+    /// The `.notFound` branch intentionally bypasses it because an
+    /// authoritative "file absent" response is not a transient failure.
+    /// While `false`, fetch failures fall back to `.defaultConfig` so
+    /// first-run (no file yet) still renders sensible state.
+    @ObservationIgnored private var hasLoadedConfig = false
+
+    /// True once `fetchConfig()` has settled with any deterministic result — a
+    /// decoded config or an empty-data first-run fallback. Distinct from
+    /// `hasLoadedConfig`, which requires a successful decode. This flag exists
+    /// solely to gate the deferred `app_open` play so it fires as soon as the
+    /// first fetch settles, not only after a config file has been written.
+    /// Stays false while every attempt has failed with a network error.
+    @ObservationIgnored private var initialConfigLoaded = false
+
+    /// Set by `playAppOpen()` when called before the initial config fetch has
+    /// landed. Flushed on the next settling of `fetchConfig()` so `app_open`
+    /// fires against the user's real config instead of racing the
+    /// default-silent one.
+    @ObservationIgnored private var pendingAppOpenPlay = false
+
     // MARK: - Lifecycle
 
     func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
         self.featureFlagStore = featureFlagStore
-        // Config is fetched later via reloadConfig() once the gateway is
-        // confirmed ready. Fetching here would race the assistant startup
-        // and fall back to defaults on connection-refused.
+
+        // Reload sounds config on every daemon (re)connect. The daemon
+        // only broadcasts sounds_config_updated on file mutations, so
+        // without this hook the config would stay at `.defaultConfig`
+        // (silent) across every app restart until the user touched
+        // data/sounds/config.json on disk. GatewayConnectionManager
+        // posts .daemonDidReconnect when `isConnected` transitions to
+        // true, giving us the "gateway is confirmed ready" signal.
+        //
+        // Also kick off one eager reload for the race where the
+        // connection already completed before start() runs; if it
+        // fails, fetchConfig() silently falls back to defaults and
+        // the next .daemonDidReconnect will overwrite them.
+        NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reloadConfig()
+            }
+        }
+        reloadConfig()
     }
 
     // MARK: - Config Loading & Saving
 
     /// Fetches and decodes config.json from the assistant's workspace via the
-    /// gateway. Falls back to `SoundsConfig.defaultConfig` if the file doesn't
-    /// exist or is malformed.
+    /// gateway. Before a successful decode has been observed, falls back to
+    /// `SoundsConfig.defaultConfig` so first-run (no file yet) still renders
+    /// sensible state. After a successful decode, transient failures (empty
+    /// body from a read that raced a concurrent write, decode errors,
+    /// network errors) preserve the in-memory config instead of clobbering
+    /// a known-good state with defaults.
     private func fetchConfig() async {
         do {
             let data = try await WorkspaceClient().fetchWorkspaceFileContent(
                 path: "data/sounds/config.json", showHidden: false
             )
             guard !data.isEmpty else {
-                config = .defaultConfig
+                if !hasLoadedConfig {
+                    config = .defaultConfig
+                }
+                initialConfigLoaded = true
+                flushPendingAppOpen()
                 return
             }
             let decoded = try JSONDecoder().decode(SoundsConfig.self, from: data)
             config = decoded
-        } catch {
-            log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
+            hasLoadedConfig = true
+            initialConfigLoaded = true
+            flushPendingAppOpen()
+        } catch WorkspaceFileError.notFound {
+            // Authoritative "file absent" from the gateway: config.json
+            // doesn't exist in this assistant's workspace. Reset to defaults
+            // unconditionally (including clearing `hasLoadedConfig`) so
+            // switching to an assistant with no config doesn't retain the
+            // previous assistant's settings. This is distinct from the
+            // generic `catch` below, which preserves known-good state on
+            // transient errors.
             config = .defaultConfig
+            hasLoadedConfig = false
+            initialConfigLoaded = true
+            flushPendingAppOpen()
+        } catch {
+            if hasLoadedConfig {
+                log.warning("Failed to fetch sounds config via gateway, keeping existing: \(error.localizedDescription)")
+            } else {
+                log.warning("Failed to fetch sounds config via gateway, using defaults: \(error.localizedDescription)")
+                config = .defaultConfig
+            }
+            // Leave `initialConfigLoaded` false — the `.daemonDidReconnect`
+            // reload will retry, and any pending `app_open` play waits for it.
         }
     }
 
@@ -81,12 +189,40 @@ final class SoundManager {
         }
     }
 
+    /// Handles a `soundsConfigUpdated` broadcast from the daemon. Drops
+    /// broadcasts while a local save is in flight, or within a short grace
+    /// window after the last save completes — those are the daemon echoing
+    /// our own write, and refetching would race against in-flight writes and
+    /// briefly overwrite the UI with `.defaultConfig` (globalEnabled=false,
+    /// empty pools). Outside those conditions the broadcast is treated as a
+    /// legitimate non-echo update (e.g. sound file additions or edits from
+    /// another client) and triggers a reload.
+    func handleSoundsConfigBroadcast() {
+        if inFlightSaveCount > 0 {
+            pendingReloadAfterSuppression = true
+            return
+        }
+        if let completed = lastSaveCompletedAt,
+           Date().timeIntervalSince(completed) < Self.postSaveGraceWindow {
+            pendingReloadAfterSuppression = true
+            return
+        }
+        reloadConfig()
+    }
+
     /// Encodes and writes the config to the assistant's workspace via the gateway.
     /// Called by the Settings UI when the user changes settings.
     func saveConfig(_ newConfig: SoundsConfig) {
         config = newConfig
+        hasLoadedConfig = true
+        inFlightSaveCount += 1
 
-        Task {
+        Task { @MainActor in
+            defer {
+                inFlightSaveCount -= 1
+                lastSaveCompletedAt = Date()
+                scheduleSuppressionFlush()
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             guard let data = try? encoder.encode(newConfig) else {
@@ -99,6 +235,28 @@ final class SoundManager {
             if !success {
                 log.error("Failed to save sounds config via gateway")
             }
+        }
+    }
+
+    /// After a save settles, wait out the post-save grace window and then
+    /// flush a suppressed broadcast (if any) by reloading. Without this,
+    /// a cross-client update that arrived while `inFlightSaveCount > 0` or
+    /// inside the grace window would be permanently dropped — the client
+    /// would stay stale until some unrelated later reload (reconnect, etc).
+    /// Bails out if another save is in flight or a newer save has reset the
+    /// grace window; that save's own flush will handle the pending flag.
+    private func scheduleSuppressionFlush() {
+        Task { @MainActor in
+            let nanos = UInt64(Self.postSaveGraceWindow * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            guard pendingReloadAfterSuppression else { return }
+            guard inFlightSaveCount == 0 else { return }
+            if let completed = lastSaveCompletedAt,
+               Date().timeIntervalSince(completed) < Self.postSaveGraceWindow {
+                return
+            }
+            pendingReloadAfterSuppression = false
+            reloadConfig()
         }
     }
 
@@ -124,6 +282,15 @@ final class SoundManager {
         return true
     }
 
+    /// Picks a random filename from the pool after filtering out entries that
+    /// fail `validateSoundFilename`. Returns `nil` when the pool is empty or
+    /// every entry is invalid. Single source of truth for pool selection in
+    /// `play(_:)`.
+    internal func pickSoundFilename(from sounds: [String]) -> String? {
+        let validated = sounds.filter { validateSoundFilename($0) }
+        return validated.randomElement()
+    }
+
     /// Fetches a custom sound file from the assistant's workspace via the gateway
     /// and returns an `NSSound` instance. Returns `nil` on failure.
     private func fetchCustomSound(filename: String) async -> NSSound? {
@@ -141,6 +308,25 @@ final class SoundManager {
 
     // MARK: - Playback
 
+    /// Plays `app_open` as soon as the initial config fetch completes. Callers
+    /// fire this during `applicationDidFinishLaunching`, before `start()`'s async
+    /// fetch has landed — calling `play(.appOpen)` directly in that window races
+    /// against the fetch and silently returns because `config` is still the
+    /// default-silent fallback.
+    func playAppOpen() {
+        if initialConfigLoaded {
+            play(.appOpen)
+        } else {
+            pendingAppOpenPlay = true
+        }
+    }
+
+    private func flushPendingAppOpen() {
+        guard pendingAppOpenPlay else { return }
+        pendingAppOpenPlay = false
+        play(.appOpen)
+    }
+
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
     func play(_ event: SoundEvent) {
         // Use the cached store when available (zero disk I/O); fall back to
@@ -153,34 +339,30 @@ final class SoundManager {
         let eventConfig = config.config(for: event)
         guard eventConfig.enabled else { return }
 
-        if let filename = eventConfig.sound {
-            guard validateSoundFilename(filename) else {
-                playDefault()
-                return
-            }
-
-            // Use cached sound if available.
-            if let cached = soundCache[filename] {
-                cached.volume = config.volume
-                cached.play()
-                return
-            }
-
-            // Fetch asynchronously; fall back to default blip for this invocation.
-            // The fetched sound will be cached for subsequent plays.
-            Task {
-                if let sound = await fetchCustomSound(filename: filename) {
-                    soundCache[filename] = sound
-                    sound.volume = config.volume
-                    sound.play()
-                } else {
-                    log.warning("Failed to load sound file '\(filename)', falling back to default")
-                    playDefault()
-                }
-            }
-        } else {
-            // No custom sound set — use default blip.
+        guard let filename = pickSoundFilename(from: eventConfig.sounds) else {
+            // Empty pool or every entry failed validation — use default blip.
             playDefault()
+            return
+        }
+
+        // Use cached sound if available.
+        if let cached = soundCache[filename] {
+            cached.volume = config.volume
+            cached.play()
+            return
+        }
+
+        // Fetch asynchronously; fall back to default blip for this invocation.
+        // The fetched sound will be cached for subsequent plays.
+        Task {
+            if let sound = await fetchCustomSound(filename: filename) {
+                soundCache[filename] = sound
+                sound.volume = config.volume
+                sound.play()
+            } else {
+                log.warning("Failed to load sound file '\(filename)', falling back to default")
+                playDefault()
+            }
         }
     }
 
@@ -191,15 +373,11 @@ final class SoundManager {
         sound.play()
     }
 
-    /// Preview the sound configured for a specific event at the current volume,
-    /// bypassing enabled checks. Fetches the sound from the gateway if not cached.
-    func previewSound(for event: SoundEvent) {
-        let eventConfig = config.config(for: event)
-        guard let filename = eventConfig.sound, !filename.isEmpty else {
-            previewDefaultBlip()
-            return
-        }
-
+    /// Preview a specific sound by filename at the current volume, bypassing
+    /// enabled checks. Fetches from the gateway if not cached. Falls back to
+    /// the default blip if the filename is invalid or cannot be fetched. Used
+    /// by the Settings sound pool UI so each pool entry can be auditioned.
+    func previewSound(filename: String) {
         guard validateSoundFilename(filename) else {
             previewDefaultBlip()
             return

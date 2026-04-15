@@ -13,7 +13,8 @@ struct AgentPanelContent: View {
     @Binding var focusedSkillId: String?
 
     @State private var skillsManager: SkillsManager
-    @State private var selectedInstalledSkillId: String?
+    @State private var selectedSkillId: String?
+    @State private var cachedSelectedSkill: SkillInfo?
     @State private var skillToDelete: SkillInfo?
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
@@ -27,7 +28,7 @@ struct AgentPanelContent: View {
     }
 
     private var isShowingDetail: Bool {
-        selectedInstalledSkillId != nil
+        selectedSkillId != nil
     }
 
     var body: some View {
@@ -82,27 +83,38 @@ struct AgentPanelContent: View {
         .onAppear {
             skillsManager.fetchSkills()
             if let skillId = focusedSkillId {
-                selectedInstalledSkillId = skillId
+                selectedSkillId = skillId
                 focusedSkillId = nil
             }
         }
         .onChange(of: focusedSkillId) {
             if let skillId = focusedSkillId {
-                selectedInstalledSkillId = skillId
+                selectedSkillId = skillId
                 focusedSkillId = nil
             }
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
-            if let selectedId = selectedInstalledSkillId,
+            if let selectedId = selectedSkillId,
+               skillsManager.installingSkillId != selectedId,
+               cachedSelectedSkill == nil,
                !skillsManager.skills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
+                selectedSkillId = nil
             }
         }
         .onChange(of: skillsManager.filteredSkills.map(\.id)) {
-            if let selectedId = selectedInstalledSkillId,
-               !skillsManager.filteredSkills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
+            // Preserve the detail selection across post-install refreshes:
+            // after an install, the skill's status flips from "available"
+            // to "enabled", which may remove it from the active
+            // `filteredSkills` (e.g. under the `.available` filter). The
+            // detail view still needs the skill to render its content, so
+            // we only clear the selection when the skill is truly gone
+            // from the unfiltered `skills` list (and not mid-install).
+            if let selectedId = selectedSkillId,
+               skillsManager.installingSkillId != selectedId,
+               cachedSelectedSkill == nil,
+               !skillsManager.skills.contains(where: { $0.id == selectedId }) {
+                selectedSkillId = nil
             }
         }
         .sheet(item: $skillToDelete) { skill in
@@ -111,6 +123,8 @@ struct AgentPanelContent: View {
                 onDelete: {
                     skillsManager.uninstallSkill(id: skill.id)
                     skillToDelete = nil
+                    cachedSelectedSkill = nil
+                    selectedSkillId = nil
                 },
                 onCancel: {
                     skillToDelete = nil
@@ -143,10 +157,17 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $skillsManager.searchQuery)
+                .overlay(alignment: .trailing) {
+                    if skillsManager.isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, 28)
+                    }
+                }
             VDropdown(
                 options: SkillFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
                 selection: $skillsManager.skillFilter,
-                maxWidth: 130
+                maxWidth: 140
             )
         }
     }
@@ -171,10 +192,12 @@ struct AgentPanelContent: View {
                 withAnimation(VAnimation.fast) { skillsManager.selectedCategory = category }
             }
         ) {
-            let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
-            Text("\(count)")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+            if !skillsManager.isSearching {
+                let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
+                Text("\(count)")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
         .accessibilityLabel("\(label) filter")
         .accessibilityAddTraits(skillsManager.selectedCategory == category ? .isSelected : [])
@@ -191,7 +214,8 @@ struct AgentPanelContent: View {
         case .installed: return "No Skills Installed"
         case .available: return "No Skills Available"
         case .vellum: return "No Vellum Skills"
-        case .community: return "No Community Skills"
+        case .clawhub: return "No Clawhub Skills"
+        case .skillssh: return "No skills.sh Skills"
         case .custom: return "No Custom Skills"
         }
     }
@@ -205,7 +229,8 @@ struct AgentPanelContent: View {
         case .installed: return "Ask your assistant in chat to search for and install new skills."
         case .available: return "All available skills have been installed."
         case .vellum: return "No bundled Vellum skills found."
-        case .community: return "No Community skills found. Try installing some from the catalog."
+        case .clawhub: return "No Clawhub skills found. Try searching the catalog."
+        case .skillssh: return "No skills.sh skills found. Try searching the catalog."
         case .custom: return "Create a custom skill by describing what you want in chat."
         }
     }
@@ -219,7 +244,8 @@ struct AgentPanelContent: View {
         case .installed: return VIcon.zap.rawValue
         case .available: return VIcon.circleCheck.rawValue
         case .vellum: return VIcon.package.rawValue
-        case .community: return VIcon.globe.rawValue
+        case .clawhub: return VIcon.globe.rawValue
+        case .skillssh: return VIcon.terminal.rawValue
         case .custom: return VIcon.user.rawValue
         }
     }
@@ -228,21 +254,40 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if let selectedId = selectedInstalledSkillId,
-           let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId }) {
+        // Fall back to the unfiltered `skills` list so a detail view that
+        // would otherwise be hidden by the active filter (e.g. a just-
+        // installed skill viewed under the `.available` filter) still
+        // renders. Finally fall back to the cached snapshot taken when
+        // the user clicked into the detail, so a transient search
+        // refresh doesn't dismiss the detail view.
+        // Pair with `.id(skill.id)` so SwiftUI creates a fresh
+        // view instance when the selected skill changes.
+        if let selectedId = selectedSkillId,
+           let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId })
+            ?? skillsManager.skills.first(where: { $0.id == selectedId })
+            ?? cachedSelectedSkill {
             SkillDetailView(
                 skill: skill,
                 skillsManager: skillsManager,
                 onBack: {
                     withAnimation(VAnimation.standard) {
-                        selectedInstalledSkillId = nil
+                        selectedSkillId = nil
+                        cachedSelectedSkill = nil
                     }
                 },
                 onDelete: { skill in
                     skillToDelete = skill
                 }
             )
+            .id(skill.id)
         } else if skillsManager.isLoading && skillsManager.baseSkillsEmpty {
+            VStack {
+                Spacer()
+                VLoadingIndicator()
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if skillsManager.isSearching && skillsManager.filteredSkills.isEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()
@@ -262,6 +307,12 @@ struct AgentPanelContent: View {
                         if skill.isAvailable {
                             AvailableSkillItemRow(
                                 skill: skill,
+                                onSelect: {
+                                    withAnimation(VAnimation.fast) {
+                                        cachedSelectedSkill = skill
+                                        selectedSkillId = skill.id
+                                    }
+                                },
                                 onInstall: { skillsManager.installSkill(slug: skill.id) },
                                 isInstalling: skillsManager.installingSkillId == skill.id
                             )
@@ -270,7 +321,8 @@ struct AgentPanelContent: View {
                                 skill: skill,
                                 onSelect: {
                                     withAnimation(VAnimation.fast) {
-                                        selectedInstalledSkillId = skill.id
+                                        cachedSelectedSkill = skill
+                                        selectedSkillId = skill.id
                                     }
                                 },
                                 onDelete: {
@@ -351,11 +403,12 @@ struct SkillItemRow: View {
 
 struct AvailableSkillItemRow: View {
     let skill: SkillInfo
+    let onSelect: () -> Void
     let onInstall: () -> Void
     var isInstalling: Bool = false
 
     var body: some View {
-        VCard {
+        VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 if let emoji = skill.emoji, !emoji.isEmpty {
                     Text(emoji)
@@ -389,5 +442,10 @@ struct AvailableSkillItemRow: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(skill.name). \(skill.description)")
+        .accessibilityAction { onSelect() }
+        .accessibilityAction(named: "Install") { onInstall() }
     }
 }

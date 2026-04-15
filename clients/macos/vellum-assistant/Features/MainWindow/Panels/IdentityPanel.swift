@@ -6,6 +6,7 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
+    var onOpenThread: ((String) -> Void)?
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
     @State private var appearance = AvatarAppearanceManager.shared
@@ -22,12 +23,8 @@ struct IdentityPanel: View {
     @State private var introText: String? = nil
     @State private var introTask: Task<Void, Never>? = nil
     @State private var bootstrapCheckTask: Task<Void, Never>? = nil
+    @State private var skillsTask: Task<Void, Never>? = nil
     @State private var isBootstrapActive: Bool = true
-    @State private var isEditingName: Bool = false
-    @State private var editingNameText: String = ""
-    @State private var isEditingRole: Bool = false
-    @State private var editingRoleText: String = ""
-    @State private var isSavingIdentityField: Bool = false
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -58,13 +55,25 @@ struct IdentityPanel: View {
                     VStack(spacing: 0) {
                         VStack(spacing: 0) {
                             // Intro heading — show daemon-generated text, fall back to static name
-                            Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
-                                .font(VFont.titleMedium)
-                                .foregroundStyle(VColor.contentDefault)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, VSpacing.xxl)
-                                .padding(.horizontal, VSpacing.lg)
+                            HStack(spacing: VSpacing.sm) {
+                                Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : assistantDisplayName))
+                                    .font(VFont.titleMedium)
+                                    .foregroundStyle(VColor.contentDefault)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity)
+                                Button {
+                                    onOpenThread?("I would like to change your name")
+                                } label: {
+                                    VIconView(.pencil, size: 13)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Edit Name")
+                                .help("Edit Name")
+                                .fixedSize()
+                            }
+                            .padding(.top, VSpacing.xxl)
+                            .padding(.horizontal, VSpacing.lg)
 
                             Spacer()
 
@@ -97,10 +106,12 @@ struct IdentityPanel: View {
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                                let role = AssistantDisplayName.firstUserFacing(from: [
-                                                    identity?.role
-                                                ])
-                                identityInfoRow(label: "Role", value: role ?? "Not set")
+                                let role = AssistantDisplayName.firstUserFacing(from: [
+                                    identity?.role
+                                ])
+                                editableInfoRow(label: "Role", value: role ?? "Not set") {
+                                    onOpenThread?("I would like to change your role description")
+                                }
                                 if let date = metadata?.createdAt {
                                     identityInfoRow(label: "Hatched", value: formatHatchedDate(date))
                                 }
@@ -155,11 +166,30 @@ struct IdentityPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .task {
-                let result = await IdentityInfo.loadWithMetadata()
-                identity = result.identity
-                metadata = result.metadata
-                lockfileAssistant = LockfileAssistant.loadLatest()
-                workspaceFiles = await WorkspaceFileNode.scanAsync()
+                // Load identity, lockfile, and workspace files in parallel.
+                // Previously these ran sequentially — if the gateway was slow
+                // to respond on startup the view appeared frozen because nothing
+                // populated until the first network call (up to 10 s timeout)
+                // completed. Using `async let` reduces total wait from the sum
+                // of all calls to the maximum of the three.
+                // `LockfileAssistant.loadLatest()` is synchronous file I/O, so
+                // it runs inside `Task.detached` to keep it off the main actor
+                // (matches the pattern in SettingsDeveloperTab, AboutVellumWindow,
+                // and SettingsGeneralTab).
+                async let identityResult = IdentityInfo.loadWithMetadata()
+                async let lockfileResult = Task.detached { LockfileAssistant.loadLatest() }.value
+                async let workspaceResult = WorkspaceFileNode.scanAsync()
+
+                let (idResult, lockfile, files) = await (identityResult, lockfileResult, workspaceResult)
+
+                identity = idResult.identity
+                metadata = idResult.metadata
+                lockfileAssistant = lockfile
+                workspaceFiles = files
+
+                // Fetch skills after workspace files are ready so the
+                // ConstellationView layout triggered by skills.count change
+                // includes both data sets.
                 fetchSkills()
 
                 bootstrapCheckTask = Task {
@@ -176,92 +206,7 @@ struct IdentityPanel: View {
                     }
                 }
             }
-            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel() }
-        }
-    }
-
-    // MARK: - Inline Editing
-
-    @ViewBuilder
-    private func inlineEditField(
-        text: Binding<String>,
-        placeholder: String,
-        font: Font,
-        isSaving: Bool,
-        onSave: @escaping () -> Void,
-        onCancel: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            TextField(placeholder, text: text)
-                .font(font)
-                .foregroundStyle(VColor.contentDefault)
-                .textFieldStyle(.plain)
-                .onSubmit { onSave() }
-
-            if isSaving {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                VButton(label: "Save", iconOnly: VIcon.check.rawValue, style: .ghost, size: .compact) {
-                    onSave()
-                }
-                VButton(label: "Cancel", iconOnly: VIcon.x.rawValue, style: .ghost, size: .compact) {
-                    onCancel()
-                }
-            }
-        }
-    }
-
-    /// Save a field in IDENTITY.md (e.g. "Name", "Role") via the workspace API.
-    private func saveIdentityField(field: String, value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isSavingIdentityField else { return }
-        isSavingIdentityField = true
-
-        Task {
-            defer { isSavingIdentityField = false }
-
-            let fileResponse = await workspaceClient.fetchWorkspaceFile(path: "IDENTITY.md", showHidden: false)
-            guard let content = fileResponse?.content else {
-                isEditingName = false
-                isEditingRole = false
-                return
-            }
-
-            let key = "- **\(field.lowercased()):**"
-            let lines = content.components(separatedBy: "\n")
-            let updatedLines = lines.map { line -> String in
-                if line.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix(key) {
-                    return "- **\(field):** \(trimmed)"
-                }
-                return line
-            }
-            let updatedContent = updatedLines.joined(separator: "\n")
-
-            let success = await workspaceClient.writeWorkspaceFile(
-                path: "IDENTITY.md",
-                content: updatedContent.data(using: .utf8) ?? Data()
-            )
-
-            if success {
-                identity = await IdentityInfo.loadAsync()
-                isEditingName = false
-                isEditingRole = false
-
-                if field == "Name" {
-                    introText = nil
-                    if !isBootstrapActive {
-                        if let soulIntro = await IdentityInfo.loadIdentityIntroAsync() {
-                            introText = soulIntro
-                        } else {
-                            generateIntro()
-                        }
-                    }
-                }
-            } else {
-                isEditingName = false
-                isEditingRole = false
-            }
+            .onDisappear { bootstrapCheckTask?.cancel(); introTask?.cancel(); skillsTask?.cancel() }
         }
     }
 
@@ -297,16 +242,22 @@ struct IdentityPanel: View {
     // MARK: - Skills
 
     private func fetchSkills() {
-        Task {
+        skillsTask?.cancel()
+        skillsTask = Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
+            guard !Task.isCancelled else { return }
             if let response {
                 let enabled = response.skills.filter { $0.status == "enabled" }
+                let map = await Task.detached {
+                    var m: [String: SkillCategory] = [:]
+                    m.reserveCapacity(enabled.count)
+                    for skill in enabled {
+                        m[skill.id] = inferCategory(skill)
+                    }
+                    return m
+                }.value
+                guard !Task.isCancelled else { return }
                 skills = enabled
-                var map: [String: SkillCategory] = [:]
-                map.reserveCapacity(enabled.count)
-                for skill in enabled {
-                    map[skill.id] = inferCategory(skill)
-                }
                 skillCategoryLookup = map
             }
         }
@@ -375,6 +326,27 @@ struct IdentityPanel: View {
         }
     }
 
+    private func editableInfoRow(label: String, value: String, onEdit: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            HStack(spacing: VSpacing.xs) {
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                Spacer()
+                Button(action: onEdit) {
+                    VIconView(.pencil, size: 10)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit \(label)")
+                .help("Edit \(label)")
+            }
+            Text(value)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(VColor.contentEmphasized)
+        }
+    }
+
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
@@ -439,6 +411,7 @@ private struct WorkspaceFileSheet: View {
             // Content
             ScrollView {
                 MarkdownRenderer(text: fileContent)
+                    .equatable()
                     .padding(VSpacing.xl)
             }
         }

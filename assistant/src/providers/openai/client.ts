@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
@@ -290,13 +291,25 @@ export class OpenAIProvider implements Provider {
         rawResponse,
       };
     } catch (error) {
+      // Propagate a tagged AbortReason (set by the daemon at controller.abort())
+      // so wrapped errors can be classified as user cancellation downstream.
+      const abortReason =
+        signal?.aborted && isAbortReason(signal.reason)
+          ? signal.reason
+          : undefined;
       if (error instanceof OpenAI.APIError) {
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        const errorOptions: {
+          retryAfterMs?: number;
+          abortReason?: unknown;
+        } = {};
+        if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
+        if (abortReason) errorOptions.abortReason = abortReason;
         throw new ProviderError(
           `${this.providerLabel} API error (${error.status}): ${error.message}`,
           this.name,
           error.status,
-          retryAfterMs !== undefined ? { retryAfterMs } : undefined,
+          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
         );
       }
       throw new ProviderError(
@@ -305,7 +318,7 @@ export class OpenAIProvider implements Provider {
         }`,
         this.name,
         undefined,
-        { cause: error },
+        abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
   }

@@ -7,161 +7,568 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg: #0d1017;
+      --surface: #141820;
+      --surface-2: #1a1f2b;
+      --border: rgba(255, 255, 255, 0.07);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      --text-1: #e4e7ed;
+      --text-2: #8990a0;
+      --text-3: #4e5568;
+      --green: #4ade80;
+      --green-soft: rgba(74, 222, 128, 0.08);
+      --green-border: rgba(74, 222, 128, 0.2);
+      --amber: #fbbf24;
+      --amber-soft: rgba(251, 191, 36, 0.08);
+      --amber-border: rgba(251, 191, 36, 0.2);
+      --red: #fb7185;
+      --red-soft: rgba(251, 113, 133, 0.08);
+      --red-border: rgba(251, 113, 133, 0.2);
+      --accent: #818cf8;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      color: #1a1a1a;
-      background: #fff;
+      font-size: 13px;
+      color: var(--text-1);
+      background: linear-gradient(180deg, #10131b 0%, var(--bg) 100%);
       width: 300px;
       padding: 16px;
+      -webkit-font-smoothing: antialiased;
     }
+
+    /* Subtle grain overlay */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      opacity: 0.018;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px 200px;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────── */
 
     header {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
+    }
+
+    .logo-mark {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      color: var(--text-2);
     }
 
     header h1 {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 600;
+      color: var(--text-2);
+      letter-spacing: 0.01em;
     }
+
+    /* ── Toggle row ──────────────────────────────────────────────── */
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+
+    .toggle-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .toggle-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+
+    .toggle-hint {
+      font-size: 11px;
+      color: var(--text-3);
+      line-height: 1.35;
+    }
+
+    /* ── Switch ──────────────────────────────────────────────────── */
+
+    .switch {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .switch-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--text-3);
+      border-radius: 999px;
+      transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+    }
+
+    .switch-slider::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    }
+
+    .switch input:checked + .switch-slider {
+      background: var(--green);
+    }
+
+    .switch input:checked + .switch-slider::before {
+      transform: translateX(18px);
+    }
+
+    .switch input:disabled + .switch-slider {
+      cursor: default;
+      opacity: 0.35;
+    }
+
+    /* ── Status card ─────────────────────────────────────────────── */
+
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      transition: border-color 0.4s ease, box-shadow 0.4s ease;
+    }
+
+    .status-card:has(.status-dot.connected) {
+      border-color: var(--green-border);
+      box-shadow: 0 0 20px -6px rgba(74, 222, 128, 0.1);
+    }
+
+    .status-card:has(.status-dot.paused) {
+      border-color: var(--amber-border);
+    }
+
+    .status-card:has(.status-dot.disconnected) {
+      border-color: var(--red-border);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    /* ── Status dot — the living indicator ────────────────────────── */
 
     .status-dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: #ccc;
+      background: var(--text-3);
       flex-shrink: 0;
-      transition: background 0.2s;
+      position: relative;
+      transition: background 0.3s, box-shadow 0.3s;
     }
-    .status-dot.connected { background: #22c55e; }
-    .status-dot.disconnected { background: #ef4444; }
+
+    .status-dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+      animation: alive-pulse 2.5s ease-in-out infinite;
+    }
+
+    .status-dot.paused {
+      background: var(--amber);
+      box-shadow: 0 0 6px rgba(251, 191, 36, 0.3);
+    }
+
+    .status-dot.disconnected {
+      background: var(--red);
+      box-shadow: 0 0 6px rgba(251, 113, 133, 0.35);
+    }
+
+    @keyframes alive-pulse {
+      0%, 100% {
+        box-shadow: 0 0 8px rgba(74, 222, 128, 0.5),
+                    0 0 0 0 rgba(74, 222, 128, 0.3);
+      }
+      50% {
+        box-shadow: 0 0 8px rgba(74, 222, 128, 0.5),
+                    0 0 0 5px rgba(74, 222, 128, 0);
+      }
+    }
 
     .status-text {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 14px;
-    }
-
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 500;
-      color: #444;
-      margin-bottom: 4px;
-    }
-
-    input[type="text"],
-    input[type="password"] {
-      width: 100%;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      padding: 7px 10px;
-      font-size: 13px;
-      outline: none;
-      transition: border-color 0.15s;
-      margin-bottom: 12px;
-    }
-    input:focus { border-color: #6366f1; }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-    }
-
-    button {
-      flex: 1;
-      padding: 8px 0;
-      border: none;
-      border-radius: 6px;
       font-size: 13px;
       font-weight: 500;
-      cursor: pointer;
-      transition: opacity 0.15s;
-    }
-    button:disabled { opacity: 0.5; cursor: default; }
-
-    #btn-connect {
-      background: #6366f1;
-      color: #fff;
-    }
-    #btn-connect:hover:not(:disabled) { background: #4f46e5; }
-
-    #btn-disconnect {
-      background: #f3f4f6;
-      color: #374151;
-    }
-    #btn-disconnect:hover:not(:disabled) { background: #e5e7eb; }
-
-    .hint {
-      font-size: 11px;
-      color: #9ca3af;
-      margin-top: 10px;
-      line-height: 1.5;
+      color: var(--text-1);
+      line-height: 1.35;
     }
 
-    .manual-toggle {
-      font-size: 12px;
-      color: #6366f1;
-      cursor: pointer;
-      background: none;
-      border: none;
-      padding: 0;
-      margin-bottom: 8px;
-      text-decoration: underline;
-      display: inline-block;
-    }
-    .manual-toggle:hover { color: #4f46e5; }
+    /* ── Status badge ────────────────────────────────────────────── */
 
-    .token-group { display: none; }
-    .token-group.visible { display: block; }
+    .status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      border-radius: 5px;
+      padding: 3px 7px;
+      flex-shrink: 0;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: all 0.3s;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-3);
+    }
+
+    .status-badge.connected {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .status-badge.paused {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .status-badge.disconnected {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    /* ── Error & setup alerts ────────────────────────────────────── */
 
     .error-text {
       font-size: 12px;
-      color: #ef4444;
+      color: var(--red);
+      background: var(--red-soft);
+      border: 1px solid var(--red-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+
+    .setup-message {
+      font-size: 12px;
+      color: var(--amber);
+      background: var(--amber-soft);
+      border: 1px solid var(--amber-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      line-height: 1.45;
+    }
+
+    /* ── Assistant selector ──────────────────────────────────────── */
+
+    .assistant-selector-group {
+      margin-bottom: 10px;
+    }
+
+    .assistant-selector-group > label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 28px 8px 10px;
+      font-size: 13px;
+      color: var(--text-1);
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%234e5568' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+
+    select:focus { border-color: var(--accent); }
+
+    /* ── Base label ──────────────────────────────────────────────── */
+
+    label {
+      display: block;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    /* ── Divider ─────────────────────────────────────────────────── */
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 14px 0 4px;
+    }
+
+    /* ── Advanced / Troubleshoot ──────────────────────────────────── */
+
+    #troubleshoot-section {
+      margin-top: 0;
+    }
+
+    #troubleshoot-section[hidden] {
+      display: none;
+    }
+
+    .troubleshoot-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: none;
+      border: none;
+      padding: 8px 0;
+      margin-bottom: 0;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      width: auto;
+      flex: none;
+      transition: color 0.15s;
+    }
+
+    .troubleshoot-toggle:hover { color: var(--text-2); }
+
+    .troubleshoot-toggle .chevron {
+      display: inline-block;
+      font-size: 8px;
+      transition: transform 0.2s ease;
+      color: inherit;
+    }
+
+    .troubleshoot-toggle[aria-expanded="true"] .chevron {
+      transform: rotate(90deg);
+    }
+
+    #troubleshoot-body {
+      overflow: hidden;
+    }
+
+    #troubleshoot-body[hidden] {
+      display: none;
+    }
+
+    /* ── Advanced settings ────────────────────────────────────────── */
+
+    .advanced-setting {
+      margin-top: 6px;
+      margin-bottom: 14px;
+    }
+
+    .advanced-setting label {
+      margin-bottom: 6px;
+    }
+
+    .advanced-setting input {
+      margin-bottom: 0;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      color: var(--text-1);
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 12px;
+    }
+
+    input[type="text"]:focus { border-color: var(--accent); }
+
+    .hint {
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────────────── */
+
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: var(--surface-2);
+      color: var(--text-1);
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--surface);
+      border-color: var(--border-hover);
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    #btn-pair-local {
       margin-bottom: 8px;
+    }
+
+    #btn-cloud-signin {
+      margin-bottom: 8px;
+    }
+
+    /* ── Local / Cloud status text ────────────────────────────────── */
+
+    .local-status,
+    .cloud-status {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-bottom: 6px;
+      word-break: break-all;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      line-height: 1.5;
+    }
+
+    .local-status.paired,
+    .cloud-status.signed-in {
+      color: var(--green);
+    }
+
+    .local-status.error {
+      color: var(--red);
     }
   </style>
 </head>
 <body>
   <header>
-    <div class="status-dot disconnected" id="status-dot"></div>
+    <svg class="logo-mark" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M9 1.5L16.5 9L9 16.5L1.5 9L9 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M9 5.5L12.5 9L9 12.5L5.5 9L9 5.5Z" fill="currentColor" opacity="0.3"/>
+    </svg>
     <h1>Vellum Relay</h1>
   </header>
 
-  <p class="status-text" id="status-text">Not connected</p>
+  <div class="toggle-row">
+    <div class="toggle-copy">
+      <p class="toggle-title">Connection</p>
+      <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
+    </div>
+    <label class="switch" for="connection-toggle">
+      <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
+      <span class="switch-slider"></span>
+    </label>
+  </div>
+
+  <div class="status-card" role="status" aria-live="polite">
+    <div class="status-row">
+      <div class="status-left">
+        <div class="status-dot disconnected" id="status-dot"></div>
+        <p class="status-text" id="status-text">Not connected</p>
+      </div>
+      <span class="status-badge disconnected" id="status-badge">Offline</span>
+    </div>
+  </div>
 
   <p class="error-text" id="error-text" style="display:none"></p>
 
-  <button class="manual-toggle" id="manual-toggle" type="button">Manual token entry</button>
-  <div class="token-group" id="token-group">
-    <label for="token-input">Bearer token</label>
-    <input
-      type="password"
-      id="token-input"
-      placeholder="Paste your JWT bearer token"
-      autocomplete="off"
-      spellcheck="false"
-    />
+  <p id="setup-message" class="setup-message" style="display:none"></p>
+
+  <div class="assistant-selector-group" id="assistant-selector-group" style="display:none">
+    <label for="assistant-select">Assistant</label>
+    <select id="assistant-select"></select>
   </div>
 
-  <label for="port-input">Relay port</label>
-  <input
-    type="text"
-    id="port-input"
-    placeholder="7830"
-    autocomplete="off"
-    spellcheck="false"
-  />
+  <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
+  <div id="troubleshoot-section" hidden>
+    <div class="divider"></div>
 
-  <div class="btn-row">
-    <button id="btn-connect">Connect</button>
-    <button id="btn-disconnect" disabled>Disconnect</button>
+    <button
+      type="button"
+      class="troubleshoot-toggle"
+      id="troubleshoot-toggle"
+      aria-expanded="false"
+      aria-controls="troubleshoot-body"
+    >
+      <span class="chevron">&#9654;</span>
+      Advanced
+    </button>
+
+    <div id="troubleshoot-body" hidden>
+      <div class="advanced-setting">
+        <label for="port-input">Connection port</label>
+        <input
+          type="text"
+          id="port-input"
+          placeholder="7830"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p class="hint">Only change this if support asks you to.</p>
+      </div>
+
+      <p class="local-status" id="local-status" style="display:none">Not paired</p>
+      <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
+
+      <p class="cloud-status" id="cloud-status" style="display:none">Not signed in</p>
+      <button id="btn-cloud-signin" type="button" style="display:none">Re-sign in with Vellum (cloud)</button>
+    </div>
   </div>
-
-  <p class="hint">Token is auto-fetched from the local gateway. Port defaults to 7830.</p>
 
   <script type="module" src="popup.js"></script>
 </body>

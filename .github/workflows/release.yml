@@ -25,6 +25,7 @@ jobs:
       base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
       docker_environments: ${{ steps.finalize.outputs.docker_environments }}
+      chrome_extension_changed: ${{ steps.detect-extension-changes.outputs.changed }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -100,12 +101,46 @@ jobs:
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
-            echo 'docker_environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environments=["staging"]' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
             echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Detect chrome extension changes
+        id: detect-extension-changes
+        env:
+          BASE_VERSION: ${{ steps.extract.outputs.base_version }}
+        run: |
+          # Compare clients/chrome-extension/ against the previous release tag.
+          # Exclude the current version's tag so retries after tagging still
+          # detect minor/major bumps correctly.
+          # If no prior tag exists (first release), always build.
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | { grep -v "^v${BASE_VERSION}$" || true; } | head -1)
+
+          # Force a build on minor/major version bumps so the CWS listing
+          # stays in sync even when the extension code itself hasn't changed.
+          if [ -n "$PREV_TAG" ]; then
+            PREV_MAJOR_MINOR=$(echo "${PREV_TAG#v}" | cut -d. -f1-2)
+            CURR_MAJOR_MINOR=$(echo "$BASE_VERSION" | cut -d. -f1-2)
+            if [ "$PREV_MAJOR_MINOR" != "$CURR_MAJOR_MINOR" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Major/minor version changed ($PREV_MAJOR_MINOR -> $CURR_MAJOR_MINOR) — forcing extension build"
+              exit 0
+            fi
+            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ | wc -l | tr -d ' ')
+          else
+            CHANGED=1
+          fi
+
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Chrome extension has $CHANGED changed file(s) since $PREV_TAG"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No chrome extension changes since $PREV_TAG — build & publish will be skipped"
+          fi
 
   notify-release-start:
     name: Slack Notification (Release Build Started)
@@ -186,6 +221,129 @@ jobs:
           if [ "${{ steps.slack.outcome }}" != "success" ]; then
             echo "::warning::Release start Slack notification failed to send."
           fi
+
+  build-chrome-extension:
+    needs: [extract-version]
+    if: needs.extract-version.outputs.chrome_extension_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Chrome for CRX signing
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Write CRX signing key
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          if [ -n "$CRX_PRIVATE_KEY" ]; then
+            echo "$CRX_PRIVATE_KEY" > clients/chrome-extension/privatekey.pem
+            chmod 600 clients/chrome-extension/privatekey.pem
+          else
+            echo "::warning::CRX_PRIVATE_KEY secret not set — CRX signing will be skipped"
+          fi
+
+      - name: Build extension
+        working-directory: clients/chrome-extension
+        env:
+          VERSION: ${{ needs.extract-version.outputs.version }}
+        run: bash build.sh
+
+      - name: Verify manifest version
+        working-directory: clients/chrome-extension
+        run: |
+          EXPECTED="${{ needs.extract-version.outputs.version }}"
+          # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
+          # to satisfy Chrome's version format requirement. Match that here.
+          EXPECTED="${EXPECTED%%-*}"
+          ACTUAL=$(jq -r '.version' dist/manifest.json)
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Manifest version mismatch: expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Clean up signing key
+        if: always()
+        run: rm -f clients/chrome-extension/privatekey.pem
+
+      - name: Upload extension CRX
+        if: hashFiles('clients/chrome-extension/vellum-browser-relay.crx') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-crx
+          path: clients/chrome-extension/vellum-browser-relay.crx
+          retention-days: 90
+
+      - name: Upload extension zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: clients/chrome-extension/vellum-browser-relay.zip
+          retention-days: 90
+
+  publish-chrome-extension:
+    needs: [extract-version, build-chrome-extension]
+    if: >-
+      needs.extract-version.outputs.chrome_extension_changed == 'true'
+      && needs.extract-version.outputs.is_staging == 'false'
+      && vars.CWS_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Download extension CRX
+        id: download-crx
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: chrome-extension-crx
+          path: /tmp/chrome-extension
+
+      - name: Download extension zip (fallback)
+        if: steps.download-crx.outcome != 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: /tmp/chrome-extension
+
+      - name: Install chrome-webstore-upload-cli
+        run: npm install -g chrome-webstore-upload-cli
+
+      - name: Upload to Chrome Web Store
+        env:
+          EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          # Prefer signed CRX if available, fall back to zip
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx 2>/dev/null || ls /tmp/chrome-extension/*.zip)
+          echo "Uploading: $UPLOAD_FILE"
+          chrome-webstore-upload upload \
+            --source "$UPLOAD_FILE" \
+            --extension-id "$EXTENSION_ID" \
+            --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" \
+            --refresh-token "$REFRESH_TOKEN"
+
+      - name: Publish to Chrome Web Store
+        env:
+          EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          chrome-webstore-upload publish \
+            --extension-id "$EXTENSION_ID" \
+            --client-id "$CLIENT_ID" \
+            --client-secret "$CLIENT_SECRET" \
+            --refresh-token "$REFRESH_TOKEN"
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
@@ -1034,13 +1192,8 @@ jobs:
       - name: Resolve platform credentials
         id: platform-creds
         run: |
-          if [ "${{ matrix.environment }}" = "dev" ]; then
-            echo "api_url=${{ secrets.NONPROD_PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.NONPROD_PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
-            echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
 
       - name: Register release with platform
         run: |
@@ -1271,6 +1424,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Inject CWS extension ID into allowlist
+        if: vars.CWS_EXTENSION_ID != ''
+        working-directory: .
+        run: |
+          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
+            '.allowedExtensionIds += [$id]' \
+            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
+            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
+
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
@@ -1344,7 +1506,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
@@ -1581,7 +1742,7 @@ jobs:
             SIZE=$(stat -f%z dist/vellum-assistant.zip)
           fi
 
-          REPO="vellum-ai/velly"
+          REPO="vellum-ai/vellum-assistant"
           FILENAME="appcast.xml"
           cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
@@ -1638,6 +1799,15 @@ jobs:
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - uses: actions/checkout@v6
+
+      - name: Inject CWS extension ID into allowlist
+        if: vars.CWS_EXTENSION_ID != ''
+        working-directory: .
+        run: |
+          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
+            '.allowedExtensionIds += [$id]' \
+            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
+            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -1759,7 +1929,6 @@ jobs:
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
           if [ "$IS_STAGING" = "true" ]; then
-            export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
             export BUNDLE_DISPLAY_NAME="Vellum Staging"
           fi
           BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
@@ -1953,8 +2122,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright]
-    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2005,6 +2174,13 @@ jobs:
           name: macos-build-x64
           path: macos-artifacts-x64
 
+      - name: Download Chrome extension zip
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: chrome-extension-zip
+          path: chrome-extension-artifacts
+
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -2032,6 +2208,12 @@ jobs:
           INSTALL_SH="cli/src/adapters/install.sh"
           [ -f "$INSTALL_SH" ] && ASSETS+=("$INSTALL_SH#install.sh")
 
+          # Add Chrome extension zip if available
+          if [ -d "chrome-extension-artifacts" ]; then
+            CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay-*.zip" -type f | sort | head -1)
+            [ -n "$CRX_ZIP" ] && ASSETS+=("$CRX_ZIP#vellum-browser-relay-${VERSION}.zip")
+          fi
+
           echo "Release assets: ${ASSETS[*]}"
 
           # Create release on vellum-assistant (this repo)
@@ -2047,18 +2229,20 @@ jobs:
             echo "Release $VERSION_TAG already exists on ${{ github.repository }}, skipping"
           fi
 
-          # Create release on velly
-          VELLY_REPO="vellum-ai/velly"
-          if ! gh release view "$VERSION_TAG" --repo "$VELLY_REPO" &>/dev/null; then
+          # TODO(v1.0.0): Delete this block. It mirrors releases to the legacy
+          # vellum-ai/velly repo so that older Sparkle clients still pointing
+          # at velly can pick up new versions.
+          LEGACY_REPO="vellum-ai/velly"
+          if ! gh release view "$VERSION_TAG" --repo "$LEGACY_REPO" &>/dev/null; then
             gh release create "$VERSION_TAG" \
               "${ASSETS[@]}" \
-              --repo "$VELLY_REPO" \
+              --repo "$LEGACY_REPO" \
               --title "Vellum $VERSION" \
               --notes-file "$NOTES_FILE" \
               --latest
-            echo "Release created at https://github.com/$VELLY_REPO/releases/tag/$VERSION_TAG"
+            echo "Release mirrored to https://github.com/$LEGACY_REPO/releases/tag/$VERSION_TAG"
           else
-            echo "Release $VERSION_TAG already exists on $VELLY_REPO, skipping"
+            echo "Release $VERSION_TAG already exists on $LEGACY_REPO, skipping"
           fi
 
           rm -f "$NOTES_FILE"
@@ -2108,7 +2292,7 @@ jobs:
 
             # Append [skip ci] so the force-push doesn't re-trigger this workflow
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
-            git push origin "$BRANCH" --force-with-lease
+            git push --no-verify origin "$BRANCH" --force-with-lease
 
             # Give GitHub time to process the force-push before retrying
             sleep 10
@@ -2294,7 +2478,7 @@ jobs:
   build-ios:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -2631,7 +2815,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2714,6 +2898,8 @@ jobs:
           RR=$(ci_icon "${{ needs.register-release.result }}")
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
+          CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
+          CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -2726,7 +2912,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"

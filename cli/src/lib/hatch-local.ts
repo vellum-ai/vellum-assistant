@@ -144,18 +144,10 @@ function installCLISymlink(): void {
 export async function hatchLocal(
   species: Species,
   name: string | null,
-  restart: boolean = false,
   watch: boolean = false,
   keepAlive: boolean = false,
   configValues: Record<string, string> = {},
 ): Promise<void> {
-  if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
-    console.error(
-      "Error: Cannot restart without a known assistant ID. Provide --name or ensure VELLUM_ASSISTANT_NAME is set.",
-    );
-    process.exit(1);
-  }
-
   const instanceName = generateInstanceName(
     species,
     name ?? process.env.VELLUM_ASSISTANT_NAME,
@@ -341,27 +333,24 @@ export async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
-    serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources: { ...resources, signingKey },
   };
   emitProgress(7, 7, "Saving configuration...");
-  if (!restart) {
-    saveAssistantEntry(localEntry);
-    setActiveAssistant(instanceName);
-    syncConfigToLockfile();
+  saveAssistantEntry(localEntry);
+  setActiveAssistant(instanceName);
+  syncConfigToLockfile();
 
-    if (process.env.VELLUM_DESKTOP_APP) {
-      installCLISymlink();
-    }
-
-    console.log("");
-    console.log(`✅ Local assistant hatched!`);
-    console.log("");
-    console.log("Instance details:");
-    console.log(`  Name: ${instanceName}`);
-    console.log(`  Runtime: ${runtimeUrl}`);
-    console.log("");
+  if (process.env.VELLUM_DESKTOP_APP) {
+    installCLISymlink();
   }
+
+  console.log("");
+  console.log(`✅ Local assistant hatched!`);
+  console.log("");
+  console.log("Instance details:");
+  console.log(`  Name: ${instanceName}`);
+  console.log(`  Runtime: ${runtimeUrl}`);
+  console.log("");
 
   if (keepAlive) {
     const healthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;

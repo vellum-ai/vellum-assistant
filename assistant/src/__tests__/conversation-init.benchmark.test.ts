@@ -44,7 +44,6 @@ writeFileSync(
   "# Test Identity\nYou are a test assistant.",
 );
 writeFileSync(join(testDir, "SOUL.md"), "# Test Soul\nBe helpful.");
-writeFileSync(join(testDir, "USER.md"), "# Test User\nName: Benchmark Runner");
 
 // Create real skill directories so projectSkillTools can load them from the catalog
 const testSkillIds = ["bench-skill-a", "bench-skill-b", "bench-skill-c"];
@@ -150,8 +149,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationType: () => "standard",
   getConversationMemoryScopeId: () => "default",
+  getConversationHostAccess: () => false,
+  getConversationGroupId: () => null,
   getConversationRecentProvenanceTrustClass: () => null,
   provenanceFromTrustContext: () => ({}),
+  updateConversationHostAccess: () => {},
+  updateMessageMetadata: () => {},
+  getLastUserTimestampBefore: () => null,
   relinkAttachments: () => 0,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
@@ -251,6 +255,7 @@ mock.module("../calls/call-store.js", () => ({
   recordProcessedCallback: () => {},
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
+  finalizeCallbackClaim: () => true,
 }));
 
 mock.module("../daemon/watch-handler.js", () => ({

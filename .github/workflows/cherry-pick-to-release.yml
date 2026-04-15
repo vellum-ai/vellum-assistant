@@ -85,7 +85,7 @@ jobs:
           fi
 
           if git cherry-pick $CHERRY_PICK_ARGS "$MERGE_SHA"; then
-            git push origin "$CHERRY_PICK_BRANCH"
+            git push --no-verify origin "$CHERRY_PICK_BRANCH"
 
             # Create a PR only if one doesn't already exist for this branch
             EXISTING_PR=$(gh pr list --head "$CHERRY_PICK_BRANCH" --base "$RELEASE_BRANCH" --json number --jq '.[0].number // empty')

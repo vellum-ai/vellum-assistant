@@ -1,0 +1,33 @@
+import { BROWSER_MODE } from "./browser-mode-constants.js";
+import { DEVTOOLS_DISCOVERY_CODE } from "./cdp-client/cdp-inspect/discovery.js";
+
+export const BROWSER_STATUS_MODE = {
+  EXTENSION: BROWSER_MODE.EXTENSION,
+  CDP_INSPECT: BROWSER_MODE.CDP_INSPECT,
+  LOCAL: BROWSER_MODE.LOCAL,
+} as const;
+
+export type BrowserStatusMode =
+  (typeof BROWSER_STATUS_MODE)[keyof typeof BROWSER_STATUS_MODE];
+
+export const BROWSER_STATUS_MODES: readonly BrowserStatusMode[] = [
+  BROWSER_STATUS_MODE.EXTENSION,
+  BROWSER_STATUS_MODE.CDP_INSPECT,
+  BROWSER_STATUS_MODE.LOCAL,
+] as const;
+
+export const BROWSER_STATUS_INPUT_FIELD = {
+  CHECK_LOCAL_LAUNCH: "check_local_launch",
+} as const;
+
+export const EXTENSION_STATUS_ERROR_MARKER = {
+  UNAUTHORIZED_ORIGIN: "unauthorized_origin",
+  NATIVE_MESSAGING_HOST: "native messaging host",
+  HTTP_401: "401",
+} as const;
+
+export const CDP_INSPECT_STATUS_DISCOVERY_CODE = {
+  NO_TARGETS: DEVTOOLS_DISCOVERY_CODE.NO_TARGETS,
+  INVALID_RESPONSE: DEVTOOLS_DISCOVERY_CODE.INVALID_RESPONSE,
+  WS_FALLBACK_FAILED: DEVTOOLS_DISCOVERY_CODE.WS_FALLBACK_FAILED,
+} as const;

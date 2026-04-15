@@ -8,6 +8,8 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
+import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
+import { ensureGuardianPersonaFile } from "../prompts/persona-resolver.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -76,7 +78,7 @@ export function createGuardianBinding(params: {
     parseDisplayNameFromMetadata(params.metadataJson) ??
     params.guardianExternalUserId;
 
-  upsertContact({
+  const contact = upsertContact({
     displayName,
     role: "guardian",
     notes: "guardian",
@@ -93,6 +95,35 @@ export function createGuardianBinding(params: {
       },
     ],
   });
+
+  // Seed the per-user persona file so downstream readers (journaling,
+  // persona resolution) can rely on `users/<slug>.md` existing on disk.
+  // Idempotent: pre-existing customized files are preserved.
+  //
+  // Seeding is restricted to the guardian-creation path only — it must
+  // NOT run from inbound-message upsertContactChannel calls, since the
+  // `users/` directory watcher would fire on every new contact and
+  // evict live conversations.
+  if (contact.userFile) {
+    // Tolerate filesystem failures (read-only or full workspace) so a
+    // disk error doesn't leave the DB commit orphaned. The persona file
+    // can be reseeded later; failing the binding here would be worse.
+    try {
+      ensureGuardianPersonaFile(contact.userFile);
+    } catch (err) {
+      log.warn(
+        { err, userFile: contact.userFile },
+        "failed to seed guardian persona file; continuing",
+      );
+    }
+    // Invalidate the trust rule cache so the dynamic guardian-persona
+    // auto-allow rules from `permissions/defaults.ts` are backfilled on
+    // the next `getRules()` call. Without this, guardians created at
+    // runtime (self-heal paths, first-message-seeds-guardian) wouldn't
+    // get their auto-allow rule until the daemon restarts, and the
+    // model would prompt on its first `file_edit users/<slug>.md`.
+    clearTrustCache();
+  }
 
   const now = Date.now();
   const result: GuardianBinding = {
@@ -209,6 +240,12 @@ export function upsertContactChannel(params: {
     // existing channel identity to the invite's target contact.
     reassignConflictingChannels: !!params.contactId,
   });
+
+  // NOTE: We intentionally do NOT seed `users/<slug>.md` here. This is the
+  // inbound-message hot path — every new contact (Slack, phone, email, etc)
+  // would otherwise fire the `users/` directory watcher in
+  // config-watcher.ts and evict live conversations. Persona-file seeding
+  // is the sole responsibility of `createGuardianBinding`.
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,

@@ -5,9 +5,12 @@ import {
   computeEffectiveSignificance,
   computeRecencyBoost,
   computeTemporalBoost,
+  DEFAULT_WEIGHTS,
   PER_TURN_WEIGHTS,
+  PROCEDURAL_WEIGHTS,
   scoreCandidate,
   type ScoringWeights,
+  weightsForContextLoad,
 } from "./scoring.js";
 import type { MemoryNode } from "./types.js";
 
@@ -544,5 +547,188 @@ describe("scoreCandidate", () => {
     const result = scoreCandidate(node, components);
     expect(result.scoreBreakdown.semanticSimilarity).toBe(0.9);
     expect(result.scoreBreakdown.effectiveSignificance).toBe(0.7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// weightsForContextLoad + PROCEDURAL_WEIGHTS
+// ---------------------------------------------------------------------------
+
+describe("weightsForContextLoad", () => {
+  test("returns PROCEDURAL_WEIGHTS for procedural nodes", () => {
+    const node = makeNode({ type: "procedural" });
+    expect(weightsForContextLoad(node)).toBe(PROCEDURAL_WEIGHTS);
+  });
+
+  test("returns DEFAULT_WEIGHTS for episodic nodes", () => {
+    const node = makeNode({ type: "episodic" });
+    expect(weightsForContextLoad(node)).toBe(DEFAULT_WEIGHTS);
+  });
+
+  test("returns DEFAULT_WEIGHTS for semantic/emotional/prospective/behavioral/narrative/shared nodes", () => {
+    for (const type of [
+      "semantic",
+      "emotional",
+      "prospective",
+      "behavioral",
+      "narrative",
+      "shared",
+    ] as const) {
+      const node = makeNode({ type });
+      expect(weightsForContextLoad(node)).toBe(DEFAULT_WEIGHTS);
+    }
+  });
+});
+
+describe("PROCEDURAL_WEIGHTS", () => {
+  test("weights sum to 1.0", () => {
+    const sum =
+      PROCEDURAL_WEIGHTS.semanticSimilarity +
+      PROCEDURAL_WEIGHTS.effectiveSignificance +
+      PROCEDURAL_WEIGHTS.emotionalIntensity +
+      PROCEDURAL_WEIGHTS.temporalBoost +
+      PROCEDURAL_WEIGHTS.recencyBoost +
+      PROCEDURAL_WEIGHTS.triggerBoost +
+      PROCEDURAL_WEIGHTS.activationBoost;
+    expect(sum).toBeCloseTo(1.0, 5);
+  });
+
+  test("zeroes out emotionalIntensity and temporalBoost", () => {
+    // Procedural memories have no emotional charge and no time-of-day pattern
+    // by nature — grading on these signals is just dead weight.
+    expect(PROCEDURAL_WEIGHTS.emotionalIntensity).toBe(0);
+    expect(PROCEDURAL_WEIGHTS.temporalBoost).toBe(0);
+  });
+
+  test("weights semanticSimilarity and effectiveSignificance more heavily than DEFAULT_WEIGHTS", () => {
+    expect(PROCEDURAL_WEIGHTS.semanticSimilarity).toBeGreaterThan(
+      DEFAULT_WEIGHTS.semanticSimilarity,
+    );
+    expect(PROCEDURAL_WEIGHTS.effectiveSignificance).toBeGreaterThan(
+      DEFAULT_WEIGHTS.effectiveSignificance,
+    );
+  });
+
+  test("procedural node outscores otherwise-identical episodic node under type-aware weights", () => {
+    // A procedural memory with zero emotional charge, zero recency, zero
+    // trigger — all dead signals — should still surface under PROCEDURAL_WEIGHTS
+    // thanks to semantic relevance and significance. Under DEFAULT_WEIGHTS the
+    // same signals would leave ~45% of the budget dead.
+    const proceduralNode = makeNode({ type: "procedural" });
+    const episodicNode = makeNode({ id: "node-2", type: "episodic" });
+
+    // Components a procedural memory typically carries: semantic hit + stable
+    // significance, but no emotional charge, no recency, no trigger.
+    const proceduralComponents = {
+      semanticSimilarity: 0.8,
+      effectiveSignificance: 0.7,
+      emotionalIntensity: 0,
+      temporalBoost: 0.5, // neutral
+      recencyBoost: 0,
+      triggerBoost: 0,
+      activationBoost: 0,
+    };
+
+    const proceduralScore = scoreCandidate(
+      proceduralNode,
+      proceduralComponents,
+      weightsForContextLoad(proceduralNode),
+    ).score;
+    const episodicScore = scoreCandidate(
+      episodicNode,
+      proceduralComponents,
+      weightsForContextLoad(episodicNode),
+    ).score;
+
+    expect(proceduralScore).toBeGreaterThan(episodicScore);
+  });
+
+  test("episodic node with full signal still outscores procedural with only semantic signal", () => {
+    // The change must NOT break episodic retrieval: an episodic memory with
+    // emotional charge + recency + moderate significance should still outrank
+    // a procedural memory that only has semantic relevance.
+    const episodicNode = makeNode({ type: "episodic" });
+    const proceduralNode = makeNode({ id: "node-2", type: "procedural" });
+
+    const episodicComponents = {
+      semanticSimilarity: 0.5,
+      effectiveSignificance: 0.6,
+      emotionalIntensity: 0.7,
+      temporalBoost: 0.6,
+      recencyBoost: 0.9,
+      triggerBoost: 0.4,
+      activationBoost: 0.3,
+    };
+
+    const proceduralComponents = {
+      semanticSimilarity: 0.5,
+      effectiveSignificance: 0.3,
+      emotionalIntensity: 0,
+      temporalBoost: 0.5,
+      recencyBoost: 0,
+      triggerBoost: 0,
+      activationBoost: 0,
+    };
+
+    const episodicScore = scoreCandidate(
+      episodicNode,
+      episodicComponents,
+      weightsForContextLoad(episodicNode),
+    ).score;
+    const proceduralScore = scoreCandidate(
+      proceduralNode,
+      proceduralComponents,
+      weightsForContextLoad(proceduralNode),
+    ).score;
+
+    expect(episodicScore).toBeGreaterThan(proceduralScore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: DEFAULT_WEIGHTS behavior unchanged
+// ---------------------------------------------------------------------------
+
+describe("DEFAULT_WEIGHTS (regression)", () => {
+  test("weights sum to 1.0", () => {
+    const sum =
+      DEFAULT_WEIGHTS.semanticSimilarity +
+      DEFAULT_WEIGHTS.effectiveSignificance +
+      DEFAULT_WEIGHTS.emotionalIntensity +
+      DEFAULT_WEIGHTS.temporalBoost +
+      DEFAULT_WEIGHTS.recencyBoost +
+      DEFAULT_WEIGHTS.triggerBoost +
+      DEFAULT_WEIGHTS.activationBoost;
+    expect(sum).toBeCloseTo(1.0, 5);
+  });
+
+  test("preserves exact weight values", () => {
+    expect(DEFAULT_WEIGHTS).toEqual({
+      semanticSimilarity: 0.25,
+      effectiveSignificance: 0.15,
+      emotionalIntensity: 0.15,
+      temporalBoost: 0.05,
+      recencyBoost: 0.15,
+      triggerBoost: 0.15,
+      activationBoost: 0.1,
+    });
+  });
+
+  test("scoreCandidate without weights argument uses DEFAULT_WEIGHTS", () => {
+    // Backwards-compat: existing callers that pass no weights argument should
+    // continue to get DEFAULT_WEIGHTS scoring.
+    const node = makeNode({ type: "episodic" });
+    const components = {
+      semanticSimilarity: 1.0,
+      effectiveSignificance: 1.0,
+      emotionalIntensity: 1.0,
+      temporalBoost: 1.0,
+      recencyBoost: 1.0,
+      triggerBoost: 1.0,
+      activationBoost: 1.0,
+    };
+    const implicit = scoreCandidate(node, components).score;
+    const explicit = scoreCandidate(node, components, DEFAULT_WEIGHTS).score;
+    expect(implicit).toBe(explicit);
   });
 });

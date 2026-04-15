@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/system-prompt.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
+import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -18,6 +20,35 @@ const log = getLogger("anthropic-client");
 
 /** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
 const VALIDATION_TIMEOUT_MS = 10_000;
+
+/** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
+const ORPHAN_WARNING_THROTTLE_MS = 60_000;
+let lastOrphanWarningMs = 0;
+
+function logOrphanedSurrogateWarning(
+  fixedStringCount: number,
+  messages: Anthropic.MessageParam[],
+): void {
+  const now = Date.now();
+  if (now - lastOrphanWarningMs < ORPHAN_WARNING_THROTTLE_MS) return;
+  lastOrphanWarningMs = now;
+  const blockTypes = new Set<string>();
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (typeof block !== "object" || block == null) continue;
+      const type = (block as { type?: string }).type;
+      if (type) blockTypes.add(type);
+    }
+  }
+  log.warn(
+    {
+      fixedStringCount,
+      blockTypes: Array.from(blockTypes),
+    },
+    "stripped orphaned UTF-16 surrogates from outbound Anthropic request — upstream truncation is not surrogate-aware",
+  );
+}
 
 /**
  * Validate an Anthropic API key by making a lightweight GET /v1/models call.
@@ -361,7 +392,10 @@ function repairOrphanedServerToolUse(
         repairedContent.push({
           type: "web_search_tool_result",
           tool_use_id: block.id,
-          content: [],
+          content: {
+            type: "web_search_tool_result_error",
+            error_code: "unavailable",
+          },
         } as unknown as Anthropic.ContentBlockParam);
       }
     }
@@ -705,7 +739,7 @@ export class AnthropicProvider implements Provider {
         ...(output_config ?? {}),
         ...(effort && supportsEffort ? { effort } : {}),
       };
-      const params: Anthropic.MessageStreamParams = {
+      let params: Anthropic.MessageStreamParams = {
         model: this.model,
         max_tokens: 64000,
         messages: sentMessages,
@@ -873,6 +907,15 @@ export class AnthropicProvider implements Provider {
         hasToolCacheBreakpoint
       ) {
         delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
+      }
+
+      // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
+      // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
+      const sanitized = stripOrphanedSurrogatesDeep(params);
+      if (sanitized.changed) {
+        logOrphanedSurrogateWarning(sanitized.fixedStringCount, sentMessages);
+        params = sanitized.value;
+        sentMessages = params.messages;
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
@@ -1064,6 +1107,12 @@ export class AnthropicProvider implements Provider {
         rawResponse: response,
       };
     } catch (error) {
+      // Propagate a tagged AbortReason (set by the daemon at controller.abort())
+      // so wrapped errors can be classified as user cancellation downstream.
+      const abortReason =
+        signal?.aborted && isAbortReason(signal.reason)
+          ? signal.reason
+          : undefined;
       if (error instanceof Anthropic.APIError) {
         // Log detailed message structure for tool_use/tool_result ordering errors
         if (
@@ -1079,20 +1128,33 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
-        log.error(
-          {
-            status: error.status,
-            message: error.message,
-            headers: Object.fromEntries(error.headers?.entries() ?? []),
-          },
-          `Anthropic API error (${error.status})`,
-        );
+        if (abortReason) {
+          log.info(
+            { abortReason, message: error.message },
+            "Anthropic request aborted by daemon",
+          );
+        } else {
+          log.error(
+            {
+              status: error.status,
+              message: error.message,
+              headers: Object.fromEntries(error.headers?.entries() ?? []),
+            },
+            `Anthropic API error (${error.status})`,
+          );
+        }
         const retryAfterMs = extractRetryAfterMs(error.headers);
+        const errorOptions: {
+          retryAfterMs?: number;
+          abortReason?: unknown;
+        } = {};
+        if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
+        if (abortReason) errorOptions.abortReason = abortReason;
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
           "anthropic",
           error.status,
-          retryAfterMs !== undefined ? { retryAfterMs } : undefined,
+          Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
         );
       }
       throw new ProviderError(
@@ -1101,7 +1163,7 @@ export class AnthropicProvider implements Provider {
         }`,
         "anthropic",
         undefined,
-        { cause: error },
+        abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
   }

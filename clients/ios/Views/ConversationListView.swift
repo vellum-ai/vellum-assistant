@@ -175,6 +175,7 @@ struct ConversationListView: View {
     @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
 
     private var activeConversations: [IOSConversation] {
         // Exclude private conversations — they are managed separately via the Private Conversations
@@ -294,6 +295,28 @@ struct ConversationListView: View {
             Text("Loading chats\u{2026}")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
+
+            // Show the fetch error inline when developer mode is enabled so the
+            // user doesn't stare at a spinner with no feedback.
+            if developerModeEnabled, let fetchError = store.lastFetchError {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Fetch error:")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                    Text(fetchError)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
+                    Text(GatewayHTTPClient.connectionDiagnostics())
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(8)
+                .padding(.horizontal)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
@@ -461,6 +484,29 @@ struct ConversationListView: View {
 
     private var conversationList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
+            // Developer-mode diagnostic banner for conversation fetch errors.
+            if developerModeEnabled, let fetchError = store.lastFetchError {
+                Section {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.triangleAlert, size: 12)
+                            Text("Conversation fetch failed")
+                                .font(VFont.labelDefault)
+                        }
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        Text(fetchError)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.systemNegativeStrong)
+                            .textSelection(.enabled)
+                        Text(GatewayHTTPClient.connectionDiagnostics())
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(VColor.contentSecondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
             // Regular (non-schedule) conversations
             ForEach(filteredRegularConversations) { conversation in
                 maybeConnectedContextMenu(conversation: conversation) {
@@ -851,9 +897,7 @@ struct ConversationChatView: View {
 
     @ViewBuilder
     private var exportMenu: some View {
-        let hasTextMessages = viewModel.messages.contains {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        let hasTextMessages = ChatTranscriptFormatter.hasExportableContent(messages: viewModel.messages)
 
         Menu {
             Button {

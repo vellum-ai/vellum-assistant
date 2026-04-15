@@ -4,8 +4,8 @@ import VellumAssistantShared
 struct DrawerMenuView: View {
     let authManager: AuthManager
     let onSettings: () -> Void
-    let onUsage: () -> Void
-    let onDebug: () -> Void
+    let onLogsAndUsage: () -> Void
+    let onShareFeedback: () -> Void
     let onLogOut: () -> Void
     let onSignIn: () -> Void
     let onOpenBilling: () -> Void
@@ -77,8 +77,8 @@ struct DrawerMenuView: View {
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
 
-            VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
-            VMenuItem(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
+            VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Logs & Usage"), action: onLogsAndUsage)
+            VMenuItem(icon: VIcon.messageCircle.rawValue, label: String(localized: "Share Feedback"), action: onShareFeedback)
 
             if authManager.isAuthenticated {
                 VMenuItem(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
@@ -106,7 +106,7 @@ struct DrawerMenuView: View {
     /// used for sections that should sit tight against neighboring rows.
     private var tightDividerLine: some View {
         Rectangle()
-            .fill(VColor.surfaceBase)
+            .fill(VColor.borderBase)
             .frame(height: 1)
     }
 

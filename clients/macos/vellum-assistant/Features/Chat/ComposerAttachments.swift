@@ -42,11 +42,16 @@ extension ComposerView {
     }
 
     func attachmentChip(_ attachment: ChatAttachment) -> some View {
-        let fileSize = formattedFileSize(base64Length: attachment.dataLength)
+        let fileSize: String
+        if let sizeBytes = attachment.sizeBytes, attachment.dataLength == 0 {
+            fileSize = formattedFileSizeBytes(sizeBytes)
+        } else {
+            fileSize = formattedFileSize(base64Length: attachment.dataLength)
+        }
         let isImage = attachment.mimeType.hasPrefix("image/")
 
-        return HStack(spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
+        return HStack(spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.xs) {
                 if isImage, let nsImage = attachment.thumbnailImage {
                     Image(nsImage: nsImage)
                         .resizable()
@@ -55,7 +60,7 @@ extension ComposerView {
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 } else {
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.borderBase.opacity(0.5))
+                        .fill(VColor.surfaceActive)
                         .frame(width: 28, height: 28)
                         .overlay {
                             VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
@@ -64,13 +69,17 @@ extension ComposerView {
                 }
 
                 Text(attachment.filename)
-                    .font(VFont.labelDefault)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text("· \(fileSize)")
-                    .font(VFont.labelDefault)
+                Text("·")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+
+                Text(fileSize)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
             .contentShape(Rectangle())
@@ -80,19 +89,34 @@ extension ComposerView {
                     .pointerCursor()
             }
 
-            Button {
+            AttachmentRemoveButton {
                 onRemoveAttachment(attachment.id)
-            } label: {
-                VIconView(.x, size: 10)
-                    .foregroundStyle(VColor.contentTertiary)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.filename)")
         }
-        .padding(VSpacing.xs)
-        .background(VColor.borderBase.opacity(0.3))
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceActive)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(RoundedRectangle(cornerRadius: VRadius.md).strokeBorder(VColor.borderHover, lineWidth: 1))
         .frame(maxWidth: 280)
+    }
+}
+
+// MARK: - Attachment Remove Button
+
+private struct AttachmentRemoveButton: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VIconView(.x, size: 10)
+                .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentTertiary)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
     }
 }
 
@@ -125,7 +149,10 @@ extension ComposerView {
 
 extension ComposerView {
     func formattedFileSize(base64Length: Int) -> String {
-        let bytes = base64Length * 3 / 4
+        formattedFileSizeBytes(base64Length * 3 / 4)
+    }
+
+    func formattedFileSizeBytes(_ bytes: Int) -> String {
         if bytes < 1024 {
             return "\(bytes) B"
         } else if bytes < 1024 * 1024 {

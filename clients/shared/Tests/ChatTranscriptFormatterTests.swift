@@ -130,6 +130,102 @@ final class ChatTranscriptFormatterTests: XCTestCase {
         XCTAssertFalse(result.contains("Noa"))
     }
 
+    // MARK: - Queued message filtering
+
+    func testConversationMarkdownExcludesQueuedUserMessages() {
+        let messages = [
+            ChatMessage(role: .user, text: "Sent question", status: .sent),
+            ChatMessage(role: .assistant, text: "Answer"),
+            ChatMessage(role: .user, text: "Queued follow-up", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Another queued", status: .queued(position: 1)),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: nil,
+            participantNames: names
+        )
+
+        XCTAssertTrue(result.contains("Sent question"))
+        XCTAssertTrue(result.contains("Answer"))
+        XCTAssertFalse(result.contains("Queued follow-up"))
+        XCTAssertFalse(result.contains("Another queued"))
+        // Two surviving messages → exactly one separator.
+        let separatorCount = result.components(separatedBy: "\n\n---\n\n").count - 1
+        XCTAssertEqual(separatorCount, 1)
+    }
+
+    func testConversationMarkdownPreservesSentAndAssistantMessagesWhenNoneQueued() {
+        let messages = [
+            ChatMessage(role: .user, text: "Hello", status: .sent),
+            ChatMessage(role: .assistant, text: "Hi"),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: nil,
+            participantNames: names
+        )
+
+        XCTAssertTrue(result.contains("Hello"))
+        XCTAssertTrue(result.contains("Hi"))
+    }
+
+    func testConversationMarkdownReturnsEmptyWhenAllUserMessagesQueued() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending one", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Pending two", status: .queued(position: 1)),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: "Drafts",
+            participantNames: names
+        )
+
+        XCTAssertEqual(result, "")
+    }
+
+    func testHasExportableContentFalseWhenOnlyQueuedUserMessages() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending one", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Pending two", status: .queued(position: 1)),
+        ]
+
+        XCTAssertFalse(ChatTranscriptFormatter.hasExportableContent(messages: messages))
+    }
+
+    func testHasExportableContentTrueWhenSentMessagesPresent() {
+        let messages = [
+            ChatMessage(role: .user, text: "Pending", status: .queued(position: 0)),
+            ChatMessage(role: .user, text: "Hello", status: .sent),
+            ChatMessage(role: .assistant, text: "Hi"),
+        ]
+
+        XCTAssertTrue(ChatTranscriptFormatter.hasExportableContent(messages: messages))
+    }
+
+    func testHasExportableContentFalseWhenEmpty() {
+        XCTAssertFalse(ChatTranscriptFormatter.hasExportableContent(messages: []))
+    }
+
+    func testConversationMarkdownKeepsAssistantMessageWithQueuedStatus() {
+        // Defensive: filter is scoped to user role, so an assistant message with
+        // an unusual status should still come through unchanged.
+        let messages = [
+            ChatMessage(role: .assistant, text: "Streaming reply", status: .queued(position: 0)),
+        ]
+
+        let result = ChatTranscriptFormatter.conversationMarkdown(
+            messages: messages,
+            conversationTitle: nil,
+            participantNames: names
+        )
+
+        XCTAssertTrue(result.contains("Streaming reply"))
+        XCTAssertTrue(result.contains("### Aria"))
+    }
+
     // MARK: - messagePlainText
 
     func testMessagePlainTextReturnsTrimmedText() {

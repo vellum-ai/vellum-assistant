@@ -70,43 +70,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/browser-relay/token": {
-        get: {
-          summary: "Browser relay bearer token",
-          description:
-            "Returns a short-lived JWT that the Chrome extension can use to authenticate its WebSocket connection to `/v1/browser-relay`. Only accessible from localhost (private network peers).",
-          operationId: "getBrowserRelayToken",
-          responses: {
-            "200": {
-              description: "Token minted successfully",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      token: {
-                        type: "string",
-                        description:
-                          "JWT bearer token for browser relay WebSocket authentication",
-                      },
-                    },
-                    required: ["token"],
-                  },
-                },
-              },
-            },
-            "403": {
-              description:
-                "Forbidden — only accessible from localhost / private network",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/v1/health": {
         get: {
           summary: "Runtime health (via gateway)",
@@ -613,7 +576,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/webhooks/email/inbound": {
+      "/webhooks/email": {
         post: {
           summary: "Email inbound webhook",
           description:
@@ -842,6 +805,135 @@ export function buildSchema(): Record<string, unknown> {
             },
             "400": {
               description: "Missing callSessionId query parameter",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/twilio/media-stream": {
+        get: {
+          summary: "Twilio Media Stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade from Twilio Media Streams and bidirectionally proxies frames to the assistant runtime's /v1/calls/media-stream endpoint. Handshake metadata (callSessionId and auth token) is carried in URL path segments (e.g. /webhooks/twilio/media-stream/<callSessionId>/<token>) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. Legacy query-parameter-based handshake is still supported as a fallback.",
+          operationId: "twilioMediaStreamWebsocket",
+          parameters: [
+            {
+              name: "callSessionId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Call session identifier (legacy fallback). The primary transport encodes callSessionId as a URL path segment: /webhooks/twilio/media-stream/<callSessionId>/<token>.",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful — bidirectional media-stream frame proxying begins.",
+            },
+            "400": {
+              description: "Missing callSessionId query parameter",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/v1/stt/stream": {
+        get: {
+          summary: "STT stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires mimeType query parameter. The runtime is config-authoritative: the streaming transcriber is always resolved from `services.stt.provider` in the assistant config, not from the optional `provider` query parameter.",
+          operationId: "sttStreamWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "provider",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Optional STT provider identifier (e.g. 'deepgram', 'google-gemini'). Forwarded as compatibility metadata — the runtime resolves the transcriber from config (`services.stt.provider`), not from this parameter. When supplied and it disagrees with the configured provider, the runtime logs a mismatch warning.",
+            },
+            {
+              name: "mimeType",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "MIME type of the audio being streamed (e.g. 'audio/webm;codecs=opus').",
+            },
+            {
+              name: "sampleRate",
+              in: "query",
+              required: false,
+              schema: { type: "integer" },
+              description: "Audio sample rate in Hz, when applicable.",
+            },
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful — bidirectional STT audio/transcription frame proxying begins.",
+            },
+            "400": {
+              description: "Missing required query parameter (mimeType)",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required — request is not a WebSocket upgrade",
               content: {
                 "text/plain": {
                   schema: { type: "string" },
@@ -2271,10 +2363,50 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/config/privacy": {
+        get: {
+          summary: "Get privacy config",
+          description:
+            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "privacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config",
           description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics). Requires a bearer token with `feature_flags.write` scope.",
+            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
           operationId: "privacyConfigPatch",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2286,10 +2418,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2305,7 +2445,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },
@@ -2386,6 +2538,55 @@ export function buildSchema(): Record<string, unknown> {
         },
       },
       "/v1/assistants/{assistantId}/config/privacy/": {
+        get: {
+          summary: "Get privacy config (assistant-scoped)",
+          description:
+            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
+          operationId: "assistantPrivacyConfigGet",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The assistant identifier.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Privacy config returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      collectUsageData: { type: "boolean" },
+                      sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
+                      },
+                    },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+            "500": { description: "Config file is malformed" },
+          },
+        },
         patch: {
           summary: "Update privacy config (assistant-scoped)",
           description:
@@ -2410,10 +2611,18 @@ export function buildSchema(): Record<string, unknown> {
                   properties: {
                     collectUsageData: { type: "boolean" },
                     sendDiagnostics: { type: "boolean" },
+                    llmRequestLogRetentionMs: {
+                      type: ["integer", "null"],
+                      minimum: 0,
+                      maximum: 31536000000,
+                      description:
+                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                    },
                   },
                   anyOf: [
                     { required: ["collectUsageData"] },
                     { required: ["sendDiagnostics"] },
+                    { required: ["llmRequestLogRetentionMs"] },
                   ],
                 },
               },
@@ -2429,7 +2638,19 @@ export function buildSchema(): Record<string, unknown> {
                     properties: {
                       collectUsageData: { type: "boolean" },
                       sendDiagnostics: { type: "boolean" },
+                      llmRequestLogRetentionMs: {
+                        type: ["integer", "null"],
+                        minimum: 0,
+                        maximum: 31536000000,
+                        description:
+                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
+                      },
                     },
+                    required: [
+                      "collectUsageData",
+                      "sendDiagnostics",
+                      "llmRequestLogRetentionMs",
+                    ],
                   },
                 },
               },

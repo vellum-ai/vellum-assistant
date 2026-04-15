@@ -1,5 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 
+import type { BackupWorkerHandle } from "../backup/backup-worker.js";
+import { startBackupWorker } from "../backup/backup-worker.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -34,6 +36,11 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import {
+  type FeedSchedulerHandle,
+  startFeedScheduler,
+} from "../home/feed-scheduler.js";
+import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
@@ -75,6 +82,11 @@ import {
   mintPairingBearerToken,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
+import {
+  initCapabilityTokenSecret,
+  loadOrCreateCapabilityTokenSecret,
+  writeDaemonTokenFallback,
+} from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -84,6 +96,7 @@ import {
   setCesReconnect,
 } from "../security/secure-keys.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
@@ -270,6 +283,20 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
+    // Load (or generate + persist) the capability-token HMAC secret used
+    // to mint scoped tokens for the chrome extension pair endpoint.
+    // Wrapped in try/catch so a disk failure here never blocks startup —
+    // tokens can still be minted using a lazy on-demand load inside the
+    // capability-tokens module.
+    try {
+      initCapabilityTokenSecret(loadOrCreateCapabilityTokenSecret());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to pre-load capability token secret — continuing startup (lazy load will handle subsequent calls)",
+      );
+    }
+
     // Pre-populate the feature flag cache from the gateway so all
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
@@ -360,6 +387,29 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
+      // One-time backfill of `relationship-state.json` for existing or
+      // upgraded users so they don't land on an empty Home page after the
+      // Phase 3 ship. Runs after DB init + workspace migrations so the
+      // writer can actually resolve the guardian persona file and list
+      // connected OAuth providers — firing this from `ensurePromptFiles()`
+      // would be too early (DB isn't ready yet) and produce a degraded
+      // snapshot with zero facts and zero unlocked capabilities.
+      //
+      // Deferred via `setImmediate` so any sync filesystem/DB work the
+      // writer does (`readdirSync`, `readFileSync`, contact + provider
+      // lookups) happens on a later tick, off the startup critical path.
+      // Failures are logged — not silenced — to match the pattern used by
+      // other `void … .catch()` fire-and-forgets in this file and the
+      // assistant/CLAUDE.md rule that all errors must be observable.
+      setImmediate(() => {
+        void backfillRelationshipStateIfMissing().catch((err) =>
+          log.warn(
+            { err },
+            "Relationship state backfill failed — continuing startup",
+          ),
+        );
+      });
+
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.
       try {
@@ -432,8 +482,11 @@ export async function runDaemon(): Promise<void> {
 
       // Ensure a vellum guardian binding exists so the identity system works
       // without requiring a manual bootstrap step.
+      let localGuardianPrincipalId = "local";
       try {
-        ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
+        localGuardianPrincipalId = ensureVellumGuardianBinding(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
       } catch (err) {
         log.warn(
           { err },
@@ -441,10 +494,17 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
+      // Write a dev-only fallback capability token to `~/.vellum/daemon-token`
+      // so developers can manually pair the chrome extension without the
+      // native messaging helper. Production pairing goes through
+      // `POST /v1/browser-extension-pair` via the native helper.
       try {
-        syncUpdateBulletinOnStartup();
+        writeDaemonTokenFallback(localGuardianPrincipalId);
       } catch (err) {
-        log.warn({ err }, "Bulletin sync failed — continuing startup");
+        log.warn(
+          { err },
+          "Failed to write dev daemon-token fallback — continuing startup",
+        );
       }
 
       // Recover orphaned work items that were left in 'running' state when the
@@ -482,6 +542,18 @@ export async function runDaemon(): Promise<void> {
 
     log.info("Daemon startup: loading config");
     const config = loadConfig();
+
+    // Run bulletin sync AFTER the config merge + load so that getConfig()
+    // inside syncUpdateBulletinOnStartup() observes the fully merged config.
+    // Running it earlier would populate the config cache with pre-merge
+    // values, poisoning every downstream getConfig() consumer.
+    if (dbReady) {
+      try {
+        syncUpdateBulletinOnStartup();
+      } catch (err) {
+        log.warn({ err }, "Bulletin sync failed — continuing startup");
+      }
+    }
 
     // Seed module-level ingress state from the workspace config so that
     // getIngressPublicBaseUrl() returns the correct value immediately after
@@ -589,8 +661,6 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    await initializeProvidersAndTools(config);
-
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
     log.info("Daemon startup: starting DaemonServer");
@@ -604,12 +674,13 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
-    // Mutable refs for Qdrant and memory worker so background init can assign
-    // them and the shutdown handler always sees the latest value.
+    // Mutable refs for Qdrant, memory worker, and backup worker so background
+    // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
       qdrantManager: QdrantManager | null;
       memoryWorker: { stop(): void } | null;
-    } = { qdrantManager: null, memoryWorker: null };
+      backupWorker: BackupWorkerHandle | null;
+    } = { qdrantManager: null, memoryWorker: null, backupWorker: null };
 
     // Initialize Qdrant vector store and memory worker in the background so the
     // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
@@ -692,6 +763,16 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
+      log.info("Daemon startup: starting backup worker");
+      try {
+        bgRefs.backupWorker = startBackupWorker();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Backup worker failed to start — continuing without backups",
+        );
+      }
+
       // Seed capability graph nodes (new memory graph system)
       try {
         const {
@@ -745,12 +826,17 @@ export async function runDaemon(): Promise<void> {
           conversationId,
           message,
           undefined,
-          options?.trustClass
+          options
             ? {
-                trustContext: {
-                  sourceChannel: "vellum",
-                  trustClass: options.trustClass,
-                },
+                ...(options.trustClass
+                  ? {
+                      trustContext: {
+                        sourceChannel: "vellum",
+                        trustClass: options.trustClass,
+                      },
+                    }
+                  : {}),
+                ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
               }
             : undefined,
         );
@@ -850,6 +936,19 @@ export async function runDaemon(): Promise<void> {
         });
       },
     );
+
+    // Home activity feed scheduler — drives the assistant reflection
+    // loop + the platform Gmail digest. Fire-and-forget; a startup
+    // failure must never block the rest of daemon boot (CLAUDE.md).
+    let feedScheduler: FeedSchedulerHandle | null = null;
+    try {
+      feedScheduler = startFeedScheduler();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to start home feed scheduler — continuing startup",
+      );
+    }
 
     // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
     // to it) and optional REST API access. Defaults to port 7821.
@@ -989,6 +1088,7 @@ export async function runDaemon(): Promise<void> {
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),
       getHeartbeatService: () => server.getHeartbeatService(),
+      getFilingService: () => server.getFilingService(),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
@@ -1170,6 +1270,32 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp = null;
     }
 
+    // Register built-in TTS providers so the provider abstraction can resolve
+    // them by ID. Must happen before call controllers or routes are created.
+    try {
+      registerBuiltinTtsProviders();
+    } catch (err) {
+      log.warn(
+        { err },
+        "TTS provider registration failed — continuing with degraded TTS",
+      );
+    }
+
+    // Initialize providers and tools after the HTTP server is listening so
+    // health-check and pairing requests can be served immediately.  Wrapped in
+    // its own try/catch so a failure here doesn't tear down the running HTTP
+    // server (DaemonServer.start() already calls initializeProviders internally
+    // and tools are resolved lazily at conversation creation time).
+    try {
+      log.info("Daemon startup: initializing providers and tools");
+      await initializeProvidersAndTools(config);
+    } catch (err) {
+      log.warn(
+        { err },
+        "Provider/tool initialization failed — continuing with degraded functionality",
+      );
+    }
+
     writePid(process.pid);
     log.info({ pid: process.pid }, "Daemon started");
 
@@ -1198,10 +1324,11 @@ export async function runDaemon(): Promise<void> {
         if (!runtimeManager.isReady()) {
           log.info("Downloading embedding runtime in background...");
           await runtimeManager.ensureInstalled();
-          // Reset the localBackendBroken flag so auto mode retries local embeddings
-          const { clearEmbeddingBackendCache } =
+          // Reset the sticky local-backend failure flag so auto mode retries
+          // local embeddings without evicting a worker that may already be live.
+          const { resetLocalEmbeddingFailureState } =
             await import("../memory/embedding-backend.js");
-          clearEmbeddingBackendCache();
+          resetLocalEmbeddingFailureState();
           log.info("Embedding runtime download complete");
         }
       } catch (err) {
@@ -1279,6 +1406,7 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     filing.start();
+    server.setFilingService(filing);
     log.info(
       {
         enabled: filingConfig.enabled,
@@ -1302,7 +1430,9 @@ export async function runDaemon(): Promise<void> {
       hookManager,
       runtimeHttp,
       scheduler,
+      feedScheduler,
       getMemoryWorker: () => bgRefs.memoryWorker,
+      getBackupWorker: () => bgRefs.backupWorker,
       getQdrantManager: () => bgRefs.qdrantManager,
       mcpManager,
       telemetryReporter,

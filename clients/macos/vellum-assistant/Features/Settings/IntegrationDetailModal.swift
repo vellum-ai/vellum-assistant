@@ -94,10 +94,7 @@ struct IntegrationDetailModal: View {
         } footer: {
             HStack {
                 Spacer()
-                VButton(label: "Close", style: .outlined, action: onClose)
-                if draftMode == "your-own" {
-                    yourOwnFooterButton
-                }
+                VButton(label: "Confirm", style: .outlined, action: onClose)
             }
         }
         .frame(width: 520)
@@ -168,28 +165,56 @@ struct IntegrationDetailModal: View {
 
     // MARK: - Managed Tab
 
+    private let appearance = AvatarAppearanceManager.shared
+
     @ViewBuilder
     private var managedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if !isLoggedIn {
-                managedLoginPrompt
-            } else {
-                if !connections.isEmpty {
-                    managedConnectionsList
-                }
-
-                managedConnectButton
-                    .opacity(isConnecting ? 0 : 1)
-                    .overlay {
-                        if isConnecting {
-                            HStack(spacing: VSpacing.sm) {
-                                VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                                Text("Waiting for authorization...")
-                                    .font(VFont.bodyMediumDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
+                if authManager.isSubmitting {
+                    VStack(spacing: VSpacing.md) {
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Logging in...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+                } else {
+                    integrationEmptyState(buttonLabel: "Log in to Vellum", buttonIcon: VIcon.logOut.rawValue) {
+                        Task {
+                            await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                                    AppDelegate.shared?.reconnectManagedAssistant()
+                                }
+                                Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
+                            })
+                        }
+                    }
+                }
+            } else if connections.isEmpty {
+                if isConnecting {
+                    VStack(spacing: VSpacing.md) {
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
+                        HStack(spacing: VSpacing.sm) {
+                            VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                            Text("Waiting for authorization...")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.xl)
+                } else {
+                    integrationEmptyState {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
+            } else {
+                managedConnectionCard
             }
 
             if let error = store.managedError(for: providerKey) {
@@ -198,103 +223,74 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    @State private var isLoginButtonHovered = false
+    private func integrationEmptyState(buttonLabel: String = "Connect Account", buttonIcon: String = VIcon.plus.rawValue, onConnect: @escaping () -> Void) -> some View {
+        VStack(spacing: VSpacing.md) {
+            VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
 
-    private var managedLoginPrompt: some View {
-        Button {
-            Task {
-                await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                    if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                        AppDelegate.shared?.reconnectManagedAssistant()
+            Text("Connect Account to continue")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
+
+            VButton(label: buttonLabel, leftIcon: buttonIcon, style: .primary) {
+                onConnect()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, VSpacing.xl)
+    }
+
+
+    private var managedConnectionCard: some View {
+        VCard {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Connection rows
+                if connections.isEmpty {
+                    Text("No connected accounts")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    ForEach(Array(connections.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 {
+                            SettingsDivider()
+                        }
+                        HStack(alignment: .center, spacing: VSpacing.lg) {
+                            VIconView(.circleUser, size: 14)
+                                .foregroundStyle(VColor.contentSecondary)
+
+                            Text(entry.account_label ?? "\(displayName) Account")
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+
+                            Spacer()
+
+                            VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
+                                connectionToDisconnect = entry
+                                showDisconnectAlert = true
+                            }
+                            .accessibilityLabel("Disconnect Account")
+                        }
                     }
-                    Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
-                })
-            }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.logOut, size: 14)
-                Text(authManager.isSubmitting ? "Logging in..." : "Log in to Vellum")
-                    .font(VFont.bodyMediumDefault)
-            }
-            .foregroundStyle(VColor.primaryBase)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(isLoginButtonHovered ? 1 : 0))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(authManager.isSubmitting)
-        .onHover { isLoginButtonHovered = $0 }
-    }
+                }
 
-    @State private var isConnectButtonHovered = false
+                SettingsDivider()
 
-    private var managedConnectButton: some View {
-        Button {
-            if !isConnecting {
-                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-            }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.plus, size: 14)
-                Text(connections.isEmpty ? "Connect Account" : "Connect Another Account")
-                    .font(VFont.bodyMediumDefault)
-            }
-            .foregroundStyle(VColor.primaryBase)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(isConnectButtonHovered ? 1 : 0))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isConnecting)
-        .onHover { isConnectButtonHovered = $0 }
-    }
-
-    private var managedConnectionsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Connected Accounts")
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentSecondary)
-
-            ForEach(connections, id: \.id) { entry in
-                managedConnectionRow(for: entry)
+                // Connect account button
+                if isConnecting {
+                    HStack(spacing: VSpacing.sm) {
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else {
+                    VButton(label: "Connect account", leftIcon: "lucide-external-link", style: .primary) {
+                        store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                    }
+                }
             }
         }
-    }
-
-    private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(.circleUser, size: 14)
-                .foregroundStyle(VColor.contentSecondary)
-
-            Text(entry.account_label ?? "\(displayName) Account")
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-
-            Spacer()
-
-            VTag("Connected", color: VColor.systemPositiveStrong, icon: .circleCheck)
-
-            VButton(label: "Disconnect", style: .dangerOutline, size: .compact) {
-                connectionToDisconnect = entry
-                showDisconnectAlert = true
-            }
-        }
-        .padding(.vertical, VSpacing.xs)
-        .padding(.horizontal, VSpacing.sm)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
     }
 
     // MARK: - Your Own Tab
@@ -310,13 +306,27 @@ struct IntegrationDetailModal: View {
 
     @ViewBuilder
     private var yourOwnBody: some View {
+        let apps = store.yourOwnApps(for: providerKey)
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if store.yourOwnIsLoading(for: providerKey) {
                 yourOwnSkeleton
-            } else if shouldShowForm {
-                yourOwnFormStep
+            } else if apps.isEmpty && !isShowingAddAppForm {
+                integrationEmptyState {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
+                    isShowingAddAppForm = true
+                }
             } else {
-                yourOwnListStep
+                if isShowingAddAppForm {
+                    yourOwnFormStep
+                }
+
+                // App list
+                if !apps.isEmpty {
+                    ForEach(apps) { app in
+                        yourOwnAppCard(for: app)
+                    }
+                }
             }
 
             if let error = store.yourOwnError(for: providerKey) {
@@ -328,57 +338,50 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    /// Step 1: Credential entry form (shown when no apps, or user clicked "Add Another App")
+    /// Credential entry form inside a card with Add/Cancel buttons
     private var yourOwnFormStep: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VTextField(
                 "Client ID",
-                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter client ID",
+                placeholder: yourOwnMeta?.client_id_placeholder ?? "Enter your client ID",
                 text: $createAppClientId
             )
             if yourOwnMeta?.requires_client_secret ?? true {
                 VTextField(
                     "Client Secret",
-                    placeholder: "Enter client secret",
+                    placeholder: "Enter your client secret",
                     text: $createAppClientSecret,
                     isSecure: true
                 )
             }
             if yourOwnMeta?.dashboard_url != nil {
-                VInlineMessage("Find these in your \(displayName) developer console.", tone: .info)
-            }
-        }
-    }
-
-    /// Step 2: App list with "Add Another App" ghost button
-    private var yourOwnListStep: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            ForEach(store.yourOwnApps(for: providerKey)) { app in
-                yourOwnAppCard(for: app)
+                VInlineMessage("Find these in your \(displayName) Developer console.", tone: .info)
             }
 
-            Button {
-                createAppClientId = ""
-                createAppClientSecret = ""
-                isShowingAddAppForm = true
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.plus, size: 14)
-                    Text("Add Another Connection")
-                        .font(VFont.bodyMediumDefault)
+            HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: createAppIsSubmitting ? "Adding..." : "Add",
+                    style: .primary,
+                    isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
+                ) {
+                    createAppIsSubmitting = true
+                    Task {
+                        await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
+                        createAppClientId = ""
+                        createAppClientSecret = ""
+                        createAppIsSubmitting = false
+                        isShowingAddAppForm = false
+                    }
                 }
-                .foregroundStyle(VColor.primaryBase)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase.opacity(isAddAppButtonHovered ? 1 : 0))
-                )
-                .contentShape(Rectangle())
+                VButton(label: "Cancel", style: .outlined) {
+                    createAppClientId = ""
+                    createAppClientSecret = ""
+                    isShowingAddAppForm = false
+                }
             }
-            .buttonStyle(.plain)
-            .onHover { isAddAppButtonHovered = $0 }
         }
+        .padding(VSpacing.lg)
+        .vCard()
     }
 
     private var yourOwnSkeleton: some View {
@@ -394,96 +397,63 @@ struct IntegrationDetailModal: View {
         }
     }
 
-    @ViewBuilder
-    private var yourOwnFooterButton: some View {
-        if shouldShowForm {
-            if isShowingAddAppForm && !store.yourOwnApps(for: providerKey).isEmpty {
-                VButton(label: "Back", style: .outlined) {
-                    isShowingAddAppForm = false
-                }
-            }
-            VButton(
-                label: createAppIsSubmitting ? "Connecting..." : "Connect",
-                style: .primary,
-                isDisabled: createAppClientId.isEmpty || ((yourOwnMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
-            ) {
-                createAppIsSubmitting = true
-                Task {
-                    await store.createYourOwnOAuthApp(providerKey: providerKey, clientId: createAppClientId, clientSecret: createAppClientSecret)
-                    createAppClientId = ""
-                    createAppClientSecret = ""
-                    createAppIsSubmitting = false
-                    isShowingAddAppForm = false
-                }
-            }
-        }
-    }
-
     private func yourOwnAppCard(for app: YourOwnOAuthApp) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.keyRound, size: 14)
-                    .foregroundStyle(VColor.contentTertiary)
+        VCard {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Header: client ID, date, trash
+                HStack(alignment: .center, spacing: VSpacing.lg) {
+                    Text(maskedClientId(app.client_id))
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                Text(maskedClientId(app.client_id))
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
+                    Spacer()
 
-                Spacer()
+                    Text(formattedDate(app.created_at))
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
 
-                Text(formattedDate(app.created_at))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-
-                if hoveredAppId == app.id {
-                    Button {
+                    VButton(label: "", iconOnly: VIcon.trash.rawValue, style: .dangerOutline, size: .compact) {
                         appToDelete = app
                         showDeleteAppAlert = true
-                    } label: {
-                        VIconView(.trash, size: 14)
-                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
-                    .buttonStyle(.borderless)
                     .accessibilityLabel("Delete OAuth App")
-                    .transition(.opacity.animation(VAnimation.fast))
                 }
-            }
 
-            Divider()
-                .foregroundStyle(VColor.borderBase)
-
-            let appConnections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
-            if appConnections.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.circleUser, size: 14)
-                        .foregroundStyle(VColor.contentTertiary)
+                // Connections or empty state
+                let appConnections = store.yourOwnOAuthConnectionsByApp[app.id] ?? []
+                if appConnections.isEmpty {
                     Text("No connected accounts")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                }
-                .padding(.vertical, VSpacing.xxs)
-            } else {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(appConnections) { conn in
+                } else {
+                    ForEach(Array(appConnections.enumerated()), id: \.element.id) { index, conn in
+                        if index > 0 {
+                            SettingsDivider()
+                        }
                         yourOwnConnectionRow(for: conn, appId: app.id)
                     }
                 }
-            }
 
-            HStack(spacing: VSpacing.sm) {
+                SettingsDivider()
+
+                // Connect button
                 if store.yourOwnOAuthConnectingAppId == app.id {
-                    VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
-                        store.cancelYourOwnOAuthConnect()
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Cancel", leftIcon: "lucide-x", style: .outlined) {
+                            store.cancelYourOwnOAuthConnect()
+                        }
+                        VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                        Text("Waiting for authorization...")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
-                    VBusyIndicator(size: 8, color: VColor.contentTertiary)
-                    Text("Waiting for authorization...")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
                 } else {
                     VButton(
-                        label: "Connect Account",
+                        label: "Connect account",
                         leftIcon: "lucide-external-link",
-                        style: .outlined,
+                        style: .primary,
                         isDisabled: store.yourOwnOAuthConnectingAppId != nil
                     ) {
                         store.startYourOwnOAuthConnect(appId: app.id)
@@ -491,19 +461,9 @@ struct IntegrationDetailModal: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .onHover { hovering in
-            withAnimation(VAnimation.fast) {
-                hoveredAppId = hovering ? app.id : nil
-            }
-        }
     }
+
+    @State private var hoveredYourOwnConnId: String?
 
     private func yourOwnConnectionRow(for conn: YourOwnOAuthConnection, appId: String) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -511,20 +471,33 @@ struct IntegrationDetailModal: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             Text(conn.account_info ?? "\(displayName) Account")
-                .font(VFont.bodyMediumLighter)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             Spacer()
 
-            VTag("Connected", color: VColor.systemPositiveStrong, icon: .circleCheck)
-
-            VButton(label: "Disconnect", style: .dangerOutline, size: .compact) {
-                yourOwnDisconnectConnection = conn
-                yourOwnDisconnectAppId = appId
-                showYourOwnDisconnectAlert = true
+            if hoveredYourOwnConnId == conn.id {
+                Button {
+                    yourOwnDisconnectConnection = conn
+                    yourOwnDisconnectAppId = appId
+                    showYourOwnDisconnectAlert = true
+                } label: {
+                    VIconView(.trash, size: 14)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Disconnect Account")
+                .transition(.opacity.animation(VAnimation.fast))
             }
         }
         .padding(.vertical, VSpacing.xxs)
+        .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredYourOwnConnId = hovering ? conn.id : nil
+            }
+        }
     }
 
     // MARK: - Helpers

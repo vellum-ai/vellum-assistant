@@ -72,6 +72,30 @@ function resolveIngressBaseUrlFromConfig(ingressConfig: unknown): string {
   );
 }
 
+// Default routeSetup mock — returns normal_call. Tests that need different
+// outcomes override `mockRouteSetupResult` before calling the handler.
+let mockRouteSetupResult: {
+  outcome: { action: string; [key: string]: unknown };
+  resolved: {
+    assistantId: string;
+    isInbound: boolean;
+    otherPartyNumber: string;
+    actorTrust: { trustClass: string; memberRecord: null };
+  };
+} = {
+  outcome: { action: "normal_call", isInbound: true },
+  resolved: {
+    assistantId: "self",
+    isInbound: true,
+    otherPartyNumber: "+15559998888",
+    actorTrust: { trustClass: "guardian", memberRecord: null },
+  },
+};
+
+mock.module("../calls/relay-setup-router.js", () => ({
+  routeSetup: () => mockRouteSetupResult,
+}));
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://gateway.internal:7830",
@@ -110,6 +134,34 @@ const mockConfigObj = {
       language: "en-US",
       transcriptionProvider: "Deepgram",
       elevenlabs: {},
+    },
+  },
+  services: {
+    stt: {
+      mode: "your-own" as const,
+      provider: "deepgram" as const,
+      providers: {},
+    },
+    tts: {
+      mode: "your-own" as const,
+      provider: "elevenlabs" as const,
+      providers: {
+        elevenlabs: {
+          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+          voiceModelId: "",
+          speed: 1.0,
+          stability: 0.5,
+          similarityBoost: 0.75,
+          conversationTimeoutSeconds: 30,
+        },
+        "fish-audio": {
+          referenceId: "",
+          chunkLength: 200,
+          format: "mp3" as const,
+          latency: "normal" as const,
+          speed: 1.0,
+        },
+      },
     },
   },
 };
@@ -242,6 +294,11 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     const base = resolveIngressBaseUrlFromConfig(ingressConfig);
     const wsBase = base.replace(/^http(s?)/, "ws$1");
     return `${wsBase}/webhooks/twilio/relay`;
+  },
+  getTwilioMediaStreamUrl: (ingressConfig: unknown) => {
+    const base = resolveIngressBaseUrlFromConfig(ingressConfig);
+    const wsBase = base.replace(/^http(s?)/, "ws$1");
+    return `${wsBase}/webhooks/twilio/media-stream`;
   },
   getTwilioVoiceWebhookUrl: (ingressConfig: unknown) =>
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/voice`,
@@ -398,6 +455,18 @@ describe("twilio webhook routes", () => {
     updatePhoneNumberWebhookCalls = [];
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
+    // Reset STT config to defaults between tests
+    mockConfigObj.services.stt.provider = "deepgram" as any;
+    // Reset routeSetup mock to default normal_call
+    mockRouteSetupResult = {
+      outcome: { action: "normal_call", isInbound: true },
+      resolved: {
+        assistantId: "self",
+        isInbound: true,
+        otherPartyNumber: "+15559998888",
+        actorTrust: { trustClass: "guardian", memberRecord: null },
+      },
+    };
 
     globalThis.fetch = (async (
       url: string | URL | Request,
@@ -1003,6 +1072,313 @@ describe("twilio webhook routes", () => {
       const twiml = await res.text();
       expect(twiml).toContain("<ConversationRelay");
       expect(twiml).toContain(`callSessionId=${session.id}`);
+    });
+  });
+
+  // ── services.stt-driven TwiML routing ───────────────────────────────
+  // These tests assert that the voice webhook TwiML path is determined
+  // by services.stt.provider via resolveTelephonySttRouting — the
+  // canonical telephony STT routing resolver.
+
+  describe("services.stt-driven TwiML routing", () => {
+    test("outbound: deepgram -> ConversationRelay with transcriptionProvider=Deepgram", async () => {
+      mockConfigObj.services.stt.provider = "deepgram" as any;
+      const session = createTestSession("conv-stt-dg-1", "CA_stt_dg_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_dg_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+      expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    });
+
+    test("inbound: deepgram -> ConversationRelay with transcriptionProvider=Deepgram", async () => {
+      mockConfigObj.services.stt.provider = "deepgram" as any;
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_stt_dg_inbound_1",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).toContain('transcriptionProvider="Deepgram"');
+      expect(twiml).not.toContain("<Stream");
+    });
+
+    test("outbound: google-gemini -> ConversationRelay with transcriptionProvider=Google", async () => {
+      mockConfigObj.services.stt.provider = "google-gemini" as any;
+      const session = createTestSession("conv-stt-gg-1", "CA_stt_gg_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_gg_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+      expect(twiml).toContain('transcriptionProvider="Google"');
+    });
+
+    test("outbound: openai-whisper -> Stream TwiML with path-based metadata (no ConversationRelay)", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      const session = createTestSession("conv-stt-ow-1", "CA_stt_ow_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_ow_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+      expect(twiml).not.toContain("transcriptionProvider=");
+      // callSessionId is in the URL path, not as a query param
+      expect(twiml).toContain(
+        `wss://ingress.example.com/webhooks/twilio/media-stream/${session.id}`,
+      );
+      expect(twiml).not.toContain("?callSessionId=");
+    });
+
+    test("inbound: openai-whisper -> Stream TwiML (no ConversationRelay)", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_stt_ow_inbound_1",
+        From: "+14155551234",
+        To: "+15550001111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+      expect(twiml).not.toContain("transcriptionProvider=");
+    });
+
+    test("Stream TwiML includes auth token as Parameter", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      const session = createTestSession(
+        "conv-stt-ow-token-1",
+        "CA_stt_ow_token_1",
+      );
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_stt_ow_token_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain('<Parameter name="token"');
+      expect(twiml).toContain('<Parameter name="callSessionId"');
+    });
+
+    test("routing is driven exclusively by services.stt.provider", async () => {
+      // Telephony STT routing reads services.stt.provider only.
+      // calls.voice.transcriptionProvider is a legacy config field that
+      // no longer participates in the call setup path.
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      const session = createTestSession(
+        "conv-stt-routing-1",
+        "CA_stt_routing_1",
+      );
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_routing_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      // Must be Stream (from services.stt), NOT ConversationRelay
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+    });
+  });
+
+  // ── Media-stream preflight setup guardrails ──────────────────────────
+  // These tests assert that the TwiML preflight guard in
+  // buildVoiceWebhookTwiml rejects unsupported interactive setup actions
+  // for media-stream-custom calls before stream bootstrap, falling back
+  // to ConversationRelay for interactive flows.
+
+  describe("media-stream preflight setup guardrails", () => {
+    test("media-stream: normal_call setup proceeds with Stream TwiML", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: true },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-normal-1", "CA_ms_normal_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_normal_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+    });
+
+    test("media-stream: deny setup proceeds with Stream TwiML (deny is handled at stream level)", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "deny",
+          message: "This number is not authorized.",
+          logReason: "Inbound voice ACL: blocked caller",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+15559998888",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-deny-1", "CA_ms_deny_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_deny_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      // Deny is supported on media-stream — should still produce Stream TwiML
+      expect(twiml).toContain("<Stream");
+      expect(twiml).not.toContain("<ConversationRelay");
+    });
+
+    test("media-stream: verification setup falls back to ConversationRelay", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "verification",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-verify-1", "CA_ms_verify_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_verify_1" });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      // Interactive verification cannot work on media-stream — must fall back
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+      expect(twiml).toContain('transcriptionProvider="Deepgram"');
+    });
+
+    test("media-stream: name_capture setup falls back to ConversationRelay", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "name_capture",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-namecap-1", "CA_ms_namecap_1");
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_ms_namecap_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+    });
+
+    test("media-stream: invite_redemption setup falls back to ConversationRelay", async () => {
+      mockConfigObj.services.stt.provider = "openai-whisper" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "invite_redemption",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+          friendName: "Alice",
+          guardianName: "Bob",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-ms-invite-1", "CA_ms_invite_1");
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_ms_invite_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
+    });
+
+    test("conversation-relay-native: unsupported setup does not trigger preflight (not media-stream)", async () => {
+      // When the STT provider is deepgram (conversation-relay-native),
+      // the preflight guard is not invoked — setup flows are handled
+      // natively by the relay server.
+      mockConfigObj.services.stt.provider = "deepgram" as any;
+      mockRouteSetupResult = {
+        outcome: {
+          action: "verification",
+          assistantId: "self",
+          fromNumber: "+14155551234",
+        },
+        resolved: {
+          assistantId: "self",
+          isInbound: true,
+          otherPartyNumber: "+14155551234",
+          actorTrust: { trustClass: "unknown", memberRecord: null },
+        },
+      };
+
+      const session = createTestSession("conv-cr-verify-1", "CA_cr_verify_1");
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_cr_verify_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      // ConversationRelay should be emitted regardless of setup outcome
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Stream");
     });
   });
 

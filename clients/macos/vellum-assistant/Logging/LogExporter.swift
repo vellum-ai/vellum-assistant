@@ -137,10 +137,7 @@ enum LogExporter {
     /// Maps `LogReportReason` to the platform API's `FeedbackClassification` values.
     static func feedbackClassification(for reason: LogReportReason) -> String {
         switch reason {
-        case .somethingBroken: return "something_broken"
-        case .appCrash: return "app_crash"
-        case .performanceIssue: return "performance"
-        case .connectionIssue: return "connection"
+        case .bugReport: return "bug_report"
         case .featureRequest: return "feature_request"
         case .other: return "other"
         }
@@ -154,7 +151,7 @@ enum LogExporter {
         formData: LogReportFormData,
         connectedAssistantId: String?
     ) async throws {
-        let baseURL = AuthService.shared.baseURL
+        let baseURL = VellumEnvironment.resolvedPlatformURL
         guard let url = URL(string: "\(baseURL)/v1/upload/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
             throw URLError(.badURL)
@@ -187,11 +184,6 @@ enum LogExporter {
 
         if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             appendFormField(&body, boundary: boundary, name: "client_version", value: clientVersion)
-        }
-
-        if let assistantId = connectedAssistantId,
-           let assistantVersion = LockfileAssistant.loadByName(assistantId)?.serviceGroupVersion {
-            appendFormField(&body, boundary: boundary, name: "assistant_version", value: assistantVersion)
         }
 
         if let assistantId = connectedAssistantId {
@@ -294,7 +286,7 @@ enum LogExporter {
         if shouldCollectLogs {
             // 1-2. Client artifacts — session logs, debug-state, hang-context, hang-sample files
             if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let appSupportDir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+                let appSupportDir = appSupport.appendingPathComponent(VellumEnvironment.current.appSupportDirectoryName, isDirectory: true)
                 collectClientArtifacts(from: appSupportDir, into: tempDir, cutoffDate: cutoffDate, fileManager: fileManager)
             }
 
@@ -381,9 +373,6 @@ enum LogExporter {
             if daemonUnreachable {
                 metadata["daemon-unreachable"] = true
             }
-            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
-                metadata["assistant_version"] = assistantVersion
-            }
             if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 metadata["client_version"] = clientVersion
             }
@@ -397,9 +386,6 @@ enum LogExporter {
                 // Write a minimal manifest when no form data is available so the
                 // receiving end still knows the daemon was unreachable during export.
             var manifest: [String: Any] = ["daemon-unreachable": true]
-            if let assistantVersion = connectedAssistant?.serviceGroupVersion {
-                manifest["assistant_version"] = assistantVersion
-            }
             if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 manifest["client_version"] = clientVersion
             }
@@ -854,7 +840,7 @@ enum LogExporter {
             return
         }
 
-        let baseURL = await MainActor.run { AuthService.shared.baseURL }
+        let baseURL = VellumEnvironment.resolvedPlatformURL
 
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
             log.warning("Failed to construct platform log export URL")

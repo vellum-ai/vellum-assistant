@@ -26,6 +26,15 @@ public enum PlatformMigrationClient {
         }
     }
 
+    /// Status of an asynchronous import job returned by the polling endpoint.
+    public struct ImportJobStatus {
+        public let status: String
+        public let jobId: String?
+        public let error: String?
+        /// Raw result data — only present when status == "complete"
+        public let resultData: Data?
+    }
+
     // MARK: - Errors
 
     /// Errors specific to platform migration requests.
@@ -198,6 +207,47 @@ public enum PlatformMigrationClient {
         return (statusCode: statusCode, data: data)
     }
 
+    /// Polls the status of an asynchronous import job.
+    ///
+    /// - Parameter jobId: The job ID returned by `importFromGcs` when it responds with 202.
+    /// - Returns: An `ImportJobStatus` with the current status, optional error, and result data.
+    /// - Throws: `PlatformMigrationError` on auth or request failures.
+    public static func pollImportStatus(jobId: String) async throws -> ImportJobStatus {
+        let (baseURL, token, orgId) = try resolveAuthContext()
+
+        guard let url = URL(string: "\(baseURL)/v1/migrations/import/\(jobId)/status/") else {
+            throw PlatformMigrationError.requestFailed(statusCode: 0, detail: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
+
+        let (data, statusCode) = try await executeWithRetry(request: request, label: "import-status")
+
+        guard statusCode == 200 else {
+            throw PlatformMigrationError.requestFailed(statusCode: statusCode, detail: "Import status check failed")
+        }
+
+        // Parse status and error from top level, keep raw data for result
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let status = json["status"] as? String ?? "unknown"
+        let jobIdValue = json["job_id"] as? String
+        let error = json["error"] as? String
+
+        // Re-serialize result sub-object if present
+        var resultData: Data? = nil
+        if let result = json["result"] {
+            resultData = try? JSONSerialization.data(withJSONObject: result)
+        }
+
+        return ImportJobStatus(status: status, jobId: jobIdValue, error: error, resultData: resultData)
+    }
+
     /// Imports a migration bundle by sending the raw data directly to the platform.
     ///
     /// This is the fallback path when signed URL uploads are not available. It matches
@@ -331,10 +381,7 @@ public enum PlatformMigrationClient {
             throw PlatformMigrationError.notAuthenticated
         }
 
-        let baseURL = AuthService.resolveBaseURL(
-            environment: ProcessInfo.processInfo.environment,
-            userDefaults: .standard
-        )
+        let baseURL = VellumEnvironment.resolvedPlatformURL
 
         let orgId: String? = {
             guard let id = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !id.isEmpty else { return nil }

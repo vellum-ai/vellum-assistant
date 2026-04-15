@@ -68,6 +68,9 @@ mock.module("../config/loader.js", () => ({
     twilio: {
       phoneNumber: "+15550001111",
     },
+    services: {
+      stt: { provider: "deepgram" },
+    },
   }),
   invalidateConfigCache: () => {},
 }));
@@ -90,7 +93,9 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-mock.module("../security/secure-keys.js", () => ({}));
+mock.module("../security/secure-keys.js", () => ({
+  getProviderKeyAsync: () => Promise.resolve(null),
+}));
 
 // NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.
 // Those are pure functions that derive URLs from the config object returned by
@@ -455,6 +460,86 @@ describe("gateway-only ingress enforcement", () => {
     });
   });
 
+  // ── Media-stream WebSocket upgrade ─────────────────────────────────
+
+  describe("media-stream WebSocket upgrade", () => {
+    test("blocks non-private-network origin", async () => {
+      // The peer address (127.0.0.1) passes the private network check,
+      // but the external Origin header triggers the secondary defense-in-depth block.
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/calls/media-stream?callSessionId=sess-123`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            Origin: "https://external.example.com",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as {
+        error: { code: string; message: string };
+      };
+      expect(body.error.code).toBe("FORBIDDEN");
+      expect(body.error.message).toContain(
+        "Direct media-stream access disabled",
+      );
+    });
+
+    test("allows request with no origin header (private network peer)", async () => {
+      // Without an origin header, isPrivateNetworkOrigin returns true.
+      // The peer address (127.0.0.1) passes the private network peer check.
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/calls/media-stream?callSessionId=sess-123`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Should NOT be 403 — WebSocket upgrade may or may not succeed
+      // depending on test environment, but the gateway guard should pass.
+      expect(res.status).not.toBe(403);
+    });
+
+    test("allows localhost origin from loopback peer", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/calls/media-stream?callSessionId=sess-123`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            Origin: "http://127.0.0.1:3000",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Should NOT be 403
+      expect(res.status).not.toBe(403);
+    });
+
+    test("returns 400 when callSessionId is missing", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/calls/media-stream`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(400);
+    });
+  });
+
   // ── isPrivateAddress unit tests ─────────────────────────────────────
 
   describe("isPrivateAddress", () => {
@@ -683,6 +768,126 @@ describe("gateway-only ingress enforcement", () => {
       });
       // Should NOT be 403 — the svc_gateway principal type passes.
       expect(res.status).not.toBe(403);
+    });
+  });
+
+  // ── STT stream WebSocket upgrade ────────────────────────────────────
+
+  describe("STT stream WebSocket upgrade", () => {
+    test("blocks non-private-network origin", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?provider=deepgram&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            Origin: "https://external.example.com",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as {
+        error: { code: string; message: string };
+      };
+      expect(body.error.code).toBe("FORBIDDEN");
+      expect(body.error.message).toContain("Direct STT stream access disabled");
+    });
+
+    test("rejects upgrade without a token", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?provider=deepgram&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(401);
+    });
+
+    test("rejects upgrade with actor JWT (requires gateway service token)", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${TEST_JWT}&provider=deepgram&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Actor JWTs should be rejected — only gateway service tokens are allowed.
+      expect(res.status).toBe(401);
+    });
+
+    test("accepts upgrade with gateway service token from private network", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&provider=deepgram&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Should NOT be 403 or 401 — WebSocket upgrade may or may not succeed
+      // depending on test environment, but the auth and network guards should pass.
+      expect(res.status).not.toBe(403);
+      expect(res.status).not.toBe(401);
+    });
+
+    test("succeeds when provider is omitted (config-authoritative)", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&mimeType=audio/webm`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      // Should NOT be 400 — provider is optional.
+      expect(res.status).not.toBe(400);
+    });
+
+    test("returns 400 when mimeType is missing", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}&provider=deepgram`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(400);
+    });
+
+    test("returns 400 when both provider and mimeType are missing", async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/v1/stt/stream?token=${GATEWAY_JWT}`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            Connection: "Upgrade",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            "Sec-WebSocket-Version": "13",
+          },
+        },
+      );
+      expect(res.status).toBe(400);
     });
   });
 

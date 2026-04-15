@@ -7,6 +7,7 @@
  *
  * Endpoints:
  * - `GET  /v1/credentials`           — list credential account names
+ * - `POST /v1/credentials/bulk`      — bulk set credentials
  * - `GET  /v1/credentials/:account`  — get a credential value
  * - `POST /v1/credentials/:account`  — set a credential value
  * - `DELETE /v1/credentials/:account` — delete a credential
@@ -95,6 +96,55 @@ export async function handleCredentialRoute(
 
   // Extract account from path: /v1/credentials/:account
   const accountSegment = pathname.slice(CREDENTIAL_PATH_PREFIX.length);
+
+  // POST /v1/credentials/bulk — bulk set credentials
+  // Only intercept POST; other methods (GET, DELETE) fall through to the
+  // :account handler so a credential literally named "bulk" stays accessible.
+  if (accountSegment === "/bulk" && req.method === "POST") {
+    let body: { credentials?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "Invalid JSON body" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!Array.isArray(body.credentials)) {
+      return new Response(
+        JSON.stringify({ error: "Body must contain a 'credentials' array field" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    for (const entry of body.credentials) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof entry.account !== "string" ||
+        typeof entry.value !== "string"
+      ) {
+        return new Response(
+          JSON.stringify({
+            error: "Each credential entry must have string 'account' and 'value' fields",
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    const results: Array<{ account: string; ok: boolean }> = [];
+    for (const entry of body.credentials as Array<{ account: string; value: string }>) {
+      const ok = await backend.set(entry.account, entry.value);
+      results.push({ account: entry.account, ok: !!ok });
+    }
+
+    return new Response(
+      JSON.stringify({ results }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   // GET /v1/credentials — list all credential account names
   if (accountSegment === "" || accountSegment === "/") {

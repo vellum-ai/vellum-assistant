@@ -20,8 +20,13 @@ struct SettingsSchedulesTab: View {
     @State private var heartbeatConfig: HeartbeatConfigResponse?
     @State private var isHeartbeatRunning = false
 
+    // Filing state
+    @State private var filingConfig: FilingConfigResponse?
+    @State private var isFilingRunning = false
+
     private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
     private let heartbeatClient: HeartbeatClientProtocol = HeartbeatClient()
+    private let filingClient: FilingClientProtocol = FilingClient()
 
     // MARK: - Computed Filters
 
@@ -41,12 +46,16 @@ struct SettingsSchedulesTab: View {
                 heartbeatCard(config)
             }
 
+            if let config = filingConfig {
+                filingCard(config)
+            }
+
             if isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = loadError {
                 errorView(error)
-            } else if schedules.isEmpty && heartbeatConfig == nil {
+            } else if schedules.isEmpty && heartbeatConfig == nil && filingConfig == nil {
                 VEmptyState(
                     title: "No schedules",
                     subtitle: "Schedules you create through conversation will appear here.",
@@ -60,6 +69,7 @@ struct SettingsSchedulesTab: View {
         .task {
             await loadSchedules()
             heartbeatConfig = await heartbeatClient.fetchConfig()
+            filingConfig = await filingClient.fetchConfig()
         }
         .alert("Delete Schedule", isPresented: deleteConfirmBinding) {
             Button("Cancel", role: .cancel) {
@@ -517,6 +527,77 @@ struct SettingsSchedulesTab: View {
             _ = await heartbeatClient.runNow()
             heartbeatConfig = await heartbeatClient.fetchConfig()
             isHeartbeatRunning = false
+        }
+    }
+
+    // MARK: - Filing
+
+    @ViewBuilder
+    private func filingCard(_ config: FilingConfigResponse) -> some View {
+        SettingsCard(
+            title: "Filing",
+            subtitle: filingSubtitle(config)
+        ) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        Circle()
+                            .fill(config.enabled ? VColor.systemPositiveStrong : VColor.contentDisabled)
+                            .frame(width: 8, height: 8)
+                        Text(config.enabled ? "Enabled" : "Disabled")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                    }
+                    if let lastRun = config.lastRunAt, let formatted = formatEpochMs(lastRun) {
+                        Text("Last ran \(formatted)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    if let nextRun = config.nextRunAt, let formatted = formatEpochMs(nextRun) {
+                        Text("Next run \(formatted)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+                Spacer()
+                if isFilingRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 20, height: 20)
+                } else {
+                    VButton(
+                        label: "Run Now",
+                        iconOnly: VIcon.play.rawValue,
+                        style: .ghost,
+                        tooltip: "Run filing now"
+                    ) {
+                        runFilingNow()
+                    }
+                }
+            }
+        }
+    }
+
+    private func filingSubtitle(_ config: FilingConfigResponse) -> String {
+        let minutes = Int(config.intervalMs / 60_000)
+        var subtitle: String
+        if minutes >= 60 && minutes % 60 == 0 {
+            subtitle = "Every \(minutes / 60) hr"
+        } else {
+            subtitle = "Every \(minutes) min"
+        }
+        if let start = config.activeHoursStart, let end = config.activeHoursEnd {
+            subtitle += " (\(Int(start)):00\u{2013}\(Int(end)):00)"
+        }
+        return subtitle
+    }
+
+    private func runFilingNow() {
+        isFilingRunning = true
+        Task {
+            _ = await filingClient.runNow()
+            filingConfig = await filingClient.fetchConfig()
+            isFilingRunning = false
         }
     }
 

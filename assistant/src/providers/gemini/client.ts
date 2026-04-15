@@ -2,6 +2,7 @@ import type * as genai from "@google/genai";
 import { ApiError, GoogleGenAI } from "@google/genai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
+import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -230,11 +231,18 @@ export class GeminiProvider implements Provider {
         rawResponse,
       };
     } catch (error) {
+      // Propagate a tagged AbortReason (set by the daemon at controller.abort())
+      // so wrapped errors can be classified as user cancellation downstream.
+      const abortReason =
+        signal?.aborted && isAbortReason(signal.reason)
+          ? signal.reason
+          : undefined;
       if (error instanceof ApiError) {
         throw new ProviderError(
           `Gemini API error (${error.status}): ${error.message}`,
           "gemini",
           error.status,
+          abortReason ? { abortReason } : undefined,
         );
       }
       throw new ProviderError(
@@ -243,7 +251,7 @@ export class GeminiProvider implements Provider {
         }`,
         "gemini",
         undefined,
-        { cause: error },
+        abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
   }

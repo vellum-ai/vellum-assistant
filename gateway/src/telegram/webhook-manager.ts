@@ -76,6 +76,23 @@ async function registerManagedTelegramCallbackRoute(
     return undefined;
   }
 
+  // Best-effort: resolve bot username for source_identifier display.
+  let sourceIdentifier = "";
+  try {
+    const botInfo = await callTelegramApi<{ username?: string }>(
+      "getMe",
+      {},
+      caches?.credentials
+        ? { credentials: caches.credentials, configFile: caches?.configFile }
+        : undefined,
+    );
+    if (botInfo.username) {
+      sourceIdentifier = `@${botInfo.username}`;
+    }
+  } catch {
+    log.debug("Could not resolve Telegram bot username for source_identifier");
+  }
+
   const response = await fetchImpl(
     `${platformBaseUrl}/v1/internal/gateway/callback-routes/register/`,
     {
@@ -88,6 +105,7 @@ async function registerManagedTelegramCallbackRoute(
         assistant_id: assistantId,
         callback_path: TELEGRAM_CALLBACK_PATH,
         type: TELEGRAM_CALLBACK_TYPE,
+        ...(sourceIdentifier ? { source_identifier: sourceIdentifier } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     },

@@ -13,6 +13,7 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 }));
 
 const { McpClient } = await import("../mcp/client.js");
+const { McpOAuthProvider } = await import("../mcp/mcp-oauth-provider.js");
 
 /**
  * Mimics the SDK's StreamableHTTPError which has a `.code` property
@@ -67,7 +68,7 @@ describe("McpClient auth error detection", () => {
     expect(client.isConnected).toBe(false);
   });
 
-  test("rethrows non-auth StreamableHTTPError for HTTP transports", async () => {
+  test("swallows non-auth StreamableHTTPError (connect never throws)", async () => {
     const client = new McpClient("test-server");
 
     (client as any).createTransport = () => ({});
@@ -78,9 +79,9 @@ describe("McpClient auth error detection", () => {
       close: async () => {},
     };
 
-    await expect(client.connect(httpTransport)).rejects.toThrow(
-      "Internal Server Error",
-    );
+    // Non-auth errors are logged but never propagated — daemon keeps running
+    await client.connect(httpTransport);
+    expect(client.isConnected).toBe(false);
   });
 
   test("treats error message containing 'unauthorized' as auth error", async () => {
@@ -96,5 +97,40 @@ describe("McpClient auth error detection", () => {
 
     await client.connect(httpTransport);
     expect(client.isConnected).toBe(false);
+  });
+
+  test("treats SDK fetchToken 'authorizationCode is required' error as auth error", async () => {
+    const client = new McpClient("test-server");
+
+    (client as any).createTransport = () => ({});
+    (client as any).client = {
+      connect: () => {
+        throw new Error(
+          "Either provider.prepareTokenRequest() or authorizationCode is required",
+        );
+      },
+      close: async () => {},
+    };
+
+    await client.connect(httpTransport);
+    expect(client.isConnected).toBe(false);
+  });
+});
+
+describe("McpOAuthProvider redirectUrl", () => {
+  test("redirectUrl is undefined until startCallbackServer() is called", () => {
+    const nonInteractive = new McpOAuthProvider(
+      "test-server",
+      "https://example.com/mcp",
+      /* interactive */ false,
+    );
+    expect(nonInteractive.redirectUrl).toBeUndefined();
+
+    const interactive = new McpOAuthProvider(
+      "test-server",
+      "https://example.com/mcp",
+      /* interactive */ true,
+    );
+    expect(interactive.redirectUrl).toBeUndefined();
   });
 });

@@ -60,6 +60,8 @@ public struct VInputChromeModifier: ViewModifier {
     public let isDisabled: Bool
     public let cornerRadius: CGFloat
 
+    @Environment(\.colorScheme) private var colorScheme
+
     public init(isFocused: Bool = false, isError: Bool = false, isDisabled: Bool = false, cornerRadius: CGFloat = VRadius.md) {
         self.isFocused = isFocused
         self.isError = isError
@@ -86,7 +88,7 @@ public struct VInputChromeModifier: ViewModifier {
         if isFocused {
             return VColor.borderActive
         }
-        return VColor.borderElement
+        return colorScheme == .dark ? Color.clear : VColor.borderElement
     }
 }
 

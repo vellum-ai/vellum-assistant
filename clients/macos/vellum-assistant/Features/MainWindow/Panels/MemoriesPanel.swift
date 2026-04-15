@@ -69,30 +69,20 @@ private enum MemoryStatusFilter: String, CaseIterable {
 
 struct MemoriesPanel: View {
     let connectionManager: GatewayConnectionManager
+    let assistantName: String
+    var onImportMemory: ((String) -> Void)?
     @Binding var focusedMemoryId: String?
     @State private var store: MemoryItemsStore
-    @State private var showCreateSheet = false
+    @State private var showImportSheet = false
     @State private var selectedItem: MemoryItemPayload?
     @State private var selectedKind: MemoryKind?
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var viewMode: MemoryViewMode = .cards
-
-    private enum MemoryViewMode: String, CaseIterable {
-        case cards = "Cards"
-        case compact = "Compact"
-
-        var icon: String {
-            switch self {
-            case .cards: return VIcon.layoutGrid.rawValue
-            case .compact: return VIcon.list.rawValue
-            }
-        }
-    }
-
-    init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
+    init(connectionManager: GatewayConnectionManager, assistantName: String = "Your Assistant", onImportMemory: ((String) -> Void)? = nil, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
+        self.assistantName = assistantName
+        self.onImportMemory = onImportMemory
         _focusedMemoryId = focusedMemoryId
         _store = State(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
@@ -102,46 +92,7 @@ struct MemoriesPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Memory count header
-            HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
-                Text("\(store.total)")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentEmphasized)
-                Text(store.total == 1 ? "memory" : "memories")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, VSpacing.xs)
-
             filterBar
-
-            // Active filter pills
-            let hasActiveFilters = selectedKind != nil || statusFilter != .active || !store.searchText.isEmpty
-            if hasActiveFilters {
-                HStack(spacing: VSpacing.xs) {
-                    if let kind = selectedKind {
-                        filterPill(label: kind.label, color: kind.color) {
-                            withAnimation(VAnimation.fast) { selectedKind = nil }
-                            store.kindFilter = nil
-                            Task { await store.loadItems() }
-                        }
-                    }
-                    if statusFilter != .active {
-                        filterPill(label: statusFilter.rawValue, color: VColor.contentSecondary) {
-                            statusFilter = .active
-                            store.statusFilter = statusFilter.apiValue
-                            Task { await store.loadItems() }
-                        }
-                    }
-                    if !store.searchText.isEmpty {
-                        filterPill(label: "\"\(store.searchText)\"", color: VColor.contentSecondary) {
-                            store.searchText = ""
-                        }
-                    }
-                }
-                .padding(.top, VSpacing.xs)
-            }
 
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 kindSidebar
@@ -189,10 +140,22 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(isPresented: $showCreateSheet) {
-            MemoryItemCreateSheet(
-                store: store,
-                onDismiss: { showCreateSheet = false }
+        .sheet(isPresented: $showImportSheet) {
+            MemoryImportSheet(
+                assistantName: assistantName,
+                onDismiss: { showImportSheet = false },
+                onSubmit: onImportMemory.map { callback in
+                    { pastedText in
+                        let wrappedMessage = """
+                            The following is a memory profile exported from another AI assistant. Please review it and internalize the information as memories about me. Treat each fact, preference, and detail as something to remember for future conversations.
+
+                            ---
+
+                            \(pastedText)
+                            """
+                        callback(wrappedMessage)
+                    }
+                }
             )
         }
     }
@@ -234,15 +197,10 @@ struct MemoriesPanel: View {
                 }
             )
 
-            VSegmentControl(
-                items: MemoryViewMode.allCases.map { (label: $0.rawValue, tag: $0) },
-                selection: $viewMode
-            )
-
-            VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
-                showCreateSheet = true
+            VButton(label: "Import", icon: VIcon.arrowDownToLine.rawValue, style: .primary) {
+                showImportSheet = true
             }
-            .accessibilityLabel("Create new memory")
+            .accessibilityLabel("Import memory")
         }
         .padding(.top, VSpacing.sm)
     }
@@ -259,18 +217,22 @@ struct MemoriesPanel: View {
     }
 
     private func kindFilterRow(icon: String, label: String, kind: MemoryKind?) -> some View {
-        KindFilterRowButton(
+        VNavItem(
             icon: icon,
             label: label,
-            kind: kind,
             isActive: selectedKind == kind,
-            count: kindCount(for: kind),
             action: {
                 withAnimation(VAnimation.fast) { selectedKind = kind }
                 store.kindFilter = kind?.rawValue
                 Task { await store.loadItems() }
             }
-        )
+        ) {
+            Text("\(kindCount(for: kind))")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+        }
+        .accessibilityLabel("\(label) filter")
+        .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
     }
 
     private func kindCount(for kind: MemoryKind?) -> Int {
@@ -278,26 +240,6 @@ struct MemoriesPanel: View {
             return store.kindCounts.values.reduce(0, +)
         }
         return store.kindCounts[kind.rawValue] ?? 0
-    }
-
-    // MARK: - Filter Pill
-
-    private func filterPill(label: String, color: Color, onRemove: @escaping () -> Void) -> some View {
-        HStack(spacing: VSpacing.xxs) {
-            Text(label)
-                .font(VFont.labelDefault)
-                .foregroundStyle(color)
-            Button(action: onRemove) {
-                VIconView(.x, size: 9)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(label) filter")
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
-        .background(color.opacity(0.1))
-        .clipShape(Capsule())
     }
 
     // MARK: - List Content
@@ -321,35 +263,18 @@ struct MemoriesPanel: View {
             )
         } else {
             ScrollView {
-                LazyVStack(spacing: viewMode == .compact ? VSpacing.xxs : VSpacing.sm) {
-                    switch viewMode {
-                    case .cards:
-                        ForEach(store.items) { item in
-                            MemoryItemRow(
-                                item: item,
-                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
-                                onDelete: {
-                                    if selectedItem?.id == item.id {
-                                        withAnimation(VAnimation.panel) { selectedItem = nil }
-                                    }
-                                    Task { _ = await store.deleteItem(id: item.id) }
+                LazyVStack(spacing: VSpacing.sm) {
+                    ForEach(store.items) { item in
+                        MemoryItemRow(
+                            item: item,
+                            onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
+                            onDelete: {
+                                if selectedItem?.id == item.id {
+                                    withAnimation(VAnimation.panel) { selectedItem = nil }
                                 }
-                            )
-                        }
-                    case .compact:
-                        ForEach(store.items) { item in
-                            MemoryItemCompactRow(
-                                item: item,
-                                isSelected: selectedItem?.id == item.id,
-                                onSelect: { withAnimation(VAnimation.panel) { selectedItem = item } },
-                                onDelete: {
-                                    if selectedItem?.id == item.id {
-                                        withAnimation(VAnimation.panel) { selectedItem = nil }
-                                    }
-                                    Task { _ = await store.deleteItem(id: item.id) }
-                                }
-                            )
-                        }
+                                Task { _ = await store.deleteItem(id: item.id) }
+                            }
+                        )
                     }
                     if store.hasMore {
                         VLoadingIndicator()
@@ -368,73 +293,3 @@ struct MemoriesPanel: View {
     }
 }
 
-// MARK: - Kind Filter Row Button
-
-/// Custom sidebar row that adds a color-coded dot and kind-tinted active background.
-private struct KindFilterRowButton: View {
-    let icon: String
-    let label: String
-    let kind: MemoryKind?
-    let isActive: Bool
-    let count: Int
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private var dotColor: Color {
-        kind?.color ?? VColor.contentTertiary
-    }
-
-    private var activeBackground: Color {
-        kind?.backgroundTint ?? VColor.surfaceActive
-    }
-
-    private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
-    }
-
-    private var textColor: Color {
-        isActive ? VColor.contentEmphasized : VColor.contentSecondary
-    }
-
-    var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 8, height: 8)
-
-            VIconView(.resolve(icon), size: VSize.iconDefault)
-                .foregroundStyle(iconColor)
-                .frame(width: VSize.iconSlot, height: VSize.iconSlot)
-
-            Text(label)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer()
-
-            Text("\(count)")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-        }
-        .padding(.leading, VSpacing.xs)
-        .padding(.trailing, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .frame(minHeight: VSize.rowMinHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isActive ? activeBackground :
-            isHovered ? VColor.surfaceBase :
-            Color.clear
-        )
-        .animation(VAnimation.fast, value: isHovered)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .contentShape(Rectangle())
-        .onTapGesture { action() }
-        .pointerCursor(onHover: { isHovered = $0 })
-        .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-}
