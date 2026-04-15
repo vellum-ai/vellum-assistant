@@ -59,15 +59,23 @@ struct MarkdownSegmentView: View, Equatable {
         #if os(macOS)
         let typographyGeneration = self.typographyGeneration ?? typographyObserver.generation
         #endif
+        // Identify the tail block that may still be growing during streaming.
+        // Only runs and tables cache layout measurements; images, code blocks,
+        // and horizontal rules self-size correctly and don't need a tail flag.
+        // Skipping those when scanning for the tail prevents a trailing image
+        // or rule from masking a still-streaming run/table above it.
+        let tailCacheableIndex: Int? = isStreaming ? lastCacheableGroupIndex(in: groups) : nil
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                let isTail = (index == tailCacheableIndex)
                 switch group {
                 case .selectableRun(let runSegments):
                     #if os(macOS)
                     SelectableRunView(
                         markdownView: self,
                         runSegments: runSegments,
-                        typographyGeneration: typographyGeneration
+                        typographyGeneration: typographyGeneration,
+                        isStreamingTail: isTail
                     )
                     #else
                     let attributed = buildCombinedAttributedString(from: runSegments)
@@ -95,7 +103,12 @@ struct MarkdownSegmentView: View, Equatable {
                     )
 
                 case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
+                    MarkdownTableView(
+                        headers: headers,
+                        rows: rows,
+                        maxWidth: maxContentWidth ?? .infinity,
+                        isStreamingTail: isTail
+                    )
 
                 case .image(let alt, let url):
                     AnimatedImageView(urlString: url)
@@ -111,6 +124,18 @@ struct MarkdownSegmentView: View, Equatable {
                 }
             }
         }
+    }
+
+    private func lastCacheableGroupIndex(in groups: [SegmentGroup]) -> Int? {
+        for index in groups.indices.reversed() {
+            switch groups[index] {
+            case .selectableRun, .table:
+                return index
+            case .codeBlock, .image, .horizontalRule:
+                continue
+            }
+        }
+        return nil
     }
 
     // MARK: - Segment Grouping
@@ -131,11 +156,13 @@ struct MarkdownSegmentView: View, Equatable {
         let markdownView: MarkdownSegmentView
         let runSegments: [MarkdownSegment]
         let typographyGeneration: Int
+        var isStreamingTail: Bool = false
 
         var body: some View {
             let measurement = markdownView.resolveSelectableRunMeasurementResult(
                 runSegments,
-                typographyGeneration: typographyGeneration
+                typographyGeneration: typographyGeneration,
+                isStreamingTail: isStreamingTail
             )
 
             VSelectableTextView(
@@ -364,7 +391,8 @@ struct MarkdownSegmentView: View, Equatable {
 
     @MainActor func resolveSelectableRunMeasurementResult(
         _ runSegments: [MarkdownSegment],
-        typographyGeneration: Int? = nil
+        typographyGeneration: Int? = nil,
+        isStreamingTail: Bool = false
     ) -> SelectableRunMeasurementResult {
         let chatFonts = VFont.resolvedChatMarkdownFontSet()
         var hasher = Hasher()
@@ -383,7 +411,13 @@ struct MarkdownSegmentView: View, Equatable {
         let key = hasher.finalize()
 
         let keyNS = key as NSNumber
-        if let cached = Self.measuredTextCache.object(forKey: keyNS) {
+        // Streaming tail runs bypass the measurement cache. Reason: the
+        // run's content can change between passes while the cache key
+        // (segment hash) coincides with an earlier intermediate state,
+        // causing the applied .frame(height:) to be shorter than the
+        // actual rendered text and letting the next element (e.g. a
+        // MarkdownTableView) overlap the trailing lines.
+        if !isStreamingTail, let cached = Self.measuredTextCache.object(forKey: keyNS) {
             return SelectableRunMeasurementResult(
                 nsAttributedString: cached.nsAttributedString,
                 size: cached.size,
@@ -407,8 +441,10 @@ struct MarkdownSegmentView: View, Equatable {
 
         // Don't cache results where emphasis was expected but not applied —
         // the next render will rebuild from scratch, which may succeed.
+        // Also skip caching while this is the streaming tail: the value is
+        // for an intermediate state that may not match the final content.
         let textLen = Self.segmentTextLength(runSegments)
-        if !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
+        if !isStreamingTail && !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
             Self.measuredTextCache.setObject(
                 MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
                 forKey: keyNS,
