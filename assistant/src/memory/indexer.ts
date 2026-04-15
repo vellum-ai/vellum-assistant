@@ -5,6 +5,8 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
+import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
@@ -154,6 +156,7 @@ export async function indexMessageNow(
   // ── Batch extraction tracking ──────────────────────────────────────
   // Instead of per-message extraction, track pending unextracted messages
   // and trigger batch extraction when the threshold is reached or after idle.
+  const isAutoAnalysisSource = isAutoAnalysisConversation(input.conversationId);
   if (
     shouldExtract &&
     isTrustedActor &&
@@ -163,26 +166,43 @@ export async function indexMessageNow(
     const batchSize = config.extraction.batchSize ?? 10;
     const idleTimeoutMs = config.extraction.idleTimeoutMs ?? 300_000;
 
-    // ── Graph extraction ────────────────────────────────────────────
-    const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
-    const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
-    const graphPendingCount =
-      (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
-    setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
+    // Recursion guard: skip graph extraction + auto-analysis enqueues
+    // when the source conversation is itself an auto-analysis
+    // conversation. The analysis agent writes memory directly via tools,
+    // so extracting from its reflective musings would double-count and
+    // analyzing its own output would loop indefinitely.
+    // Summaries still run — they feed the graph retrieval pipeline and
+    // are not recursion-prone.
+    if (!isAutoAnalysisSource) {
+      // ── Graph extraction ────────────────────────────────────────────
+      const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
+      const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
+      const graphPendingCount =
+        (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
+      setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
 
-    if (graphPendingCount >= batchSize) {
-      enqueueMemoryJob("graph_extract", {
+      if (graphPendingCount >= batchSize) {
+        enqueueMemoryJob("graph_extract", {
+          conversationId: input.conversationId,
+          scopeId: input.scopeId ?? "default",
+        });
+        setMemoryCheckpoint(graphPendingKey, "0");
+        enqueueAutoAnalysisIfEnabled({
+          conversationId: input.conversationId,
+          trigger: "batch",
+        });
+      }
+
+      upsertDebouncedJob(
+        "graph_extract",
+        { conversationId: input.conversationId },
+        Date.now() + idleTimeoutMs,
+      );
+      enqueueAutoAnalysisIfEnabled({
         conversationId: input.conversationId,
-        scopeId: input.scopeId ?? "default",
+        trigger: "idle",
       });
-      setMemoryCheckpoint(graphPendingKey, "0");
     }
-
-    upsertDebouncedJob(
-      "graph_extract",
-      { conversationId: input.conversationId },
-      Date.now() + idleTimeoutMs,
-    );
 
     // ── Conversation summarization (independent of extraction) ────────
     // Summaries feed the graph retrieval pipeline via fetchRecentSummaries().
@@ -225,6 +245,18 @@ export async function indexMessageNow(
   ) {
     log.info(
       "Skipping extraction job: LLM extraction is disabled (useLLM=false)",
+    );
+  }
+
+  if (
+    isAutoAnalysisSource &&
+    shouldExtract &&
+    isTrustedActor &&
+    !input.automated &&
+    config.extraction.useLLM
+  ) {
+    log.debug(
+      "Skipping graph_extract + auto-analysis enqueues: source is an auto-analysis conversation",
     );
   }
 
