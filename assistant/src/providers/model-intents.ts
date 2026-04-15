@@ -38,7 +38,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   openrouter: {
     "latency-optimized": "qwen/qwen3.5-flash-02-23",
-    "quality-optimized": "x-ai/grok-4.20-beta",
+    "quality-optimized": "anthropic/claude-opus-4.6",
     "vision-optimized": "x-ai/grok-4.20-beta",
   },
 };
