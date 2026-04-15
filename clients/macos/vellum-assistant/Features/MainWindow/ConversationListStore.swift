@@ -277,7 +277,7 @@ final class ConversationListStore {
 
         unseenVisibleConversationCount = conversations.count {
             !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
-                && !$0.shouldSuppressUnreadIndicator
+                && !$0.shouldSuppressGlobalUnreadAggregations
         }
 
         // Bucket visible conversations by group in a single pass (O(N)).
