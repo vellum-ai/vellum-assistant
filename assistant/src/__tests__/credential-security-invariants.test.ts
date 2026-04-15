@@ -215,6 +215,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
+      "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
