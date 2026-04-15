@@ -510,13 +510,17 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
-        if let start = model.earliestStartedAt, let end = model.latestCompletedAt {
-            let seconds = end.timeIntervalSince(start)
-            Text(seconds < 60
-                ? String(format: "%.1fs", seconds)
-                : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+        if let start = model.earliestStartedAt {
+            // Use thinkingAfterToolsEndDate as the effective end time when present,
+            // so the parent total includes thinking time and matches the sum of
+            // sub-activity durations (tool steps + thinking row).
+            let effectiveEnd = thinkingAfterToolsEndDate ?? model.latestCompletedAt
+            if let end = effectiveEnd {
+                let seconds = end.timeIntervalSince(start)
+                Text(formatStepDuration(seconds))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
