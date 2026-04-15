@@ -28,7 +28,7 @@ The entire ScrollView and each row inside it are flipped using a `FlippedModifie
 struct FlippedModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .rotation3DEffect(.degrees(180), axis: (x: 1, y: 0, z: 0))  // rotate 180°
+            .rotationEffect(.radians(.pi))                                  // rotate 180°
             .scaleEffect(x: -1, y: 1, anchor: .center)                   // mirror horizontally
     }
 }
