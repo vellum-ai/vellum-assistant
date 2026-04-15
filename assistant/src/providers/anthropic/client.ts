@@ -727,7 +727,7 @@ export class AnthropicProvider implements Provider {
         speed,
         output_config,
         cacheTtl: _cacheTtl,
-        max_tokens: _callerMaxTokens,
+        max_tokens: callerMaxTokens,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
@@ -757,7 +757,14 @@ export class AnthropicProvider implements Provider {
 
       let params: Anthropic.MessageStreamParams = {
         model: this.model,
-        max_tokens: isHaiku ? 8192 : 64000,
+        max_tokens: isHaiku
+          ? Math.min(
+              typeof callerMaxTokens === "number" ? callerMaxTokens : 8192,
+              8192,
+            )
+          : typeof callerMaxTokens === "number"
+            ? callerMaxTokens
+            : 64000,
         messages: sentMessages,
         ...restConfig,
         ...(Object.keys(mergedOutputConfig).length > 0
