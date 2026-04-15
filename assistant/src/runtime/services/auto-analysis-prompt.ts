@@ -10,9 +10,23 @@
  * plan from the auto-mode branch of the analyze service.
  */
 
+/**
+ * Neutralize any `</transcript>` sentinels in user-provided transcript text so
+ * they cannot close the wrapper and escape into instruction context. Matches
+ * case-insensitively and tolerates whitespace inside the tag (e.g.
+ * `< /TRANSCRIPT >`).
+ */
+function neutralizeTranscriptSentinel(transcript: string): string {
+  return transcript.replace(
+    /<\s*\/\s*transcript\s*>/gi,
+    "<\u200B/transcript>",
+  );
+}
+
 export function buildAutoAnalysisPrompt(transcript: string): string {
+  const safeTranscript = neutralizeTranscriptSentinel(transcript);
   return `<transcript>
-${transcript}
+${safeTranscript}
 </transcript>
 
 The conversation above just reached a natural pause. Review it as you would
