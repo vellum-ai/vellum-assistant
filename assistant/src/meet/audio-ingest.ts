@@ -68,9 +68,9 @@ export const BOT_CONNECT_TIMEOUT_MS = 30_000;
  * `meet-bot/src/media/audio-capture.ts` — duplicated here rather than
  * imported because the daemon does not import from the `meet-bot` package
  * (they ship as separate artifacts). Must be kept in sync with the bot's
- * capture rate; otherwise providers whose adapter default differs
- * (e.g. Gemini defaults to 48 kHz) will decode at the wrong rate and
- * produce garbled transcripts.
+ * capture rate and passed explicitly to each STT adapter so ingest does not
+ * silently rely on any per-provider default; a mismatch would cause the
+ * provider to decode at the wrong rate and produce garbled transcripts.
  */
 const MEET_BOT_SAMPLE_RATE_HZ = 16_000;
 
@@ -432,6 +432,13 @@ export class MeetAudioIngest {
       return;
     }
 
+    // `speakerLabel` is populated by provider adapters that support
+    // diarization (currently Deepgram). Non-diarizing providers leave it
+    // undefined — downstream consumers treat that as "unknown speaker".
+    // Stable `speakerId` remains unset; the speaker resolver (PR 7)
+    // derives it by cross-checking the label against Meet's DOM-sourced
+    // active-speaker signal. `confidence` rides through when the
+    // provider surfaces it so observers can weight low-confidence chunks.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
@@ -464,14 +471,23 @@ export class MeetAudioIngest {
  * Providers without diarization support silently ignore the flag.
  *
  * Passes the meet-bot's capture sample rate through to the resolver so
- * provider adapters decode at the correct rate regardless of their
- * per-adapter defaults (Deepgram/Whisper default to 16 kHz but Gemini
- * defaults to 48 kHz — passing the rate explicitly keeps all three
- * producing intelligible transcripts).
+ * Meet's audio ingest does not depend on any adapter's per-provider default.
+ * All three streaming adapters happen to default to 16 kHz today, but being
+ * explicit insulates us from a future adapter changing its default out from
+ * under ingest.
  *
- * Throws {@link MeetAudioIngestError} when no streaming-capable provider
- * is configured so the session manager can surface a clear join-failure
- * message pointing at `services.stt.provider`.
+ * Requests `diarize: "preferred"` so capable providers (Deepgram) emit
+ * speaker labels that the downstream speaker resolver can cross-check
+ * against Meet's DOM-sourced active-speaker signal. Providers that
+ * don't support diarization (Gemini, Whisper) silently no-op — Meet
+ * still works, the DOM remains the only speaker source.
+ *
+ * Throws {@link MeetAudioIngestError} when the resolver returns `null`.
+ * With `"preferred"` that only happens when the configured STT provider
+ * is entirely unusable (unknown provider, no streaming support, missing
+ * credentials, or no adapter) — never due to a lack of diarization
+ * capability. The error message points the user at
+ * `services.stt.provider`.
  */
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
   const transcriber = await resolveStreamingTranscriber({
@@ -483,7 +499,7 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
   });
   if (!transcriber) {
     throw new MeetAudioIngestError(
-      "No streaming-capable STT provider is configured. " +
+      "The configured STT provider is unusable for Meet transcription. " +
         "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
         "and ensure credentials are present.",
     );

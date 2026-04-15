@@ -54,4 +54,4 @@ When a single meeting is active, `meetingId` can be omitted — the tool targets
 
 ## Transcription
 
-Transcription quality and latency reflect the user's configured `services.stt.provider`. Deepgram returns sub-second partials over a WebSocket; Gemini and Whisper are chunked (roughly 1 s and 400 ms poll intervals respectively) and therefore produce finals slightly later. Speaker attribution in meeting transcripts is derived from the Meet DOM active-speaker signal — it is independent of the STT provider.
+Transcription quality and latency reflect the user's configured `services.stt.provider`. Deepgram and Gemini stream over a WebSocket and return sub-second partials; Whisper approximates streaming with ~400 ms polls and therefore produces finals slightly later. Speaker attribution in meeting transcripts is derived from the Meet DOM active-speaker signal — it is independent of the STT provider.

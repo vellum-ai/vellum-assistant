@@ -12,6 +12,28 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+
+// ---------------------------------------------------------------------------
+// Module mocks — must appear before any imports of the modules under test
+// ---------------------------------------------------------------------------
+
+// Intercept `resolveStreamingTranscriber` so we can assert the default
+// `createTranscriber` path passes the expected diarize preference through.
+// Tests that inject their own `createTranscriber` never hit this mock.
+let mockResolveCalls: Array<Record<string, unknown> | undefined> = [];
+let mockResolveResult: StreamingTranscriber | null = null;
+
+mock.module("../../providers/speech-to-text/resolve.js", () => ({
+  resolveStreamingTranscriber: async (options?: Record<string, unknown>) => {
+    mockResolveCalls.push(options);
+    return mockResolveResult;
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Imports under test — after mocks
+// ---------------------------------------------------------------------------
+
 import {
   BOT_CONNECT_TIMEOUT_MS,
   MeetAudioIngest,
@@ -202,6 +224,8 @@ function newIngestSetup(): {
 
 beforeEach(() => {
   __resetMeetSessionEventRouterForTests();
+  mockResolveCalls = [];
+  mockResolveResult = null;
 });
 
 afterEach(() => {
@@ -464,78 +488,69 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     await setup.ingest.stop();
   });
 
-  test("propagates speakerLabel and confidence from the transcriber onto the transcript chunk", async () => {
+  test("propagates speakerLabel and confidence from partial and final events into TranscriptChunkEvent", async () => {
     const setup = newIngestSetup();
     const captured: Array<unknown> = [];
-    getMeetSessionEventRouter().register("m-diarize", (e) => captured.push(e));
+    getMeetSessionEventRouter().register("m-speaker", (e) => captured.push(e));
 
-    const startPromise = setup.ingest.start("m-diarize", "/tmp/diarize.sock");
+    const startPromise = setup.ingest.start("m-speaker", "/tmp/speaker.sock");
     await flushMicrotasks();
     setup.server.connectBot();
     await startPromise;
 
-    setup.session.emit({
-      type: "final",
-      text: "hi there.",
-      speakerLabel: "0",
-      confidence: 0.92,
-    });
+    // Partial event with a speaker label + confidence.
     setup.session.emit({
       type: "partial",
-      text: "how are",
+      text: "hi ",
       speakerLabel: "1",
       confidence: 0.5,
     });
+    // Final event with a different speaker label + confidence.
+    setup.session.emit({
+      type: "final",
+      text: "hi there.",
+      speakerLabel: "2",
+      confidence: 0.92,
+    });
+    // Event without a speaker label or confidence — fields stay undefined.
+    setup.session.emit({ type: "partial", text: "..." });
 
-    expect(captured).toHaveLength(2);
-    const finalEvent = captured[0] as {
+    expect(captured).toHaveLength(3);
+
+    const partial = captured[0] as {
       type: string;
       isFinal: boolean;
       text: string;
       speakerLabel?: string;
       confidence?: number;
     };
-    expect(finalEvent.type).toBe("transcript.chunk");
-    expect(finalEvent.isFinal).toBe(true);
-    expect(finalEvent.text).toBe("hi there.");
-    expect(finalEvent.speakerLabel).toBe("0");
-    expect(finalEvent.confidence).toBe(0.92);
+    expect(partial.type).toBe("transcript.chunk");
+    expect(partial.isFinal).toBe(false);
+    expect(partial.text).toBe("hi ");
+    expect(partial.speakerLabel).toBe("1");
+    expect(partial.confidence).toBe(0.5);
 
-    const partialEvent = captured[1] as {
+    const final = captured[1] as {
       type: string;
       isFinal: boolean;
       text: string;
       speakerLabel?: string;
       confidence?: number;
     };
-    expect(partialEvent.isFinal).toBe(false);
-    expect(partialEvent.text).toBe("how are");
-    expect(partialEvent.speakerLabel).toBe("1");
-    expect(partialEvent.confidence).toBe(0.5);
+    expect(final.type).toBe("transcript.chunk");
+    expect(final.isFinal).toBe(true);
+    expect(final.text).toBe("hi there.");
+    expect(final.speakerLabel).toBe("2");
+    expect(final.confidence).toBe(0.92);
 
-    await setup.ingest.stop();
-  });
-
-  test("leaves speakerLabel/confidence unset on transcript chunk when the transcriber does not surface them", async () => {
-    const setup = newIngestSetup();
-    const captured: Array<unknown> = [];
-    getMeetSessionEventRouter().register("m-noextra", (e) => captured.push(e));
-
-    const startPromise = setup.ingest.start("m-noextra", "/tmp/noextra.sock");
-    await flushMicrotasks();
-    setup.server.connectBot();
-    await startPromise;
-
-    setup.session.emit({ type: "final", text: "bare." });
-
-    expect(captured).toHaveLength(1);
-    const event = captured[0] as {
+    const unlabeled = captured[2] as {
       type: string;
       speakerLabel?: string;
       confidence?: number;
     };
-    expect(event.speakerLabel).toBeUndefined();
-    expect(event.confidence).toBeUndefined();
+    expect(unlabeled.type).toBe("transcript.chunk");
+    expect(unlabeled.speakerLabel).toBeUndefined();
+    expect(unlabeled.confidence).toBeUndefined();
 
     await setup.ingest.stop();
   });
@@ -611,5 +626,57 @@ describe("MeetAudioIngest.stop", () => {
 
     // Stop was synchronous wrt. the connection — any late data is dropped.
     expect(setup.session.audioChunks).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default transcriber factory — diarization wiring
+// ---------------------------------------------------------------------------
+
+describe("MeetAudioIngest — default transcriber factory", () => {
+  test("requests diarize: preferred from the resolver", async () => {
+    // The fake resolver returns a minimal StreamingTranscriber so the
+    // ingest has something to drive. We don't exercise the streaming path
+    // here — we just need start() to reach the resolver call.
+    const fakeSession = new FakeStreamingTranscriber();
+    mockResolveResult = fakeSession;
+
+    // No createTranscriber override — exercises the default factory path.
+    const ingest = new MeetAudioIngest({
+      listen: async () => new FakeUnixSocketServer(),
+      botConnectTimeoutMs: 1_000,
+    });
+
+    // Kick off start(); we don't need it to resolve, just to call the
+    // resolver. Attach a noop rejection handler so the bot-connect timeout
+    // doesn't surface as an unhandled rejection when the test finishes.
+    const startPromise = ingest.start("m-diarize", "/tmp/diarize.sock");
+    startPromise.catch(() => {});
+    await flushMicrotasks();
+
+    expect(mockResolveCalls).toHaveLength(1);
+    const opts = mockResolveCalls[0];
+    expect(opts).toBeDefined();
+    expect((opts as { diarize?: string }).diarize).toBe("preferred");
+    // Sanity check that the sample rate is still forwarded.
+    expect((opts as { sampleRate?: number }).sampleRate).toBeGreaterThan(0);
+
+    await ingest.stop();
+  });
+
+  test("throws MeetAudioIngestError when the resolver returns null", async () => {
+    // Unusable provider configuration — resolver returns null.
+    mockResolveResult = null;
+
+    const ingest = new MeetAudioIngest({
+      listen: async () => new FakeUnixSocketServer(),
+    });
+
+    await expect(ingest.start("m-null", "/tmp/null.sock")).rejects.toThrow(
+      MeetAudioIngestError,
+    );
+    await expect(ingest.start("m-null2", "/tmp/null2.sock")).rejects.toThrow(
+      /configured STT provider is unusable/i,
+    );
   });
 });
