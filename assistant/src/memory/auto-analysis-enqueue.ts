@@ -7,7 +7,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getConversationType } from "./conversation-crud.js";
-import { upsertDebouncedJob } from "./jobs-store.js";
+import { upsertAutoAnalysisJob } from "./jobs-store.js";
 
 const log = getLogger("auto-analysis-enqueue");
 
@@ -40,11 +40,12 @@ export type AutoAnalysisTrigger =
  *   - the source conversation is private (`analyzeConversation` rejects
  *     private conversations, so enqueueing would guarantee a failed job).
  *
- * All triggers route through `upsertDebouncedJob()` so a pending job for
- * the same conversation coalesces additional enqueue attempts into a
- * single row (no duplicates). `"batch"` fires immediately
- * (`runAfter = now`); `"idle"` / `"lifecycle"` debounce by
- * `analysis.idleTimeoutMs`.
+ * Immediate triggers (`"batch"`, `"compaction"`) and debounced triggers
+ * (`"idle"`, `"lifecycle"`) are written to separate rows keyed by a
+ * `triggerGroup` discriminator. This prevents an idle enqueue from
+ * pushing an already-scheduled batch row's `runAfter` into the future
+ * (and vice versa). Within each group, rapid enqueues still coalesce to
+ * a single pending row via `upsertAutoAnalysisJob`.
  */
 export function enqueueAutoAnalysisIfEnabled(args: {
   conversationId: string;
@@ -85,14 +86,13 @@ export function enqueueAutoAnalysisIfEnabled(args: {
 
   const idleTimeoutMs = config.analysis?.idleTimeoutMs ?? 600_000;
   const runImmediately = trigger === "batch" || trigger === "compaction";
+  const triggerGroup: "immediate" | "debounced" = runImmediately
+    ? "immediate"
+    : "debounced";
   const runAfter = runImmediately ? Date.now() : Date.now() + idleTimeoutMs;
 
   try {
-    upsertDebouncedJob(
-      "conversation_analyze",
-      { conversationId },
-      runAfter,
-    );
+    upsertAutoAnalysisJob({ conversationId, triggerGroup }, runAfter);
   } catch (err) {
     log.warn(
       { err, conversationId, trigger },

@@ -26,7 +26,7 @@ const enqueueCalls: Array<{
 }> = [];
 const debouncedCalls: Array<{
   type: string;
-  payload: { conversationId: string };
+  payload: { conversationId: string; triggerGroup: "immediate" | "debounced" };
   runAfter: number;
 }> = [];
 
@@ -60,12 +60,18 @@ mock.module("../jobs-store.js", () => ({
     enqueueCalls.push({ type, payload, runAfter });
     return "job-id";
   },
-  upsertDebouncedJob: (
-    type: string,
-    payload: { conversationId: string },
+  upsertAutoAnalysisJob: (
+    payload: {
+      conversationId: string;
+      triggerGroup: "immediate" | "debounced";
+    },
     runAfter: number,
   ) => {
-    debouncedCalls.push({ type, payload, runAfter });
+    debouncedCalls.push({
+      type: "conversation_analyze",
+      payload,
+      runAfter,
+    });
   },
 }));
 
@@ -119,16 +125,20 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
-    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
-    // "batch" fires immediately (no debounce), so runAfter ≈ now. We use
-    // upsertDebouncedJob so two consecutive batch crossings coalesce into
-    // a single pending job rather than spawning duplicates.
+    expect(debouncedCalls[0]!.payload).toEqual({
+      conversationId: "c1",
+      triggerGroup: "immediate",
+    });
+    // "batch" fires immediately (no debounce), so runAfter ≈ now. The
+    // "immediate" triggerGroup keeps this row from coalescing with any
+    // "debounced" (idle/lifecycle) row — an idle enqueue cannot push
+    // this runAfter into the future.
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
     expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'idle', normal source — upsertDebouncedJob called with runAfter ≈ now + idleTimeoutMs", () => {
+  test("flag on, trigger = 'idle', normal source — upsertAutoAnalysisJob called with runAfter ≈ now + idleTimeoutMs", () => {
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     const before = Date.now();
 
@@ -138,7 +148,10 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
-    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    expect(debouncedCalls[0]!.payload).toEqual({
+      conversationId: "c1",
+      triggerGroup: "debounced",
+    });
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(
       before + 600_000,
     );
@@ -146,7 +159,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'lifecycle', normal source — upsertDebouncedJob called (same as idle)", () => {
+  test("flag on, trigger = 'lifecycle', normal source — upsertAutoAnalysisJob called (same as idle)", () => {
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     const before = Date.now();
 
@@ -159,7 +172,10 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
-    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    expect(debouncedCalls[0]!.payload).toEqual({
+      conversationId: "c1",
+      triggerGroup: "debounced",
+    });
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(
       before + 600_000,
     );
@@ -253,7 +269,10 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
-    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    expect(debouncedCalls[0]!.payload).toEqual({
+      conversationId: "c1",
+      triggerGroup: "immediate",
+    });
     // "compaction" fires immediately (runAfter ≈ now) so the reflective
     // agent runs before the narrowed context window pushes more detail out.
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
@@ -282,7 +301,10 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
 
     expect(debouncedCalls).toHaveLength(1);
     expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
-    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    expect(debouncedCalls[0]!.payload).toEqual({
+      conversationId: "c1",
+      triggerGroup: "immediate",
+    });
     expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
     expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
   });
