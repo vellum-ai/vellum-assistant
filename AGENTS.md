@@ -159,14 +159,15 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Docker Volume Architecture
 
-Docker instances use four dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+Docker instances use four dedicated volumes with strict per-service access boundaries, plus one host bind-mount for the Meet subsystem. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
 
-| Volume | Mount path | Access | Contents |
+| Volume / bind | Mount path | Access | Contents |
 |---|---|---|---|
 | **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs, `.backups/`, `.backup.key` |
 | **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
+| **Docker socket** (host bind-mount, not a named volume) | `/var/run/docker.sock` | Assistant: read-write | Host Docker Engine API — used by the Meet subsystem to spawn sibling bot containers. |
 
 The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
 
@@ -174,7 +175,10 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads and writes trust rules via the gateway's HTTP trust API — it has no direct filesystem access to `trust.json`. The gateway reads `trust.json` from `/gateway-security/trust.json`.
 - **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
+- **Meet bots are sibling containers, not nested.** The daemon uses `/var/run/docker.sock` to instruct the host's Docker engine to spawn them. This grants the daemon effective root on the host — acceptable for single-user local deployments, not for managed/multi-tenant mode. Managed/hosted mode is explicitly out of scope for this Docker-socket approach; future managed Meet support needs a different spawn model (see [`vellum-assistant-platform`](../vellum-assistant-platform)).
 - The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
+
+**Meet workspace-volume discovery**: Meet-bot sibling containers need to mount the same workspace volume as the assistant so transcripts, audio, and other meeting artifacts land on the shared per-instance volume. The assistant discovers the volume name at runtime by parsing `/proc/self/mountinfo` (see `assistant/src/meet/workspace-volume.ts`). The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as a belt-and-suspenders hint so the workspace-volume helper can skip the mountinfo probe and fall back cleanly on storage drivers with non-standard layouts.
 
 **Backup paths in Docker mode**: The backup system stores local snapshots at `VELLUM_BACKUP_DIR` (default: `/workspace/.backups/`) and the encryption key at `VELLUM_BACKUP_KEY_PATH` (default: `/workspace/.backup.key`) on the workspace volume. This means workspace volume destruction loses both data and backups. For stronger isolation, a dedicated backup volume could be added in a future iteration.
 

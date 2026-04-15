@@ -58,3 +58,7 @@ The CLI creates and manages Docker volumes for containerized instances. See the 
 **Volume cleanup** (`retire`): All volumes (including the legacy data volume if it exists) are removed when an instance is retired.
 
 **Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.
+
+**Meet sibling-container support** (assistant container only): In addition to the named volumes above, the assistant container receives a host bind-mount of `/var/run/docker.sock:/var/run/docker.sock` so the Meet subsystem can spawn sibling Meet-bot containers on the host's Docker engine. The CLI also injects `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as a hint so the assistant's workspace-volume helper can look up the volume by name without probing `/proc/self/mountinfo`. Both are wired in `serviceDockerRunArgs()` in `lib/docker.ts`.
+
+Mounting the Docker socket grants the daemon effective root on the host — acceptable for single-user local deployments, not for managed/multi-tenant mode. Managed Meet support requires a different spawn model and is out of scope for this CLI.

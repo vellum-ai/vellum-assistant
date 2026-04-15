@@ -137,7 +137,7 @@ The lockfile can contain both local and remote entries. Remote entries (cloud pr
 
 ## Docker Volume Architecture
 
-Docker instances use dedicated volumes with per-service access boundaries instead of a single shared data volume. This enforces least-privilege: each service only has filesystem access to the data it owns.
+Docker instances use dedicated volumes with per-service access boundaries instead of a single shared data volume. This enforces least-privilege: each service only has filesystem access to the data it owns. A single host bind-mount (`/var/run/docker.sock`) is also attached to the assistant container so the Meet subsystem can spawn sibling bot containers — see [Meet Sibling-Container Model](#meet-sibling-container-model) below.
 
 ### Volume Layout
 
@@ -146,12 +146,33 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 <instance-name>-gateway-sec     →  /gateway-security    (gateway only)
 <instance-name>-ces-sec         →  /ces-security        (CES only)
 <instance-name>-socket          →  /run/ces-bootstrap   (assistant + CES)
+/var/run/docker.sock            →  /var/run/docker.sock (assistant: rw — host bind, not a named volume)
 ```
 
 - **Workspace volume** (`/workspace`): Shared state — config, conversations, apps, skills, database, logs. Set via `VELLUM_WORKSPACE_DIR=/workspace`. The assistant and gateway have read-write access; the CES mounts it read-only (for config reading).
 - **Gateway security volume** (`/gateway-security`): Files private to the gateway container. Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
 - **CES security volume** (`/ces-security`): Credential encryption keys (`keys.enc`, `store.key`). Only the CES container mounts this volume. Set via `CREDENTIAL_SECURITY_DIR=/ces-security`.
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
+- **Docker socket bind-mount** (`/var/run/docker.sock`): Host Docker Engine API, used by the assistant's Meet subsystem to spawn sibling Meet-bot containers. Mounted read-write on the assistant container only. The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as an env-var hint so the workspace-volume helper can find the volume reliably without probing Docker (see `assistant/src/meet/workspace-volume.ts`).
+
+### Meet Sibling-Container Model
+
+Meet bots are **sibling** containers to the assistant, not nested (Docker-in-Docker). The assistant instructs the host's Docker engine via the mounted socket to spawn each bot; bots therefore run next to the assistant on the same engine and share the workspace volume.
+
+```
+                host Docker Engine (/var/run/docker.sock)
+                         |
+           +-------------+--------------+--------------------+
+           |             |              |                    |
+    assistant ct.   gateway ct.     CES ct.          meet-bot ct. (per meeting)
+           |                                                 |
+           +-------- /workspace (<name>-workspace) ----------+
+                     (mounted on both, for artifact exchange)
+```
+
+The assistant creates each bot with a bind of the discovered workspace volume at `/workspace` so the bot can drop transcripts, audio, and metadata into `/workspace/meets/<meetingId>/` where the assistant can read them back. Bots have no access to the gateway-security or CES-security volumes.
+
+**Security boundary — single-user local only.** Mounting `/var/run/docker.sock` grants the assistant effective root on the host (any container mount, any image run). This is acceptable for single-user local deployments where the assistant is already running with the user's privileges. It is **not** acceptable for managed/multi-tenant mode. Managed Meet support is explicitly out of scope for this Docker-socket approach — the platform deployment (`vellum-assistant-platform`) needs a different spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances.
 
 ### Cross-Service Access Patterns
 
