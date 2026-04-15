@@ -11,7 +11,6 @@
         "dropbox",
         "google",
         "hubspot",
-        "other",
         "slack_channel",
         "spotify",
         "telegram",
@@ -35,6 +34,13 @@
         "notion",
         "outlook",
         "slack"
+      ]
+    },
+    "custom": {
+      "url": null,
+      "license": "Custom (internal)",
+      "logos": [
+        "other"
       ]
     }
   }
