@@ -410,6 +410,11 @@ const SLACK_LINK_PREFIXES = [
   "!date",
 ];
 
+// Matches `scheme://` at the start of a string where `scheme` follows RFC 3986
+// syntax: `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`. Covers http, https,
+// ftp, ssh, git+ssh, custom app schemes, etc.
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
 function looksLikeLinkStart(window: string, openIdx: number): boolean {
   const rest = window.slice(openIdx + 1);
   if (rest.length === 0) return false;
@@ -425,6 +430,20 @@ function looksLikeLinkStart(window: string, openIdx: number): boolean {
     // known link prefix, treat it as link-shaped so the continuation
     // past the window is still protected from mid-token hard slicing.
     if (rest.length < prefix.length && prefix.startsWith(rest)) return true;
+  }
+  // `markdownToMrkdwn` wraps any markdown link target in `<url|text>`,
+  // including schemes beyond the whitelist above (ftp, ssh, custom app
+  // schemes, etc.). Recognize any `scheme://` prefix so those spans are
+  // protected too. Also treat a truncated `<scheme` at the window edge as
+  // link-shaped so the continuation past the window is not hard-sliced.
+  if (URL_SCHEME_RE.test(rest)) return true;
+  const colonIdx = rest.indexOf(":");
+  if (colonIdx < 0) {
+    if (/^[a-z][a-z0-9+.-]*$/i.test(rest)) return true;
+  } else if (colonIdx + 1 === rest.length) {
+    if (/^[a-z][a-z0-9+.-]*:$/i.test(rest)) return true;
+  } else if (rest[colonIdx + 1] === "/" && colonIdx + 2 === rest.length) {
+    if (/^[a-z][a-z0-9+.-]*:\/$/i.test(rest)) return true;
   }
   return false;
 }

@@ -129,11 +129,11 @@ describe("splitLongTextSegment", () => {
   });
 
   test("plain `<` in technical prose does not protect trailing sentence boundaries from being used as split points", () => {
-    // Regression: `computeMrkdwnSpans` used to treat every `<` as a link
-    // span start. For prose like `a < b. Another sentence. ...`, an
-    // unmatched `<` near the front of the window extended a "protected"
-    // span to the window edge, rejecting every `. ` boundary after it and
-    // forcing a mid-word hard slice.
+    // `computeMrkdwnSpans` only treats `<` as a link span start when
+    // followed by a recognized Slack link/mention prefix. A plain `<` in
+    // prose like `a < b. Another sentence. ...` must not create a
+    // protected span that extends to the window edge, or every `. `
+    // boundary after it would be rejected, forcing a mid-word hard slice.
     const sentence = "a < b. ";
     // Repeat enough to comfortably exceed maxChars so the splitter must
     // pick a boundary inside the window.
@@ -153,6 +153,31 @@ describe("splitLongTextSegment", () => {
     expect(chunks.join(" ").replace(/\s+/g, " ").trim()).toBe(
       text.replace(/\s+/g, " ").trim(),
     );
+  });
+
+  test("protects `<scheme://...>` link spans for schemes beyond the http/https whitelist", () => {
+    // `markdownToMrkdwn` wraps any markdown link target in `<url|text>`,
+    // including schemes like ftp, ssh, or custom app schemes. The splitter
+    // must recognize those as protected spans so it does not bisect the
+    // URL token when deciding where to cut a long chunk.
+    const filler = "lorem ipsum dolor sit amet. ".repeat(200);
+    const longUrl =
+      "ftp://example.com/" + "segment/".repeat(30) + "final-path";
+    const linkToken = `<${longUrl}|download>`;
+    const text = filler + linkToken + " " + filler;
+    expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
+
+    const chunks = splitLongTextSegment(text);
+
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(SLACK_SECTION_MAX_CHARS);
+      // If the splitter ever landed inside the `<...>` token, some chunk
+      // would contain a `<` without the matching `>` (or vice versa).
+      const opens = (chunk.match(/</g) ?? []).length;
+      const closes = (chunk.match(/>/g) ?? []).length;
+      expect(opens).toBe(closes);
+    }
   });
 });
 
