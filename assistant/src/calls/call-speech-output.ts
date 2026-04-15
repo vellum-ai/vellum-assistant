@@ -158,6 +158,11 @@ async function synthesizeAndPlay(
         { err, provider: provider.id, errName, errCode },
         "Deepgram system prompt TTS synthesis failed — no native fallback available",
       );
+      // Send the end-of-turn signal so ConversationRelay transitions from
+      // "assistant speaking" to "caller speaking" state. Without this, the
+      // relay hangs waiting for the prompt to complete and the caller
+      // cannot interact.
+      relay.sendTextToken("", true);
       return;
     }
 
