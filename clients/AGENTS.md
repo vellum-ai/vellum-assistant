@@ -293,29 +293,29 @@ References:
 
 ## Scroll and Layout Stability
 
-> The old mode-based scroll state machine (ScrollCoordinator, ScrollMode enum with initialLoad/followingBottom/freeBrowsing/programmaticScroll/stabilizing, recovery windows, stabilization, auto-follow) has been completely removed. The current system is a flat coordinator with no modal state.
+> The old mode-based scroll state machine (ScrollCoordinator, ScrollMode enum with initialLoad/followingBottom/freeBrowsing/programmaticScroll/stabilizing, recovery windows, stabilization, auto-follow) has been completely removed. The current system uses inverted scroll via a `FlippedModifier` — a flat coordinator with no modal state.
 
-### Architecture: Flat Scroll Coordinator
+### Architecture: Inverted Scroll via FlippedModifier
 
 > **Canonical reference:** See [`clients/macos/SCROLL_STRATEGY.md`](macos/SCROLL_STRATEGY.md) for the full scroll behavior specification, design decisions, and restoration guide. If scroll behavior breaks, use that document as the source of truth.
 
-The scroll system has no mode-based state machine. `MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`) is a lightweight `@Observable @MainActor` class owned by `MessageListView` via `@State`. It tracks CTA visibility and distance-from-bottom — not scroll modes.
+The scroll system uses an inverted ScrollView (rotate 180 degrees + mirror horizontally via `FlippedModifier`). The ScrollView gets `.flipped()`, and each row inside also gets `.flipped()` — the double-flip means content appears right-side-up, but the scroll coordinate system is inverted: offset 0 = visual bottom (latest messages).
 
-**Threads open at top.** `.defaultScrollAnchor(.top, for: .initialOffset)` on the ScrollView positions new and switched conversations at the top. No explicit scroll-to-bottom on conversation switch — SwiftUI handles it via `.id(conversationId)` recreation.
+`MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`) is a lightweight `@Observable @MainActor` class owned by `MessageListView` via `@State`. It tracks CTA visibility and inverted distance metrics — not scroll modes.
 
-**Scroll-to-bottom on send.** When the user sends a message, `handleMessagesCountChanged` detects the new user message (via `pendingSendScrollMessageId`), defers one run-loop tick for LazyVStack materialization, then calls `scrollPosition.scrollTo(edge: .bottom)` with `VAnimation.standard`. The minHeight wrapper on the thinking indicator / assistant message fills the viewport so the user message is pinned to the top of the visible area.
+**Threads open at bottom naturally.** The inverted ScrollView starts at coordinate top (visual bottom = latest messages) without any `.defaultScrollAnchor`. On conversation switch, `.id(conversationId)` recreates the ScrollView and it naturally opens at visual bottom.
+
+**No scroll-to-bottom on send.** In the inverted ScrollView, new content appears at coordinate top (visual bottom) where the viewport already sits. No imperative scroll calls needed — the viewport stays put naturally.
 
 **No auto-follow during streaming.** The viewport does NOT track new content as the assistant generates tokens. The user message stays visible at the top; assistant content grows below it off-screen.
 
-**"Scroll to latest" CTA.** Appears when `distanceFromBottom > 400` (distance-based, not mode-based). Tapping calls `scrollState.dismissScrollToLatest()` + `scrollPosition = ScrollPosition(edge: .bottom)` inside `withAnimation(VAnimation.spring)`.
+**"Scroll to latest" CTA.** Appears when `distanceFromBottom > 400`. In inverted scroll, `distanceFromBottom = lastContentOffsetY` (offset 0 = visual bottom). Tapping calls `scrollState.dismissScrollToLatest()` + `scrollPosition = ScrollPosition(edge: .top)` inside `withAnimation(VAnimation.spring)`. Note: `.top` = visual bottom in inverted scroll.
 
-**Thinking placeholder row.** `TranscriptProjector` appends a synthetic placeholder assistant row when `shouldShowThinkingIndicator` is true. This renders the thinking indicator inside the ForEach's minHeight wrapper — the same container that later holds the real assistant message. Eliminates layout jump on transition. Uses a stable deterministic UUID.
+**Thinking placeholder row.** `TranscriptProjector` appends a synthetic placeholder assistant row when `shouldShowThinkingIndicator` is true. This renders the thinking indicator inside the same ForEach row that later holds the real assistant message. Eliminates layout jump on transition. Uses a stable deterministic UUID.
 
-**MinHeight calculation.** `containerHeight - composerHeight(80) - estimatedUserHeight - layoutPadding`. Uses stable container height from GeometryReader (not scroll viewport which fluctuates with composer resize). User message height estimated via `NSString.boundingRect`.
+**Pagination.** Rising-edge sentinel detection with 500ms cooldown using `distanceFromTop` (distance to oldest messages = `scrollContentHeight - lastContentOffsetY - scrollContainerHeight`). The `isPaginationInFlight` flag gates the pagination sentinel to prevent stacking concurrent pagination loads.
 
-**Pagination.** Rising-edge sentinel detection with 500ms cooldown. Independent of scroll mode. The `isPaginationInFlight` flag gates the pagination sentinel to prevent stacking concurrent pagination loads.
-
-**Deep-link anchor.** One-shot scroll-to-ID via `ScrollPosition` value replacement. Independent of scroll mode.
+**Deep-link anchor.** One-shot scroll-to-ID via `ScrollPosition` value replacement. Uses `.center` anchor which is view-relative and works unchanged in inverted scroll.
 
 ### Scroll Event Detection
 

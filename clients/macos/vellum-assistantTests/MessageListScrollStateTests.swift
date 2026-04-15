@@ -34,9 +34,8 @@ final class MessageListScrollStateTests: XCTestCase {
     // MARK: - updateScrollToLatest: Distance Threshold
 
     func testUpdateScrollToLatestShowsWhenFarFromBottom() {
-        state.scrollContentHeight = 5000
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 2000  // distanceFromBottom = 5000 - 2000 - 800 = 2200
+        // Inverted scroll: lastContentOffsetY IS distanceFromBottom
+        state.lastContentOffsetY = 2200  // distanceFromBottom = 2200
 
         state.updateScrollToLatest()
 
@@ -45,9 +44,8 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testUpdateScrollToLatestHidesWhenNearBottom() {
-        state.scrollContentHeight = 1000
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 100  // distanceFromBottom = 1000 - 100 - 800 = 100
+        // Inverted scroll: lastContentOffsetY IS distanceFromBottom
+        state.lastContentOffsetY = 100  // distanceFromBottom = 100
 
         state.updateScrollToLatest()
 
@@ -56,9 +54,8 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testUpdateScrollToLatestExactThreshold() {
-        state.scrollContentHeight = 1600
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 400  // distanceFromBottom = 1600 - 400 - 800 = 400
+        // Inverted scroll: lastContentOffsetY IS distanceFromBottom
+        state.lastContentOffsetY = 400  // distanceFromBottom = 400
 
         state.updateScrollToLatest()
 
@@ -67,9 +64,8 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testUpdateScrollToLatestJustAboveThreshold() {
-        state.scrollContentHeight = 1602
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 401  // distanceFromBottom = 1602 - 401 - 800 = 401
+        // Inverted scroll: lastContentOffsetY IS distanceFromBottom
+        state.lastContentOffsetY = 401  // distanceFromBottom = 401
 
         state.updateScrollToLatest()
 
@@ -78,8 +74,7 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testUpdateScrollToLatestAtBottom() {
-        state.scrollContentHeight = 800
-        state.scrollContainerHeight = 800
+        // Inverted scroll: 0 = at visual bottom (latest messages)
         state.lastContentOffsetY = 0  // distanceFromBottom = 0
 
         state.updateScrollToLatest()
@@ -89,15 +84,13 @@ final class MessageListScrollStateTests: XCTestCase {
     }
 
     func testUpdateScrollToLatestTogglesCorrectly() {
-        // Start far from bottom
-        state.scrollContentHeight = 5000
-        state.scrollContainerHeight = 800
+        // Start far from bottom (inverted scroll: offset = distance)
         state.lastContentOffsetY = 2000
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
 
-        // Scroll to bottom
-        state.lastContentOffsetY = 4200  // distanceFromBottom = 0
+        // Scroll to bottom (offset 0 = at latest messages)
+        state.lastContentOffsetY = 0  // distanceFromBottom = 0
         state.updateScrollToLatest()
         XCTAssertFalse(state.showScrollToLatest,
                        "Should toggle off when scrolled back to bottom")
@@ -106,33 +99,26 @@ final class MessageListScrollStateTests: XCTestCase {
     // MARK: - updateScrollToLatest: Hysteresis Band
 
     func testUpdateScrollToLatestStaysVisibleInsideHysteresisBand() {
-        // Show the CTA first.
-        state.scrollContentHeight = 5000
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 2000  // distanceFromBottom = 2200
+        // Show the CTA first (inverted scroll: offset = distance).
+        state.lastContentOffsetY = 2200  // distanceFromBottom = 2200
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
 
         // Drop distance into the 200..400 band — should stay visible.
-        state.scrollContentHeight = 1100
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 0  // distanceFromBottom = 300
+        state.lastContentOffsetY = 300  // distanceFromBottom = 300
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest,
                       "Once visible, CTA should stay visible inside the 200..400 hysteresis band")
     }
 
     func testUpdateScrollToLatestHidesBelowLowThreshold() {
-        state.scrollContentHeight = 5000
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 2000  // distanceFromBottom = 2200
+        // Inverted scroll: offset = distance from bottom.
+        state.lastContentOffsetY = 2200  // distanceFromBottom = 2200
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
 
         // Drop below the 200pt hide threshold — should hide.
-        state.scrollContentHeight = 999
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 0  // distanceFromBottom = 199
+        state.lastContentOffsetY = 199  // distanceFromBottom = 199
         state.updateScrollToLatest()
         XCTAssertFalse(state.showScrollToLatest,
                        "Should hide once distanceFromBottom drops below 200")
@@ -144,14 +130,13 @@ final class MessageListScrollStateTests: XCTestCase {
 
         // Put distance inside the 200..400 band — should remain hidden
         // because the show threshold (>400) was never crossed.
-        state.scrollContentHeight = 1199
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 0  // distanceFromBottom = 399
+        // Inverted scroll: offset = distance from bottom.
+        state.lastContentOffsetY = 399  // distanceFromBottom = 399
         state.updateScrollToLatest()
         XCTAssertFalse(state.showScrollToLatest,
                        "Hidden CTA should not appear until distanceFromBottom exceeds 400")
 
-        state.scrollContentHeight = 1000  // distanceFromBottom = 200
+        state.lastContentOffsetY = 200  // distanceFromBottom = 200
         state.updateScrollToLatest()
         XCTAssertFalse(state.showScrollToLatest,
                        "Hidden CTA should not appear at the low threshold either")
@@ -162,20 +147,19 @@ final class MessageListScrollStateTests: XCTestCase {
         // oscillates across the 400pt show threshold should not toggle
         // visibility repeatedly once the CTA is hidden — the low threshold
         // must be crossed first for it to appear.
-        state.scrollContentHeight = 1201
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 0  // distanceFromBottom = 401
+        // Inverted scroll: lastContentOffsetY = distanceFromBottom.
+        state.lastContentOffsetY = 401  // distanceFromBottom = 401
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest, "Crosses show threshold → visible")
 
         // Bounce to 399 (noise): must stay visible (inside the band).
-        state.scrollContentHeight = 1199  // distanceFromBottom = 399
+        state.lastContentOffsetY = 399  // distanceFromBottom = 399
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest,
                       "Noise in the hysteresis band must not toggle visibility")
 
         // Bounce back to 410: still visible, no flicker.
-        state.scrollContentHeight = 1210  // distanceFromBottom = 410
+        state.lastContentOffsetY = 410  // distanceFromBottom = 410
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
     }
@@ -185,13 +169,12 @@ final class MessageListScrollStateTests: XCTestCase {
     func testResetClearsAllState() {
         let newId = UUID()
 
-        // Set up non-default state
+        // Set up non-default state (inverted scroll: offset = distance from bottom)
         state.scrollContentHeight = 5000
         state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 2000
+        state.lastContentOffsetY = 2000  // distanceFromBottom = 2000
         state.lastMessageId = UUID()
         state.currentConversationId = UUID()
-        state.pendingSendScrollMessageId = UUID()
         state.wasPaginationTriggerInRange = true
         state.lastPaginationCompletedAt = Date()
         state.updateScrollToLatest()
@@ -202,7 +185,6 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertEqual(state.currentConversationId, newId)
         XCTAssertNil(state.lastMessageId)
-        XCTAssertNil(state.pendingSendScrollMessageId)
         XCTAssertEqual(state.scrollContentHeight, 0)
         XCTAssertEqual(state.scrollContainerHeight, 0)
         XCTAssertEqual(state.lastContentOffsetY, 0)
@@ -367,29 +349,29 @@ final class MessageListScrollStateTests: XCTestCase {
     // MARK: - distanceFromBottom
 
     func testDistanceFromBottomCalculation() {
-        state.scrollContentHeight = 2000
-        state.scrollContainerHeight = 800
+        // Inverted scroll: distanceFromBottom = lastContentOffsetY directly.
+        // 0 = at visual bottom (latest messages), increases toward older messages.
         state.lastContentOffsetY = 500
 
-        XCTAssertEqual(state.distanceFromBottom, 700,
-                       "distanceFromBottom = contentHeight - offsetY - containerHeight")
+        XCTAssertEqual(state.distanceFromBottom, 500,
+                       "distanceFromBottom = lastContentOffsetY (inverted scroll)")
     }
 
     func testDistanceFromBottomAtBottom() {
-        state.scrollContentHeight = 2000
-        state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 1200
+        // Inverted scroll: 0 offset = at visual bottom (latest messages).
+        state.lastContentOffsetY = 0
 
         XCTAssertEqual(state.distanceFromBottom, 0,
-                       "Should be 0 when scrolled to bottom")
+                       "Should be 0 when scrolled to bottom (offset = 0)")
     }
 
     // MARK: - cancelAll
 
     func testCancelAllResetsState() {
+        // Inverted scroll: offset = distance from bottom
         state.scrollContentHeight = 5000
         state.scrollContainerHeight = 800
-        state.lastContentOffsetY = 2000
+        state.lastContentOffsetY = 2000  // distanceFromBottom = 2000
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
 

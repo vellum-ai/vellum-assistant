@@ -31,7 +31,6 @@ final class MessageListScrollState {
     @ObservationIgnored var currentConversationId: UUID?
     @ObservationIgnored var lastMessageId: UUID?
     @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
-    @ObservationIgnored var pendingSendScrollMessageId: UUID?
     // MARK: - Deep-link anchor
 
     @ObservationIgnored var anchorSetTime: Date?
@@ -81,7 +80,17 @@ final class MessageListScrollState {
 
     // MARK: - Computed
 
+    /// With inverted scroll (180° rotation), contentOffsetY is 0 at the visual
+    /// bottom (latest messages) and increases as you scroll toward older messages.
+    /// So contentOffsetY itself IS the distance from the latest messages.
     var distanceFromBottom: CGFloat {
+        lastContentOffsetY
+    }
+
+    /// Distance from the visual top (oldest messages) in inverted scroll.
+    /// Approaches 0 when the user scrolls to the oldest messages — used by
+    /// the pagination sentinel to trigger loading older history.
+    var distanceFromTop: CGFloat {
         scrollContentHeight - lastContentOffsetY - scrollContainerHeight
     }
 
@@ -117,6 +126,9 @@ final class MessageListScrollState {
 
     /// Handles rising-edge detection for the pagination sentinel with a 500ms cooldown.
     /// Returns `true` when pagination should fire.
+    ///
+    /// With inverted scroll, callers pass `-distanceFromBottom` so values near
+    /// zero mean the user is close to the visual top (oldest messages).
     func handlePaginationSentinel(sentinelMinY: CGFloat) -> Bool {
         let triggerBand: CGFloat = 200
         let isInRange = sentinelMinY > -triggerBand
@@ -156,7 +168,6 @@ final class MessageListScrollState {
         ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         currentConversationId = conversationId
         lastMessageId = nil
-        pendingSendScrollMessageId = nil
         scrollContentHeight = 0
         scrollContainerHeight = 0
         lastContentOffsetY = 0
@@ -176,8 +187,6 @@ final class MessageListScrollState {
         paginationTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
-        switchRestoreTask?.cancel()
-        switchRestoreTask = nil
 
         // Briefly hide scroll indicators during switch
         hideScrollIndicatorsBriefly()
@@ -194,8 +203,6 @@ final class MessageListScrollState {
         paginationTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
-        switchRestoreTask?.cancel()
-        switchRestoreTask = nil
         isPaginationInFlight = false
         lastMessageId = nil
         scrollContentHeight = 0
@@ -212,8 +219,5 @@ final class MessageListScrollState {
     @ObservationIgnored var isPaginationInFlight: Bool = false
     @ObservationIgnored var paginationTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
-    /// Multi-stage scroll-to-bottom task fired on conversation switch / first mount.
-    /// Cancelled on rapid switching and when a deep-link anchor is pending.
-    @ObservationIgnored var switchRestoreTask: Task<Void, Never>?
 
 }

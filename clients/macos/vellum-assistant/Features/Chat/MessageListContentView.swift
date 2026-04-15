@@ -45,7 +45,6 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
-            && lhs.containerHeight == rhs.containerHeight
     }
 
     // MARK: - Data properties (compared in ==)
@@ -69,9 +68,6 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
-    /// Stable height of the full chat pane. Used for minHeight instead of
-    /// scroll viewport height which fluctuates with composer resizing.
-    let containerHeight: CGFloat
 
     // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
 
@@ -134,16 +130,12 @@ struct MessageListContentView: View, Equatable {
     // MARK: - Transcript row rendering
 
     /// Renders a single transcript row (either a real message cell or the
-    /// synthetic thinking placeholder) with the `active turn` minHeight
-    /// wrapper applied when the row is the latest assistant and also the
-    /// tail of `state.rows` (so the user's last message sits at the top
-    /// of the viewport while the assistant streams).
+    /// synthetic thinking placeholder).
     @ViewBuilder
     private func transcriptRow(
         row: TranscriptRowModel,
         isUnanchoredThinking: Bool,
-        thinkingLabel: String,
-        turnMinHeight: CGFloat
+        thinkingLabel: String
     ) -> some View {
         Group {
             if row.isThinkingPlaceholder {
@@ -209,18 +201,7 @@ struct MessageListContentView: View, Equatable {
                 .equatable()
             }
         }
-        // Latest assistant message (or thinking placeholder): wrap in
-        // VStack with minHeight so user message sits at top. The same
-        // wrapper applies to both the placeholder and the real assistant
-        // message, eliminating layout jump on transition.
-        .if(row.isLatestAssistant && row.message.id == state.rows.last?.message.id) { view in
-            VStack(spacing: 0) {
-                view
-                Color.clear.frame(height: 1)
-                    .id("active-turn-content-bottom")
-            }
-            .frame(minHeight: turnMinHeight, alignment: .top)
-        }
+        .flipped()  // Flip each row back so content reads correctly in inverted scroll
     }
 
     @ViewBuilder
@@ -255,97 +236,26 @@ struct MessageListContentView: View, Equatable {
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            if isLoadingMoreMessages {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Spacer()
-                }
-                .padding(.vertical, VSpacing.sm)
-                .id("page-loading-indicator")
-            }
+            // ── Coordinate TOP = Visual BOTTOM (near latest messages) ──
+            // In the inverted scroll, the first items in the LazyVStack appear
+            // at the visual bottom. Place current-activity indicators here.
 
-            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-            // Estimate user message cell height for precise minHeight offset.
-            // Queued user messages are collapsed into QueuedMessagesMarker and
-            // don't render as full bubbles, so they must be excluded — using a
-            // queued follow-up's height would over-estimate and under-size the
-            // turn minHeight, breaking the "sent message pinned at top"
-            // invariant during an active turn.
-            let estimatedUserHeight: CGFloat = {
-                let hasQueuedMessages = state.rows.contains(where: { row in
-                    guard row.message.role == .user else { return false }
-                    if case .queued = row.message.status { return true }
-                    return false
-                })
-                // ~40pt: QueuedMessagesMarker = single-line labelDefault text
-                // with VSpacing.sm top+bottom padding.
-                let markerHeight: CGFloat = hasQueuedMessages ? 40 : 0
-                guard let lastUser = state.rows.last(where: { row in
-                    guard row.message.role == .user else { return false }
-                    if case .queued = row.message.status { return false }
-                    return true
-                }) else {
-                    return 80 + markerHeight
+            Color.clear.frame(height: 1)
+                .id("scroll-bottom-anchor")
+                .flipped()
+
+            if state.isStreamingWithoutText && !state.canInlineProcessing {
+                HStack {
+                    TypingIndicatorView()
+                    Spacer()
                 }
-                // Messages with attachments are always collapsed — use max height
-                if !lastUser.message.attachments.isEmpty {
-                    return 260 + markerHeight
-                }
-                let text = lastUser.message.text as NSString
-                let contentWidth = max(layoutMetrics.bubbleMaxWidth - 2 * VSpacing.lg, 0)
-                let font = NSFont.systemFont(ofSize: 14, weight: .regular)
-                let textRect = text.boundingRect(
-                    with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: font]
-                )
-                let textHeight = ceil(textRect.height)
-                // Bubble padding (24) + timestamp (24) + spacing (12) + show more button (30) + gradient (10)
-                let cellOverhead: CGFloat = 100
-                // Cap at collapsed bubble height (150pt content + overhead)
-                return min(textHeight + cellOverhead, 260) + markerHeight
-            }()
-            // Precise minHeight: fill the space between user message and composer.
-            // containerHeight = full chat pane (stable, from GeometryReader)
-            // composerHeight = 80pt static (empty after send — when minHeight matters)
-            // layoutPadding = LazyVStack top/bottom padding + inter-item spacing + anchor
-            let composerHeight: CGFloat = 80
-            let layoutPadding: CGFloat = VSpacing.md * 3 + 1
-            let turnMinHeight: CGFloat = containerHeight > 0
-                ? max(0, containerHeight - composerHeight - estimatedUserHeight - layoutPadding)
-                : 0
-            let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
-            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
-                ? "Waking up..."
-                : (state.effectiveStatusText ?? "Thinking")
-            // Collapse consecutive inline queued user bubbles into a single
-            // marker. The queued messages are still managed in the drawer
-            // (`QueuedMessagesDrawer`) — rendering them inline here duplicates
-            // the information and clutters the transcript when many follow-ups
-            // are queued. The pure helper `TranscriptItems.build(from:)` is
-            // shared in `clients/shared/Features/Chat/TranscriptItems.swift`.
-            let rowsByMessageId: [UUID: TranscriptRowModel] = Dictionary(
-                uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
-            )
-            let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
-            ForEach(displayedItems) { item in
-                switch item {
-                case .queuedMarker(let count):
-                    QueuedMessagesMarker(count: count)
-                case .message(let message):
-                    // Safe: every displayed message originates from `state.rows`
-                    // so `rowsByMessageId[message.id]` is always present.
-                    if let row = rowsByMessageId[message.id] {
-                        transcriptRow(
-                            row: row,
-                            isUnanchoredThinking: isUnanchoredThinking,
-                            thinkingLabel: thinkingLabel,
-                            turnMinHeight: turnMinHeight
-                        )
-                    }
-                }
+                .frame(width: effectiveBubbleMaxWidth)
+                .id("streaming-without-text-indicator")
+                .transition(.opacity)
+                .flipped()
+            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+                compactingIndicatorRow()
+                    .flipped()
             }
 
             ForEach(state.orphanSubagents) { subagent in
@@ -361,26 +271,59 @@ struct MessageListContentView: View, Equatable {
                 }
                     .id("subagent-\(subagent.id)")
                     .transition(.opacity)
+                    .flipped()
             }
 
-            if state.isStreamingWithoutText && !state.canInlineProcessing {
-                VStack(spacing: 0) {
-                    HStack {
-                        TypingIndicatorView()
-                        Spacer()
+            // ── Messages ──
+
+            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
+            let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
+                ? "Waking up..."
+                : (state.effectiveStatusText ?? "Thinking")
+            // Collapse consecutive inline queued user bubbles into a single
+            // marker. The queued messages are still managed in the drawer
+            // (`QueuedMessagesDrawer`) — rendering them inline here duplicates
+            // the information and clutters the transcript when many follow-ups
+            // are queued. The pure helper `TranscriptItems.build(from:)` is
+            // shared in `clients/shared/Features/Chat/TranscriptItems.swift`.
+            let rowsByMessageId: [UUID: TranscriptRowModel] = Dictionary(
+                uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
+            )
+            let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
+            ForEach(displayedItems.reversed()) { item in
+                switch item {
+                case .queuedMarker(let count):
+                    QueuedMessagesMarker(count: count)
+                        .flipped()
+                case .message(let message):
+                    // Safe: every displayed message originates from `state.rows`
+                    // so `rowsByMessageId[message.id]` is always present.
+                    if let row = rowsByMessageId[message.id] {
+                        transcriptRow(
+                            row: row,
+                            isUnanchoredThinking: isUnanchoredThinking,
+                            thinkingLabel: thinkingLabel
+                        )
                     }
-                    .frame(width: effectiveBubbleMaxWidth)
                 }
-                .frame(minHeight: turnMinHeight, alignment: .top)
-                .id("streaming-without-text-indicator")
-                .transition(.opacity)
-            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                VStack(spacing: 0) { compactingIndicatorRow() }
-                    .frame(minHeight: turnMinHeight, alignment: .top)
             }
 
-            Color.clear.frame(height: 1)
-                .id("scroll-bottom-anchor")
+            // ── Coordinate BOTTOM = Visual TOP (near oldest messages) ──
+            // In the inverted scroll, the last items in the LazyVStack appear
+            // at the visual top. Place the page-loading indicator here.
+
+            if isLoadingMoreMessages {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.sm)
+                .id("page-loading-indicator")
+                .flipped()
+            }
         }
         .disabled(!isInteractionEnabled)
         .transaction { $0.animation = nil }

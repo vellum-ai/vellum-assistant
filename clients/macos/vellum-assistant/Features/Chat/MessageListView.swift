@@ -77,9 +77,6 @@ struct MessageListView: View {
     /// Measured width of the full chat pane. `layoutMetrics` derives the
     /// centered transcript column width from this value.
     var containerWidth: CGFloat = 0
-    /// Stable height of the full chat pane (from GeometryReader). Unlike
-    /// scroll viewport height, this doesn't fluctuate when the composer resizes.
-    var containerHeight: CGFloat = 0
     var layoutMetrics: MessageListLayoutMetrics {
         MessageListLayoutMetrics(containerWidth: containerWidth)
     }
@@ -111,9 +108,6 @@ struct MessageListView: View {
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
-    /// Starts false on fresh mount; set to true after scroll restore settles.
-    /// Hides the scroll view during the restore window to prevent jitter.
-    @State var isScrollRestored = false
 
     // MARK: - Body
 
@@ -143,15 +137,17 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .frame(width: widths.scrollSurfaceWidth)
-            .opacity(isScrollRestored ? 1 : 0)
+            .id(conversationId)
+            .flipped()  // Invert the scroll — visual bottom becomes natural top
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
+                // Inverted scroll: SwiftUI's .top edge maps to the visual bottom
+                // (latest messages), so we scroll to .top to reach them.
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .top) })
             }
             .onAppear {
                 handleAppear()

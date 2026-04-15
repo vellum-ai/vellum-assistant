@@ -40,7 +40,10 @@ extension MessageListView {
         scrollState.updateScrollToLatest()
 
         // --- Pagination ---
-        handlePaginationSentinel(sentinelMinY: -newState.contentOffsetY)
+        // With inverted scroll the visual top (oldest messages) is where
+        // distanceFromTop approaches 0. Negate so the sentinel's
+        // `sentinelMinY > -triggerBand` fires near the visual top.
+        handlePaginationSentinel(sentinelMinY: -scrollState.distanceFromTop)
     }
 
     // MARK: - Pagination sentinel
@@ -82,7 +85,8 @@ extension MessageListView {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                     guard !Task.isCancelled else { return }
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
-                    scrollBinding.wrappedValue = ScrollPosition(id: id, anchor: .top)
+                    // .bottom in scroll coordinates = visual top in inverted scroll
+                    scrollBinding.wrappedValue = ScrollPosition(id: id, anchor: .bottom)
             }
         }
     }

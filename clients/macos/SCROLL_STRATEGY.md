@@ -1,7 +1,7 @@
 # Vellum Chat Scroll Strategy
 
-> **Reference commit:** `2dcb606af` (merged 2026-04-13)
-> **PR:** #25206 — "refactor: remove scroll state machine — replace with flat coordinator"
+> **Architecture:** Inverted scroll via `FlippedModifier`
+> **Reference PRs:** #25828 through #25834 (inverted scroll migration, PRs 1-7)
 >
 > This document captures the exact scroll behavior and architecture that feels right.
 > If scroll behavior breaks due to future changes, use this as the source of truth to restore it.
@@ -11,10 +11,38 @@
 ## Design Philosophy
 
 1. **No auto-follow.** The viewport does NOT track streaming content. The user message stays pinned at the top while the assistant response grows below it.
-2. **Scroll to bottom on send.** When the user sends a message, we smoothly scroll to the bottom. The assistant's minHeight container fills the viewport, naturally pinning the user message to the top.
+2. **Inverted scroll eliminates scroll-to-bottom management.** The ScrollView is flipped 180 degrees — new content naturally appears at the visual bottom without any imperative `scrollTo` calls.
 3. **Simple distance-based CTA.** "Scroll to latest" appears when >400pt from bottom. No modes, no hysteresis, no state machine.
-4. **Threads open at bottom.** `.defaultScrollAnchor(.bottom, for: .initialOffset)` — conversations start at the latest messages.
+4. **Threads open at bottom.** The inverted ScrollView starts at the visual bottom (latest messages) naturally. No `.defaultScrollAnchor` needed.
 5. **One container for thinking + assistant.** A synthetic placeholder row in the ForEach holds the thinking indicator. When the real assistant message arrives, it replaces the placeholder in the same container — no layout jump.
+
+---
+
+## The Inverted Scroll Technique
+
+### FlippedModifier
+
+The entire ScrollView and each row inside it are flipped using a `FlippedModifier`:
+
+```swift
+struct FlippedModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.radians(.pi))                                  // rotate 180°
+            .scaleEffect(x: -1, y: 1, anchor: .center)                   // mirror horizontally
+    }
+}
+```
+
+The ScrollView gets `.flipped()`, and each row inside also gets `.flipped()`. The double-flip means the content appears right-side-up to the user, but the scroll coordinate system is inverted: the ScrollView's natural "top" (offset 0) is the visual bottom (latest messages).
+
+### Why This Works
+
+1. **No scroll-to-bottom management.** In a normal ScrollView, new content added at the bottom pushes the viewport up — you need imperative `scrollTo(.bottom)` to follow. In an inverted ScrollView, new content is added at the coordinate "top" (visual bottom), which is where the viewport already sits. The viewport stays put naturally.
+
+2. **No LazyVStack materialization hang.** With a normal bottom-anchored ScrollView, SwiftUI had to materialize all items to compute content height before it could position at the bottom. With inverted scroll, the "top" (visual bottom) is the natural starting position — SwiftUI only materializes visible items.
+
+3. **No multi-stage scroll restore.** The old architecture needed `switchRestoreTask`, `isScrollRestored` opacity fade, and deferred scroll calls to restore position on conversation switch. With inverted scroll, `.id(conversationId)` recreates the ScrollView and it naturally opens at visual bottom (coordinate top).
 
 ---
 
@@ -25,13 +53,15 @@
 An `@Observable @MainActor` class with **no modes, no transitions, no recovery**. Just tracks:
 
 - **Geometry:** `scrollContentHeight`, `scrollContainerHeight`, `lastContentOffsetY`, `viewportHeight`
+- **Distance metrics (inverted):**
+  - `distanceFromBottom = lastContentOffsetY` (in inverted scroll, offset 0 = visual bottom, so raw offset IS distance from bottom)
+  - `distanceFromTop = scrollContentHeight - lastContentOffsetY - scrollContainerHeight` (for pagination — distance from visual top = oldest messages)
 - **CTA visibility:** `showScrollToLatest` (driven by `distanceFromBottom > 400`)
-- **Send scroll:** `pendingSendScrollMessageId: UUID?` — set when user sends, cleared after scroll fires
-- **Pagination:** `wasPaginationTriggerInRange`, `lastPaginationCompletedAt` (rising-edge + 500ms cooldown)
+- **Pagination:** `wasPaginationTriggerInRange`, `lastPaginationCompletedAt` (rising-edge + 500ms cooldown), uses `distanceFromTop` threshold
 - **Deep-link anchor:** `anchorSetTime`, `anchorTimeoutTask`
 - **Scroll indicators:** `scrollIndicatorsHidden` (briefly hidden on conversation switch)
 
-**What does NOT exist:** ScrollMode enum, mode transitions, auto-follow, recovery windows, stabilization, deferred bottom pins, circuit breaker, scroll closures (scrollTo/scrollToEdge/cancelScrollAnimation), configureScrollCallbacks, restoreScrollToBottom, ScrollCoordinator.
+**What does NOT exist:** ScrollMode enum, mode transitions, auto-follow, recovery windows, stabilization, deferred bottom pins, circuit breaker, scroll closures (scrollTo/scrollToEdge/cancelScrollAnimation), configureScrollCallbacks, restoreScrollToBottom, ScrollCoordinator, switchRestoreTask, pendingSendScrollMessageId, hasSendScrollFired, isScrollRestored, minHeight wrapper, turnMinHeight, containerHeight.
 
 ### View: `MessageListView`
 
@@ -39,93 +69,32 @@ An `@Observable @MainActor` class with **no modes, no transitions, no recovery**
 ScrollView {
     HStack { Spacer + scrollViewContent + Spacer }
 }
-.defaultScrollAnchor(.top, for: .initialOffset)
+.flipped()                                              // Inverted scroll
 .scrollPosition($scrollPosition)
 .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
-.id(conversationId)
+.id(conversationId)                                     // On ScrollView itself
 .overlay(alignment: .bottom) { ScrollToLatestOverlayView }
 ```
 
-No `.onScrollPhaseChange`. No `.environment(\.suppressAutoScroll)`. No ScrollCoordinator.
+No `.defaultScrollAnchor`. No `.onScrollPhaseChange`. No `.environment(\.suppressAutoScroll)`. No ScrollCoordinator.
 
 ### Content: `MessageListContentView`
 
-ForEach renders both:
-- **Normal message cells** via `MessageCellView`
-- **Thinking placeholder** via `row.isThinkingPlaceholder` (synthetic row from TranscriptProjector)
+ForEach iterates `displayedItems.reversed()` (oldest-first becomes newest-first in the data, which maps to coordinate-top in the inverted ScrollView = visual bottom). Each row and standalone section gets `.flipped()` to undo the ScrollView flip.
 
-Both share the same `.if(row.isLatestAssistant ...)` minHeight wrapper — one container, no swap.
+Both normal message cells and the thinking placeholder share the same ForEach — one container, no swap.
 
 ---
 
-## The Send-Scroll Flow (Critical Path)
+## The Send Flow
 
-This is the most important interaction. When the user sends a message:
+With inverted scroll, new content naturally appears at the visual bottom. No imperative scroll-to-bottom is needed.
 
 ### Step 1: Message appended
 `MessageSendCoordinator` appends the user message to `messages` and calls `flushCoalescedPublish()`. Then sets `isSending = true`.
 
-### Step 2: Detect new message
-`handleMessagesCountChanged()` fires (may fire before or after `handleSendingChanged`).
-
-**Safety net:** If `pendingSendScrollMessageId` is nil and a new user message appeared, set it:
-```swift
-if scrollState.pendingSendScrollMessageId == nil {
-    if let lastUser = paginatedVisibleMessages.last(where: { $0.role == .user }),
-       scrollState.lastMessageId != nil,
-       lastUser.id != scrollState.lastMessageId,
-       paginatedVisibleMessages.last?.id != scrollState.lastMessageId {
-        scrollState.pendingSendScrollMessageId = lastUser.id
-    }
-}
-```
-
-**Also:** `handleSendingChanged()` sets the ID when `isSending` becomes true (unless it's a confirmation resume).
-
-### Step 3: Scroll to bottom (deferred)
-Once the user message is in `paginatedVisibleMessages`:
-```swift
-if scrollState.pendingSendScrollMessageId != nil,
-   paginatedVisibleMessages.contains(where: { $0.id == scrollState.pendingSendScrollMessageId }) {
-    let scrollBinding = $scrollPosition
-    scrollState.pendingSendScrollMessageId = nil
-    Task { @MainActor in
-        withAnimation(VAnimation.standard) {
-            scrollBinding.wrappedValue.scrollTo(edge: .bottom)
-        }
-    }
-}
-```
-
-**Why deferred:** `Task { @MainActor in }` gives SwiftUI one run-loop tick to lay out the new cell in the LazyVStack before the scroll fires. Without this, the scroll targets the old content bottom and the user message appears off-screen.
-
-**Why `.scrollTo(edge: .bottom)`:** The imperative method animates correctly. Value replacement (`ScrollPosition(edge: .bottom)`) doesn't animate.
-
-**Why `VAnimation.standard`:** 0.25s easeInOut. Fast enough to feel responsive, slow enough to be smooth.
-
-### Step 4: MinHeight pins user message to top
-The thinking placeholder (or assistant message) has a minHeight wrapper:
-```swift
-.frame(minHeight: turnMinHeight, alignment: .top)
-```
-This fills the viewport below the user message, so after scroll-to-bottom the user message naturally sits at the top.
-
----
-
-## MinHeight Calculation (Critical)
-
-```swift
-let estimatedUserHeight = min(NSString.boundingRect(text) + 100, 260)
-let composerHeight: CGFloat = 80        // static — composer is empty after send
-let layoutPadding = VSpacing.md * 3 + 1 // top + bottom + inter-item + anchor
-let turnMinHeight = containerHeight - composerHeight - estimatedUserHeight - layoutPadding
-```
-
-### Key decisions:
-- **Uses `containerHeight`** (full chat pane from GeometryReader), NOT `scrollState.viewportHeight`. The viewport height fluctuates when the composer resizes — the container height is stable.
-- **Composer is static 80pt.** We only care about the composer height when it's empty (after the user hits send). It grows when typing, but by then minHeight doesn't matter.
-- **User message estimated via `NSString.boundingRect`** for word-wrap accuracy. Cell overhead is 100pt (bubble padding 24 + timestamp 24 + spacing 12 + show more button 30 + gradient 10). Capped at 260pt (collapse threshold + overhead).
-- **MinHeight applies when `row.isLatestAssistant && row.message.id == state.rows.last?.message.id`.** No `isActiveTurn` gate — the minHeight persists after streaming ends so the viewport doesn't jump.
+### Step 2: Content appears at bottom
+The inverted ScrollView adds new content at coordinate top (visual bottom) naturally. The viewport stays put — no scroll management required.
 
 ---
 
@@ -151,6 +120,8 @@ if shouldShowThinkingIndicator {
 
 ## Scroll-to-Latest CTA
 
+In inverted scroll, `distanceFromBottom` is simply `lastContentOffsetY` (offset 0 = visual bottom).
+
 ```swift
 // In MessageListScrollState:
 func updateScrollToLatest() {
@@ -169,30 +140,46 @@ Button tap:
 ```swift
 withAnimation(VAnimation.spring) {
     scrollState.dismissScrollToLatest()
-    onScrollToBottom()  // → scrollPosition = ScrollPosition(edge: .bottom)
+    onScrollToBottom()  // -> scrollPosition = ScrollPosition(edge: .top)  // .top = visual bottom in inverted scroll
 }
 ```
 
-**Why `dismissScrollToLatest()` inside the animation block:** So the exit transition (`.move(edge: .bottom).combined(with: .opacity)`) animates in sync with the scroll.
+**Why `ScrollPosition(edge: .top)` for visual bottom:** In the inverted ScrollView, coordinate top IS visual bottom. So scrolling to `.top` takes you to the latest messages.
 
-**Why value replacement for CTA but imperative for send-scroll:** The CTA doesn't need animation (spring handles it). Send-scroll needs `VAnimation.standard` which works with the imperative `.scrollTo(edge:)` method.
+---
+
+## Pagination
+
+Pagination triggers when the user scrolls toward older messages (visual top = coordinate bottom in inverted scroll).
+
+```swift
+// distanceFromTop = scrollContentHeight - lastContentOffsetY - scrollContainerHeight
+let isNearTop = distanceFromTop < paginationThreshold
+```
+
+Uses the same rising-edge detection with 500ms cooldown as before — just the distance metric changed from `distanceFromBottom` (old) to `distanceFromTop` (inverted).
+
+---
+
+## Deep-Link Anchors
+
+Deep-link scroll uses `.center` anchor for scroll-to-ID via `ScrollPosition` value replacement. The `.center` anchor is view-relative and works unchanged in inverted scroll — no special handling needed.
 
 ---
 
 ## Conversation Switching
 
 ```swift
-.id(conversationId)                                    // Destroys + recreates ScrollView
-.defaultScrollAnchor(.top, for: .initialOffset)        // New view starts at top
+.id(conversationId)    // Destroys + recreates ScrollView — on the ScrollView itself
 ```
 
 `handleAppear()` detects the switch via `scrollState.currentConversationId` comparison, calls `handleConversationSwitched()` which:
 1. Cancels queued geometry callbacks (`ScrollGeometryUpdateDispatcher.shared.cancel`)
 2. Resets all scroll state (`scrollState.reset(for:)`)
 3. Seeds `lastMessageId`
-4. Does NOT write to `scrollPosition` — `.defaultScrollAnchor(.top)` handles positioning
+4. Does NOT write to `scrollPosition` — inverted scroll naturally opens at visual bottom
 
-**No explicit scroll on switch.** The `.id()` recreation + `.defaultScrollAnchor` is sufficient.
+**No explicit scroll on switch.** The `.id()` recreation is sufficient. Inverted scroll starts at coordinate top = visual bottom naturally.
 
 ---
 
@@ -207,7 +194,7 @@ let isCollapsible = userMessageIntrinsicHeight > 0
 ```
 
 Collapsed messages have:
-- Gradient fade overlay (transparent → `VColor.surfaceLift`)
+- Gradient fade overlay (transparent -> `VColor.surfaceLift`)
 - "Show more" button using `VButton(style: .ghost, size: .compact, tintColor: .contentTertiary)`, left-aligned
 - Button is inside the bubble container (rounded corners, surfaceLift background)
 
@@ -228,6 +215,13 @@ These were removed for a reason. Do not re-introduce:
 | Recovery windows / deadlines | Complex timer-based scroll correction; the flat model doesn't need it |
 | Stabilization / circuit breaker | Protected against layout storms from mode transitions; no modes = no storms |
 | `isAtBottom` hysteresis | Asymmetric thresholds to prevent oscillation; distance CTA is simpler |
+| `switchRestoreTask` | Multi-stage scroll restore on conversation switch; inverted scroll opens at bottom naturally |
+| `pendingSendScrollMessageId` | Tracked which message to scroll to after send; inverted scroll needs no scroll-to-bottom |
+| `hasSendScrollFired` | Gated the send-scroll-to-bottom call; no send-scroll exists in inverted model |
+| `isScrollRestored` / opacity fade | Hid content until scroll position was restored; inverted scroll positions instantly |
+| `.defaultScrollAnchor(.bottom)` | Was needed to start at bottom in normal scroll; inverted scroll starts at visual bottom naturally |
+| `turnMinHeight` / minHeight wrapper | Filled viewport below user message on send; inverted scroll keeps user message visible without it |
+| `containerHeight` property | Drove the minHeight calculation; removed along with minHeight wrapper |
 
 ---
 
@@ -235,11 +229,12 @@ These were removed for a reason. Do not re-introduce:
 
 | File | Responsibility |
 |------|---------------|
-| `MessageListScrollState.swift` | Flat coordinator — geometry, CTA, pagination, anchor state |
-| `MessageListView.swift` | ScrollView setup — position binding, anchor, indicators, overlay |
-| `MessageListView+ScrollHandling.swift` | Geometry handler — updates state, triggers pagination |
-| `MessageListView+Lifecycle.swift` | Send detection, scroll-to-bottom, conversation switch, anchor resolution |
-| `MessageListContentView.swift` | ForEach rendering, minHeight wrapper, thinking placeholder |
+| `MessageListTypes.swift` | `FlippedModifier` — the rotation + mirror transform for inverted scroll |
+| `MessageListScrollState.swift` | Flat coordinator — geometry, CTA, pagination, anchor state, inverted distance metrics |
+| `MessageListView.swift` | ScrollView setup — `.flipped()`, position binding, indicators, overlay |
+| `MessageListView+ScrollHandling.swift` | Geometry handler — updates state, triggers pagination using `distanceFromTop` |
+| `MessageListView+Lifecycle.swift` | Send detection, conversation switch, anchor resolution |
+| `MessageListContentView.swift` | ForEach rendering with `.reversed()` + per-row `.flipped()`, thinking placeholder |
 | `MessageListHelperViews.swift` | ScrollToLatestOverlayView — CTA button |
 | `TranscriptProjector.swift` | Thinking placeholder row injection |
 | `TranscriptRenderModel.swift` | `isThinkingPlaceholder` flag on row model |
