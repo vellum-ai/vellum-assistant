@@ -126,9 +126,9 @@ describe("STT provider catalog", () => {
     expect(entry?.conversationStreamingMode).toBe("realtime-ws");
   });
 
-  test("google-gemini has incremental-batch conversation streaming mode", () => {
+  test("google-gemini has realtime-ws conversation streaming mode", () => {
     const entry = getProviderEntry("google-gemini");
-    expect(entry?.conversationStreamingMode).toBe("incremental-batch");
+    expect(entry?.conversationStreamingMode).toBe("realtime-ws");
   });
 
   test("openai-whisper has incremental-batch conversation streaming mode", () => {

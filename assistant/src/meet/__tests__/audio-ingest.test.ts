@@ -43,9 +43,7 @@ class FakeStreamingTranscriber implements StreamingTranscriber {
 
   private listener: ((event: SttStreamServerEvent) => void) | null = null;
 
-  async start(
-    onEvent: (event: SttStreamServerEvent) => void,
-  ): Promise<void> {
+  async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.startCalls++;
     this.listener = onEvent;
     this.started = true;
@@ -317,7 +315,7 @@ describe("MeetAudioIngest.start", () => {
     try {
       await rejection;
     } catch (err) {
-      expect(MeetAudioIngestError.isMeetAudioIngestError(err)).toBe(true);
+      expect(err).toBeInstanceOf(MeetAudioIngestError);
     }
 
     // listen() was never called — socket path is uncreated and does not leak.
@@ -339,17 +337,20 @@ describe("MeetAudioIngest.start", () => {
       fired: boolean;
     }> = [];
     let nextId = 0;
-    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-      ((cb: () => void, ms: number) => {
-        const handle = Symbol(`timer-${nextId++}`);
-        timers.push({ handle, cb, ms, fired: false });
-        return handle as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
-    (globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
-      ((handle: unknown) => {
-        const t = timers.find((t) => t.handle === handle);
-        if (t) t.fired = true; // "cleared" is effectively never-fire
-      }) as typeof clearTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      cb: () => void,
+      ms: number,
+    ) => {
+      const handle = Symbol(`timer-${nextId++}`);
+      timers.push({ handle, cb, ms, fired: false });
+      return handle as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    (
+      globalThis as unknown as { clearTimeout: typeof clearTimeout }
+    ).clearTimeout = ((handle: unknown) => {
+      const t = timers.find((t) => t.handle === handle);
+      if (t) t.fired = true; // "cleared" is effectively never-fire
+    }) as typeof clearTimeout;
 
     try {
       const setup = newIngestSetup();

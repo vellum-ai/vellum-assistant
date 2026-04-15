@@ -310,8 +310,7 @@ export async function resolveStreamingTranscriber(
     return null;
   }
   const enableDiarization =
-    (diarizePreference === "preferred" ||
-      diarizePreference === "required") &&
+    (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
@@ -365,9 +364,9 @@ async function createStreamingTranscriber(
     case "google-gemini": {
       // Gemini does not support speaker diarization; the diarize option is
       // silently ignored here.
-      const { GoogleGeminiStreamingTranscriber } =
-        await import("./google-gemini-stream.js");
-      return new GoogleGeminiStreamingTranscriber(apiKey, {
+      const { GoogleGeminiLiveStreamingTranscriber } =
+        await import("./google-gemini-live-stream.js");
+      return new GoogleGeminiLiveStreamingTranscriber(apiKey, {
         pcmSampleRate: options.sampleRate,
       });
     }

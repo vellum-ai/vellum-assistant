@@ -885,6 +885,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_ENVIRONMENT",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
