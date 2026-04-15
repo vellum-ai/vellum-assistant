@@ -10,16 +10,14 @@ struct ToolSelectionView: View {
     @State private var showTitle = false
     @State private var showGrid = false
     @State private var showFooter = false
-
-    private static let allItems: [ToolItem] = {
-        var items = ToolItem.allTools
-        items.append(ToolItem(id: "other", label: "Something else", logoKey: "other"))
-        return items
-    }()
+    @State private var hoveredTool: String?
+    @State private var otherExpanded = false
+    @State private var otherText = ""
+    @FocusState private var otherFieldFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 4)
 
-    var body: some View {
+    private var mainContent: some View {
         VStack(spacing: 0) {
             // Header
             Text("What do you use?")
@@ -29,26 +27,52 @@ struct ToolSelectionView: View {
                 .offset(y: showTitle ? 0 : 8)
                 .padding(.bottom, VSpacing.md)
 
-            Text("Tell me what you use and I'll tailor what I do for you. No connections or logins right now — that comes later when you want it.")
+            Text("This helps me tailor how I assist you. No connections needed — you can set those up later.")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .opacity(showTitle ? 1 : 0)
                 .offset(y: showTitle ? 0 : 8)
                 .padding(.horizontal, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xxl)
+                .padding(.bottom, VSpacing.lg)
+                .layoutPriority(1)
 
             // Tool grid
             LazyVGrid(columns: columns, spacing: VSpacing.sm) {
-                ForEach(Self.allItems) { item in
+                ForEach(ToolItem.allTools) { item in
                     toolTile(item)
+                }
+
+                // "Something else" tile — expands inline
+                if !otherExpanded {
+                    otherCollapsedTile
                 }
             }
             .padding(.horizontal, VSpacing.xxl)
             .opacity(showGrid ? 1 : 0)
             .offset(y: showGrid ? 0 : 12)
 
-            Spacer()
+            // Expanded "Something else" input — below the grid, full width
+            if otherExpanded {
+                otherExpandedCard
+                    .padding(.horizontal, VSpacing.xxl)
+                    .padding(.top, VSpacing.sm)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if otherExpanded {
+                ScrollView(.vertical, showsIndicators: false) {
+                    mainContent
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            } else {
+                mainContent
+                Spacer()
+            }
 
             // Footer
             VStack(spacing: VSpacing.sm) {
@@ -62,30 +86,180 @@ struct ToolSelectionView: View {
                     onContinue()
                 }
 
-                Button {
+                VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
-                } label: {
-                    Text("I'll set this up later")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentTertiary)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, VSpacing.xxl)
-            .padding(.bottom, VSpacing.xxl)
+            .padding(EdgeInsets(top: VSpacing.lg, leading: 0, bottom: VSpacing.xxl, trailing: 0))
             .opacity(showFooter ? 1 : 0)
             .offset(y: showFooter ? 0 : 12)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            // Restore otherText from selectedTools if resuming
+            if let existing = selectedTools.first(where: { $0.hasPrefix("other:") }) {
+                otherText = String(existing.dropFirst(6))
+                otherExpanded = true
+            }
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showTitle = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showGrid = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
+            withAnimation(VAnimation.slow.delay(0.5)) {
                 showFooter = true
             }
+        }
+    }
+
+    // MARK: - "Something else" collapsed tile
+
+    private var otherCollapsedTile: some View {
+        let isSelected = selectedTools.contains(where: { $0 == "other" || $0.hasPrefix("other:") })
+
+        return Button {
+            withAnimation(VAnimation.fast) {
+                otherExpanded = true
+                otherFieldFocused = true
+                // Remove plain "other" if it was there; the expanded state will track text
+                selectedTools.remove("other")
+            }
+        } label: {
+            VStack(spacing: VSpacing.xs) {
+                Spacer(minLength: 0)
+                toolIcon(ToolItem(id: "other", label: "Something else", logoKey: "other"), size: 32)
+                Text("Something else")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                Spacer(minLength: 0)
+            }
+            .frame(height: 68)
+            .frame(maxWidth: .infinity)
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.xs, bottom: VSpacing.xs, trailing: VSpacing.xs))
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : (hoveredTool == "other" ? VColor.surfaceBase : VColor.surfaceLift))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(
+                        isSelected ? VColor.primaryBase : (hoveredTool == "other" ? VColor.borderElement : VColor.borderElement.opacity(0.5)),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    ZStack {
+                        Circle()
+                            .fill(VColor.primaryBase)
+                            .frame(width: 16, height: 16)
+                        VIconView(.check, size: 10)
+                            .foregroundStyle(VColor.contentInset)
+                    }
+                    .padding(VSpacing.sm)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredTool = hovering ? "other" : nil
+            }
+        })
+        .accessibilityLabel("Something else")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(.isToggle)
+    }
+
+    // MARK: - "Something else" expanded card
+
+    private var otherExpandedCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.pencil, size: 14)
+                    .foregroundStyle(VColor.contentSecondary)
+                Text("Something else")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        otherExpanded = false
+                        otherText = ""
+                        selectedTools = selectedTools.filter { !$0.hasPrefix("other:") && $0 != "other" }
+                    }
+                } label: {
+                    VIconView(.x, size: 12)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+
+            VTextField(
+                placeholder: "e.g. Trello, Basecamp, Asana...",
+                text: $otherText,
+                size: .small
+            )
+            .focused($otherFieldFocused)
+            .onSubmit {
+                commitOtherText()
+            }
+            .onChange(of: otherText) { _, newValue in
+                commitOtherText()
+            }
+
+            Text("Separate multiple tools with commas")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+
+            // Show typed entries as pills
+            if !otherText.trimmingCharacters(in: .whitespaces).isEmpty {
+                let entries = otherText
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+
+                if !entries.isEmpty {
+                    WrappingHStack(hSpacing: VSpacing.xs, vSpacing: VSpacing.xs) {
+                        ForEach(entries, id: \.self) { entry in
+                            Text(entry)
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentInset)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xxs)
+                                .background(
+                                    RoundedRectangle(cornerRadius: VRadius.pill)
+                                        .fill(VColor.primaryBase)
+                                )
+                        }
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.primaryBase.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.primaryBase, lineWidth: 1.5)
+                )
+        )
+    }
+
+    // MARK: - Commit other text to selectedTools
+
+    private func commitOtherText() {
+        // Remove any previous other: entries
+        selectedTools = selectedTools.filter { !$0.hasPrefix("other:") && $0 != "other" }
+
+        let trimmed = otherText.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            selectedTools.insert("other:\(trimmed)")
         }
     }
 
@@ -105,45 +279,49 @@ struct ToolSelectionView: View {
             }
         } label: {
             VStack(spacing: VSpacing.xs) {
-                ZStack(alignment: .topTrailing) {
-                    toolIcon(item, size: 32)
-
-                    if isSelected {
-                        ZStack {
-                            Circle()
-                                .fill(VColor.primaryBase)
-                                .frame(width: 16, height: 16)
-
-                            VIconView(.check, size: 10)
-                                .foregroundStyle(VColor.contentInset)
-                        }
-                        .offset(x: 4, y: -4)
-                    }
-                }
-
+                Spacer(minLength: 0)
+                toolIcon(item, size: 32)
                 Text(item.label)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                    .frame(height: 32)
+                Spacer(minLength: 0)
             }
+            .frame(height: 68)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .padding(.horizontal, VSpacing.xs)
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.xs, bottom: VSpacing.xs, trailing: VSpacing.xs))
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : VColor.surfaceLift)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : (hoveredTool == item.id ? VColor.surfaceBase : VColor.surfaceLift))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(
-                        isSelected ? VColor.primaryBase : VColor.borderElement.opacity(0.5),
+                        isSelected ? VColor.primaryBase : (hoveredTool == item.id ? VColor.borderElement : VColor.borderElement.opacity(0.5)),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    ZStack {
+                        Circle()
+                            .fill(VColor.primaryBase)
+                            .frame(width: 16, height: 16)
+
+                        VIconView(.check, size: 10)
+                            .foregroundStyle(VColor.contentInset)
+                    }
+                    .padding(VSpacing.sm)
+                }
+            }
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredTool = hovering ? item.id : nil
+            }
+        })
         .accessibilityLabel(item.label)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(.isToggle)
@@ -169,5 +347,59 @@ struct ToolSelectionView: View {
             }
             .frame(width: size, height: size)
         }
+    }
+}
+
+// MARK: - Wrapping horizontal layout
+
+private struct WrappingHStack: Layout {
+    var hSpacing: CGFloat
+    var vSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        guard !rows.isEmpty else { return .zero }
+        let height = rows.enumerated().reduce(CGFloat.zero) { acc, pair in
+            let rowHeight = pair.element.map { $0.size.height }.max() ?? 0
+            return acc + rowHeight + (pair.offset > 0 ? vSpacing : 0)
+        }
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            let rowHeight = row.map { $0.size.height }.max() ?? 0
+            var x = bounds.minX
+            for item in row {
+                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + hSpacing
+            }
+            y += rowHeight + vSpacing
+        }
+    }
+
+    private struct LayoutItem {
+        let subview: LayoutSubview
+        let size: CGSize
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutItem]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutItem]] = [[]]
+        var currentRowWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let needed = currentRowWidth > 0 ? size.width + hSpacing : size.width
+            if currentRowWidth + needed > maxWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                currentRowWidth = 0
+            }
+            rows[rows.count - 1].append(LayoutItem(subview: subview, size: size))
+            currentRowWidth += currentRowWidth > 0 ? size.width + hSpacing : size.width
+        }
+        return rows
     }
 }

@@ -27,63 +27,38 @@ struct PreChatOnboardingFlow: View {
                 ToolSelectionView(
                     selectedTools: $state.selectedTools,
                     onContinue: { advanceTo(1) },
-                    onSkip: { skipAll() }
+                    onSkip: { advanceTo(1) }
                 )
             case 1:
-                VStack(spacing: 0) {
-                    backButton { advanceTo(0) }
-                    TaskToneSelectionView(
-                        selectedTasks: $state.selectedTasks,
-                        toneValue: $state.toneValue,
-                        onContinue: { advanceTo(2) },
-                        onSkip: { skipAll() }
-                    )
-                }
+                TaskToneSelectionView(
+                    selectedTasks: $state.selectedTasks,
+                    toneValue: $state.toneValue,
+                    onBack: { advanceTo(0) },
+                    onContinue: { advanceTo(2) },
+                    onSkip: { advanceTo(2) }
+                )
             default:
-                VStack(spacing: 0) {
-                    backButton { advanceTo(1) }
-                    NameExchangeView(
-                        contextSummary: state.contextSummary,
-                        userName: $state.userName,
-                        assistantName: $state.assistantName,
-                        onComplete: { finish() },
-                        onSkip: { skipAll() }
-                    )
-                }
+                NameExchangeView(
+                    contextSummary: state.contextSummary,
+                    userName: $state.userName,
+                    assistantName: $state.assistantName,
+                    onBack: { advanceTo(1) },
+                    onComplete: { finish() },
+                    onSkip: { finish() }
+                )
             }
         }
-        .animation(.spring(duration: 0.5, bounce: 0.1), value: state.currentScreen)
+        .animation(VAnimation.panel, value: state.currentScreen)
         .transition(.asymmetric(
             insertion: .move(edge: .trailing).combined(with: .opacity),
             removal: .move(edge: .leading).combined(with: .opacity)
         ))
     }
 
-    // MARK: - Back Button
-
-    @ViewBuilder
-    private func backButton(action: @escaping () -> Void) -> some View {
-        HStack {
-            Button {
-                action()
-            } label: {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.chevronLeft, size: 12)
-                    Text("Back")
-                        .font(VFont.bodyMediumDefault)
-                }
-                .foregroundStyle(VColor.contentSecondary)
-            }
-            .buttonStyle(.plain)
-            Spacer()
-        }
-        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg, bottom: 0, trailing: VSpacing.lg))
-    }
-
     // MARK: - Navigation
 
     private func advanceTo(_ screen: Int) {
-        withAnimation(.spring(duration: 0.5, bounce: 0.1)) {
+        withAnimation(VAnimation.panel) {
             state.currentScreen = screen
         }
         state.persist()
@@ -103,8 +78,4 @@ struct PreChatOnboardingFlow: View {
         onComplete(context)
     }
 
-    private func skipAll() {
-        PreChatOnboardingState.clearPersistedState()
-        onComplete(nil)
-    }
 }

@@ -130,6 +130,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
     var pendingBundleFilePaths: [String] = []
+    var preChatPreviewWindow: NSWindow?
     #if DEBUG
     var galleryWindow: ComponentGalleryWindow?
     #endif

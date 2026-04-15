@@ -443,6 +443,10 @@ extension AppDelegate {
                 onboardingItem.target = self
                 menu.addItem(onboardingItem)
 
+                let preChatItem = NSMenuItem(title: "Preview PreChat", action: #selector(showPreChatPreview), keyEquivalent: "")
+                preChatItem.target = self
+                menu.addItem(preChatItem)
+
                 #if DEBUG
                 let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
                 galleryItem.target = self
@@ -970,6 +974,51 @@ extension AppDelegate {
                 alert.runModal()
             }
         }
+    }
+
+    @objc func showPreChatPreview() {
+        if let existing = preChatPreviewWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        PreChatOnboardingState.clearPersistedState()
+        let flowView = PreChatOnboardingFlow { _ in
+            self.preChatPreviewWindow?.close()
+            self.preChatPreviewWindow = nil
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RadialGradient(
+                colors: [VColor.surfaceBase, VColor.surfaceOverlay],
+                center: .center,
+                startRadius: 0,
+                endRadius: 500
+            )
+            .ignoresSafeArea()
+        )
+
+        let hostingController = NSHostingController(rootView: flowView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 630),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.contentMinSize = NSSize(width: 440, height: 630)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(VColor.surfaceOverlay)
+        window.title = "PreChat Preview"
+        window.setContentSize(NSSize(width: 440, height: 630))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        preChatPreviewWindow = window
     }
 
     #if DEBUG

@@ -16,7 +16,7 @@ final class PreChatOnboardingState {
     var selectedTasks: Set<String> = []
     var toneValue: Double = 0.5 // 0 = casual, 0.5 = balanced, 1 = professional
     var userName: String = ""
-    var assistantName: String = RandomNameGenerator.generateInstanceName()
+    var assistantName: String = NameExchangeView.assistantNameSuggestions.randomElement() ?? "Pax"
     var skippedAll: Bool = false
 
     var toneLabel: String {
@@ -85,7 +85,8 @@ final class PreChatOnboardingState {
             userName = NameExchangeView.defaultUserName()
         }
 
-        if let name = defaults.string(forKey: Self.assistantNameKey), !name.isEmpty {
+        if let name = defaults.string(forKey: Self.assistantNameKey), !name.isEmpty,
+           !name.hasPrefix("vellum-") {
             assistantName = name
         }
     }
