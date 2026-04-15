@@ -531,10 +531,10 @@ describe("resolveConversationStreamingSttCapability", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Google Gemini — incremental-batch streaming
+  // Google Gemini — realtime-ws streaming (Live API)
   // -------------------------------------------------------------------------
 
-  test("returns 'supported' with incremental-batch mode for google-gemini", async () => {
+  test("returns 'supported' with realtime-ws mode for google-gemini", async () => {
     mockProviderKeys["gemini"] = "gemini-stream-key";
     mockConfig = buildConfig({ provider: "google-gemini" });
 
@@ -543,7 +543,7 @@ describe("resolveConversationStreamingSttCapability", () => {
     expect(result.status).toBe("supported");
     if (result.status === "supported") {
       expect(result.providerId).toBe("google-gemini");
-      expect(result.streamingMode).toBe("incremental-batch");
+      expect(result.streamingMode).toBe("realtime-ws");
     }
   });
 

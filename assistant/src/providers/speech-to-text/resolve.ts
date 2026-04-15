@@ -313,9 +313,10 @@ async function createStreamingTranscriber(
       });
     }
     case "google-gemini": {
-      const { GoogleGeminiStreamingTranscriber } =
-        await import("./google-gemini-stream.js");
-      return new GoogleGeminiStreamingTranscriber(apiKey, {
+      const { GoogleGeminiLiveStreamingTranscriber } = await import(
+        "./google-gemini-live-stream.js"
+      );
+      return new GoogleGeminiLiveStreamingTranscriber(apiKey, {
         pcmSampleRate: options.sampleRate,
       });
     }

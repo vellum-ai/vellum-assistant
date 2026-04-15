@@ -191,7 +191,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
         "daemon-streaming",
       ]),
       telephonyMode: "batch-only",
-      conversationStreamingMode: "incremental-batch",
+      conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
       telephonyRouting: {
         strategyKind: "conversation-relay-native",
