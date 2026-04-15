@@ -9,6 +9,7 @@ import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import {
   getConversation,
   getMessages,
@@ -317,6 +318,15 @@ export function disposeConversation(ctx: DisposeContext): void {
         ...(ctx.activeContextNodeIds?.length
           ? { activeContextNodeIds: ctx.activeContextNodeIds }
           : {}),
+      });
+    } catch {
+      // Best-effort — don't block conversation disposal
+    }
+
+    try {
+      enqueueAutoAnalysisIfEnabled({
+        conversationId: ctx.conversationId,
+        trigger: "lifecycle",
       });
     } catch {
       // Best-effort — don't block conversation disposal
