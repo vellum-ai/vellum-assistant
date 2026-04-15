@@ -15,6 +15,10 @@ describe("meet-bot boot", () => {
     const result = spawnSync("bun", ["run", "src/main.ts"], {
       cwd: pkgRoot,
       encoding: "utf8",
+      // PulseAudio is not available on macOS dev machines / typical CI
+      // runners; SKIP_PULSE=1 short-circuits the setup call in main.ts so the
+      // smoke test can still verify the boot path.
+      env: { ...process.env, SKIP_PULSE: "1" },
     });
 
     expect(result.status).toBe(0);
