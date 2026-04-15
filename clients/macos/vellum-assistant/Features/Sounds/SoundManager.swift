@@ -28,8 +28,11 @@ final class SoundManager {
     /// calling thread for 2000ms+ during audio subsystem initialization
     /// (`AudioQueueXPC_Bridge::Start` → XPC sync dispatch → mutex lock). Routing all
     /// playback through this dedicated queue keeps the main actor responsive.
+    /// Shared with `VoiceFeedback` so that all `NSSound` operations are serialized on
+    /// one queue — `NSSound(named:)` can return cached instances, so concurrent
+    /// volume mutations from separate queues would race.
     /// See: https://developer.apple.com/documentation/appkit/nssound/play()
-    @ObservationIgnored private static let audioQueue = DispatchQueue(
+    @ObservationIgnored static let audioQueue = DispatchQueue(
         label: "com.vellum.assistant.audio-playback", qos: .userInitiated
     )
 
