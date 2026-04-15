@@ -2090,32 +2090,58 @@ describe("loadConfig with schema validation", () => {
 
   test("recovers from partial heartbeat.activeHours without wiping unrelated fields", () => {
     // activeHoursStart is explicitly nulled while activeHoursEnd defaults to
-    // 22 — a mismatch. Single-emit on the null side lets delete-and-retry
-    // strip activeHoursStart, after which the default (8) restores it.
+    // 22 — a mismatch. Dual-emit strips both sides; both defaults restore
+    // (8, 22). maxTokens is unaffected.
     writeConfig({
       maxTokens: 4096,
       heartbeat: { activeHoursStart: null },
     });
     const config = loadConfig();
     expect(config.maxTokens).toBe(4096);
-    // Both fall back to the heartbeat defaults (8, 22).
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
 
-  test("partial heartbeat.activeHours preserves the explicit non-null value", () => {
-    // User sets activeHoursEnd: 20 and nulls activeHoursStart. Single-emit
-    // on the null side strips activeHoursStart only — default 8 restores
-    // it, user's explicit 20 survives. Dual-emit would strip both and lose
-    // the 20.
+  test("recovers from heartbeat.activeHours null-mismatch where explicit value equals opposite default", () => {
+    // { start: null, end: 8 } — single-emit on the null side would strip
+    // start, the default 8 would restore it, and the equal-hours check would
+    // fire, cascading to a full defaults reset that wipes maxTokens.
+    // Dual-emit strips both sides in one pass.
     writeConfig({
-      maxTokens: 1234,
-      heartbeat: { activeHoursStart: null, activeHoursEnd: 20 },
+      maxTokens: 4096,
+      heartbeat: { activeHoursStart: null, activeHoursEnd: 8 },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(1234);
+    expect(config.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
-    expect(config.heartbeat.activeHoursEnd).toBe(20);
+    expect(config.heartbeat.activeHoursEnd).toBe(22);
+  });
+
+  test("recovers from heartbeat.activeHours null-mismatch on the end side", () => {
+    // { start: 22, end: null } — same cascade class as above, mirrored.
+    writeConfig({
+      maxTokens: 4096,
+      heartbeat: { activeHoursStart: 22, activeHoursEnd: null },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(4096);
+    expect(config.heartbeat.activeHoursStart).toBe(8);
+    expect(config.heartbeat.activeHoursEnd).toBe(22);
+  });
+
+  test("recovers from equal heartbeat.activeHours without wiping unrelated fields", () => {
+    // { start: 22, end: 22 } — both equal to the default for end. Single-emit
+    // on one path would strip one side, the default would recreate the
+    // equal-hours mismatch, and the loader would fall back to full defaults,
+    // wiping maxTokens. Dual-emit strips both sides at once.
+    writeConfig({
+      maxTokens: 4096,
+      heartbeat: { activeHoursStart: 22, activeHoursEnd: 22 },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(4096);
+    expect(config.heartbeat.activeHoursStart).toBe(8);
+    expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
 
   test("recovers from equal filing.activeHours without wiping unrelated fields", () => {
