@@ -37,6 +37,7 @@ extension MessageListView {
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
+            // .center anchor is view-relative and works correctly with inverted scroll.
             $scrollPosition.wrappedValue.scrollTo(id: displayId, anchor: .center)
             flashHighlight(messageId: displayId)
             anchorMessageId = nil
@@ -85,6 +86,7 @@ extension MessageListView {
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
+            // .center anchor is view-relative and works correctly with inverted scroll.
             withAnimation {
                 $scrollPosition.wrappedValue = ScrollPosition(id: displayId, anchor: .center)
             }
@@ -169,6 +171,7 @@ extension MessageListView {
         if let displayId = TranscriptItems.displayId(for: id, in: messages) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
+            // .center anchor is view-relative and works correctly with inverted scroll.
             withAnimation {
                 $scrollPosition.wrappedValue = ScrollPosition(id: displayId, anchor: .center)
             }
