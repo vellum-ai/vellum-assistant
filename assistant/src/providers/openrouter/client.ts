@@ -56,6 +56,15 @@ export class OpenRouterProvider extends OpenAIProvider {
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
   }
 
+  // When routing to an `anthropic/*` model, actual API calls hit the Anthropic
+  // Messages endpoint, which charges for images using dimension-based pricing
+  // (~width*height/750 tokens) rather than the generic `base64/4` heuristic.
+  // Expose this so the local token estimator picks the matching rules and
+  // `shouldCompact()` doesn't over-count image tokens by ~100×.
+  get tokenEstimationProvider(): string {
+    return isAnthropicModel(this.defaultModel) ? "anthropic" : this.name;
+  }
+
   override async sendMessage(
     messages: Message[],
     tools?: ToolDefinition[],
