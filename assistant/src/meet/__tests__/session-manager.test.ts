@@ -1,15 +1,12 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../../runtime/assistant-event.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import { meetEventDispatcher } from "../event-publisher.js";
 import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
@@ -34,7 +31,15 @@ interface MockRunner {
 
 function makeMockRunner(
   overrides: {
-    runResult?: { containerId: string; boundPorts: Array<{ protocol: "tcp" | "udp"; containerPort: number; hostIp: string; hostPort: number }> };
+    runResult?: {
+      containerId: string;
+      boundPorts: Array<{
+        protocol: "tcp" | "udp";
+        containerPort: number;
+        hostIp: string;
+        hostPort: number;
+      }>;
+    };
     runError?: unknown;
   } = {},
 ): MockRunner {
@@ -95,6 +100,7 @@ let workspaceDir: string;
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "session-manager-test-"));
   __resetMeetSessionEventRouterForTests();
+  meetEventDispatcher._resetForTests();
 });
 
 afterEach(() => {
@@ -157,7 +163,12 @@ describe("MeetSessionManager.join", () => {
       image: string;
       env: Record<string, string>;
       binds: Array<{ hostPath: string; containerPath: string }>;
-      ports: Array<{ hostIp: string; hostPort: number; containerPort: number; protocol: string }>;
+      ports: Array<{
+        hostIp: string;
+        hostPort: number;
+        containerPort: number;
+        protocol: string;
+      }>;
       name: string;
       network: string;
     };
@@ -219,12 +230,8 @@ describe("MeetSessionManager.join", () => {
       meetingId: "m2",
       conversationId: "c2",
     });
-    expect(
-      getMeetSessionEventRouter().resolveBotApiToken("m2"),
-    ).not.toBeNull();
-    expect(
-      getMeetSessionEventRouter().resolveBotApiToken("other"),
-    ).toBeNull();
+    expect(getMeetSessionEventRouter().resolveBotApiToken("m2")).not.toBeNull();
+    expect(getMeetSessionEventRouter().resolveBotApiToken("other")).toBeNull();
 
     await manager.leave("m2", "cleanup");
   });
@@ -444,15 +451,18 @@ describe("MeetSessionManager max-minutes timeout", () => {
     const realClearTimeout = globalThis.clearTimeout;
     let capturedCb: (() => void) | null = null;
     const fakeHandle = Symbol("fake-handle");
-    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
-      ((cb: () => void, _ms: number) => {
-        capturedCb = cb;
-        return fakeHandle as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
-    (globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
-      ((handle: unknown) => {
-        if (handle === fakeHandle) capturedCb = null;
-      }) as typeof clearTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      cb: () => void,
+      _ms: number,
+    ) => {
+      capturedCb = cb;
+      return fakeHandle as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    (
+      globalThis as unknown as { clearTimeout: typeof clearTimeout }
+    ).clearTimeout = ((handle: unknown) => {
+      if (handle === fakeHandle) capturedCb = null;
+    }) as typeof clearTimeout;
 
     try {
       const audioIngestFactory = makeFakeAudioIngestFactory();
@@ -608,7 +618,9 @@ describe("MeetSessionManager audio ingest wiring", () => {
   });
 
   test("join tears down the audio ingest when the container fails to spawn", async () => {
-    const runner = makeMockRunner({ runError: new Error("docker unreachable") });
+    const runner = makeMockRunner({
+      runError: new Error("docker unreachable"),
+    });
     const audioIngestFactory = makeFakeAudioIngestFactory();
 
     const manager = _createMeetSessionManagerForTests({
@@ -630,5 +642,184 @@ describe("MeetSessionManager audio ingest wiring", () => {
     const ingest = audioIngestFactory.getLastIngest();
     expect(ingest).not.toBeNull();
     expect(ingest!.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Event-hub lifecycle publication (PR 19)
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager event-hub lifecycle publication", () => {
+  function captureHub() {
+    const received: AssistantEvent[] = [];
+    const sub = assistantEventHub.subscribe(
+      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      (event) => {
+        received.push(event);
+      },
+    );
+    return { received, dispose: () => sub.dispose() };
+  }
+
+  test("join publishes meet.joining; leave publishes meet.left with reason", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "https://meet.google.com/aaa",
+        meetingId: "m-ev-1",
+        conversationId: "c",
+      });
+      await manager.leave("m-ev-1", "user-requested");
+
+      const meetTypes = received
+        .map((e) => e.message.type)
+        .filter((t) => t.startsWith("meet."));
+      expect(meetTypes).toContain("meet.joining");
+      expect(meetTypes).toContain("meet.left");
+
+      const joining = received.find((e) => e.message.type === "meet.joining")!;
+      expect((joining.message as { url: string }).url).toBe(
+        "https://meet.google.com/aaa",
+      );
+
+      const left = received.find((e) => e.message.type === "meet.left")!;
+      expect((left.message as { reason: string }).reason).toBe(
+        "user-requested",
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  test("lifecycle:joined bot event publishes meet.joined exactly once", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-ev-2",
+        conversationId: "c",
+      });
+
+      // Simulate the bot delivering its lifecycle:joined event twice — the
+      // session manager should only fire `meet.joined` on the first one.
+      getMeetSessionEventRouter().dispatch("m-ev-2", {
+        type: "lifecycle",
+        meetingId: "m-ev-2",
+        timestamp: new Date(0).toISOString(),
+        state: "joined",
+      });
+      getMeetSessionEventRouter().dispatch("m-ev-2", {
+        type: "lifecycle",
+        meetingId: "m-ev-2",
+        timestamp: new Date(0).toISOString(),
+        state: "joined",
+      });
+
+      // Let the fire-and-forget publish calls settle.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const joined = received.filter((e) => e.message.type === "meet.joined");
+      expect(joined).toHaveLength(1);
+
+      await manager.leave("m-ev-2", "cleanup");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("container spawn failure publishes meet.error", async () => {
+    const runner = makeMockRunner({ runError: new Error("docker down") });
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await expect(
+        manager.join({
+          url: "u",
+          meetingId: "m-ev-err",
+          conversationId: "c",
+        }),
+      ).rejects.toThrow(/docker down/);
+
+      await Promise.resolve();
+
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors).toHaveLength(1);
+      expect((errors[0]!.message as { detail: string }).detail).toContain(
+        "docker down",
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  test("lifecycle:error bot event publishes meet.error with detail", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { received, dispose } = captureHub();
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-ev-lerr",
+        conversationId: "c",
+      });
+
+      getMeetSessionEventRouter().dispatch("m-ev-lerr", {
+        type: "lifecycle",
+        meetingId: "m-ev-lerr",
+        timestamp: new Date(0).toISOString(),
+        state: "error",
+        detail: "join rejected by host",
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors).toHaveLength(1);
+      expect((errors[0]!.message as { detail: string }).detail).toBe(
+        "join rejected by host",
+      );
+
+      await manager.leave("m-ev-lerr", "cleanup");
+    } finally {
+      dispose();
+    }
   });
 });

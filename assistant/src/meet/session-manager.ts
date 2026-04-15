@@ -10,9 +10,13 @@
  *     Phase 3) via the secure-keys abstraction.
  *   - Drive `DockerRunner` to create + start the Meet-bot container with the
  *     right env/binds/port mappings.
- *   - Register a per-meeting handler with `MeetSessionEventRouter`. Later
- *     PRs wire real consumers (PR 17 conversation bridge, PR 18 storage
- *     writer, PR 22 consent monitor).
+ *   - Register the per-meeting handler with `MeetSessionEventRouter` via
+ *     the shared `meetEventDispatcher` so multiple subscribers (this
+ *     manager, PR 17's conversation bridge, PR 18's storage writer,
+ *     PR 22's consent monitor) can observe the same live event stream.
+ *   - Publish `meet.joining` / `meet.joined` / `meet.left` / `meet.error`
+ *     lifecycle events on the assistant event hub so SSE-connected clients
+ *     can render live meeting state.
  *   - Enforce `services.meet.maxMeetingMinutes` via a hard-cap timeout that
  *     invokes `leave(id, "timeout")`.
  *   - On `leave`, best-effort hit the bot's `/leave` first; fall back to
@@ -22,8 +26,6 @@
  *     ingest down after the container is removed on leave.
  *
  * Not yet wired in this PR — left as TODOs for their owning PRs:
- *   - PR 19 adds a container-exit watcher that publishes `lifecycle:left`
- *     via `assistantEventHub`.
  *   - PR 22 instantiates the consent monitor and disposes it on leave.
  *   - PR 23 substitutes `{assistantName}` into `CONSENT_MESSAGE`.
  */
@@ -33,15 +35,21 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
 import {
-  getMeetSessionEventRouter,
-  type MeetSessionEventHandler,
-} from "./session-event-router.js";
+  type MeetEventUnsubscribe,
+  publishMeetEvent,
+  registerMeetingDispatcher,
+  subscribeEventHubPublisher,
+  subscribeToMeetingEvents,
+  unregisterMeetingDispatcher,
+} from "./event-publisher.js";
+import { getMeetSessionEventRouter } from "./session-event-router.js";
 
 const log = getLogger("meet-session-manager");
 
@@ -94,6 +102,10 @@ interface ActiveSession extends MeetSession {
    * `leave()` after the container is removed.
    */
   audioIngest: MeetAudioIngestLike;
+  /** Unsubscribe handles for per-session dispatcher subscriptions. */
+  eventUnsubscribes: MeetEventUnsubscribe[];
+  /** True once the bot has emitted a `lifecycle.joined` event. */
+  joinedPublished: boolean;
 }
 
 /**
@@ -101,11 +113,7 @@ interface ActiveSession extends MeetSession {
  * Lets tests swap in a fake without needing the real Deepgram/socket stack.
  */
 export interface MeetAudioIngestLike {
-  start(
-    meetingId: string,
-    socketPath: string,
-    apiKey: string,
-  ): Promise<void>;
+  start(meetingId: string, socketPath: string, apiKey: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -136,7 +144,8 @@ class MeetSessionManagerImpl {
 
   constructor(deps: MeetSessionManagerDeps = {}) {
     this.deps = {
-      dockerRunnerFactory: deps.dockerRunnerFactory ?? (() => new DockerRunner()),
+      dockerRunnerFactory:
+        deps.dockerRunnerFactory ?? (() => new DockerRunner()),
       getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
@@ -177,6 +186,13 @@ class MeetSessionManagerImpl {
   _resetForTests(): void {
     for (const session of this.sessions.values()) {
       if (session.timeoutHandle) clearTimeout(session.timeoutHandle);
+      for (const unsubscribe of session.eventUnsubscribes) {
+        try {
+          unsubscribe();
+        } catch {
+          /* best-effort */
+        }
+      }
     }
     this.sessions.clear();
   }
@@ -193,6 +209,17 @@ class MeetSessionManagerImpl {
         `MeetSession already exists for meetingId=${meetingId}; leave the existing session before re-joining`,
       );
     }
+
+    // Fire `meet.joining` before we start real work so clients can show the
+    // "attempting to join …" state immediately. Await the publish so any
+    // subscriber errors surface into the log stream before the container
+    // spin-up (which takes seconds) begins.
+    await publishMeetEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      meetingId,
+      "meet.joining",
+      { url },
+    );
 
     const config = getConfig();
     const meet = config.services.meet;
@@ -282,6 +309,12 @@ class MeetSessionManagerImpl {
       // rejections from surfacing in the caller's context.
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
       throw err;
     }
 
@@ -294,9 +327,14 @@ class MeetSessionManagerImpl {
       await runner.remove(runResult.containerId).catch(() => {});
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
-      throw new Error(
-        `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`,
+      const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail },
       );
+      throw new Error(detail);
     }
 
     // Now that the container is up, wait for the ingest to finish setup
@@ -313,21 +351,24 @@ class MeetSessionManagerImpl {
       await runner.stop(runResult.containerId).catch(() => {});
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
       throw err;
     }
 
     const botBaseUrl = `http://${MEET_BOT_HOST_IP}:${boundPort.hostPort}`;
     const joinTimeoutMs = meet.maxMeetingMinutes * 60_000;
 
-    // No-op handler for now — later PRs (17 conversation bridge, 18 storage
-    // writer, 22 consent monitor) swap in real consumers.
-    const handler: MeetSessionEventHandler = (event) => {
-      log.debug(
-        { meetingId, eventType: event.type },
-        "meet session handler received event (no-op stub)",
-      );
-    };
-    getMeetSessionEventRouter().register(meetingId, handler);
+    // Install the single router handler for this meeting. It fans incoming
+    // bot events out via `meetEventDispatcher` so multiple subscribers
+    // (this publisher, PR 17's bridge, PR 18's storage writer, PR 22's
+    // consent monitor) can observe the same stream without racing to
+    // replace each other at the router.
+    registerMeetingDispatcher(meetingId);
 
     const startedAt = Date.now();
     const session: ActiveSession = {
@@ -340,8 +381,43 @@ class MeetSessionManagerImpl {
       joinTimeoutMs,
       timeoutHandle: null,
       audioIngest,
+      eventUnsubscribes: [],
+      joinedPublished: false,
     };
     this.sessions.set(meetingId, session);
+
+    // Fan `participant.change` / `speaker.change` / final transcript chunks
+    // out as `meet.*` events on the assistant event hub.
+    session.eventUnsubscribes.push(
+      subscribeEventHubPublisher(DAEMON_INTERNAL_ASSISTANT_ID, meetingId),
+    );
+
+    // Watch for the bot's first `lifecycle: joined` so we can emit a
+    // client-facing `meet.joined` at the precise moment the bot is live
+    // in the meeting. Lifecycle publish happens once per session.
+    session.eventUnsubscribes.push(
+      subscribeToMeetingEvents(meetingId, (event) => {
+        if (event.type !== "lifecycle") return;
+        if (event.state === "joined" && !session.joinedPublished) {
+          session.joinedPublished = true;
+          void publishMeetEvent(
+            DAEMON_INTERNAL_ASSISTANT_ID,
+            meetingId,
+            "meet.joined",
+            {},
+          );
+          return;
+        }
+        if (event.state === "error") {
+          void publishMeetEvent(
+            DAEMON_INTERNAL_ASSISTANT_ID,
+            meetingId,
+            "meet.error",
+            { detail: event.detail ?? "unknown error" },
+          );
+        }
+      }),
+    );
 
     // Max-meeting-minutes hard cap. Using setTimeout keeps this compatible
     // with Bun's fake-timer harness for tests.
@@ -354,8 +430,12 @@ class MeetSessionManagerImpl {
       });
     }, joinTimeoutMs);
 
-    // TODO(PR 19): wire a container-exit watcher here that publishes a
-    // `lifecycle:left` event via `assistantEventHub`.
+    // NOTE: a container-exit watcher still belongs here in a future PR —
+    // it would catch `docker stop`-driven exits that never emit a
+    // `lifecycle: left` event and synthesize a `meet.error` so the client
+    // doesn't hang in "joined" forever. Leaving as a follow-up; the
+    // timeout cap + explicit `leave()` path already cover the normal
+    // teardown routes.
 
     log.info(
       {
@@ -390,7 +470,21 @@ class MeetSessionManagerImpl {
       session.timeoutHandle = null;
     }
     this.sessions.delete(meetingId);
-    getMeetSessionEventRouter().unregister(meetingId);
+
+    // Tear down dispatcher subscribers BEFORE unregistering the router so no
+    // in-flight event slips through to a subscriber whose consumer is gone.
+    for (const unsubscribe of session.eventUnsubscribes) {
+      try {
+        unsubscribe();
+      } catch (err) {
+        log.warn(
+          { err, meetingId },
+          "Meet event subscriber unsubscribe threw during leave",
+        );
+      }
+    }
+    session.eventUnsubscribes = [];
+    unregisterMeetingDispatcher(meetingId);
 
     const runner = this.deps.dockerRunnerFactory();
 
@@ -439,6 +533,13 @@ class MeetSessionManagerImpl {
         "MeetAudioIngest.stop failed — socket or Deepgram session may leak",
       );
     }
+
+    void publishMeetEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      meetingId,
+      "meet.left",
+      { reason },
+    );
 
     log.info(
       { meetingId, containerId: session.containerId, reason, gracefulOk },
@@ -497,14 +598,18 @@ export function generateBotApiToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+/** Extract a human-readable message from an unknown thrown value. */
+function errorDetail(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "unknown error";
+}
+
 /**
  * Default bot `/leave` hitter. Honors {@link BOT_LEAVE_HTTP_TIMEOUT_MS}.
  * Throws on non-2xx or timeout so `leave()` can fall through to stop.
  */
-async function defaultBotLeaveFetch(
-  url: string,
-  token: string,
-): Promise<void> {
+async function defaultBotLeaveFetch(url: string, token: string): Promise<void> {
   const response = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
