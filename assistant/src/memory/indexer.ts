@@ -181,18 +181,24 @@ export async function indexMessageNow(
         (graphCurrentVal ? parseInt(graphCurrentVal, 10) : 0) + 1;
       setMemoryCheckpoint(graphPendingKey, String(graphPendingCount));
 
-      if (graphPendingCount >= batchSize) {
-        enqueueMemoryJob("graph_extract", {
-          conversationId: input.conversationId,
-          scopeId: input.scopeId ?? "default",
-        });
+      const graphBatchFired = graphPendingCount >= batchSize;
+      if (graphBatchFired) {
         setMemoryCheckpoint(graphPendingKey, "0");
       }
 
+      // Single pending `graph_extract` row per conversation. If the
+      // batch threshold just fired, pull `runAfter` back to now so the
+      // job runs immediately; otherwise debounce by the idle timeout.
+      // Using `upsertDebouncedJob` in both paths avoids the previous
+      // bug where the idle call would overwrite a just-enqueued batch
+      // job's `runAfter` and silently debounce it.
       upsertDebouncedJob(
         "graph_extract",
-        { conversationId: input.conversationId },
-        Date.now() + idleTimeoutMs,
+        {
+          conversationId: input.conversationId,
+          scopeId: input.scopeId ?? "default",
+        },
+        graphBatchFired ? Date.now() : Date.now() + idleTimeoutMs,
       );
 
       // ── Auto-analysis triggers ─────────────────────────────────────

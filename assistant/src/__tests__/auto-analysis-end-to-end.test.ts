@@ -499,4 +499,40 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     expect(row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
     expect(row.runAfter).toBeLessThanOrEqual(after + 1_000);
   });
+
+  test("crossing extraction.batchSize → graph_extract pending row has immediate runAfter", async () => {
+    const source = createConversation("cadence-source-graph");
+
+    // extraction.batchSize = 2 → second message trips the batch
+    // trigger. Before the fix, the idle upsert that runs on the same
+    // tick would overwrite the batch job's runAfter with
+    // (now + idleTimeoutMs), silently debouncing it. Assert the single
+    // coalesced pending row ends up at ~now.
+    await indexMessages(source.id, 1);
+    const before = Date.now();
+    await indexMessages(source.id, 1, 1);
+    const after = Date.now();
+
+    const db = getDb();
+    const graphRows = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "graph_extract"))
+      .all()
+      .filter((row) => {
+        try {
+          const payload = JSON.parse(row.payload) as {
+            conversationId?: string;
+          };
+          return payload.conversationId === source.id;
+        } catch {
+          return false;
+        }
+      });
+
+    expect(graphRows.length).toBe(1);
+    const row = graphRows[0]!;
+    expect(row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
+    expect(row.runAfter).toBeLessThanOrEqual(after + 1_000);
+  });
 });
