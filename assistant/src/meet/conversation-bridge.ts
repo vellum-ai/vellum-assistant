@@ -2,16 +2,18 @@
  * MeetConversationBridge — turns bot-side meet events into conversation
  * messages and live ephemeral updates.
  *
- * The bridge is a single-meeting subscriber on
- * {@link MeetSessionEventRouter}. It fans incoming {@link MeetBotEvent}s
- * into three sinks:
+ * The bridge subscribes to a meeting's bot-event stream via
+ * {@link subscribeToMeetingEvents} (the PR 19 fan-out dispatcher). It fans
+ * incoming {@link MeetBotEvent}s into three sinks:
  *
  *   1. **Final transcripts** (`transcript.chunk` with `isFinal === true`)
- *      are persisted as `"user"` messages in the conversation with a
- *      `[<speakerName>]: <text>` attribution. Speaker metadata
+ *      are run through {@link MeetSpeakerResolver} to arbitrate Deepgram
+ *      vs DOM speaker attribution, then persisted as `"user"` messages
+ *      with a `[<speakerName>]: <text>` attribution. Speaker metadata
  *      (`meetSpeakerLabel`, `meetSpeakerId`, `meetSpeakerName`,
- *      `meetTimestamp`) rides in the message metadata so later PRs can
- *      surface the raw speaker context without re-parsing the content.
+ *      `meetSpeakerConfidence`, `meetTimestamp`) rides in the message
+ *      metadata so later PRs can surface the raw speaker context without
+ *      re-parsing the content.
  *
  *   2. **Interim transcripts** (`transcript.chunk` with `isFinal === false`)
  *      are NOT persisted. They are published via
@@ -31,15 +33,14 @@
  *
  * `speaker.change` and `lifecycle` are intentionally consumed elsewhere
  * (PR 18 storage writer, PR 19 lifecycle listener, PR 21 speaker
- * resolver); this bridge is a no-op for them.
+ * resolver); this bridge is a no-op for them at the top level, though
+ * the resolver transparently observes `speaker.change` via its own
+ * subscription.
  *
  * Dependency injection keeps the bridge test-friendly: the message-insert
- * function and the router / event-hub can all be supplied at construction
- * time so unit tests never need to spin up SQLite or the real singleton.
- * PR 21 will extend this bridge to call the speaker resolver before
- * every final-transcript insert to arbitrate Deepgram vs DOM speaker
- * attribution — the `speakerLabel` / `speakerName` / `speakerId`
- * carried on the event today are the raw Deepgram values.
+ * function, the dispatcher subscribe, the event hub, and the resolver
+ * can all be supplied at construction time so unit tests never need to
+ * spin up SQLite or the real singleton.
  */
 
 import type { MeetBotEvent } from "@vellumai/meet-contracts";
@@ -50,10 +51,11 @@ import { assistantEventHub as defaultAssistantEventHub } from "../runtime/assist
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getMeetSessionEventRouter,
-  type MeetSessionEventHandler,
-  type MeetSessionEventRouter,
-} from "./session-event-router.js";
+  type MeetEventSubscriber,
+  type MeetEventUnsubscribe,
+  subscribeToMeetingEvents as defaultSubscribeToMeetingEvents,
+} from "./event-publisher.js";
+import { MeetSpeakerResolver } from "./speaker-resolver.js";
 
 const log = getLogger("meet-conversation-bridge");
 
@@ -80,17 +82,35 @@ export interface AssistantEventPublisher {
   publish: (event: ReturnType<typeof buildAssistantEvent>) => Promise<void>;
 }
 
+/**
+ * Subscribe shim — injected for tests so they can route events through a
+ * local dispatcher without hitting the process-level singleton.
+ */
+export type SubscribeToMeetingEventsFn = (
+  meetingId: string,
+  cb: MeetEventSubscriber,
+) => MeetEventUnsubscribe;
+
 export interface MeetConversationBridgeDeps {
-  /** Required: the per-meeting id the router keys on. */
+  /** Required: the per-meeting id the dispatcher keys on. */
   meetingId: string;
   /** Required: the target conversation to write into. */
   conversationId: string;
   /** Required: wrapper around `addMessage` — injected for tests. */
   insertMessage: InsertMessageFn;
-  /** Optional: override the router (defaults to the process singleton). */
-  router?: MeetSessionEventRouter;
+  /**
+   * Optional: override the dispatcher subscribe function. Defaults to the
+   * process singleton {@link subscribeToMeetingEvents}.
+   */
+  subscribeToMeetingEvents?: SubscribeToMeetingEventsFn;
   /** Optional: override the event hub (defaults to the process singleton). */
   assistantEventHub?: AssistantEventPublisher;
+  /**
+   * Optional: override the speaker resolver. The bridge constructs a
+   * default resolver using the same `subscribeToMeetingEvents` so tests
+   * that wire a custom dispatcher get a resolver on the same stream.
+   */
+  resolver?: MeetSpeakerResolver;
   /**
    * Optional: override the assistant id on emitted interim events. The
    * daemon normally uses `DAEMON_INTERNAL_ASSISTANT_ID` ("self"); tests
@@ -107,29 +127,37 @@ export class MeetConversationBridge {
   private readonly meetingId: string;
   private readonly conversationId: string;
   private readonly insertMessage: InsertMessageFn;
-  private readonly router: MeetSessionEventRouter;
+  private readonly subscribeFn: SubscribeToMeetingEventsFn;
   private readonly hub: AssistantEventPublisher;
+  private readonly resolver: MeetSpeakerResolver;
   private readonly assistantId: string;
-  private subscribed = false;
+  private unsubscribeFn: MeetEventUnsubscribe | null = null;
 
   constructor(deps: MeetConversationBridgeDeps) {
     this.meetingId = deps.meetingId;
     this.conversationId = deps.conversationId;
     this.insertMessage = deps.insertMessage;
-    this.router = deps.router ?? getMeetSessionEventRouter();
+    this.subscribeFn =
+      deps.subscribeToMeetingEvents ?? defaultSubscribeToMeetingEvents;
     this.hub = deps.assistantEventHub ?? defaultAssistantEventHub;
+    this.resolver =
+      deps.resolver ??
+      new MeetSpeakerResolver({
+        meetingId: deps.meetingId,
+        subscribe: this.subscribeFn,
+      });
     this.assistantId = deps.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
   }
 
   /**
-   * Register this bridge as the handler for its `meetingId` on the
-   * router. Overwrites any prior registration (the router logs a warning
-   * in that case). Idempotent within a single instance — calling twice
-   * just re-registers the same handler.
+   * Register this bridge as a subscriber on the dispatcher for its
+   * `meetingId`. Idempotent — calling twice while already subscribed is
+   * a no-op so callers don't need to track state themselves.
    */
   subscribe(): void {
-    const handler: MeetSessionEventHandler = (event) => {
-      // Defer to async-aware branch but don't block the router — late
+    if (this.unsubscribeFn) return;
+    this.unsubscribeFn = this.subscribeFn(this.meetingId, (event) => {
+      // Defer to async-aware branch but don't block the dispatcher — late
       // errors are logged, not surfaced.
       void this.handleEvent(event).catch((err) => {
         log.error(
@@ -137,23 +165,31 @@ export class MeetConversationBridge {
           "MeetConversationBridge: handler failed",
         );
       });
-    };
-    this.router.register(this.meetingId, handler);
-    this.subscribed = true;
+    });
   }
 
   /**
-   * Remove this bridge's registration from the router. Safe to call
-   * multiple times and before `subscribe()`.
+   * Drop the dispatcher subscription and dispose the resolver. Safe to
+   * call multiple times and before `subscribe()`.
    */
   unsubscribe(): void {
-    this.router.unregister(this.meetingId);
-    this.subscribed = false;
+    if (this.unsubscribeFn) {
+      try {
+        this.unsubscribeFn();
+      } catch (err) {
+        log.warn(
+          { err, meetingId: this.meetingId },
+          "MeetConversationBridge: dispatcher unsubscribe threw",
+        );
+      }
+      this.unsubscribeFn = null;
+    }
+    this.resolver.unsubscribe();
   }
 
-  /** Whether this bridge currently holds a router registration. */
+  /** Whether this bridge currently holds a dispatcher subscription. */
   isSubscribed(): boolean {
-    return this.subscribed;
+    return this.unsubscribeFn !== null;
   }
 
   // ── Event dispatch ────────────────────────────────────────────────────────
@@ -174,7 +210,8 @@ export class MeetConversationBridge {
         await this.handleParticipantChange(event);
         return;
       case "speaker.change":
-        // PR 18 (storage writer) / PR 21 (speaker resolver) own this.
+        // The resolver is a separate subscriber on this stream — the
+        // bridge itself doesn't need to react to active-speaker changes.
         return;
       case "lifecycle":
         // PR 19 (lifecycle listener) owns this.
@@ -202,24 +239,28 @@ export class MeetConversationBridge {
       return;
     }
 
-    // PR 21 will replace `speakerName` / `speakerId` with resolver output
-    // before building the attribution; for now we use the raw Deepgram
-    // metadata the event carries.
-    const speakerName = event.speakerLabel ?? "Unknown speaker";
+    const resolved = this.resolver.resolve(event);
+    const speakerName = resolved.speakerName;
     const attributed = `[${speakerName}]: ${text}`;
     const content = JSON.stringify([{ type: "text", text: attributed }]);
 
     const metadata: Record<string, unknown> = {
       meetingId: this.meetingId,
       meetTimestamp: event.timestamp,
+      meetSpeakerName: speakerName,
+      meetSpeakerConfidence: resolved.confidence,
     };
     if (event.speakerLabel !== undefined) {
       metadata.meetSpeakerLabel = event.speakerLabel;
     }
-    if (event.speakerId !== undefined) {
+    if (resolved.speakerId !== undefined) {
+      metadata.meetSpeakerId = resolved.speakerId;
+    } else if (event.speakerId !== undefined) {
+      // Preserve the raw Deepgram speakerId even when the resolver didn't
+      // produce a binding — it can still help downstream consumers pair
+      // ASR segments to the same opaque speaker.
       metadata.meetSpeakerId = event.speakerId;
     }
-    metadata.meetSpeakerName = speakerName;
 
     await this.insertMessage(this.conversationId, "user", content, metadata);
   }

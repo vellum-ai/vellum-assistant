@@ -2,9 +2,18 @@
  * Unit tests for MeetConversationBridge.
  *
  * The bridge is tested with a recording shim for `addMessage`, a local
- * router instance (no singleton state leaks), and a stub event hub —
+ * dispatcher shim (no singleton state leaks), and a stub event hub —
  * so the whole surface is exercised without touching SQLite or the
  * real process-level hub.
+ *
+ * Notable shapes covered here:
+ *   - Final transcripts go through the speaker resolver before insert —
+ *     resolved name + confidence appear in the metadata.
+ *   - The bridge subscribes via `subscribeToMeetingEvents` (PR 19 multi-
+ *     subscriber dispatcher), not `MeetSessionEventRouter` directly.
+ *   - The resolver observes `speaker.change` through the same dispatcher
+ *     stream, so a DOM snapshot just before a transcript binds the
+ *     Deepgram label for future resolutions.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -23,7 +32,10 @@ import {
   type InsertMessageFn,
   MeetConversationBridge,
 } from "../conversation-bridge.js";
-import { MeetSessionEventRouter } from "../session-event-router.js";
+import type {
+  MeetEventSubscriber,
+  MeetEventUnsubscribe,
+} from "../event-publisher.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures & helpers
@@ -61,30 +73,74 @@ function makeInsertRecorder(): {
   return { fn, calls };
 }
 
+/**
+ * Local dispatcher shim that mirrors the PR 19 `subscribeToMeetingEvents`
+ * API. Keeps a per-meeting subscriber set and exposes a `dispatch` helper
+ * that tests call to deliver an event to all current subscribers.
+ *
+ * The resolver subscribes in the bridge constructor and the bridge
+ * subscribes in `subscribe()`, so the shim has to handle multiple
+ * subscribers per meeting — exactly the point of migrating away from
+ * the single-handler router.
+ */
+function makeDispatcher() {
+  const subscribers = new Map<string, Set<MeetEventSubscriber>>();
+
+  const subscribe = (
+    meetingId: string,
+    cb: MeetEventSubscriber,
+  ): MeetEventUnsubscribe => {
+    let set = subscribers.get(meetingId);
+    if (!set) {
+      set = new Set();
+      subscribers.set(meetingId, set);
+    }
+    set.add(cb);
+    return () => {
+      subscribers.get(meetingId)?.delete(cb);
+    };
+  };
+
+  const dispatch = (meetingId: string, event: MeetBotEvent): void => {
+    const set = subscribers.get(meetingId);
+    if (!set) return;
+    // Snapshot so a subscriber that self-unsubscribes mid-dispatch
+    // doesn't mutate the live iterator.
+    for (const cb of Array.from(set)) cb(event);
+  };
+
+  const subscriberCount = (meetingId: string): number =>
+    subscribers.get(meetingId)?.size ?? 0;
+
+  return { subscribe, dispatch, subscriberCount };
+}
+
+type Dispatcher = ReturnType<typeof makeDispatcher>;
+
 function makeBridge(
   overrides: {
     conversationId?: string;
     meetingId?: string;
     insertMessage?: InsertMessageFn;
-    router?: MeetSessionEventRouter;
+    dispatcher?: Dispatcher;
     hubPublish?: ReturnType<typeof mock>;
   } = {},
 ) {
   const recorder = overrides.insertMessage
     ? { fn: overrides.insertMessage, calls: [] as InsertCall[] }
     : makeInsertRecorder();
-  const router = overrides.router ?? new MeetSessionEventRouter();
+  const dispatcher = overrides.dispatcher ?? makeDispatcher();
   const hubPublish = overrides.hubPublish ?? mock(async () => {});
   const bridge = new MeetConversationBridge({
     meetingId: overrides.meetingId ?? MEETING_ID,
     conversationId: overrides.conversationId ?? CONVERSATION_ID,
     insertMessage: recorder.fn,
-    router,
+    subscribeToMeetingEvents: dispatcher.subscribe,
     assistantEventHub: {
       publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void>,
     },
   });
-  return { bridge, router, calls: recorder.calls, hubPublish };
+  return { bridge, dispatcher, calls: recorder.calls, hubPublish };
 }
 
 function finalTranscript(
@@ -168,12 +224,8 @@ function lifecycle(overrides: Partial<LifecycleEvent> = {}): LifecycleEvent {
   };
 }
 
-function dispatch(router: MeetSessionEventRouter, event: MeetBotEvent): void {
-  router.dispatch(event.meetingId, event);
-}
-
 /**
- * Let all micro-tasks settle — the router dispatches synchronously but
+ * Let all micro-tasks settle — the dispatcher delivers synchronously but
  * the bridge's handler uses `void this.handleEvent(...)`, so we need a
  * microtask flush before asserting inserts / publishes.
  */
@@ -186,58 +238,71 @@ async function flush(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe("MeetConversationBridge subscription", () => {
-  test("subscribe() registers a router handler; unsubscribe() removes it", () => {
-    const { bridge, router } = makeBridge();
-    expect(router.registeredCount()).toBe(0);
+  test("bridge constructor registers the resolver; subscribe() adds a second subscriber", () => {
+    const dispatcher = makeDispatcher();
+    const { bridge } = makeBridge({ dispatcher });
+    // Resolver subscribed on construction.
+    expect(dispatcher.subscriberCount(MEETING_ID)).toBe(1);
 
     bridge.subscribe();
-    expect(router.registeredCount()).toBe(1);
+    // Bridge handler is the second subscriber.
+    expect(dispatcher.subscriberCount(MEETING_ID)).toBe(2);
     expect(bridge.isSubscribed()).toBe(true);
 
     bridge.unsubscribe();
-    expect(router.registeredCount()).toBe(0);
+    expect(dispatcher.subscriberCount(MEETING_ID)).toBe(0);
     expect(bridge.isSubscribed()).toBe(false);
   });
 
   test("events dispatched before subscribe() are dropped", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
 
-    dispatch(router, finalTranscript());
+    dispatcher.dispatch(MEETING_ID, finalTranscript());
     await flush();
     expect(calls).toHaveLength(0);
 
     // Subscribe and dispatch again — now it should be recorded.
     bridge.subscribe();
-    dispatch(router, finalTranscript());
+    dispatcher.dispatch(MEETING_ID, finalTranscript());
     await flush();
     expect(calls).toHaveLength(1);
   });
 
   test("events dispatched after unsubscribe() are dropped", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
-    dispatch(router, finalTranscript());
+    dispatcher.dispatch(MEETING_ID, finalTranscript());
     await flush();
     expect(calls).toHaveLength(1);
 
     bridge.unsubscribe();
-    dispatch(router, finalTranscript());
+    dispatcher.dispatch(MEETING_ID, finalTranscript());
     await flush();
     expect(calls).toHaveLength(1);
+  });
+
+  test("subscribe() is idempotent — calling twice keeps one bridge subscriber", () => {
+    const dispatcher = makeDispatcher();
+    const { bridge } = makeBridge({ dispatcher });
+    bridge.subscribe();
+    bridge.subscribe();
+    // Resolver (1) + bridge (1) — subscribe twice must not stack another.
+    expect(dispatcher.subscriberCount(MEETING_ID)).toBe(2);
+    bridge.unsubscribe();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Transcript handling
+// Transcript handling — resolver integration
 // ---------------------------------------------------------------------------
 
-describe("MeetConversationBridge — transcript.chunk", () => {
-  test("final chunks become conversation messages with speaker metadata", async () => {
-    const { bridge, router, calls, hubPublish } = makeBridge();
+describe("MeetConversationBridge — transcript.chunk (resolver integration)", () => {
+  test("no DOM snapshot → resolver returns unknown; metadata reflects that", async () => {
+    const { bridge, dispatcher, calls, hubPublish } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       finalTranscript({
         text: "Let's kick off the sync.",
         speakerLabel: "Speaker 0",
@@ -254,62 +319,115 @@ describe("MeetConversationBridge — transcript.chunk", () => {
       type: string;
       text: string;
     }>;
+    // Without a DOM snapshot, the resolver falls back to "Unknown speaker".
     expect(parsed).toEqual([
-      { type: "text", text: "[Speaker 0]: Let's kick off the sync." },
+      { type: "text", text: "[Unknown speaker]: Let's kick off the sync." },
     ]);
     expect(call?.metadata).toMatchObject({
       meetingId: MEETING_ID,
       meetTimestamp: TIMESTAMP,
       meetSpeakerLabel: "Speaker 0",
       meetSpeakerId: "spk-0",
-      meetSpeakerName: "Speaker 0",
+      meetSpeakerName: "Unknown speaker",
+      meetSpeakerConfidence: "unknown",
     });
 
-    // Final transcripts must not go to the hub as interim events.
     expect(hubPublish).toHaveBeenCalledTimes(0);
   });
 
-  test("final chunks without a speakerLabel fall back to 'Unknown speaker'", async () => {
-    const { bridge, router, calls } = makeBridge();
+  test("DOM snapshot just before transcript → resolved name used in content + metadata", async () => {
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    // Deliver a DOM speaker-change within the correlation window.
+    dispatcher.dispatch(
+      MEETING_ID,
+      speakerChange({
+        timestamp: new Date(Date.parse(TIMESTAMP) - 100).toISOString(),
+        speakerId: "p-alice",
+        speakerName: "Alice",
+      }),
+    );
+
+    dispatcher.dispatch(
+      MEETING_ID,
       finalTranscript({
-        text: "Off-mic remark.",
-        speakerLabel: undefined,
-        speakerId: undefined,
+        text: "Let's kick off.",
+        speakerLabel: "Speaker 0",
+        speakerId: "spk-0",
+        timestamp: TIMESTAMP,
       }),
     );
     await flush();
 
     expect(calls).toHaveLength(1);
     const parsed = JSON.parse(calls[0]!.content) as Array<{ text: string }>;
-    expect(parsed[0]?.text).toBe("[Unknown speaker]: Off-mic remark.");
+    expect(parsed[0]?.text).toBe("[Alice]: Let's kick off.");
     expect(calls[0]?.metadata).toMatchObject({
-      meetSpeakerName: "Unknown speaker",
+      meetSpeakerName: "Alice",
+      meetSpeakerId: "p-alice",
+      meetSpeakerLabel: "Speaker 0",
+      meetSpeakerConfidence: "dom-override",
     });
-    expect(calls[0]?.metadata?.meetSpeakerLabel).toBeUndefined();
-    expect(calls[0]?.metadata?.meetSpeakerId).toBeUndefined();
+  });
+
+  test("learned mapping reused on subsequent transcripts → confidence 'deepgram'", async () => {
+    const { bridge, dispatcher, calls } = makeBridge();
+    bridge.subscribe();
+
+    // Bootstrap — DOM says Alice, Deepgram says Speaker 0.
+    dispatcher.dispatch(
+      MEETING_ID,
+      speakerChange({
+        timestamp: new Date(Date.parse(TIMESTAMP) - 200).toISOString(),
+        speakerId: "p-alice",
+        speakerName: "Alice",
+      }),
+    );
+    dispatcher.dispatch(
+      MEETING_ID,
+      finalTranscript({ text: "First", speakerLabel: "Speaker 0" }),
+    );
+
+    // Later — another Speaker 0 transcript, well outside the correlation
+    // window, with no new DOM event. Resolver should use the learned
+    // mapping and emit `deepgram` confidence.
+    const laterTs = new Date(Date.parse(TIMESTAMP) + 60_000).toISOString();
+    dispatcher.dispatch(
+      MEETING_ID,
+      finalTranscript({
+        text: "Later",
+        speakerLabel: "Speaker 0",
+        timestamp: laterTs,
+      }),
+    );
+    await flush();
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.metadata).toMatchObject({
+      meetSpeakerName: "Alice",
+      meetSpeakerId: "p-alice",
+      meetSpeakerConfidence: "deepgram",
+    });
   });
 
   test("empty / whitespace-only final chunks are skipped (no insert)", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(router, finalTranscript({ text: "" }));
-    dispatch(router, finalTranscript({ text: "   \n\t  " }));
+    dispatcher.dispatch(MEETING_ID, finalTranscript({ text: "" }));
+    dispatcher.dispatch(MEETING_ID, finalTranscript({ text: "   \n\t  " }));
     await flush();
 
     expect(calls).toHaveLength(0);
   });
 
   test("interim chunks publish to the hub but never persist", async () => {
-    const { bridge, router, calls, hubPublish } = makeBridge();
+    const { bridge, dispatcher, calls, hubPublish } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       interimTranscript({ text: "Hello tea", confidence: 0.72 }),
     );
     await flush();
@@ -335,14 +453,14 @@ describe("MeetConversationBridge — transcript.chunk", () => {
     const failingPublish = mock(async () => {
       throw new Error("hub offline");
     });
-    const { bridge, router, calls } = makeBridge({
+    const { bridge, dispatcher, calls } = makeBridge({
       hubPublish: failingPublish,
     });
     bridge.subscribe();
 
-    // Should not throw — the router would surface an unhandled rejection
+    // Should not throw — the dispatcher would surface an unhandled rejection
     // via the bridge's .catch otherwise.
-    dispatch(router, interimTranscript());
+    dispatcher.dispatch(MEETING_ID, interimTranscript());
     await flush();
 
     expect(failingPublish).toHaveBeenCalledTimes(1);
@@ -356,11 +474,11 @@ describe("MeetConversationBridge — transcript.chunk", () => {
 
 describe("MeetConversationBridge — chat.inbound", () => {
   test("chat messages persist with [Meet chat] prefix and chat metadata", async () => {
-    const { bridge, router, calls, hubPublish } = makeBridge();
+    const { bridge, dispatcher, calls, hubPublish } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       inboundChat({ fromName: "Alice", fromId: "u-alice", text: "Notes?" }),
     );
     await flush();
@@ -388,11 +506,11 @@ describe("MeetConversationBridge — chat.inbound", () => {
 
 describe("MeetConversationBridge — participant.change", () => {
   test("joined participants produce one short 'X joined' line each", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       participantChange({
         joined: [
           { id: "u-alice", name: "Alice" },
@@ -422,11 +540,11 @@ describe("MeetConversationBridge — participant.change", () => {
   });
 
   test("left participants produce one short 'X left' line each", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       participantChange({
         left: [{ id: "u-carol", name: "Carol" }],
       }),
@@ -445,21 +563,24 @@ describe("MeetConversationBridge — participant.change", () => {
   });
 
   test("empty joined/left arrays produce no inserts", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(router, participantChange({ joined: [], left: [] }));
+    dispatcher.dispatch(
+      MEETING_ID,
+      participantChange({ joined: [], left: [] }),
+    );
     await flush();
 
     expect(calls).toHaveLength(0);
   });
 
   test("simultaneous joins + leaves each produce their own line", async () => {
-    const { bridge, router, calls } = makeBridge();
+    const { bridge, dispatcher, calls } = makeBridge();
     bridge.subscribe();
 
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       participantChange({
         joined: [{ id: "u-alice", name: "Alice" }],
         left: [{ id: "u-bob", name: "Bob" }],
@@ -474,15 +595,15 @@ describe("MeetConversationBridge — participant.change", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Ignored event types (speaker.change, lifecycle)
+// Ignored event types (speaker.change at bridge level, lifecycle)
 // ---------------------------------------------------------------------------
 
 describe("MeetConversationBridge — ignored events", () => {
-  test("speaker.change events do not persist or publish", async () => {
-    const { bridge, router, calls, hubPublish } = makeBridge();
+  test("speaker.change events do not persist or publish (resolver consumes them)", async () => {
+    const { bridge, dispatcher, calls, hubPublish } = makeBridge();
     bridge.subscribe();
 
-    dispatch(router, speakerChange());
+    dispatcher.dispatch(MEETING_ID, speakerChange());
     await flush();
 
     expect(calls).toHaveLength(0);
@@ -490,7 +611,7 @@ describe("MeetConversationBridge — ignored events", () => {
   });
 
   test("lifecycle events do not persist or publish (every state)", async () => {
-    const { bridge, router, calls, hubPublish } = makeBridge();
+    const { bridge, dispatcher, calls, hubPublish } = makeBridge();
     bridge.subscribe();
 
     for (const state of [
@@ -500,7 +621,7 @@ describe("MeetConversationBridge — ignored events", () => {
       "left",
       "error",
     ] as const) {
-      dispatch(router, lifecycle({ state }));
+      dispatcher.dispatch(MEETING_ID, lifecycle({ state }));
     }
     await flush();
 
@@ -514,7 +635,7 @@ describe("MeetConversationBridge — ignored events", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetConversationBridge — error isolation", () => {
-  test("an insert failure does not tear down the bridge or router", async () => {
+  test("an insert failure does not tear down the bridge or dispatcher", async () => {
     let shouldFail = true;
     const failingInsert: InsertMessageFn = async () => {
       if (shouldFail) {
@@ -523,34 +644,37 @@ describe("MeetConversationBridge — error isolation", () => {
       return { id: "recovered" };
     };
 
-    const router = new MeetSessionEventRouter();
+    const dispatcher = makeDispatcher();
     const hubPublish = mock(async () => {});
     const bridge = new MeetConversationBridge({
       meetingId: MEETING_ID,
       conversationId: CONVERSATION_ID,
       insertMessage: failingInsert,
-      router,
+      subscribeToMeetingEvents: dispatcher.subscribe,
       assistantEventHub: {
         publish: hubPublish as unknown as (e: AssistantEvent) => Promise<void>,
       },
     });
     bridge.subscribe();
 
-    // First dispatch fails inside the handler — router must survive.
-    dispatch(router, finalTranscript());
+    // First dispatch fails inside the handler — dispatcher must survive.
+    dispatcher.dispatch(MEETING_ID, finalTranscript());
     await flush();
 
     shouldFail = false;
-    dispatch(
-      router,
+    dispatcher.dispatch(
+      MEETING_ID,
       interimTranscript({ text: "still alive", isFinal: false }),
     );
     await flush();
 
     // Hub publish happened for the interim chunk even though the earlier
-    // insert threw — the bridge did not crash the router registration.
+    // insert threw — the bridge did not crash the dispatcher subscription.
     expect(hubPublish).toHaveBeenCalledTimes(1);
-    expect(router.registeredCount()).toBe(1);
+    // Resolver + bridge subscribers still alive.
+    expect(dispatcher.subscriberCount(MEETING_ID)).toBe(2);
+
+    bridge.unsubscribe();
   });
 });
 
@@ -559,17 +683,21 @@ describe("MeetConversationBridge — error isolation", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetConversationBridge — cross-meeting isolation", () => {
-  let router: MeetSessionEventRouter;
+  let dispatcher: Dispatcher;
 
   beforeEach(() => {
-    router = new MeetSessionEventRouter();
+    dispatcher = makeDispatcher();
   });
 
   test("events for another meeting id do not reach this bridge", async () => {
-    const { bridge, calls } = makeBridge({ router });
+    const { bridge, calls } = makeBridge({ dispatcher });
     bridge.subscribe();
 
-    dispatch(router, { ...finalTranscript(), meetingId: "some-other-meet" });
+    // Explicitly dispatch an event keyed under a different meeting id.
+    dispatcher.dispatch("some-other-meet", {
+      ...finalTranscript(),
+      meetingId: "some-other-meet",
+    });
     await flush();
 
     expect(calls).toHaveLength(0);
