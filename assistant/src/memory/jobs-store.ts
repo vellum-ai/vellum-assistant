@@ -129,6 +129,50 @@ export function upsertDebouncedJob(
 }
 
 /**
+ * Upsert a pending `conversation_analyze` job keyed by both
+ * `conversationId` and `triggerGroup`. Immediate triggers (batch,
+ * compaction) and debounced triggers (idle, lifecycle) live in separate
+ * rows so an idle enqueue cannot push an already-scheduled immediate
+ * row's `runAfter` into the future (and vice versa). Each group still
+ * coalesces within itself: two batch crossings, or two idle triggers,
+ * collapse to a single pending row.
+ */
+export function upsertAutoAnalysisJob(
+  payload: {
+    conversationId: string;
+    triggerGroup: "immediate" | "debounced";
+  },
+  runAfter: number,
+  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+    tx: infer T,
+  ) => unknown
+    ? T
+    : never,
+): void {
+  const db = dbOverride ?? getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "conversation_analyze"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+        sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    db.update(memoryJobs)
+      .set({ runAfter, updatedAt: Date.now() })
+      .where(eq(memoryJobs.id, existing.id))
+      .run();
+  } else {
+    enqueueMemoryJob("conversation_analyze", payload, runAfter, dbOverride);
+  }
+}
+
+/**
  * Check whether a pending or running job of the given type already exists.
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */

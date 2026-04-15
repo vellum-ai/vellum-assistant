@@ -487,17 +487,31 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
         }
       });
 
-    // Exactly one row — the dedupe in upsertDebouncedJob coalesces the
-    // batch trigger and the per-message idle upsert into a single
-    // pending job.
-    expect(analysisRows.length).toBe(1);
+    // Two rows — the batch trigger writes an "immediate" triggerGroup
+    // row, while the per-message idle upserts write/update a separate
+    // "debounced" triggerGroup row. Keeping them distinct prevents an
+    // idle enqueue from pushing the batch-triggered runAfter forward.
+    expect(analysisRows.length).toBe(2);
 
-    // The row's runAfter is "now" (batch trigger ran AFTER the idle
-    // upsert this iteration, so it pulled the runAfter back to now).
-    // Allow a 1s margin on either side for clock skew.
-    const row = analysisRows[0]!;
-    expect(row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
-    expect(row.runAfter).toBeLessThanOrEqual(after + 1_000);
+    const withGroup = analysisRows.map((row) => {
+      const payload = JSON.parse(row.payload) as {
+        triggerGroup?: "immediate" | "debounced";
+      };
+      return { row, triggerGroup: payload.triggerGroup };
+    });
+    const immediate = withGroup.find((r) => r.triggerGroup === "immediate");
+    const debounced = withGroup.find((r) => r.triggerGroup === "debounced");
+    expect(immediate).toBeDefined();
+    expect(debounced).toBeDefined();
+
+    // Immediate row (batch trigger) has runAfter ≈ now — allow a 1s
+    // margin on either side for clock skew.
+    expect(immediate!.row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
+    expect(immediate!.row.runAfter).toBeLessThanOrEqual(after + 1_000);
+
+    // Debounced row (per-message idle) is pushed far into the future
+    // and is not affected by the immediate batch enqueue.
+    expect(debounced!.row.runAfter).toBeGreaterThan(Date.now() + 60_000);
   });
 
   test("crossing extraction.batchSize → graph_extract pending row has immediate runAfter", async () => {
