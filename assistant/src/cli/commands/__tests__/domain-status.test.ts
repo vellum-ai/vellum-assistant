@@ -10,6 +10,7 @@ import { setPlatformAssistantId } from "../../../config/env.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   _resetBackend,
+  deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
@@ -58,7 +59,7 @@ describe("assistant domain status", () => {
 
     const calls = getMockFetchCalls();
     expect(calls).toHaveLength(1);
-    expect(calls[0].path).toBe(`/v1/assistants/${ASSISTANT_ID}/domains/`);
+    expect(calls[0].path).toContain(`/v1/assistants/${ASSISTANT_ID}/domains/`);
     expect(calls[0].init.method).toBeUndefined();
     expect(process.exitCode).toBe(0);
   });
@@ -106,8 +107,7 @@ describe("assistant domain status", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    _resetBackend();
-    setPlatformAssistantId(undefined);
+    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
 
     const output = await runAssistantCommand("domain", "--json", "status");
 

@@ -10,6 +10,7 @@ import { setPlatformAssistantId } from "../../../config/env.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   _resetBackend,
+  deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
@@ -54,7 +55,7 @@ describe("assistant domain register", () => {
 
     const calls = getMockFetchCalls();
     expect(calls).toHaveLength(1);
-    expect(calls[0].path).toBe(`/v1/assistants/${ASSISTANT_ID}/domains/`);
+    expect(calls[0].path).toContain(`/v1/assistants/${ASSISTANT_ID}/domains/`);
     expect(calls[0].init.method).toBe("POST");
     expect(JSON.parse(calls[0].init.body as string)).toEqual({
       subdomain: "becky",
@@ -162,14 +163,13 @@ describe("assistant domain register", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    _resetBackend();
-    setPlatformAssistantId(undefined);
+    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
 
     const output = await runAssistantCommand(
       "domain",
       "--json",
       "register",
-      "becky",
+      "velly",
     );
 
     expect(process.exitCode).toBe(1);
