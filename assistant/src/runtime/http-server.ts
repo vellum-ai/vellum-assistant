@@ -18,6 +18,10 @@ import { dirname, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 
 import {
+  handleMeetInternalEvents,
+  MEET_INTERNAL_EVENTS_PATH_RE,
+} from "../../../skills/meet-join/routes/meet-internal.js";
+import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from "../calls/guardian-action-sweep.js";
@@ -194,10 +198,6 @@ import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import {
-  handleMeetInternalEvents,
-  MEET_INTERNAL_EVENTS_PATH_RE,
-} from "./routes/meet-internal.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
@@ -1068,10 +1068,10 @@ export class RuntimeHttpServer {
     // auth because the bot presents a per-meeting bearer token minted by
     // the session manager, not a daemon-minted JWT. The route handler
     // validates the token against `MeetSessionEventRouter.resolveBotApiToken`
-    // — see the comment block in `routes/meet-internal.ts` explaining why
-    // this endpoint does not violate CLAUDE.md's "No New Daemon HTTP Port
-    // Consumers" rule (the bot is an assistant-spawned subprocess, not an
-    // out-of-process CLI tool or sibling service).
+    // — see the comment block in `skills/meet-join/routes/meet-internal.ts`
+    // explaining why this endpoint does not violate CLAUDE.md's "No New
+    // Daemon HTTP Port Consumers" rule (the bot is an assistant-spawned
+    // subprocess, not an out-of-process CLI tool or sibling service).
     const meetInternalMatch = path.match(MEET_INTERNAL_EVENTS_PATH_RE);
     if (meetInternalMatch && req.method === "POST") {
       let meetingId: string;
