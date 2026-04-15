@@ -255,8 +255,82 @@ export class HeartbeatService {
     this._nextRunAt = Date.now() + intervalMs;
   }
 
+  private async runCredentialHealthCheck(): Promise<void> {
+    try {
+      const { checkAllCredentials } = await import(
+        "../credential-health/credential-health-service.js"
+      );
+      const report = await checkAllCredentials();
+      if (report.unhealthy.length > 0) {
+        await this.notifyUnhealthyCredentials(report.unhealthy);
+      }
+    } catch (err) {
+      log.warn({ err }, "Credential health check failed (non-fatal)");
+    }
+  }
+
+  private async notifyUnhealthyCredentials(
+    results: Array<{
+      connectionId: string;
+      provider: string;
+      accountInfo: string | null;
+      status: string;
+      details: string;
+      missingScopes: string[];
+    }>,
+  ): Promise<void> {
+    let emitNotificationSignal: typeof import("../notifications/emit-signal.js").emitNotificationSignal;
+    try {
+      ({ emitNotificationSignal } = await import(
+        "../notifications/emit-signal.js"
+      ));
+    } catch {
+      log.warn("Failed to import notification signal emitter");
+      return;
+    }
+
+    for (const result of results) {
+      const urgency =
+        result.status === "revoked" || result.status === "expired"
+          ? ("high" as const)
+          : ("medium" as const);
+
+      try {
+        await emitNotificationSignal({
+          sourceEventName: "credential.health_alert",
+          sourceChannel: "watcher",
+          sourceContextId: result.connectionId,
+          dedupeKey: `credential-health:${result.connectionId}:${result.status}`,
+          attentionHints: {
+            requiresAction: true,
+            urgency,
+            isAsyncBackground: true,
+            visibleInSourceNow: false,
+          },
+          contextPayload: {
+            provider: result.provider,
+            accountInfo: result.accountInfo,
+            status: result.status,
+            details: result.details,
+            missingScopes: result.missingScopes,
+          },
+          routingIntent: "single_channel",
+        });
+      } catch (err) {
+        log.warn(
+          { err, provider: result.provider, connectionId: result.connectionId },
+          "Failed to emit credential health notification",
+        );
+      }
+    }
+  }
+
   private async executeRun(): Promise<void> {
     log.info("Running heartbeat");
+
+    // Credential health check — surface broken credentials proactively
+    // before the LLM heartbeat prompt runs.
+    await this.runCredentialHealthCheck();
 
     try {
       const config = getConfig().heartbeat;

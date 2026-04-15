@@ -76,6 +76,32 @@ export async function runWatchersOnce(
       continue;
     }
 
+    // Pre-poll credential gate: skip if token is irrecoverably broken.
+    // Prevents wasting API calls and burning through circuit breaker
+    // attempts on credentials that need manual reauthorization.
+    try {
+      const { checkCredentialForProvider } = await import(
+        "../credential-health/credential-health-service.js"
+      );
+      const health = await checkCredentialForProvider(
+        watcher.credentialService,
+      );
+      if (
+        health &&
+        (health.status === "revoked" ||
+          health.status === "missing_token" ||
+          (health.status === "expired" && !health.canAutoRecover))
+      ) {
+        failWatcherPoll(
+          watcher.id,
+          `Credential unhealthy: ${health.details}`,
+        );
+        continue;
+      }
+    } catch {
+      // Non-fatal: proceed with normal poll if health check fails
+    }
+
     try {
       const config = watcher.configJson ? JSON.parse(watcher.configJson) : {};
 
