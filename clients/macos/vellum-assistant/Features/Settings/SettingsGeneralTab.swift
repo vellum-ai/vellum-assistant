@@ -27,6 +27,7 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimedOut = false
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
+    @State private var isRefreshingHealthz = false
 
     /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
     /// Falls back to a single `false` emission when connectionManager is nil.
@@ -77,6 +78,9 @@ struct SettingsGeneralTab: View {
                     healthzLoaded: healthzLoaded,
                     updateManager: updateManager
                 )
+            }
+            if topology == .managed {
+                systemResourcesSection
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
@@ -169,6 +173,8 @@ struct SettingsGeneralTab: View {
 
     private func fetchHealthz() async {
         guard !selectedAssistantId.isEmpty else { return }
+        isRefreshingHealthz = true
+        defer { isRefreshingHealthz = false }
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/healthz",
@@ -179,6 +185,120 @@ struct SettingsGeneralTab: View {
             healthz = DaemonHealthz()
         }
         healthzLoaded = true
+    }
+
+    // MARK: - System Resources
+
+    /// Resource usage card shown for platform-managed assistants. Mirrors the
+    /// disk/memory/CPU rows from the Developer tab so users on the platform can
+    /// see their assistant's resource consumption without enabling dev mode.
+    private var systemResourcesSection: some View {
+        SettingsCard(
+            title: "System Resources",
+            subtitle: "Current resource usage on your assistant",
+            accessory: {
+                if isRefreshingHealthz {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                } else {
+                    VButton(
+                        label: "Refresh resource metrics",
+                        iconOnly: VIcon.refreshCw.rawValue,
+                        style: .ghost,
+                        size: .compact,
+                        tooltip: "Refresh"
+                    ) {
+                        Task { await fetchHealthz() }
+                    }
+                }
+            }
+        ) {
+            if let healthz {
+                if let disk = healthz.disk {
+                    HStack(alignment: .top) {
+                        Text("Disk Usage:")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .frame(width: 100, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            diskUsageBar(usedMb: disk.usedMb, totalMb: disk.totalMb)
+                            Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentDefault)
+                        }
+                    }
+                }
+
+                if let memory = healthz.memory {
+                    resourceRow(label: "Memory:", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+                }
+
+                if let cpu = healthz.cpu {
+                    resourceRow(label: "CPU:", value: String(format: "%.1f%%", cpu.currentPercent))
+                }
+
+                if healthz.disk == nil && healthz.memory == nil && healthz.cpu == nil {
+                    Text("Resource metrics are not available for this assistant.")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading resource metrics...")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+        }
+    }
+
+    /// Custom disk usage bar built from Capsule shapes. Avoids `ProgressView(.linear)`
+    /// because on macOS its tint is overridden by the system accent color, which
+    /// renders as orange on default installs instead of the themed green.
+    private func diskUsageBar(usedMb: Double, totalMb: Double) -> some View {
+        let ratio = min(1.0, max(0.0, usedMb / max(totalMb, 1)))
+        let isCritical = ratio > 0.9
+        let fillColor = isCritical ? VColor.systemNegativeStrong : VColor.systemPositiveStrong
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(VColor.borderHover)
+                Capsule()
+                    .fill(fillColor)
+                    .frame(width: ratio * geo.size.width)
+            }
+        }
+        .frame(height: 8)
+        .accessibilityElement()
+        .accessibilityLabel("Disk usage")
+        .accessibilityValue("\(Int(ratio * 100)) percent")
+    }
+
+    private func resourceRow(label: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(width: 100, alignment: .leading)
+
+            Text(value)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .textSelection(.enabled)
+
+            Spacer()
+        }
+    }
+
+    private func formatMb(_ mb: Double) -> String {
+        if mb >= 1024 {
+            return String(format: "%.1f GB", mb / 1024.0)
+        }
+        return String(format: "%.0f MB", mb)
     }
 
     // MARK: - Mobile Pairing
