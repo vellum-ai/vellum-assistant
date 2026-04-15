@@ -2,11 +2,11 @@
 set -eu
 
 # ── dockerd supervisor (Docker-in-Docker) ──────────────────────────────
-# When the assistant runs inside a container (IS_CONTAINERIZED=true), we
-# need a local Docker Engine running so the Meet subsystem can spawn
-# sibling bot containers via /var/run/docker.sock. Outside a container
-# (bare-metal mode) this block is a no-op — the assistant talks to the
-# host's docker socket directly if needed.
+# When running inside the assistant container (IS_CONTAINERIZED=true),
+# start an inner dockerd so the Meet subsystem can spawn nested bot
+# containers via this container's own /var/run/docker.sock. Outside a
+# container this script does not run (the bare-metal daemon uses the
+# host's docker engine directly).
 #
 # The canonical runtime-mode signal is IS_CONTAINERIZED (see
 # src/runtime/runtime-mode.ts / src/config/env-registry.ts). Truthy

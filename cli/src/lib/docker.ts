@@ -756,6 +756,16 @@ export async function startContainers(
   },
   log: (msg: string) => void,
 ): Promise<void> {
+  // Ensure the inner dockerd's data volume exists before mounting it.
+  // For instances hatched on Phase 1.10+, this is created in hatchDocker and
+  // is a no-op here. For instances that pre-date Phase 1.10 (DinD) and are
+  // upgrading in place, Docker would otherwise auto-create the volume on
+  // first `-v` mount without our standard ownership/labeling. Creating it
+  // explicitly keeps volume provenance consistent across fresh and upgraded
+  // instances. `docker volume create` is idempotent for an existing volume
+  // of the same name, so this is safe to run on every start.
+  await exec("docker", ["volume", "create", opts.res.dockerdDataVolume]);
+
   const runArgs = serviceDockerRunArgs(opts);
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
