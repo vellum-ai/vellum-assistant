@@ -61,7 +61,8 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import { resolveModelIntent } from "../providers/model-intents.js";
+import type { Message, ModelIntent } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
@@ -336,6 +337,8 @@ export class Conversation {
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
     cacheTtl?: "5m" | "1h",
+    modelIntent?: ModelIntent,
+    modelOverride?: string,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -437,10 +440,18 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
+    // If an explicit modelOverride is supplied, use it verbatim. Otherwise,
+    // if modelIntent is set, resolve it against the active provider's
+    // intent → model mapping. The AgentLoop passes the resulting string
+    // through to `providerConfig.model` on every turn.
+    const resolvedModel: string | undefined =
+      modelOverride ??
+      (modelIntent ? resolveModelIntent(provider.name, modelIntent) : undefined);
+
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
     ): ResolvedSystemPrompt => {
-      const resolved = {
+      const resolved: ResolvedSystemPrompt = {
         systemPrompt: this.hasSystemPromptOverride
           ? systemPrompt
           : (() => {
@@ -458,6 +469,9 @@ export class Conversation {
             })(),
         maxTokens: configuredMaxTokens,
       };
+      if (resolvedModel !== undefined) {
+        resolved.model = resolvedModel;
+      }
       return resolved;
     };
 

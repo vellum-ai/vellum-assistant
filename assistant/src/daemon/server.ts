@@ -1011,6 +1011,9 @@ export class DaemonServer {
           memoryPolicy,
           sharedCesClient,
           storedOptions?.speed,
+          undefined,
+          storedOptions?.modelIntent,
+          storedOptions?.modelOverride,
         );
         newConversation.updateClient(sendToClient, true);
         await newConversation.loadFromDb();
