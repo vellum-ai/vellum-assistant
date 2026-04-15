@@ -86,11 +86,23 @@ extension AppDelegate {
     /// responder is an NSTextView. `makeFirstResponder(nil)` tells AppKit
     /// to end the current editing session, which causes the text view's
     /// mouse tracking loop to exit its `nextEvent(matching:)` call cleanly.
+    ///
+    /// Before resigning, we temporarily set `usesRuler` to `false` on the
+    /// text view. This prevents `NSTextView.updateRuler()` — which AppKit
+    /// calls internally during `resignFirstResponder()` — from performing
+    /// an expensive synchronous recalculation of paragraph and tab ruler
+    /// attributes (2 000 ms+ on the main thread). The original value is
+    /// restored immediately after the resign so ruler state is preserved.
+    ///
+    /// Ref: [usesRuler](https://developer.apple.com/documentation/appkit/nstextview/usesruler)
     private func endTextEditingOnAllWindows() {
         for window in NSApp.windows where window.isVisible {
-            if window.firstResponder is NSTextView {
+            if let textView = window.firstResponder as? NSTextView {
                 log.debug("[sleepWake] Resigning first responder on window: \(window.title, privacy: .private)")
+                let hadRuler = textView.usesRuler
+                textView.usesRuler = false
                 window.makeFirstResponder(nil)
+                textView.usesRuler = hadRuler
             }
         }
     }
