@@ -127,7 +127,7 @@ struct InlineVideoAttachmentView: View {
                 .accessibilityLabel("Save video")
             }
         }
-        .frame(width: 360)
+        .frame(maxWidth: 360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
         .onHover { isHovering = $0 }
         .onDisappear {
@@ -147,6 +147,8 @@ struct InlineVideoAttachmentView: View {
 
     private var placeholderView: some View {
         ZStack {
+            Color.clear
+
             if let thumbnailImage {
                 Image(nsImage: thumbnailImage)
                     .resizable()
@@ -176,18 +178,25 @@ struct InlineVideoAttachmentView: View {
     }
 
     private var loadingView: some View {
-        VStack(spacing: VSpacing.sm) {
-            ProgressView()
-                .controlSize(.regular)
+        ZStack {
+            Color.clear
 
-            Text("Loading video...")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+            VStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.regular)
+
+                Text("Loading video...")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
         }
     }
 
     private func failedView(_ failure: VideoPlaybackFailure) -> some View {
-        VStack(spacing: VSpacing.xs) {
+        ZStack {
+            Color.clear
+
+            VStack(spacing: VSpacing.xs) {
             if case .port_missing = failure {
                 VIconView(.refreshCw, size: 20)
                     .foregroundStyle(VColor.contentSecondary)
@@ -212,6 +221,7 @@ struct InlineVideoAttachmentView: View {
                 Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
                     .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
+            }
             }
         }
         .contentShape(Rectangle())
