@@ -64,24 +64,58 @@ const FORMAT_CONTENT_TYPE: Record<string, string> = {
 // Provider implementation
 // ---------------------------------------------------------------------------
 
+/** Parameters for Deepgram's `/v1/speak` encoding query string. */
+interface DeepgramOutputParams {
+  /** Deepgram encoding name (e.g. `mp3`, `linear16`, `opus`). */
+  encoding: string;
+  /** Container override (`wav` or `none`). Omitted lets Deepgram choose. */
+  container?: string;
+  /** Sample rate in Hz. Required for raw PCM to avoid Deepgram's 24 kHz default. */
+  sample_rate?: number;
+  /** Content-type key for the FORMAT_CONTENT_TYPE lookup. */
+  contentTypeKey: string;
+}
+
 /**
- * Resolve the Deepgram output encoding and container based on the request.
+ * Resolve the Deepgram output encoding, container, and sample rate based on
+ * the synthesis request and provider config.
  *
- * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
- * transport which needs raw PCM for mu-law transcoding), we use `linear16`
- * — 16-bit signed little-endian. The media-stream transport's
- * `audioBufferToFrames` handles the sample rate conversion.
+ * **PCM path** (`outputFormat: "pcm"`):
+ *   The media-stream transport needs raw headerless PCM for mu-law transcoding.
+ *   We request `encoding=linear16&container=none&sample_rate=16000` — 16-bit
+ *   signed little-endian at 16 kHz with no WAV header. This matches the
+ *   ElevenLabs `pcm_16000` convention and the downstream
+ *   `audioBufferToFrames` expectation (16 kHz -> 8 kHz downsample).
  *
- * Otherwise the configured format is used.
+ * **WAV path** (`config.format === "wav"`):
+ *   Deepgram treats WAV as a container, not an encoding. We translate to
+ *   `encoding=linear16&container=wav` so the API returns a valid WAV file.
+ *
+ * **Other formats** (mp3, opus):
+ *   Passed through directly as encoding values.
  */
-function resolveEncoding(
+function resolveOutputParams(
   request: TtsSynthesisRequest,
   config: TtsDeepgramProviderConfig,
-): string {
+): DeepgramOutputParams {
   if (request.outputFormat === "pcm") {
-    return "linear16";
+    return {
+      encoding: "linear16",
+      container: "none",
+      sample_rate: 16_000,
+      contentTypeKey: "linear16",
+    };
   }
-  return config.format;
+
+  if (config.format === "wav") {
+    return {
+      encoding: "linear16",
+      container: "wav",
+      contentTypeKey: "wav",
+    };
+  }
+
+  return { encoding: config.format, contentTypeKey: config.format };
 }
 
 export function createDeepgramProvider(): TtsProvider {
@@ -107,13 +141,28 @@ export function createDeepgramProvider(): TtsProvider {
       }
 
       const config = getConfig().services.tts.providers.deepgram;
-      const encoding = resolveEncoding(request, config);
+      const outputParams = resolveOutputParams(request, config);
       const model = config.model;
 
-      const url = `${DEEPGRAM_API_BASE}/v1/speak?model=${encodeURIComponent(model)}&encoding=${encodeURIComponent(encoding)}`;
+      const params = new URLSearchParams({
+        model,
+        encoding: outputParams.encoding,
+      });
+      if (outputParams.container) {
+        params.set("container", outputParams.container);
+      }
+      if (outputParams.sample_rate != null) {
+        params.set("sample_rate", String(outputParams.sample_rate));
+      }
+      const url = `${DEEPGRAM_API_BASE}/v1/speak?${params.toString()}`;
 
       log.info(
-        { model, encoding, textLength: request.text.length },
+        {
+          model,
+          encoding: outputParams.encoding,
+          container: outputParams.container,
+          textLength: request.text.length,
+        },
         "Starting Deepgram TTS synthesis",
       );
 
@@ -153,7 +202,8 @@ export function createDeepgramProvider(): TtsProvider {
         );
       }
 
-      const contentType = FORMAT_CONTENT_TYPE[encoding] ?? "audio/mpeg";
+      const contentType =
+        FORMAT_CONTENT_TYPE[outputParams.contentTypeKey] ?? "audio/mpeg";
 
       log.debug(
         { bytes: arrayBuffer.byteLength },

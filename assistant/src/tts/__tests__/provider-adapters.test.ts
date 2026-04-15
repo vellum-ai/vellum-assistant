@@ -617,7 +617,7 @@ describe("Deepgram TTS provider adapter", () => {
     expect(body.text).toBe("Hello world");
   });
 
-  test("uses linear16 encoding when outputFormat is pcm", async () => {
+  test("uses linear16 encoding with container=none and sample_rate=16000 when outputFormat is pcm", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
     let capturedUrl = "";
 
@@ -632,10 +632,12 @@ describe("Deepgram TTS provider adapter", () => {
     );
 
     expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=none");
+    expect(capturedUrl).toContain("sample_rate=16000");
     expect(result.contentType).toBe("audio/pcm");
   });
 
-  test("uses configured format when no outputFormat override", async () => {
+  test("translates wav config format to linear16 encoding with container=wav", async () => {
     mockDeepgramConfig.format = "wav";
     const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
     let capturedUrl = "";
@@ -648,7 +650,9 @@ describe("Deepgram TTS provider adapter", () => {
     const provider = createDeepgramProvider();
     const result = await provider.synthesize(makeRequest());
 
-    expect(capturedUrl).toContain("encoding=wav");
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=wav");
+    expect(capturedUrl).not.toContain("sample_rate=");
     expect(result.contentType).toBe("audio/wav");
   });
 
