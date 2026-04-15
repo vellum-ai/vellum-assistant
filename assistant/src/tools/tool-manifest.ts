@@ -8,6 +8,7 @@
 
 import { meetJoinTool } from "../../../skills/meet-join/tools/meet-join-tool.js";
 import { meetLeaveTool } from "../../../skills/meet-join/tools/meet-leave-tool.js";
+import { meetSendChatTool } from "../../../skills/meet-join/tools/meet-send-chat-tool.js";
 import { getConfig } from "../config/loader.js";
 import {
   isCesSecureInstallEnabled,
@@ -103,6 +104,7 @@ export const explicitTools: Tool[] = [
   // silent when `meet` is disabled.
   meetJoinTool,
   meetLeaveTool,
+  meetSendChatTool,
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

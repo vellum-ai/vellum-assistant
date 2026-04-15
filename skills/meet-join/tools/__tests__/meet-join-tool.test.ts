@@ -47,6 +47,17 @@ mock.module("../../daemon/session-manager.js", () => ({
     leave: async () => {},
     activeSessions: () => [],
     getSession: () => null,
+    sendChat: async () => {},
+  },
+  MeetSessionNotFoundError: class extends Error {
+    readonly name = "MeetSessionNotFoundError";
+  },
+  MeetSessionUnreachableError: class extends Error {
+    readonly name = "MeetSessionUnreachableError";
+  },
+  MeetBotChatError: class extends Error {
+    readonly name = "MeetBotChatError";
+    readonly status: number = 0;
   },
 }));
 

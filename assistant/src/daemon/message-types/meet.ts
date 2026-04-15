@@ -82,6 +82,19 @@ export interface MeetLeft {
   reason: string;
 }
 
+/**
+ * The assistant successfully posted a chat message into the meeting via
+ * the bot's `/send_chat` endpoint. Emitted once per successful send so
+ * SSE-subscribed clients can render the outbound chat without waiting for
+ * the bot to echo it back through the transcript/chat stream.
+ */
+export interface MeetChatSent {
+  type: "meet.chat_sent";
+  meetingId: string;
+  /** The text that was posted into the meeting's chat. */
+  text: string;
+}
+
 /** The bot hit a non-recoverable error (container crash, join failure, etc.). */
 export interface MeetError {
   type: "meet.error";
@@ -97,4 +110,5 @@ export type _MeetServerMessages =
   | MeetSpeakerChanged
   | MeetTranscriptChunk
   | MeetLeft
+  | MeetChatSent
   | MeetError;

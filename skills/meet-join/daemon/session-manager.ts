@@ -96,6 +96,9 @@ export const MEET_BOT_HOST_IP = "127.0.0.1";
 /** Timeout for the best-effort bot `/leave` HTTP call before falling back to stop. */
 export const BOT_LEAVE_HTTP_TIMEOUT_MS = 10_000;
 
+/** Timeout for the bot `/send_chat` HTTP call before giving up. */
+export const BOT_SEND_CHAT_HTTP_TIMEOUT_MS = 10_000;
+
 /**
  * Shared deadline for tearing down every active Meet session during daemon
  * shutdown. Past this budget any remaining containers are force-stopped
@@ -116,6 +119,56 @@ const DEFAULT_DAEMON_PORT = 7821;
  * in `skills/meet-join/tools/meet-join-tool.ts`.
  */
 export const MEET_JOIN_NAME_FALLBACK = "AI Assistant";
+
+// ---------------------------------------------------------------------------
+// Domain errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by {@link MeetSessionManager.sendChat} when no active session exists
+ * for the given meeting id. Callers (e.g. the `meet_send_chat` tool) match
+ * on this class to surface a targeted error rather than a generic failure.
+ */
+export class MeetSessionNotFoundError extends Error {
+  readonly name = "MeetSessionNotFoundError";
+
+  constructor(meetingId: string) {
+    super(`No active Meet session for meetingId=${meetingId}`);
+  }
+}
+
+/**
+ * Thrown by {@link MeetSessionManager.sendChat} when the bot's control API
+ * could not be reached (network error, timeout, container gone). Distinct
+ * from {@link MeetBotChatError} which represents a well-formed bot response
+ * whose body indicates failure.
+ */
+export class MeetSessionUnreachableError extends Error {
+  readonly name = "MeetSessionUnreachableError";
+
+  constructor(meetingId: string, cause: string) {
+    super(
+      `Meet bot unreachable for meetingId=${meetingId}: ${cause}`,
+    );
+  }
+}
+
+/**
+ * Thrown by {@link MeetSessionManager.sendChat} when the bot responded with
+ * a non-2xx status code — e.g. a 502 from an upstream Meet chat failure.
+ * Preserves the status so tool-layer callers can relay a helpful message.
+ */
+export class MeetBotChatError extends Error {
+  readonly name = "MeetBotChatError";
+  readonly status: number;
+
+  constructor(meetingId: string, status: number, detail: string) {
+    super(
+      `Meet bot /send_chat returned ${status} for meetingId=${meetingId}: ${detail}`,
+    );
+    this.status = status;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -268,6 +321,18 @@ export interface MeetSessionManagerDeps {
   getProviderKey?: (provider: string) => Promise<string | undefined>;
   /** Override the function that hits the bot's `/leave` endpoint. */
   botLeaveFetch?: (url: string, token: string) => Promise<void>;
+  /**
+   * Override the function that hits the bot's `/send_chat` endpoint.
+   * Resolves on 2xx, throws {@link MeetBotChatError} on non-2xx, and throws
+   * {@link MeetSessionUnreachableError} when the fetch itself fails (DNS,
+   * connect refused, timeout, etc.).
+   */
+  botSendChatFetch?: (
+    url: string,
+    token: string,
+    text: string,
+    meetingId: string,
+  ) => Promise<void>;
   /** Override the daemon-URL resolver (used for `DAEMON_URL` env var). */
   resolveDaemonUrl?: () => string;
   /** Override workspace directory resolution (tests). */
@@ -328,6 +393,7 @@ class MeetSessionManagerImpl {
         (() => new DockerRunner({ workspaceDir: resolveWorkspaceDir() })),
       getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
+      botSendChatFetch: deps.botSendChatFetch ?? defaultBotSendChatFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
       audioIngestFactory:
@@ -895,6 +961,45 @@ class MeetSessionManagerImpl {
   }
 
   /**
+   * Post a chat message into the meeting via the bot's `/send_chat`
+   * endpoint. Looks up the per-meeting bearer token so the bot can
+   * authenticate the inbound request, forwards the text as
+   * `{ type: "send_chat", text }`, and emits a `meet.chat_sent` event on
+   * success.
+   *
+   * Throws:
+   *   - {@link MeetSessionNotFoundError} when no active session exists for
+   *     the id.
+   *   - {@link MeetSessionUnreachableError} on network-level failures
+   *     (connection refused, DNS, timeout) — the bot container is likely
+   *     gone.
+   *   - {@link MeetBotChatError} when the bot responded with a non-2xx
+   *     status (e.g. 502 when the upstream Meet chat call failed).
+   */
+  async sendChat(meetingId: string, text: string): Promise<void> {
+    const session = this.sessions.get(meetingId);
+    if (!session) {
+      throw new MeetSessionNotFoundError(meetingId);
+    }
+
+    await this.deps.botSendChatFetch(
+      `${session.botBaseUrl}/send_chat`,
+      session.botApiToken,
+      text,
+      meetingId,
+    );
+
+    void publishMeetEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      meetingId,
+      "meet.chat_sent",
+      { text },
+    );
+
+    log.info({ meetingId, textLength: text.length }, "Meet chat message sent");
+  }
+
+  /**
    * Tear down every active meeting in parallel with a shared overall deadline.
    *
    * Invoked from the daemon's shutdown sequence so live meetings don't leak
@@ -1140,6 +1245,39 @@ async function defaultBotLeaveFetch(url: string, token: string): Promise<void> {
     throw new Error(
       `Bot /leave returned ${response.status}: ${await response.text().catch(() => "")}`,
     );
+  }
+}
+
+/**
+ * Default bot `/send_chat` hitter. Honors
+ * {@link BOT_SEND_CHAT_HTTP_TIMEOUT_MS}. On network-level failure throws
+ * {@link MeetSessionUnreachableError}; on non-2xx throws
+ * {@link MeetBotChatError} so the tool layer can distinguish the two.
+ */
+async function defaultBotSendChatFetch(
+  url: string,
+  token: string,
+  text: string,
+  meetingId: string,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ type: "send_chat", text }),
+      signal: AbortSignal.timeout(BOT_SEND_CHAT_HTTP_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new MeetSessionUnreachableError(meetingId, detail);
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new MeetBotChatError(meetingId, response.status, body);
   }
 }
 

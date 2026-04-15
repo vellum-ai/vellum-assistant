@@ -54,6 +54,7 @@ export type MeetEventKind =
   | "meet.speaker_changed"
   | "meet.transcript_chunk"
   | "meet.left"
+  | "meet.chat_sent"
   | "meet.error";
 
 // ---------------------------------------------------------------------------
