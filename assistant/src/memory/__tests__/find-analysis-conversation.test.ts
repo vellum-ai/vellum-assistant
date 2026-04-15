@@ -143,6 +143,37 @@ describe("findAnalysisConversationFor", () => {
 
     expect(findAnalysisConversationFor(parent.id)).toEqual({ id: analysis.id });
   });
+
+  test("finds rolling analysis conversation regardless of group_id (backward-compat across the dedicated-group migration)", () => {
+    const parent = createConversation("parent");
+
+    // Conversations created BEFORE the dedicated `system:reflections` group
+    // landed will have the default `system:all` group_id.
+    const legacyAnalysis = createConversation({
+      title: "legacy rolling analysis",
+      source: "auto-analysis",
+      forkParentConversationId: parent.id,
+    });
+    setUpdatedAt(legacyAnalysis.id, 1_000);
+
+    expect(findAnalysisConversationFor(parent.id)).toEqual({
+      id: legacyAnalysis.id,
+    });
+
+    // Conversations created AFTER use the dedicated group. The lookup must
+    // still find them — the source filter alone is the contract.
+    const newAnalysis = createConversation({
+      title: "new rolling analysis",
+      source: "auto-analysis",
+      groupId: "system:reflections",
+      forkParentConversationId: parent.id,
+    });
+    setUpdatedAt(newAnalysis.id, 2_000);
+
+    expect(findAnalysisConversationFor(parent.id)).toEqual({
+      id: newAnalysis.id,
+    });
+  });
 });
 
 describe("getConversationSource", () => {

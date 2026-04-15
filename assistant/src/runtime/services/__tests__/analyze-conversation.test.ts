@@ -231,7 +231,7 @@ describe("analyzeConversation", () => {
 
   // ── Auto trigger ──────────────────────────────────────────────────
 
-  test("auto: creates a new analysis conversation when none exists, with source=auto-analysis and forkParentConversationId", async () => {
+  test("auto: creates a new analysis conversation when none exists, with source=auto-analysis, dedicated groupId, and forkParentConversationId", async () => {
     mockFindAnalysisConversationFor.mockImplementation(() => null);
     const conversation = makeConversation();
     const deps = makeDeps(conversation);
@@ -248,14 +248,60 @@ describe("analyzeConversation", () => {
     expect(mockFindAnalysisConversationFor).toHaveBeenCalledWith("conv-1");
 
     // Created exactly one new conversation row, with the expected shape.
+    // The dedicated `system:reflections` group keeps rolling analysis
+    // conversations out of the default `system:all` group used by clients
+    // that do not filter on `source`.
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     expect(mockCreateConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Analysis: Source",
         source: "auto-analysis",
+        groupId: "system:reflections",
         forkParentConversationId: "conv-1",
       }),
     );
+  });
+
+  test("auto: skips the run (no agent loop, no message persisted) when the rolling analysis conversation is already processing", async () => {
+    const conversation = makeConversation();
+    conversation.processing = true;
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "auto",
+    });
+
+    // Returns a successful no-op result tagged with `skipped: true`.
+    expect("error" in result).toBe(false);
+    if ("error" in result) throw new Error("expected success");
+    expect(result.analysisConversationId).toBe("analysis-new");
+    expect(result.skipped).toBe(true);
+
+    // Critically, none of the mutating side effects should have run: no
+    // message persisted, no trust context overwritten, no agent loop fired.
+    expect(mockAddMessage).not.toHaveBeenCalled();
+    expect(conversation.setTrustContext).not.toHaveBeenCalled();
+    expect(conversation.runAgentLoop).not.toHaveBeenCalled();
+    expect(conversation.abortController).toBeNull();
+  });
+
+  test("manual: does NOT skip when the conversation reports processing (guard is auto-only)", async () => {
+    const conversation = makeConversation();
+    conversation.processing = true;
+    const deps = makeDeps(conversation);
+
+    const result = await analyzeConversation("conv-1", deps, {
+      trigger: "manual",
+    });
+
+    expect("error" in result).toBe(false);
+    if ("error" in result) throw new Error("expected success");
+    expect(result.skipped).toBeUndefined();
+
+    // Manual trigger always proceeds — it creates a fresh conversation per
+    // invocation, so there is no shared-state concurrency hazard.
+    expect(mockAddMessage).toHaveBeenCalled();
+    expect(conversation.runAgentLoop).toHaveBeenCalled();
   });
 
   test("auto: reuses an existing rolling analysis conversation (no new row)", async () => {

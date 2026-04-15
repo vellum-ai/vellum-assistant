@@ -9,6 +9,14 @@ import { getConversationSource } from "./conversation-crud.js";
 export const AUTO_ANALYSIS_SOURCE = "auto-analysis";
 
 /**
+ * Dedicated `group_id` value for auto-analysis rolling conversations. They
+ * are an internal continuity surface and must not appear in the default
+ * `system:all` group that non-macOS clients (CLI, gateway, web) render
+ * without filtering on `source`.
+ */
+export const AUTO_ANALYSIS_GROUP_ID = "system:reflections";
+
+/**
  * Returns true if the conversation's `source` column is `"auto-analysis"`,
  * meaning it was produced by the auto-analysis loop. Callers use this to
  * skip both `graph_extract` and `conversation_analyze` enqueues so we

@@ -30,6 +30,7 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-guard.js";
 import {
   projectAssistantMessage,
   seedForkedConversationAttention,
@@ -402,7 +403,7 @@ export function findAnalysisConversationFor(
     .from(conversations)
     .where(
       and(
-        eq(conversations.source, "auto-analysis"),
+        eq(conversations.source, AUTO_ANALYSIS_SOURCE),
         eq(conversations.forkParentConversationId, parentConversationId),
       ),
     )

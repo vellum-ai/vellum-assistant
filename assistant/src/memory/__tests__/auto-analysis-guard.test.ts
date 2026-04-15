@@ -8,6 +8,7 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 import {
+  AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,
   isAutoAnalysisConversation,
 } from "../auto-analysis-guard.js";
@@ -21,6 +22,16 @@ function resetTables(): void {
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
 }
+
+describe("auto-analysis constants", () => {
+  test("AUTO_ANALYSIS_SOURCE is the canonical 'auto-analysis' string", () => {
+    expect(AUTO_ANALYSIS_SOURCE).toBe("auto-analysis");
+  });
+
+  test("AUTO_ANALYSIS_GROUP_ID is 'system:reflections' so rolling analysis conversations stay out of system:all", () => {
+    expect(AUTO_ANALYSIS_GROUP_ID).toBe("system:reflections");
+  });
+});
 
 describe("isAutoAnalysisConversation", () => {
   beforeEach(() => {

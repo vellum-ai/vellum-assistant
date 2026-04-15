@@ -57,7 +57,13 @@ export function ensureGroupMigration(): void {
     }
   }
 
-  // 3. Seed system groups (four: pinned, scheduled, background, all)
+  // 3. Seed system groups.
+  //
+  // `system:reflections` holds rolling auto-analysis conversations. It is an
+  // internal continuity surface — clients that don't filter on `source` can
+  // hide this group from their main list. It is parked at a high
+  // `sort_position` so it never displaces user-visible groups in the
+  // ordering; the value just has to be deterministic.
   const now = Math.floor(Date.now() / 1000);
   rawExec(`
     INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
@@ -65,7 +71,8 @@ export function ensureGroupMigration(): void {
       ('system:pinned', 'Pinned', 0, TRUE, ${now}, ${now}),
       ('system:scheduled', 'Scheduled', 1, TRUE, ${now}, ${now}),
       ('system:background', 'Background', 2, TRUE, ${now}, ${now}),
-      ('system:all', 'Recents', 3, TRUE, ${now}, ${now})
+      ('system:all', 'Recents', 3, TRUE, ${now}, ${now}),
+      ('system:reflections', 'Reflections', 100, TRUE, ${now}, ${now})
   `);
 
   // One-time migration: move system:all to sortPosition 3 (from 999999).

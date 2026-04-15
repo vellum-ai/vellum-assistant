@@ -19,6 +19,10 @@
 import { getConfig } from "../../config/loader.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
+  AUTO_ANALYSIS_GROUP_ID,
+  AUTO_ANALYSIS_SOURCE,
+} from "../../memory/auto-analysis-guard.js";
+import {
   addMessage,
   createConversation,
   findAnalysisConversationFor,
@@ -35,9 +39,6 @@ import type { SendMessageDeps } from "../http-types.js";
 import { buildAutoAnalysisPrompt } from "./auto-analysis-prompt.js";
 
 const log = getLogger("analyze-conversation-service");
-
-/** Source column marker used to tag auto-analysis rolling conversations. */
-const AUTO_ANALYSIS_SOURCE = "auto-analysis";
 
 // ---------------------------------------------------------------------------
 // Dependency types — injected by the caller (route handler / future triggers)
@@ -64,6 +65,13 @@ export type AnalyzeOptions =
 
 export interface AnalyzeResult {
   analysisConversationId: string;
+  /**
+   * Set when the auto branch found the rolling analysis conversation already
+   * processing and skipped this run to avoid stomping its in-flight agent
+   * loop. Callers that care can distinguish "started a new run" from "no-op
+   * skip"; everyone else can ignore it.
+   */
+  skipped?: true;
 }
 
 export interface AnalyzeError {
@@ -179,9 +187,14 @@ export async function analyzeConversation(
     if (existing) {
       analysisConversationId = existing.id;
     } else {
+      // New rolling analysis conversations land in a dedicated group so they
+      // do not appear in the default `system:all` list rendered by clients
+      // that don't filter on `source` (CLI, gateway, web). Existing rolling
+      // conversations stay where they were — no migration needed.
       const newConv = createConversation({
         title: `Analysis: ${conversation.title ?? "Untitled"}`,
         source: AUTO_ANALYSIS_SOURCE,
+        groupId: AUTO_ANALYSIS_GROUP_ID,
         forkParentConversationId: resolvedId,
       });
       analysisConversationId = newConv.id;
@@ -195,7 +208,41 @@ export async function analyzeConversation(
     modelOverride = analysisConfig.modelOverride;
   }
 
-  // h. Persist the user message (with provenance snapshot matching the
+  // h. Load the conversation into memory with the appropriate trust
+  // context. Manual analysis runs untrusted over attacker-influenced
+  // transcript content; auto analysis runs as guardian so it can act on
+  // what it learns.
+  //
+  // Hoisted ahead of message persistence so the auto branch can detect a
+  // still-running prior agent loop on the rolling conversation and bail out
+  // before mutating any state. See concurrency guard below.
+  const analysisConversation =
+    await deps.sendMessageDeps.getOrCreateConversation(
+      analysisConversationId,
+      {
+        ...(modelIntent !== undefined ? { modelIntent } : {}),
+        ...(modelOverride !== undefined ? { modelOverride } : {}),
+      },
+    );
+
+  // h.1. Concurrency guard (auto trigger only). The rolling analysis
+  // conversation is reused across runs; if a prior agent loop is still in
+  // flight, starting another would overwrite `abortController` /
+  // `currentRequestId` and let two loops mutate the same Conversation
+  // state. Skip this run instead — the next upstream trigger will
+  // re-enqueue once the in-flight loop finishes.
+  if (opts.trigger === "auto" && analysisConversation.processing) {
+    log.info(
+      {
+        sourceConversationId: resolvedId,
+        analysisConversationId,
+      },
+      "Skipping auto-analysis run: rolling conversation already processing",
+    );
+    return { analysisConversationId, skipped: true };
+  }
+
+  // i. Persist the user message (with provenance snapshot matching the
   // trust context we will run under).
   const message = await addMessage(
     analysisConversationId,
@@ -205,18 +252,6 @@ export async function analyzeConversation(
   );
   const messageId = message.id;
 
-  // i. Load the conversation into memory with the appropriate trust
-  // context. Manual analysis runs untrusted over attacker-influenced
-  // transcript content; auto analysis runs as guardian so it can act on
-  // what it learns.
-  const analysisConversation =
-    await deps.sendMessageDeps.getOrCreateConversation(
-      analysisConversationId,
-      {
-        ...(modelIntent !== undefined ? { modelIntent } : {}),
-        ...(modelOverride !== undefined ? { modelOverride } : {}),
-      },
-    );
   analysisConversation.setTrustContext({
     trustClass,
     sourceChannel: "vellum",
