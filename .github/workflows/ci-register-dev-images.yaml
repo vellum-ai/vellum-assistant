@@ -162,10 +162,37 @@ jobs:
           echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
 
+      - name: Compute dev version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the latest release tag to use as the base version
+          git fetch --tags
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p')
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION=${LATEST_TAG#v}
+
+          # Count successful runs of this workflow to get a monotonically
+          # increasing dev version number
+          REPO="${{ github.repository }}"
+          WORKFLOW_FILE="ci-register-dev-images.yaml"
+          DEV_COUNT=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=1" --jq '.total_count' || true)
+          if [ -z "$DEV_COUNT" ] || ! [ "$DEV_COUNT" -ge 0 ] 2>/dev/null; then
+            DEV_COUNT=0
+          fi
+          DEV_COUNT=$((DEV_COUNT + 1))
+
+          VERSION="${LATEST_VERSION}.dev.${DEV_COUNT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Dev version: $VERSION (base: $LATEST_TAG, count: $DEV_COUNT)"
+
       - name: Register with platform
         run: |
           SHA="${{ github.event.workflow_run.head_sha }}"
-          VERSION="dev.${SHA:0:7}"
+          VERSION="${{ steps.version.outputs.version }}"
           ASSISTANT_REPO="${{ steps.images.outputs.assistant_image }}"
           GATEWAY_REPO="${{ steps.images.outputs.gateway_image }}"
           CREDENTIAL_EXECUTOR_REPO="${{ steps.images.outputs.ce_image }}"
@@ -252,8 +279,7 @@ jobs:
 
       - name: Summary
         run: |
-          SHA="${{ github.event.workflow_run.head_sha }}"
-          VERSION="dev.${SHA:0:7}"
+          VERSION="${{ steps.version.outputs.version }}"
           echo "## Dev Images Registered" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
