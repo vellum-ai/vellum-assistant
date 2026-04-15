@@ -563,6 +563,23 @@ export function serviceDockerRunArgs(opts: {
   } = opts;
   return {
     assistant: () => {
+      // Mount the host Docker socket so the assistant's Meet subsystem can
+      // spawn sibling meet-bot containers on the host Docker engine. This is
+      // additive — pre-existing Docker-mode deployments continue to work and
+      // simply lack Meet support until the user restarts the daemon to pick
+      // up these new run args.
+      //
+      // Platform notes:
+      // - macOS (Docker Desktop): the socket path on the host is always
+      //   `/var/run/docker.sock`; Docker Desktop proxies it transparently.
+      // - Linux (root Docker): `/var/run/docker.sock` is the canonical path.
+      // - Linux (rootless Docker): the socket typically lives at
+      //   `$XDG_RUNTIME_DIR/docker.sock`. Rootless-Docker support is out of
+      //   scope for this phase and will require separate handling.
+      //
+      // We pass `VELLUM_WORKSPACE_VOLUME_NAME` as a hint so the workspace-
+      // volume helper inside the container can reliably find the volume name
+      // without probing Docker for it.
       const args: string[] = [
         "run",
         "--init",
@@ -576,6 +593,8 @@ export function serviceDockerRunArgs(opts: {
         `${res.workspaceVolume}:/workspace`,
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
         "-e",
         "IS_CONTAINERIZED=true",
         "-e",
@@ -586,6 +605,8 @@ export function serviceDockerRunArgs(opts: {
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "VELLUM_WORKSPACE_DIR=/workspace",
+        "-e",
+        `VELLUM_WORKSPACE_VOLUME_NAME=${res.workspaceVolume}`,
         "-e",
         "VELLUM_BACKUP_DIR=/workspace/.backups",
         "-e",
