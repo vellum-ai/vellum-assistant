@@ -2178,7 +2178,7 @@ describe("credential import display", () => {
           backups_created: 1,
         },
         credentialsImported: {
-          total: 8,
+          total: 5,
           succeeded: 5,
           failed: 0,
           failedAccounts: [],
@@ -2192,7 +2192,7 @@ describe("credential import display", () => {
 
     try {
       await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/8");
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
       expect(consoleLogSpy).toHaveBeenCalledWith(
         "  Platform credentials skipped: 3",
       );
