@@ -149,7 +149,7 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.navigateBackOrDismiss() })
+            homePanelView(onDismiss: { windowState.selection = nil })
         }
     }
 
@@ -646,21 +646,21 @@ extension MainWindowView {
                         )
                     }
                     vm?.pendingSkillInvocation = nil
-                    windowState.navigateBackOrDismiss()
+                    windowState.dismissOverlay()
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
                         message: "I'd like to create a new custom skill. What info do you need from me?",
                         forceNew: true
                     )
-                    windowState.navigateBackOrDismiss()
+                    windowState.dismissOverlay()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
                     }
                 },
                 onImportMemory: { message in
                     conversationManager.openConversation(message: message, forceNew: true)
-                    windowState.navigateBackOrDismiss()
+                    windowState.dismissOverlay()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
                     }
@@ -677,7 +677,7 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.navigateBackOrDismiss() })
+            homePanelView(onDismiss: { windowState.dismissOverlay() })
         }
     }
 
