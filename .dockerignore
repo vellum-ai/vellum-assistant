@@ -6,6 +6,10 @@
 !credential-executor/**
 !packages/
 !packages/**
+!skills/
+!skills/meet-join/
+!skills/meet-join/contracts/
+!skills/meet-join/contracts/**
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/node_modules/
@@ -20,3 +24,4 @@ credential-executor/.env.*
 packages/*/node_modules/
 packages/*/.env
 packages/*/.env.*
+skills/meet-join/contracts/node_modules/

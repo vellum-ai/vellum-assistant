@@ -7,8 +7,8 @@
 # a stable tag without colliding with whatever CI produces.
 #
 # The build context is the REPO ROOT (not `meet-bot/`) because meet-bot
-# depends on the workspace-relative package `packages/meet-contracts` via a
-# `file:../packages/meet-contracts` entry in package.json. Setting the
+# depends on the workspace-relative package `skills/meet-join/contracts` via
+# a `file:../skills/meet-join/contracts` entry in package.json. Setting the
 # context to the repo root lets the Dockerfile COPY that sibling package in
 # before running `bun install`. The companion `meet-bot/Dockerfile.dockerignore`
 # keeps the effective context small by ignoring everything outside the

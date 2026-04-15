@@ -9,13 +9,13 @@
 # `bun src/main.ts` to completion so CI can smoke-test the structure.
 #
 # Build context: the REPO ROOT (not `meet-bot/`). The meet-bot package
-# depends on the sibling workspace package `packages/meet-contracts` via
-# `file:../packages/meet-contracts` in its package.json. For `bun install`
+# depends on the sibling workspace package `skills/meet-join/contracts` via
+# `file:../skills/meet-join/contracts` in its package.json. For `bun install`
 # to resolve that relative path inside the image, the sibling package has
 # to be copied in alongside meet-bot under the same parent directory. We
 # therefore set WORKDIR to `/app/meet-bot`, copy `meet-bot/*` into it, and
-# copy `packages/meet-contracts` to `/app/packages/meet-contracts` so the
-# relative `../packages/meet-contracts` reference resolves.
+# copy `skills/meet-join/contracts` to `/app/skills/meet-join/contracts` so
+# the relative `../skills/meet-join/contracts` reference resolves.
 #
 # Related files:
 #   - `scripts/build-meet-bot-image.sh` sets the context to `.` (repo root).
@@ -52,8 +52,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app/meet-bot
 
 # Copy the sibling workspace package BEFORE meet-bot/package.json's install
-# so the `file:../packages/meet-contracts` dep in package.json resolves.
-COPY packages/meet-contracts /app/packages/meet-contracts
+# so the `file:../skills/meet-join/contracts` dep in package.json resolves.
+COPY skills/meet-join/contracts /app/skills/meet-join/contracts
 
 # Install JS dependencies first so Docker can cache the layer when only
 # source files change.
