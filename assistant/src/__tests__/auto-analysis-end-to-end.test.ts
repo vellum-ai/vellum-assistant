@@ -388,10 +388,9 @@ describe("auto-analysis end-to-end trigger path", () => {
 
 // ─────────────────────────────────────────────────────────────────
 // Independent cadence: analysis.batchSize gates the auto-analysis
-// batch trigger separately from extraction.batchSize. This regression
-// guards against a previous wiring bug where the indexer piggy-backed
-// on the extraction counter, causing analysis to fire at extraction's
-// cadence instead of its own (default 30 vs. 10).
+// batch trigger separately from extraction.batchSize, ensuring
+// analysis fires at its own cadence (default 30) rather than at the
+// extraction cadence (default 10).
 // ─────────────────────────────────────────────────────────────────
 
 describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
