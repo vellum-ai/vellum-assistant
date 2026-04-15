@@ -106,15 +106,22 @@ describe("conversationAnalyzeJob", () => {
     expect(mockGetAnalysisDeps).not.toHaveBeenCalled();
   });
 
-  test("throws when deps singleton is not yet initialized (worker reschedules)", async () => {
+  test("returns without calling the service when deps singleton is not yet initialized", async () => {
+    // Deps singleton is unset during slow daemon startup. The handler must
+    // NOT throw — a plain Error here is classified as fatal by
+    // classifyError() and the worker would mark the job permanently failed
+    // (failMemoryJob with maxAttempts: 1). Returning lets the next batch /
+    // idle / lifecycle trigger from enqueueAutoAnalysisIfEnabled() produce
+    // a fresh job once the daemon has fully started.
     mockGetAnalysisDeps.mockImplementation(() => null);
     await expect(
       conversationAnalyzeJob(
         makeJob({ conversationId: "conv-1" }),
         TEST_CONFIG,
       ),
-    ).rejects.toThrow(/not yet initialized/i);
+    ).resolves.toBeUndefined();
     expect(analyzeCalls).toHaveLength(0);
+    expect(mockGetAnalysisDeps).toHaveBeenCalled();
   });
 
   test("invokes analyzeConversation with trigger=auto and the conversationId", async () => {
