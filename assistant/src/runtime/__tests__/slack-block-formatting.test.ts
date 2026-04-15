@@ -127,6 +127,33 @@ describe("splitLongTextSegment", () => {
     expect(splitLongTextSegment(text, 0)).toEqual([text]);
     expect(splitLongTextSegment(text, -1)).toEqual([text]);
   });
+
+  test("plain `<` in technical prose does not protect trailing sentence boundaries from being used as split points", () => {
+    // Regression: `computeMrkdwnSpans` used to treat every `<` as a link
+    // span start. For prose like `a < b. Another sentence. ...`, an
+    // unmatched `<` near the front of the window extended a "protected"
+    // span to the window edge, rejecting every `. ` boundary after it and
+    // forcing a mid-word hard slice.
+    const sentence = "a < b. ";
+    // Repeat enough to comfortably exceed maxChars so the splitter must
+    // pick a boundary inside the window.
+    const text = sentence.repeat(500);
+    expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
+
+    const chunks = splitLongTextSegment(text);
+
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(SLACK_SECTION_MAX_CHARS);
+      // Sentence-aligned split: chunks should end on a sentence terminator
+      // (trailing space is trimmed), not mid-token.
+      expect(chunk.endsWith(".")).toBe(true);
+    }
+    // No content lost (ignoring inter-chunk whitespace trimming).
+    expect(chunks.join(" ").replace(/\s+/g, " ").trim()).toBe(
+      text.replace(/\s+/g, " ").trim(),
+    );
+  });
 });
 
 describe("splitCodeSegmentContent", () => {

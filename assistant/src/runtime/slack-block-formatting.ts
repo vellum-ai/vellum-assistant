@@ -390,11 +390,54 @@ export function splitLongTextSegment(
 }
 
 /**
+ * Slack link/mention tokens always start with one of these prefixes after
+ * the opening `<`. A plain `<` in technical prose (e.g. `a < b`) does not
+ * match any of these and must not be treated as a span start, or the
+ * splitter would reject every boundary past the `<` and fall back to a
+ * hard slice that can land mid-word.
+ */
+const SLACK_LINK_PREFIXES = [
+  "http://",
+  "https://",
+  "mailto:",
+  "#C", // channel ref: <#C0123ABCD|name>
+  "@U", // user mention: <@U0123ABCD>
+  "@W", // workspace user: <@W0123ABCD>
+  "!channel",
+  "!here",
+  "!everyone",
+  "!subteam",
+  "!date",
+];
+
+function looksLikeLinkStart(window: string, openIdx: number): boolean {
+  const rest = window.slice(openIdx + 1);
+  if (rest.length === 0) return false;
+  const first = rest.charCodeAt(0);
+  // Fast reject: whitespace or another `<` immediately after `<` is never a link.
+  if (first === 0x20 || first === 0x09 || first === 0x0a || first === 0x3c) {
+    return false;
+  }
+  for (const prefix of SLACK_LINK_PREFIXES) {
+    if (rest.startsWith(prefix)) return true;
+    // Near the window edge the prefix may be truncated — e.g. `<https`
+    // when `://` is past the cutoff. If `rest` is a strict prefix of a
+    // known link prefix, treat it as link-shaped so the continuation
+    // past the window is still protected from mid-token hard slicing.
+    if (rest.length < prefix.length && prefix.startsWith(rest)) return true;
+  }
+  return false;
+}
+
+/**
  * Find half-open intervals `[start, end)` covering Slack mrkdwn spans in
- * `window` that the splitter must not bisect: `<...>` tokens (links, user
- * mentions, channel refs) and `*...*` single-asterisk bold runs. An
- * unclosed `<` is treated as a span extending to the end of the window so
- * the splitter avoids landing inside a span that straddles the cutoff.
+ * `window` that the splitter must not bisect: `<...>` link/mention tokens
+ * and `*...*` single-asterisk bold runs. A `<` is only treated as a span
+ * start when it is followed by a recognized Slack link/mention prefix
+ * (see `SLACK_LINK_PREFIXES`); plain `<` in technical text is skipped.
+ * An unclosed link-shaped `<...` is treated as a span extending to the
+ * end of the window so the splitter avoids landing inside a span that
+ * straddles the cutoff.
  */
 function computeMrkdwnSpans(window: string): Array<[number, number]> {
   const intervals: Array<[number, number]> = [];
@@ -403,6 +446,10 @@ function computeMrkdwnSpans(window: string): Array<[number, number]> {
   while (i < window.length) {
     const open = window.indexOf("<", i);
     if (open < 0) break;
+    if (!looksLikeLinkStart(window, open)) {
+      i = open + 1;
+      continue;
+    }
     const close = window.indexOf(">", open + 1);
     // For unclosed `<...` (span continues past the window), use a sentinel
     // larger than any in-window position so split-point checks treat the
