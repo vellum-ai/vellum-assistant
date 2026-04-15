@@ -52,8 +52,6 @@ EXPERIMENTAL_FILES=(
 # To triage an entry: run `bun test <path>` from `assistant/` and fix the
 # underlying code or tests until the file is green, then remove it here.
 KNOWN_BROKEN_FILES=(
-  "byo-connection.test.ts"
-  "conversation-tool-setup.test.ts"
 )
 
 # Collect test files, filtering experimental if needed
