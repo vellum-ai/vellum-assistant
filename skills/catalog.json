@@ -204,6 +204,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "meet-join",
+      "name": "meet-join",
+      "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
+      "metadata": {
+        "emoji": "📹",
+        "vellum": {
+          "display-name": "Meet Join"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "notion",
       "name": "notion",
       "description": "Read and write Notion pages and databases using the Notion API",
