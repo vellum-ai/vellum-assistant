@@ -1,7 +1,15 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { invalidateConfigCache } from "../../../../assistant/src/config/loader.js";
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
@@ -1212,6 +1220,32 @@ describe("MeetSessionManager bridge + writer wiring", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetSessionManager proactive chat-opportunity detector wiring", () => {
+  // When this file is run from `assistant/` the bun test preload
+  // (`assistant/src/__tests__/test-preload.ts`, wired via
+  // `assistant/bunfig.toml`) sets `VELLUM_WORKSPACE_DIR` to a tmp
+  // workspace that `getConfig()` reads from. When the file is run
+  // from `skills/meet-join/` there is no preload and the env var is
+  // unset — fall back to a locally-managed tmp dir so the tests are
+  // runnable from either directory (CLAUDE.md expects scoped tests
+  // to work from their containing package).
+  const createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
+  const preloadWorkspace =
+    process.env.VELLUM_WORKSPACE_DIR ??
+    mkdtempSync(join(tmpdir(), "meet-session-manager-pchat-"));
+  if (createdLocalWorkspace) {
+    // `getConfig()` resolves its workspace from the env var, so point
+    // it at the tmp dir we just created. Scoped to this describe block
+    // — other blocks rely on schema defaults and don't need the override.
+    process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
+  }
+
+  afterAll(() => {
+    if (createdLocalWorkspace) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      rmSync(preloadWorkspace, { recursive: true, force: true });
+    }
+  });
+
   /**
    * Make a fake detector and the factory that produced it so tests can
    * assert on construction arguments (assistantDisplayName, config,
@@ -1296,14 +1330,12 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("join constructs detector with effectiveJoinName, proactiveChat config, and wake callback", async () => {
-    // VELLUM_WORKSPACE_DIR is set by test-preload to a distinct path
-    // from `workspaceDir`, so we point config writes at the preload
-    // path (which `getConfig()` reads) while the manager uses
-    // `workspaceDir` for its per-meeting directory staging. The two
-    // don't have to match — session manager reads `services.meet.*`
-    // via `getConfig()` (preload dir) and uses `deps.getWorkspaceDir`
-    // for disk layout (test-local override).
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
+    // Point config writes at the preload workspace (which
+    // `getConfig()` reads via `VELLUM_WORKSPACE_DIR`) while the
+    // manager uses `workspaceDir` for its per-meeting directory
+    // staging. The two don't have to match — session manager reads
+    // `services.meet.*` via `getConfig()` (preload dir) and uses
+    // `deps.getWorkspaceDir` for disk layout (test-local override).
     overrideProactiveChatConfig(preloadWorkspace, true);
 
     const runner = makeMockRunner();
@@ -1368,7 +1400,6 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("proactiveChat.enabled=false skips detector construction entirely", async () => {
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
     overrideProactiveChatConfig(preloadWorkspace, false);
 
     const runner = makeMockRunner();
@@ -1402,8 +1433,6 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("leave disposes the detector and leave still works when detector is null", async () => {
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
-
     // First case — detector present, dispose on leave.
     overrideProactiveChatConfig(preloadWorkspace, true);
     const detectorFactoryOn = makeFakeDetectorFactory();
@@ -1448,7 +1477,6 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("wakeAgent rejection is swallowed so the detector callback can't throw", async () => {
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
     overrideProactiveChatConfig(preloadWorkspace, true);
 
     const detectorFactory = makeFakeDetectorFactory();
@@ -1487,7 +1515,6 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("leave logs a per-meeting chatOpportunity summary pulled from detector.getStats()", async () => {
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
     overrideProactiveChatConfig(preloadWorkspace, true);
 
     const detectorFactory = makeFakeDetectorFactory({
@@ -1526,7 +1553,6 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     // factory's `callDetectorLLM` hook. Constructing the real detector
     // here would pull in the provider stack, so we just verify the
     // factory receives a callable that can return the right shape.
-    const preloadWorkspace = process.env.VELLUM_WORKSPACE_DIR!;
     overrideProactiveChatConfig(preloadWorkspace, true);
 
     const detectorFactory = makeFakeDetectorFactory();
