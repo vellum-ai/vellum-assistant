@@ -59,6 +59,10 @@ mock.module("../config/loader.js", () => {
             latency: "normal",
             speed: 1.0,
           },
+          deepgram: {
+            model: "aura-2-theia-en",
+            format: "mp3",
+          },
         },
       },
     },
@@ -206,6 +210,21 @@ function registerTestTtsProviders(): void {
     },
   };
   registerTtsProvider(fishAudio);
+
+  const deepgram: TtsProvider = {
+    id: "deepgram",
+    capabilities: {
+      supportsStreaming: false,
+      supportedFormats: ["mp3", "wav", "opus"],
+    },
+    async synthesize() {
+      return {
+        audio: Buffer.from("fake-deepgram-audio"),
+        contentType: "audio/mpeg",
+      };
+    },
+  };
+  registerTtsProvider(deepgram);
 }
 
 // Register providers immediately so they're available for all tests
@@ -2501,6 +2520,109 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("Deepgram selected path resolves useSynthesizedPath to true", () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "deepgram";
+
+    const result = resolveCallTtsProvider();
+    expect(result.provider).not.toBeNull();
+    expect(result.provider!.id).toBe("deepgram");
+    expect(result.useSynthesizedPath).toBe(true);
+  });
+
+  test("Deepgram synthesis failure does NOT fall back to native token TTS", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "deepgram";
+
+    _resetTtsProviderRegistry();
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    registerTtsProvider(elevenlabs);
+
+    const deepgramFailing: TtsProvider = {
+      id: "deepgram",
+      capabilities: {
+        supportsStreaming: false,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        const err = new Error("Deepgram TTS returned 503: service unavailable");
+        (err as Error & { code?: string }).code = "DEEPGRAM_TTS_HTTP_ERROR";
+        throw err;
+      },
+    };
+    registerTtsProvider(deepgramFailing);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from deepgram path"]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // No play URL should be emitted when synthesis fails.
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    // Deepgram should NOT have fallen back to sending the LLM text as
+    // native token TTS. Instead, the outer error handler should have
+    // produced a recovery message ("Could you repeat that?").
+    const allTokenText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allTokenText).not.toContain("Hello from deepgram path");
+    expect(allTokenText).toContain("technical issue");
+
+    controller.destroy();
+  });
+
+  test("Fish Audio synthesis failure still falls back to native token TTS (unchanged behavior)", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-abc";
+
+    _resetTtsProviderRegistry();
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    registerTtsProvider(elevenlabs);
+
+    const fishAudioFailing: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        throw new Error("fish-audio synth failure");
+      },
+      async synthesizeStream() {
+        throw new Error("fish-audio stream failure");
+      },
+    };
+    registerTtsProvider(fishAudioFailing);
+
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Hello from fish path"]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // Fish Audio fallback: the LLM text should reach the caller
+    // via native token TTS despite synthesis failure.
+    const allTokenText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allTokenText).toContain("Hello from fish path");
+
+    controller.destroy();
+  });
+
   // ── TTS provider abstraction: interruption behavior ─────────────────
 
   test("handleInterrupt: cancels synthesis abort controller for native provider path", async () => {
@@ -2596,6 +2718,31 @@ describe("call-controller", () => {
       expect(relay.sentPlayUrls.length).toBe(0);
 
       controller.destroy();
+    });
+
+    test("returns synthesized path with deepgram provider", () => {
+      const cfg = loadConfig();
+      cfg.services.tts.provider = "deepgram";
+
+      const result = resolveCallTtsProvider();
+      expect(result.provider).not.toBeNull();
+      expect(result.provider!.id).toBe("deepgram");
+      expect(result.useSynthesizedPath).toBe(true);
+      expect(result.audioFormat).toBe("mp3");
+    });
+
+    test("Deepgram does not apply fish-audio referenceId gate", () => {
+      // Deepgram has no referenceId requirement. Verify the fish-audio
+      // config gate does not apply to deepgram resolution.
+      const cfg = loadConfig();
+      cfg.services.tts.provider = "deepgram";
+      // fish-audio referenceId left empty — should not affect deepgram.
+      cfg.services.tts.providers["fish-audio"].referenceId = "";
+
+      const result = resolveCallTtsProvider();
+      expect(result.provider).not.toBeNull();
+      expect(result.provider!.id).toBe("deepgram");
+      expect(result.useSynthesizedPath).toBe(true);
     });
   });
 
