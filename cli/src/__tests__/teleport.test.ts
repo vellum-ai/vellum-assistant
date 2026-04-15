@@ -58,9 +58,12 @@ const leaseGuardianTokenMock = mock(async () => ({
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
 }));
 
+const computeDeviceIdMock = mock(() => "device-id-123");
+
 mock.module("../lib/guardian-token.js", () => ({
   loadGuardianToken: loadGuardianTokenMock,
   leaseGuardianToken: leaseGuardianTokenMock,
+  computeDeviceId: computeDeviceIdMock,
 }));
 
 const readPlatformTokenMock = mock((): string | null => "platform-token");
@@ -145,6 +148,23 @@ const checkExistingPlatformAssistantMock = mock(
   async (): Promise<{ id: string; name: string; status: string } | null> =>
     null,
 );
+const ensureSelfHostedLocalRegistrationMock = mock(async () => ({
+  assistant: { id: "platform-assistant-1", name: "my-assistant" },
+  registration: {
+    client_installation_id: "device-id-123",
+    runtime_assistant_id: "target-local",
+    client_platform: "cli",
+  },
+  assistant_api_key: "api-key-123",
+  webhook_secret: "webhook-secret-123",
+}));
+const injectCredentialsIntoAssistantMock = mock(async () => true);
+const fetchCurrentUserMock = mock(async () => ({
+  id: "user-1",
+  email: "test@example.com",
+  display: "Test",
+}));
+const fetchOrganizationIdMock = mock(async () => "org-1");
 
 mock.module("../lib/platform-client.js", () => ({
   readPlatformToken: readPlatformTokenMock,
@@ -160,6 +180,10 @@ mock.module("../lib/platform-client.js", () => ({
   platformUploadToSignedUrl: platformUploadToSignedUrlMock,
   platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
   platformImportBundleFromGcs: platformImportBundleFromGcsMock,
+  ensureSelfHostedLocalRegistration: ensureSelfHostedLocalRegistrationMock,
+  injectCredentialsIntoAssistant: injectCredentialsIntoAssistantMock,
+  fetchCurrentUser: fetchCurrentUserMock,
+  fetchOrganizationId: fetchOrganizationIdMock,
 }));
 
 const hatchLocalMock = mock(async () => {});
@@ -347,6 +371,29 @@ beforeEach(() => {
   });
   checkExistingPlatformAssistantMock.mockReset();
   checkExistingPlatformAssistantMock.mockResolvedValue(null);
+  ensureSelfHostedLocalRegistrationMock.mockReset();
+  ensureSelfHostedLocalRegistrationMock.mockResolvedValue({
+    assistant: { id: "platform-assistant-1", name: "my-assistant" },
+    registration: {
+      client_installation_id: "device-id-123",
+      runtime_assistant_id: "target-local",
+      client_platform: "cli",
+    },
+    assistant_api_key: "api-key-123",
+    webhook_secret: "webhook-secret-123",
+  });
+  injectCredentialsIntoAssistantMock.mockReset();
+  injectCredentialsIntoAssistantMock.mockResolvedValue(true);
+  fetchCurrentUserMock.mockReset();
+  fetchCurrentUserMock.mockResolvedValue({
+    id: "user-1",
+    email: "test@example.com",
+    display: "Test",
+  });
+  fetchOrganizationIdMock.mockReset();
+  fetchOrganizationIdMock.mockResolvedValue("org-1");
+  computeDeviceIdMock.mockReset();
+  computeDeviceIdMock.mockReturnValue("device-id-123");
 
   hatchLocalMock.mockReset();
   hatchLocalMock.mockResolvedValue(undefined);
@@ -1965,6 +2012,350 @@ describe("version guard: block platform→non-platform when target is behind", (
       await teleport();
       // fetchCurrentVersion should NOT be called for local→platform
       expect(fetchCurrentVersionMock).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Credential import display tests
+// ---------------------------------------------------------------------------
+
+describe("credential import display", () => {
+  test("prints credential counts when credentialsImported is present", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleFromGcsMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 5,
+          succeeded: 5,
+          failed: 0,
+          failedAccounts: [],
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not print credential line when credentialsImported is absent (old server)", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Mock the GCS import path (used by default since platformRequestUploadUrl
+    // succeeds) with a response that has no credentialsImported field, simulating
+    // an older server.
+    platformImportBundleFromGcsMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      const allLogCalls = consoleLogSpy.mock.calls.map((c: unknown[]) => c[0]);
+      const credentialLines = allLogCalls.filter(
+        (msg: string) =>
+          typeof msg === "string" && msg.includes("Credentials imported"),
+      );
+      expect(credentialLines).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("lists failed credential accounts individually", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleFromGcsMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 5,
+          succeeded: 3,
+          failed: 2,
+          failedAccounts: ["google:user@example.com", "github:octocat"],
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 3/5");
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials failed:  2");
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "    - google:user@example.com",
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith("    - github:octocat");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("shows platform credentials skipped count", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformImportBundleFromGcsMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        success: true,
+        summary: {
+          total_files: 3,
+          files_created: 2,
+          files_overwritten: 1,
+          files_skipped: 0,
+          backups_created: 1,
+        },
+        credentialsImported: {
+          total: 5,
+          succeeded: 5,
+          failed: 0,
+          failedAccounts: [],
+          skippedPlatform: 3,
+        },
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "  Platform credentials skipped: 3",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform credential injection after teleport
+// ---------------------------------------------------------------------------
+
+describe("teleport platform credential injection", () => {
+  test("platform→local teleport calls ensureSelfHostedLocalRegistration and injectCredentialsIntoAssistant", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", {
+      cloud: "local",
+      bearerToken: "local-bearer",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalledWith(
+        "platform-token",
+        "org-1",
+        "device-id-123",
+        "my-local",
+        "cli",
+      );
+      expect(injectCredentialsIntoAssistantMock).toHaveBeenCalledWith({
+        gatewayUrl: "http://localhost:7821",
+        bearerToken: "local-bearer",
+        assistantApiKey: "api-key-123",
+        platformAssistantId: "platform-assistant-1",
+        platformBaseUrl: "https://platform.vellum.ai",
+        organizationId: "org-1",
+        userId: "user-1",
+        webhookSecret: "webhook-secret-123",
+      });
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "  Platform credentials injected.",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("platform→docker teleport also calls credential injection", async () => {
+    setArgv("--from", "my-platform", "--docker", "my-docker");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const dockerEntry = makeEntry("my-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:8821",
+      bearerToken: "docker-bearer",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-docker") return dockerEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalled();
+      expect(injectCredentialsIntoAssistantMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "  Platform credentials injected.",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("local→local teleport does NOT call credential injection", async () => {
+    setArgv("--from", "my-local", "--docker", "my-docker");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const dockerEntry = makeEntry("my-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:8821",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "my-docker") return dockerEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
+      expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("if user is not logged in (readPlatformToken returns null), injection is skipped gracefully", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // The readPlatformToken mock is called twice during teleport:
+    // once during the platform export flow and once during credential injection.
+    // We need the first call to return a token (for the export to work)
+    // and the second call to return null (to test the skip path).
+    let callCount = 0;
+    readPlatformTokenMock.mockImplementation(() => {
+      callCount++;
+      // The platform export path calls readPlatformToken first;
+      // the credential injection helper calls it after import.
+      // Return null only on the last call (the injection helper).
+      if (callCount <= 1) return "platform-token";
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
+      expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        "  Skipped platform credential injection (not logged in).",
+      );
+      // Teleport still succeeds
       expect(consoleLogSpy).toHaveBeenCalledWith(
         expect.stringContaining("Teleport complete"),
       );
