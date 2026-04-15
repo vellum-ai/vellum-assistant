@@ -123,5 +123,8 @@ struct SidebarReflectionsSection: View {
         .accessibilityHint(Text(isExpanded ? "Collapse reflections section" : "Expand reflections section"))
         .accessibilityAddTraits(.isHeader)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default) {
+            withAnimation(VAnimation.fast) { onToggleExpand() }
+        }
     }
 }

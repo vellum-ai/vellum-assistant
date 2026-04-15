@@ -98,12 +98,14 @@ struct ConversationModel: Identifiable, Hashable {
         source == "auto-analysis"
     }
 
-    /// Whether this conversation is automated (heartbeat, schedule, background/task)
-    /// and should never show unread indicators. Per Apple HIG, badges and unread
-    /// indicators should only reflect content requiring user attention — system-generated
-    /// messages from automated threads do not qualify.
+    /// Whether this conversation is automated (heartbeat, schedule, background/task,
+    /// auto-analysis) and should never show unread indicators. Per Apple HIG, badges
+    /// and unread indicators should only reflect content requiring user attention —
+    /// system-generated messages from automated threads do not qualify. Reflections
+    /// (auto-analysis) are a passive surface users browse on their own; they should
+    /// not drive the dock badge or the Conversations header unread dot.
     var shouldSuppressUnreadIndicator: Bool {
-        isScheduleConversation || shouldReturnToBackgroundOnUnpin
+        isScheduleConversation || shouldReturnToBackgroundOnUnpin || isAutoAnalysisConversation
     }
 
     var isChannelConversation: Bool {

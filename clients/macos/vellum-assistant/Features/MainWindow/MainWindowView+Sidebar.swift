@@ -608,7 +608,8 @@ extension MainWindowView {
             // MARK: Conversation Section (collapsed)
             let switcher = CollapsedConversationSwitcherPresentation(
                 regularConversations: regularConversations,
-                activeConversationId: conversationManager.activeConversationId
+                activeConversationId: conversationManager.activeConversationId,
+                hasReflectionConversations: !reflectionsPresentation.reflections.isEmpty
             )
             if switcher.showsSwitcher {
                 Button {
