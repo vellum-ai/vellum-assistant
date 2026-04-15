@@ -1989,7 +1989,7 @@ describe("credential import display", () => {
       return null;
     });
 
-    platformImportBundleMock.mockResolvedValue({
+    platformImportBundleFromGcsMock.mockResolvedValue({
       statusCode: 200,
       body: {
         success: true,
@@ -2071,7 +2071,7 @@ describe("credential import display", () => {
       return null;
     });
 
-    platformImportBundleMock.mockResolvedValue({
+    platformImportBundleFromGcsMock.mockResolvedValue({
       statusCode: 200,
       body: {
         success: true,
@@ -2117,7 +2117,7 @@ describe("credential import display", () => {
       return null;
     });
 
-    platformImportBundleMock.mockResolvedValue({
+    platformImportBundleFromGcsMock.mockResolvedValue({
       statusCode: 200,
       body: {
         success: true,
