@@ -87,4 +87,52 @@ function migrate(db: Database): void {
       ran_at INTEGER NOT NULL
     )
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      notes TEXT,
+      role TEXT NOT NULL DEFAULT 'contact',
+      principal_id TEXT,
+      user_file TEXT,
+      contact_type TEXT NOT NULL DEFAULT 'human',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contact_channels (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      address TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      external_user_id TEXT,
+      external_chat_id TEXT,
+      status TEXT NOT NULL DEFAULT 'unverified',
+      policy TEXT NOT NULL DEFAULT 'allow',
+      verified_at INTEGER,
+      verified_via TEXT,
+      invite_id TEXT,
+      revoked_reason TEXT,
+      blocked_reason TEXT,
+      last_seen_at INTEGER,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      last_interaction INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_contact_channels_type_ext_user
+      ON contact_channels(type, external_user_id)
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_contact_channels_type_ext_chat
+      ON contact_channels(type, external_chat_id)
+  `);
 }
