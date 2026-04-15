@@ -75,8 +75,61 @@ public struct TTSProviderCatalogEntry: Decodable {
     /// field names the shared credential.
     /// `nil` when the provider uses credential mode.
     public let apiKeyProviderName: String?
+    /// Whether this provider supports user-specified voice selection
+    /// (e.g. a Voice ID or Reference ID field). Providers that use a
+    /// built-in default model and do not expose voice selection should
+    /// set this to `false`. Defaults to `false` when omitted from the
+    /// catalog JSON.
+    public let supportsVoiceSelection: Bool
     /// Guide for obtaining API credentials from this provider.
     public let credentialsGuide: TTSCredentialsGuide?
+
+    // Custom decoder so that `supportsVoiceSelection` defaults to `false`
+    // when absent from the catalog JSON (backward compatibility).
+    private enum CodingKeys: String, CodingKey {
+        case id, displayName, subtitle, setupMode, setupHint
+        case credentialMode, credentialNamespace, apiKeyProviderName
+        case supportsVoiceSelection, credentialsGuide
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        subtitle = try c.decode(String.self, forKey: .subtitle)
+        setupMode = try c.decode(TTSProviderSetupMode.self, forKey: .setupMode)
+        setupHint = try c.decode(String.self, forKey: .setupHint)
+        credentialMode = try c.decode(TTSCredentialMode.self, forKey: .credentialMode)
+        credentialNamespace = try c.decodeIfPresent(String.self, forKey: .credentialNamespace)
+        apiKeyProviderName = try c.decodeIfPresent(String.self, forKey: .apiKeyProviderName)
+        supportsVoiceSelection = try c.decodeIfPresent(Bool.self, forKey: .supportsVoiceSelection) ?? false
+        credentialsGuide = try c.decodeIfPresent(TTSCredentialsGuide.self, forKey: .credentialsGuide)
+    }
+
+    /// Memberwise initializer for programmatic construction (e.g. fallback registry).
+    public init(
+        id: String,
+        displayName: String,
+        subtitle: String,
+        setupMode: TTSProviderSetupMode,
+        setupHint: String,
+        credentialMode: TTSCredentialMode,
+        credentialNamespace: String?,
+        apiKeyProviderName: String?,
+        supportsVoiceSelection: Bool = false,
+        credentialsGuide: TTSCredentialsGuide?
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.subtitle = subtitle
+        self.setupMode = setupMode
+        self.setupHint = setupHint
+        self.credentialMode = credentialMode
+        self.credentialNamespace = credentialNamespace
+        self.apiKeyProviderName = apiKeyProviderName
+        self.supportsVoiceSelection = supportsVoiceSelection
+        self.credentialsGuide = credentialsGuide
+    }
 }
 
 /// Top-level schema for `tts-provider-catalog.json`.
@@ -111,6 +164,7 @@ private let fallbackRegistry = TTSProviderRegistry(
             credentialMode: .credential,
             credentialNamespace: "elevenlabs",
             apiKeyProviderName: nil,
+            supportsVoiceSelection: true,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
                 url: "https://elevenlabs.io/app/settings/api-keys",
@@ -126,6 +180,7 @@ private let fallbackRegistry = TTSProviderRegistry(
             credentialMode: .credential,
             credentialNamespace: "fish-audio",
             apiKeyProviderName: nil,
+            supportsVoiceSelection: true,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
                 url: "https://fish.audio/app/api-keys/",
@@ -141,6 +196,7 @@ private let fallbackRegistry = TTSProviderRegistry(
             credentialMode: .apiKey,
             credentialNamespace: nil,
             apiKeyProviderName: "deepgram",
+            supportsVoiceSelection: false,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
                 url: "https://console.deepgram.com/",

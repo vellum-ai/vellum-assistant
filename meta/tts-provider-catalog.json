@@ -9,6 +9,7 @@
       "setupHint": "Run the setup commands in your terminal to configure ElevenLabs credentials.",
       "credentialMode": "credential",
       "credentialNamespace": "elevenlabs",
+      "supportsVoiceSelection": true,
       "credentialsGuide": {
         "description": "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
         "url": "https://elevenlabs.io/app/settings/api-keys",
@@ -23,6 +24,7 @@
       "setupHint": "Run the setup commands in your terminal to configure Fish Audio.",
       "credentialMode": "credential",
       "credentialNamespace": "fish-audio",
+      "supportsVoiceSelection": true,
       "credentialsGuide": {
         "description": "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
         "url": "https://fish.audio/app/api-keys/",
@@ -37,6 +39,7 @@
       "setupHint": "Run the setup command in your terminal to configure your Deepgram API key.",
       "credentialMode": "api-key",
       "apiKeyProviderName": "deepgram",
+      "supportsVoiceSelection": false,
       "credentialsGuide": {
         "description": "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
         "url": "https://console.deepgram.com/",
