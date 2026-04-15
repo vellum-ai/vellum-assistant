@@ -1,5 +1,9 @@
 import { getConfig } from "../config/loader.js";
-import { type Services, ServicesSchema } from "../config/schemas/services.js";
+import {
+  getServiceMode,
+  type Services,
+  ServicesSchema,
+} from "../config/schemas/services.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -47,7 +51,7 @@ export async function resolveOAuthConnection(
 
   if (managedKey && managedKey in ServicesSchema.shape) {
     const services: Services = getConfig().services;
-    if (services[managedKey as keyof Services].mode === "managed") {
+    if (getServiceMode(services, managedKey as keyof Services) === "managed") {
       const client = await VellumPlatformClient.create();
       if (!client || !client.platformAssistantId) {
         const detail = !client
