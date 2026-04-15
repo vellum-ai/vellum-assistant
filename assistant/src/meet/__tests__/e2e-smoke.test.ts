@@ -302,7 +302,7 @@ describe("Meet pipeline end-to-end", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async (provider) => {
-        if (provider === "deepgram") return "deepgram-secret";
+        if (provider === "tts") return "tts-secret";
         return "";
       },
       getWorkspaceDir: () => workspaceDir,
