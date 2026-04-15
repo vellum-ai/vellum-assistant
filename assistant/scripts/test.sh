@@ -54,9 +54,6 @@ EXPERIMENTAL_FILES=(
 KNOWN_BROKEN_FILES=(
   "byo-connection.test.ts"
   "conversation-tool-setup.test.ts"
-  "email-register.test.ts"
-  "email-status.test.ts"
-  "email-unregister.test.ts"
   "qdrant-manager.test.ts"
 )
 

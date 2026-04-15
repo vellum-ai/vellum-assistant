@@ -10,6 +10,7 @@ import { setPlatformAssistantId } from "../../../config/env.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   _resetBackend,
+  deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
@@ -19,8 +20,29 @@ const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
 const ADDRESS = "mybot@vellum.me";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
 
+/**
+ * Filter out the internal `/v1/feature-flags` bootstrap fetch that
+ * `buildCliProgram()` issues on every CLI invocation so assertions can focus
+ * on the email-specific platform calls made by the command under test.
+ */
+function getEmailFetchCalls(): ReturnType<typeof getMockFetchCalls> {
+  return getMockFetchCalls().filter(
+    (call) => !call.path.includes("/v1/feature-flags"),
+  );
+}
+
+let savedCesUrl: string | undefined;
+let savedContainerized: string | undefined;
+
 beforeEach(async () => {
   process.exitCode = 0;
+
+  // Force encrypted-store backend so setSecureKeyAsync works in sandbox
+  savedCesUrl = process.env.CES_CREDENTIAL_URL;
+  savedContainerized = process.env.IS_CONTAINERIZED;
+  delete process.env.CES_CREDENTIAL_URL;
+  delete process.env.IS_CONTAINERIZED;
+
   _resetBackend();
   resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
@@ -33,6 +55,13 @@ afterEach(() => {
   _setOverridesForTesting({});
   setPlatformAssistantId(undefined);
   _resetBackend();
+
+  // Restore env
+  if (savedCesUrl !== undefined) process.env.CES_CREDENTIAL_URL = savedCesUrl;
+  else delete process.env.CES_CREDENTIAL_URL;
+  if (savedContainerized !== undefined)
+    process.env.IS_CONTAINERIZED = savedContainerized;
+  else delete process.env.IS_CONTAINERIZED;
 });
 
 function standardEmailMockFetches(
@@ -60,12 +89,12 @@ describe("assistant email unregister", () => {
 
     await runAssistantCommand("email", "unregister", "--confirm");
 
-    const calls = getMockFetchCalls();
+    const calls = getEmailFetchCalls();
     expect(calls).toHaveLength(2);
-    expect(calls[0].path).toBe(
+    expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
-    expect(calls[1].path).toBe(
+    expect(calls[1].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/${ADDRESS_ID}/`,
     );
     expect(calls[1].init.method).toBe("DELETE");
@@ -117,8 +146,8 @@ describe("assistant email unregister", () => {
   });
 
   test("missing platform credentials returns error", async () => {
-    _resetBackend();
-    setPlatformAssistantId(undefined);
+    // Delete the API key so create() returns null
+    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
 
     const output = await runAssistantCommand("email", "--json", "unregister");
 
