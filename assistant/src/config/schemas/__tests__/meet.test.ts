@@ -118,6 +118,69 @@ describe("MeetServiceSchema", () => {
     expect(parsed.objectionKeywords).toEqual([]);
   });
 
+  test("default objection keyword list includes the expanded Phase 1.7 coverage", () => {
+    // Explicitly pin the Phase 1.7 additions so they aren't silently dropped
+    // from the default. The fast-keyword filter only gates whether we run an
+    // extra (latency-optimized) LLM confirmation, so biasing toward coverage
+    // here is safe — missing keywords cost us actual miss rate.
+    const parsed = MeetServiceSchema.parse({});
+    const expectedNew = [
+      // polite requests
+      "can you leave",
+      "could you leave",
+      "would you mind leaving",
+      "please exit",
+      "step out",
+      // direct objections
+      "no AI",
+      "turn off the bot",
+      "turn off the AI",
+      "remove the bot",
+      "kick the bot",
+      "mute the bot",
+      "stop listening",
+      "stop transcribing",
+      // discomfort signaling
+      "not comfortable",
+      "don't record",
+      "don't want this recorded",
+    ];
+    for (const keyword of expectedNew) {
+      expect(parsed.objectionKeywords).toContain(keyword);
+    }
+  });
+
+  test("default objection keyword list preserves the original Phase 1 entries", () => {
+    // Guard against accidental deletion during future expansions — the
+    // originals must keep matching existing consent-monitor behavior.
+    const parsed = MeetServiceSchema.parse({});
+    const original = [
+      "please leave",
+      "stop recording",
+      "no bots",
+      "no recording",
+      "I don't consent",
+      "can the bot leave",
+    ];
+    for (const keyword of original) {
+      expect(parsed.objectionKeywords).toContain(keyword);
+    }
+  });
+
+  test("user-supplied objectionKeywords override the default completely (no merge)", () => {
+    // Documented semantics: passing objectionKeywords replaces the default
+    // list wholesale. We do NOT merge user values into the defaults — users
+    // who want "defaults plus mine" should spread DEFAULT_MEET_OBJECTION_KEYWORDS
+    // themselves at the call site.
+    const userKeywords = ["custom phrase", "another phrase"];
+    const parsed = MeetServiceSchema.parse({ objectionKeywords: userKeywords });
+    expect(parsed.objectionKeywords).toEqual(userKeywords);
+    // None of the defaults should have leaked in.
+    for (const defaultKeyword of DEFAULT_MEET_OBJECTION_KEYWORDS) {
+      expect(parsed.objectionKeywords).not.toContain(defaultKeyword);
+    }
+  });
+
   test("partial config with only enabled: true fills in remaining defaults", () => {
     const parsed = MeetServiceSchema.parse({ enabled: true });
     expect(parsed.enabled).toBe(true);
