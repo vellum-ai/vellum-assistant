@@ -209,6 +209,24 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
+// Avoid real workspace-git initialization on /tmp — on CI runners,
+// `git add -A` under /tmp hits permission errors on systemd-private dirs,
+// which blocks `runAgentLoopImpl` for long enough to trip the test's
+// `waitForPendingRun` 2s timeout before `AgentLoop.run` is invoked.
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../memory/app-git-service.js", () => ({
+  commitAppTurnChanges: async () => {},
+}));
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
