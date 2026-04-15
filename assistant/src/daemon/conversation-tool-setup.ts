@@ -28,6 +28,7 @@ import {
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
+import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
@@ -185,7 +186,9 @@ export function createToolExecutor(
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
-      batchAuthorizedByTask: ctx.taskRunId != null,
+      batchAuthorizedByTask:
+        ctx.taskRunId != null &&
+        getTaskRunRules(ctx.taskRunId).some((r) => r.tool === name),
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
       requesterIdentifier: ctx.trustContext?.requesterIdentifier,

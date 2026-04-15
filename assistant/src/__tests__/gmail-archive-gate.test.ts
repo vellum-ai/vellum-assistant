@@ -1,6 +1,12 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolContext } from "../tools/types.js";
+import {
+  buildTaskRules,
+  clearTaskRunRules,
+  getTaskRunRules,
+  setTaskRunRules,
+} from "../tasks/ephemeral-permissions.js";
 
 const mockBatchModifyMessages =
   mock<
@@ -127,6 +133,100 @@ describe("gmail_archive gate", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Archived 2 message(s)");
+  });
+
+  describe("batchAuthorizedByTask computed per-tool from required_tools", () => {
+    // Mirrors the computation in daemon/conversation-tool-setup.ts so a
+    // regression in that call site would be caught by this test suite.
+    function computeBatchAuthorizedByTask(
+      taskRunId: string | null | undefined,
+      toolName: string,
+    ): boolean {
+      return (
+        taskRunId != null &&
+        getTaskRunRules(taskRunId).some((r) => r.tool === toolName)
+      );
+    }
+
+    afterEach(() => {
+      clearTaskRunRules("task-run-unrelated");
+      clearTaskRunRules("task-run-with-archive");
+    });
+
+    test("rejects gmail_archive when required_tools does NOT include it", async () => {
+      const taskRunId = "task-run-unrelated";
+      setTaskRunRules(
+        taskRunId,
+        buildTaskRules(taskRunId, ["host_bash"], "/tmp"),
+      );
+
+      const batchAuthorizedByTask = computeBatchAuthorizedByTask(
+        taskRunId,
+        "gmail_archive",
+      );
+      expect(batchAuthorizedByTask).toBe(false);
+
+      const result = await run(
+        { query: "in:inbox" },
+        makeContext({
+          taskRunId,
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask,
+        }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("surface action");
+    });
+
+    test("rejects gmail_archive when required_tools is empty", async () => {
+      const taskRunId = "task-run-unrelated";
+      setTaskRunRules(taskRunId, buildTaskRules(taskRunId, [], "/tmp"));
+
+      const batchAuthorizedByTask = computeBatchAuthorizedByTask(
+        taskRunId,
+        "gmail_archive",
+      );
+      expect(batchAuthorizedByTask).toBe(false);
+
+      const result = await run(
+        { message_ids: ["m1", "m2"] },
+        makeContext({
+          taskRunId,
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask,
+        }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("surface action");
+    });
+
+    test("allows gmail_archive when required_tools DOES include it", async () => {
+      const taskRunId = "task-run-with-archive";
+      setTaskRunRules(
+        taskRunId,
+        buildTaskRules(taskRunId, ["gmail_archive"], "/tmp"),
+      );
+
+      const batchAuthorizedByTask = computeBatchAuthorizedByTask(
+        taskRunId,
+        "gmail_archive",
+      );
+      expect(batchAuthorizedByTask).toBe(true);
+
+      mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+      mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+      const result = await run(
+        { message_ids: ["m1", "m2"] },
+        makeContext({
+          taskRunId,
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask,
+        }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Archived 2 message(s)");
+    });
   });
 
   test("single message_id path works without either flag (no gate on that path)", async () => {
