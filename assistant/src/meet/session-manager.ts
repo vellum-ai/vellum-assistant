@@ -27,7 +27,12 @@
  *
  * Not yet wired in this PR — left as TODOs for their owning PRs:
  *   - PR 22 instantiates the consent monitor and disposes it on leave.
- *   - PR 23 substitutes `{assistantName}` into `CONSENT_MESSAGE`.
+ *
+ * Caller contracts worth noting:
+ *   - `{assistantName}` substitution in `CONSENT_MESSAGE` is performed by the
+ *     `meet_join` tool (PR 23) before invoking `join()`. The tool passes the
+ *     substituted string via `input.consentMessage`. When that field is
+ *     omitted, the raw template from config is forwarded verbatim.
  */
 
 import { randomBytes } from "node:crypto";
@@ -87,6 +92,18 @@ export interface JoinInput {
   url: string;
   meetingId: string;
   conversationId: string;
+  /**
+   * Override for `services.meet.consentMessage`. When provided, this value is
+   * forwarded to the bot container via `CONSENT_MESSAGE` instead of the raw
+   * config template. Used by the `meet_join` tool (PR 23) to inject the
+   * substituted `{assistantName}` value before the bot spawns.
+   *
+   * When omitted, the session manager falls back to the config template
+   * verbatim — the bot itself will not perform template substitution, so
+   * callers that need `{assistantName}` resolved must pass the substituted
+   * string here.
+   */
+  consentMessage?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +219,7 @@ class MeetSessionManagerImpl {
    * descriptor. Throws if a session for the same meeting already exists.
    */
   async join(input: JoinInput): Promise<MeetSession> {
-    const { url, meetingId, conversationId } = input;
+    const { url, meetingId, conversationId, consentMessage } = input;
 
     if (this.sessions.has(meetingId)) {
       throw new Error(
@@ -265,8 +282,12 @@ class MeetSessionManagerImpl {
       // runtime (PR 23 substitutes it). Forward an empty string so the bot
       // can distinguish "not set" from an explicit value.
       JOIN_NAME: meet.joinName ?? "",
-      // `{assistantName}` substitution is owned by PR 23.
-      CONSENT_MESSAGE: meet.consentMessage,
+      // `{assistantName}` substitution is owned by the `meet_join` tool
+      // (PR 23). The tool resolves the assistant name from IDENTITY.md and
+      // passes a substituted string via `input.consentMessage`. If no
+      // override is provided (e.g. direct callers bypassing the tool), the
+      // raw config template is forwarded as-is.
+      CONSENT_MESSAGE: consentMessage ?? meet.consentMessage,
       DAEMON_URL: daemonUrl,
       BOT_API_TOKEN: botApiToken,
       DEEPGRAM_API_KEY: deepgramKey,
