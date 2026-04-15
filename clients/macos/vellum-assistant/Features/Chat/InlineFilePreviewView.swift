@@ -16,6 +16,15 @@ struct InlineFilePreviewView: View {
     let isUser: Bool
     let messageId: UUID
 
+    /// Height cap for the content area when content exceeds the line threshold.
+    private static let maxContentHeight: CGFloat = 400
+    /// Line threshold for switching to the fixed-height ScrollView path.
+    /// At ~16pt line height, 25 lines = ~400pt, matching `maxContentHeight`.
+    private static let lineThreshold = 25
+    /// Byte threshold for single-line mega-strings (e.g., minified JSON) that
+    /// wrap into many visual lines despite having few newlines.
+    private static let charThreshold = 50_000
+
     @Environment(\.filePreviewExpansionStore) private var expansionStore
     @State private var cachedContent: String? = nil
     @State private var isLoading: Bool = false
@@ -125,54 +134,64 @@ struct InlineFilePreviewView: View {
 
     // MARK: - Content Area
 
+    @ViewBuilder
     private var contentArea: some View {
-        ScrollView {
-            Group {
-                if isLoading {
-                    loadingView
-                } else if loadError {
-                    errorView
-                } else if cachedContent != nil {
-                    // Render content via MarkdownSegmentView using cached segments
-                    MarkdownSegmentView(
-                        segments: cachedSegments,
-                        isStreaming: false,
-                        maxContentWidth: nil,
-                        textColor: VColor.contentDefault,
-                        secondaryTextColor: VColor.contentSecondary,
-                        mutedTextColor: VColor.contentTertiary,
-                        tintColor: VColor.primaryBase,
-                        codeTextColor: VColor.contentDefault,
-                        codeBackgroundColor: VColor.surfaceBase
-                    )
-                    .padding(VSpacing.sm)
-                } else {
-                    // No content available yet
-                    loadingView
+        if isLoading {
+            loadingView
+        } else if loadError {
+            errorView
+        } else if let content = cachedContent {
+            let lineCount = content.utf8.reduce(1) { $0 + ($1 == 0x0A ? 1 : 0) }
+            if lineCount > Self.lineThreshold || content.utf8.count > Self.charThreshold {
+                ScrollView {
+                    markdownContent
                 }
+                .frame(height: Self.maxContentHeight)
+            } else {
+                markdownContent
             }
+        } else {
+            loadingView
         }
-        .frame(maxHeight: 400)
+    }
+
+    private var markdownContent: some View {
+        MarkdownSegmentView(
+            segments: cachedSegments,
+            isStreaming: false,
+            maxContentWidth: nil,
+            textColor: VColor.contentDefault,
+            secondaryTextColor: VColor.contentSecondary,
+            mutedTextColor: VColor.contentTertiary,
+            tintColor: VColor.primaryBase,
+            codeTextColor: VColor.contentDefault,
+            codeBackgroundColor: VColor.surfaceBase
+        )
+        .padding(VSpacing.sm)
     }
 
     private var loadingView: some View {
         HStack(spacing: VSpacing.xs) {
+            Spacer(minLength: 0)
             ProgressView()
                 .controlSize(.small)
             Text("Loading...")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
         .padding(VSpacing.sm)
     }
 
     private var errorView: some View {
-        Text("Failed to load file content")
-            .font(VFont.labelDefault)
-            .foregroundStyle(VColor.contentTertiary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(VSpacing.sm)
+        HStack {
+            Spacer(minLength: 0)
+            Text("Failed to load file content")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+            Spacer(minLength: 0)
+        }
+        .padding(VSpacing.sm)
     }
 
     // MARK: - Content Loading
@@ -188,6 +207,7 @@ struct InlineFilePreviewView: View {
                 do {
                     let data = try await AttachmentContentClient.fetchContent(attachmentId: attachment.id)
                     let text = String(data: data, encoding: .utf8) ?? ""
+                    loadError = false
                     cachedContent = text
                     isLoading = false
                 } catch {
@@ -197,6 +217,7 @@ struct InlineFilePreviewView: View {
             }
         } else {
             if let text = attachment.decodedTextContent() {
+                loadError = false
                 cachedContent = text
             } else {
                 loadError = true
