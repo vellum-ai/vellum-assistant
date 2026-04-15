@@ -125,6 +125,13 @@ struct ChatEmptyStateView: View {
                 }
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Poke assistant")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                SoundManager.shared.play(.characterPoke)
+                triggerBounce()
+            }
 
             Group {
                 if let greeting = effectiveGreeting {
@@ -205,7 +212,9 @@ struct ChatEmptyStateView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
             avatarBounceScale = 1.15
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
                 avatarBounceScale = 1.0
             }
