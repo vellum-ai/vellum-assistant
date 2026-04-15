@@ -98,7 +98,7 @@ export function enqueueMemoryJob(
  */
 export function upsertDebouncedJob(
   type: MemoryJobType,
-  payload: { conversationId: string },
+  payload: { conversationId: string } & Record<string, unknown>,
   runAfter: number,
   dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
     tx: infer T,
