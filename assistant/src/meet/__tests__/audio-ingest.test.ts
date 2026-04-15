@@ -317,7 +317,7 @@ describe("MeetAudioIngest.start", () => {
     try {
       await rejection;
     } catch (err) {
-      expect(MeetAudioIngestError.isMeetAudioIngestError(err)).toBe(true);
+      expect(err).toBeInstanceOf(MeetAudioIngestError);
     }
 
     // listen() was never called — socket path is uncreated and does not leak.
