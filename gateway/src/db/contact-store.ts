@@ -4,11 +4,8 @@ import { getGatewayDb } from "./connection.js";
 export type Contact = {
   id: string;
   displayName: string;
-  notes: string | null;
   role: string;
   principalId: string | null;
-  userFile: string | null;
-  contactType: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -38,11 +35,8 @@ export type ContactChannel = {
 type ContactRow = {
   id: string;
   display_name: string;
-  notes: string | null;
   role: string;
   principal_id: string | null;
-  user_file: string | null;
-  contact_type: string;
   created_at: number;
   updated_at: number;
 };
@@ -73,11 +67,8 @@ function toContact(row: ContactRow): Contact {
   return {
     id: row.id,
     displayName: row.display_name,
-    notes: row.notes,
     role: row.role,
     principalId: row.principal_id,
-    userFile: row.user_file,
-    contactType: row.contact_type,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

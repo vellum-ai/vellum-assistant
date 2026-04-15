@@ -92,11 +92,8 @@ function migrate(db: Database): void {
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      notes TEXT,
       role TEXT NOT NULL DEFAULT 'contact',
       principal_id TEXT,
-      user_file TEXT,
-      contact_type TEXT NOT NULL DEFAULT 'human',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )

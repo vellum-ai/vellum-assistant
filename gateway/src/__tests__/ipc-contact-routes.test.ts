@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { Database } from "bun:sqlite";
+import { GatewayIpcServer } from "../ipc/server.js";
+import { contactRoutes } from "../ipc/contact-handlers.js";
+import { ContactStore } from "../db/contact-store.js";
+import { getGatewayDb } from "../db/connection.js";
 
 const testDir = join(
   tmpdir(),
@@ -39,11 +43,6 @@ afterEach(() => {
     // best effort cleanup
   }
 });
-
-const { GatewayIpcServer } = await import("../ipc/server.js");
-const { contactRoutes } = await import("../ipc/contact-handlers.js");
-const { ContactStore } = await import("../db/contact-store.js");
-const { getGatewayDb } = await import("../db/connection.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,29 +88,32 @@ function sendRequest(
 function seedTestData(db: Database): void {
   const now = Date.now();
 
+  db.exec("DELETE FROM contact_channels");
+  db.exec("DELETE FROM contacts");
+
   db.exec(
-    `INSERT INTO contacts (id, display_name, notes, role, principal_id, user_file, contact_type, created_at, updated_at)
-     VALUES ('c1', 'Vargas', 'Founding engineer', 'guardian', 'p1', NULL, 'human', ${now}, ${now})`,
+    `INSERT INTO contacts (id, display_name, role, principal_id, created_at, updated_at)
+     VALUES ('c1', 'Test Guardian', 'guardian', 'p1', ${now}, ${now})`,
   );
 
   db.exec(
-    `INSERT INTO contacts (id, display_name, notes, role, principal_id, user_file, contact_type, created_at, updated_at)
-     VALUES ('c2', 'Alice', NULL, 'contact', NULL, NULL, 'human', ${now}, ${now})`,
-  );
-
-  db.exec(
-    `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_user_id, external_chat_id, status, policy, interaction_count, created_at)
-     VALUES ('ch1', 'c1', 'telegram', 'vargas@tg', 1, 'tg-123', 'chat-456', 'active', 'allow', 5, ${now})`,
-  );
-
-  db.exec(
-    `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_user_id, external_chat_id, status, policy, interaction_count, created_at)
-     VALUES ('ch2', 'c1', 'slack', 'U05D5EGNNMS', 0, 'U05D5EGNNMS', 'D09Q9FG277H', 'active', 'allow', 10, ${now})`,
+    `INSERT INTO contacts (id, display_name, role, principal_id, created_at, updated_at)
+     VALUES ('c2', 'Test Contact', 'contact', NULL, ${now}, ${now})`,
   );
 
   db.exec(
     `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_user_id, external_chat_id, status, policy, interaction_count, created_at)
-     VALUES ('ch3', 'c2', 'email', 'alice@example.com', 1, NULL, NULL, 'unverified', 'escalate', 0, ${now})`,
+     VALUES ('ch1', 'c1', 'telegram', 'test-tg-user', 1, 'tg-fake-001', 'chat-fake-001', 'active', 'allow', 5, ${now})`,
+  );
+
+  db.exec(
+    `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_user_id, external_chat_id, status, policy, interaction_count, created_at)
+     VALUES ('ch2', 'c1', 'slack', 'test-slack-user', 0, 'UFAKE00001', 'DFAKE00001', 'active', 'allow', 10, ${now})`,
+  );
+
+  db.exec(
+    `INSERT INTO contact_channels (id, contact_id, type, address, is_primary, external_user_id, external_chat_id, status, policy, interaction_count, created_at)
+     VALUES ('ch3', 'c2', 'email', 'test@example.com', 1, NULL, NULL, 'unverified', 'escalate', 0, ${now})`,
   );
 }
 
@@ -137,7 +139,7 @@ describe("ContactStore", () => {
 
     const contact = store.getContact("c1");
     expect(contact).not.toBeNull();
-    expect(contact!.displayName).toBe("Vargas");
+    expect(contact!.displayName).toBe("Test Guardian");
     expect(contact!.role).toBe("guardian");
   });
 
@@ -154,7 +156,7 @@ describe("ContactStore", () => {
     seedTestData(db);
     const store = new ContactStore(db);
 
-    const contact = store.getContactByChannel("telegram", "tg-123");
+    const contact = store.getContactByChannel("telegram", "tg-fake-001");
     expect(contact).not.toBeNull();
     expect(contact!.id).toBe("c1");
   });
@@ -245,7 +247,7 @@ describe("IPC contact routes", () => {
     expect(res.error).toBeUndefined();
     const contact = res.result as { id: string; displayName: string };
     expect(contact.id).toBe("c1");
-    expect(contact.displayName).toBe("Vargas");
+    expect(contact.displayName).toBe("Test Guardian");
   });
 
   test("get_contact returns null for unknown contact", async () => {
@@ -268,7 +270,7 @@ describe("IPC contact routes", () => {
     await startServerAndConnect();
     const res = await sendRequest(client, "get_contact_by_channel", {
       channelType: "slack",
-      externalUserId: "U05D5EGNNMS",
+      externalUserId: "UFAKE00001",
     });
 
     expect(res.error).toBeUndefined();
