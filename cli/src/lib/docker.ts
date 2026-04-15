@@ -341,6 +341,7 @@ export function dockerResourceNames(instanceName: string) {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
+    dockerdDataVolume: `${instanceName}-dockerd-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
@@ -400,6 +401,7 @@ export async function retireDocker(name: string): Promise<void> {
     res.workspaceVolume,
     res.cesSecurityVolume,
     res.gatewaySecurityVolume,
+    res.dockerdDataVolume,
   ]) {
     try {
       await exec("docker", ["volume", "rm", vol]);
@@ -563,27 +565,22 @@ export function serviceDockerRunArgs(opts: {
   } = opts;
   return {
     assistant: () => {
-      // Mount the host Docker socket so the assistant's Meet subsystem can
-      // spawn sibling meet-bot containers on the host Docker engine. This is
-      // additive — pre-existing Docker-mode deployments continue to work and
-      // simply lack Meet support until the user restarts the daemon to pick
-      // up these new run args.
-      //
-      // Platform notes:
-      // - macOS (Docker Desktop): the socket path on the host is always
-      //   `/var/run/docker.sock`; Docker Desktop proxies it transparently.
-      // - Linux (root Docker): `/var/run/docker.sock` is the canonical path.
-      // - Linux (rootless Docker): the socket typically lives at
-      //   `$XDG_RUNTIME_DIR/docker.sock`. Rootless-Docker support is out of
-      //   scope for this phase and will require separate handling.
-      //
-      // We pass `VELLUM_WORKSPACE_VOLUME_NAME` as a hint so the workspace-
-      // volume helper inside the container can reliably find the volume name
-      // without probing Docker for it.
+      // Run the assistant container in Docker-in-Docker (DinD) mode: the
+      // container runs its own `dockerd` so the Meet subsystem can spawn
+      // sibling meet-bot containers without needing access to the host's
+      // Docker engine. This requires:
+      //   - `--privileged` so the inner dockerd can manage cgroups, iptables,
+      //     overlayfs mounts, etc.
+      //   - A dedicated named volume mounted at `/var/lib/docker` so the
+      //     inner Docker image cache and container state survive restarts of
+      //     the assistant container.
+      // The host's `/var/run/docker.sock` is intentionally NOT mounted — all
+      // Meet-bot spawning happens against the inner dockerd.
       const args: string[] = [
         "run",
         "--init",
         "-d",
+        "--privileged",
         "--name",
         res.assistantContainer,
         `--network=${res.network}`,
@@ -614,7 +611,7 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-v",
-        "/var/run/docker.sock:/var/run/docker.sock",
+        `${res.dockerdDataVolume}:/var/lib/docker`,
         "-e",
         "IS_CONTAINERIZED=true",
         "-e",
@@ -625,8 +622,6 @@ export function serviceDockerRunArgs(opts: {
         "RUNTIME_HTTP_HOST=0.0.0.0",
         "-e",
         "VELLUM_WORKSPACE_DIR=/workspace",
-        "-e",
-        `VELLUM_WORKSPACE_VOLUME_NAME=${res.workspaceVolume}`,
         "-e",
         "VELLUM_BACKUP_DIR=/workspace/.backups",
         "-e",
@@ -1171,6 +1166,7 @@ export async function hatchDocker(
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
+    await exec("docker", ["volume", "create", res.dockerdDataVolume]);
 
     // Set workspace volume ownership so non-root containers (UID 1001) can write.
     await exec("docker", [
