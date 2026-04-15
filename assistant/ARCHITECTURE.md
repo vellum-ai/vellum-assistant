@@ -2314,3 +2314,30 @@ These endpoints allow the platform (via vembda proxy) to enumerate, inspect, exp
 | `src/util/platform.ts`                     | Profiler directory path helpers                                          |
 | `src/__tests__/profiler-run-store.test.ts` | Profiler store unit tests                                                |
 | `src/__tests__/profiler-routes.test.ts`    | Profiler HTTP route tests                                                |
+
+### LLM Provider Transport — OpenAI Responses API
+
+OpenAI inference uses the **Responses API** (`client.responses.stream()`), not the Chat Completions API. OpenAI-compatible providers (OpenRouter, Fireworks, Ollama) continue to use the chat-completions transport.
+
+**Transport split:**
+
+| Provider key | Transport class           | API surface                 |
+| ------------ | ------------------------- | --------------------------- |
+| `openai`     | `OpenAIResponsesProvider` | `client.responses.stream()` |
+| `openrouter` | `OpenRouterProvider`      | `chat.completions.create()` |
+| `fireworks`  | `FireworksProvider`       | `chat.completions.create()` |
+| `ollama`     | `OllamaProvider`          | `chat.completions.create()` |
+
+The registry (`src/providers/registry.ts`) imports `OpenAIResponsesProvider` from `openai/client.ts` and wires it to the `openai` key. The chat-completions transport (`OpenAIChatCompletionsProvider`) remains available for OpenAI-compatible providers that implement the Chat Completions API.
+
+Both transports produce the same `ProviderResponse` contract so downstream code (agent loop, context management, conversation history) is transport-agnostic.
+
+**Key files:**
+
+| File                                                   | Purpose                                                              |
+| ------------------------------------------------------ | -------------------------------------------------------------------- |
+| `src/providers/openai/responses-provider.ts`           | Responses API transport (streaming, tool calls, usage mapping)       |
+| `src/providers/openai/chat-completions-provider.ts`    | Chat Completions transport (OpenAI-compatible providers)             |
+| `src/providers/openai/client.ts`                       | Re-exports both transports + `validateOpenAIApiKey()`                |
+| `src/providers/registry.ts`                            | Provider initialization (wires `openai` → `OpenAIResponsesProvider`) |
+| `src/__tests__/openai-responses-cutover-guard.test.ts` | CI guard preventing chat-completions regression in OpenAI path       |
