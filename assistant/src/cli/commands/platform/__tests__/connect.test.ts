@@ -60,11 +60,17 @@ mock.module("../../../../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   pruneOldLogFiles: () => 0,
+  LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
 }));
 
 mock.module("../../../../config/loader.js", () => ({
   API_KEY_PROVIDERS: [] as const,
   getConfig: () => ({
+    permissions: { mode: "workspace" },
+    skills: { load: { extraDirs: [] } },
+    sandbox: { enabled: true },
+  }),
+  getConfigReadOnly: () => ({
     permissions: { mode: "workspace" },
     skills: { load: { extraDirs: [] } },
     sandbox: { enabled: true },
