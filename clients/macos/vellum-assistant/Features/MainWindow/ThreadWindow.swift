@@ -250,6 +250,11 @@ private struct ThreadWindowContentView: View {
         }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
         .background(VColor.surfaceBase)
+        .frame(width: windowSize.width / zoomManager.zoomLevel,
+               height: windowSize.height / zoomManager.zoomLevel,
+               alignment: .topLeading)
+        .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
+        .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
         .onGeometryChange(for: CGSize.self) { proxy in proxy.size } action: { windowSize = $0 }
         .overlay(alignment: .top) {
             MainWindowZoomIndicator(
@@ -258,11 +263,6 @@ private struct ThreadWindowContentView: View {
             )
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
-        .frame(width: windowSize.width / zoomManager.zoomLevel,
-               height: windowSize.height / zoomManager.zoomLevel,
-               alignment: .topLeading)
-        .scaleEffect(zoomManager.zoomLevel, anchor: .topLeading)
-        .frame(width: windowSize.width, height: windowSize.height, alignment: .topLeading)
     }
 
     private var threadTitleBar: some View {
