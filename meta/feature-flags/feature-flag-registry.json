@@ -2,6 +2,14 @@
   "version": 1,
   "flags": [
     {
+      "id": "auto-analyze",
+      "scope": "assistant",
+      "key": "auto-analyze",
+      "label": "Auto-analyze conversations",
+      "description": "Automatically trigger conversation analysis on the same cadence as memory extraction (batch threshold, idle debounce, end-of-conversation). The analysis agent has full tool access and writes back to memory and skills without user approval.",
+      "defaultEnabled": false
+    },
+    {
       "id": "browser",
       "scope": "assistant",
       "key": "browser",
