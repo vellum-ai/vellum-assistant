@@ -31,7 +31,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -48,7 +48,7 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.selection = nil },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onSelectConversation: { conversationId in
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
@@ -571,7 +571,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -581,7 +581,6 @@ extension MainWindowView {
                     } else {
                         windowState.selection = nil
                     }
-                    windowState.dismissOverlay()
                 })
         case .logsAndUsage:
             LogsAndUsagePanel(
@@ -589,7 +588,7 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.dismissOverlay() },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onSelectConversation: { conversationId in
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
@@ -684,11 +683,11 @@ extension MainWindowView {
 
     /// Consistent X close button for panel overlays.
     func panelDismissAction() {
-        // Avatar customization → back to originating panel; everything else → dismiss overlay
+        // Avatar customization → back to originating panel; everything else → navigate back
         if case .panel(.avatarCustomization) = windowState.selection {
             windowState.selection = .panel(windowState.avatarCustomizationReturnPanel)
         } else {
-            windowState.dismissOverlay()
+            windowState.navigateBackOrDismiss()
         }
     }
 
