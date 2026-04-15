@@ -808,11 +808,6 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Fire-and-forget: Qdrant init runs concurrently with the rest of startup
-    void initializeQdrantAndMemory().catch((err) =>
-      log.warn({ err }, "Background Qdrant init failed"),
-    );
-
     registerWatcherProviders();
     registerMessagingProviders();
 
@@ -1090,6 +1085,16 @@ export async function runDaemon(): Promise<void> {
       getHeartbeatService: () => server.getHeartbeatService(),
       getFilingService: () => server.getFilingService(),
     });
+
+    // Fire-and-forget: Qdrant init and memory worker startup run concurrently
+    // with the rest of daemon boot. Must run AFTER `new RuntimeHttpServer(...)`
+    // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
+    // available before the memory worker can claim leftover
+    // `conversation_analyze` jobs from a prior run. See the daemon-startup
+    // ordering test in `assistant/src/daemon/__tests__/`.
+    void initializeQdrantAndMemory().catch((err) =>
+      log.warn({ err }, "Background Qdrant init failed"),
+    );
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
     // The bridge must be available even when the HTTP server fails to bind.
