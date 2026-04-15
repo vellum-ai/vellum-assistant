@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       id-token: write
       contents: read
     steps:
@@ -35,8 +36,9 @@ jobs:
           # Check that the push-dev-image job in the triggering workflow
           # actually succeeded (not just the workflow overall, which can
           # report success even when push-dev-image has continue-on-error).
+          # Job display names include a service suffix, e.g. "Push Dev Image (Assistant)".
           PUSH_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
-            --jq '.jobs[] | select(.name == "push-dev-image") | .conclusion')
+            --jq '[.jobs[] | select(.name | startswith("Push Dev Image")) | .conclusion] | first')
 
           if [ "$PUSH_CONCLUSION" != "success" ]; then
             echo "::warning::push-dev-image job did not succeed (conclusion: ${PUSH_CONCLUSION:-not found}). Skipping registration."
@@ -69,16 +71,56 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compute image references and get digests
+      - name: Compute image references and get digest for triggering service
         id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           ASSISTANT_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CE_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
 
-          ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
-          GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
-          CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          # The triggering CI workflow tags images as dev.{run_number}.{short_sha}.
+          # Use the immutable tag from the triggering run to get the exact digest,
+          # avoiding races with the mutable :dev tag.
+          REPO="${{ github.repository }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          RUN_NUMBER=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.run_number')
+          SHORT_SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          IMMUTABLE_TAG="dev.${RUN_NUMBER}.${SHORT_SHA}"
+          echo "Using immutable tag: ${IMMUTABLE_TAG}"
+
+          # Determine which service was just built based on the triggering workflow name.
+          WF_NAME="${{ github.event.workflow_run.name }}"
+          case "$WF_NAME" in
+            *Assistant*) TRIGGERED_IMAGE="$ASSISTANT_IMAGE" ;;
+            *Gateway*)   TRIGGERED_IMAGE="$GATEWAY_IMAGE" ;;
+            *Credential*) TRIGGERED_IMAGE="$CE_IMAGE" ;;
+          esac
+
+          # Get digest for the triggered service using its immutable tag.
+          TRIGGERED_DIGEST=$(docker buildx imagetools inspect "${TRIGGERED_IMAGE}:${IMMUTABLE_TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "Triggered service digest (${WF_NAME}): ${TRIGGERED_DIGEST}"
+
+          # For the other two services, use the current :dev tag (latest available).
+          case "$WF_NAME" in
+            *Assistant*)
+              ASSISTANT_DIGEST="$TRIGGERED_DIGEST"
+              GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              ;;
+            *Gateway*)
+              ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              GATEWAY_DIGEST="$TRIGGERED_DIGEST"
+              CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              ;;
+            *Credential*)
+              ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              CE_DIGEST="$TRIGGERED_DIGEST"
+              ;;
+          esac
 
           echo "assistant_image=$ASSISTANT_IMAGE" >> "$GITHUB_OUTPUT"
           echo "gateway_image=$GATEWAY_IMAGE" >> "$GITHUB_OUTPUT"
