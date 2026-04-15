@@ -40,10 +40,10 @@ extension MessageListView {
         scrollState.updateScrollToLatest()
 
         // --- Pagination ---
-        // With inverted scroll the visual top (oldest messages) maps to the
-        // geometric bottom of the scroll content. Use distanceFromBottom so
-        // the sentinel fires when the user scrolls toward older messages.
-        handlePaginationSentinel(sentinelMinY: -scrollState.distanceFromBottom)
+        // With inverted scroll the visual top (oldest messages) is where
+        // distanceFromTop approaches 0. Negate so the sentinel's
+        // `sentinelMinY > -triggerBand` fires near the visual top.
+        handlePaginationSentinel(sentinelMinY: -scrollState.distanceFromTop)
     }
 
     // MARK: - Pagination sentinel

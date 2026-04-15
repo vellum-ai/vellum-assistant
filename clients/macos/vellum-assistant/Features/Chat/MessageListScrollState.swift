@@ -87,6 +87,13 @@ final class MessageListScrollState {
         lastContentOffsetY
     }
 
+    /// Distance from the visual top (oldest messages) in inverted scroll.
+    /// Approaches 0 when the user scrolls to the oldest messages — used by
+    /// the pagination sentinel to trigger loading older history.
+    var distanceFromTop: CGFloat {
+        scrollContentHeight - lastContentOffsetY - scrollContainerHeight
+    }
+
     // MARK: - Scroll-to-latest
 
     // Hysteresis band: show at >400pt, hide only below 200pt. Prevents the CTA
