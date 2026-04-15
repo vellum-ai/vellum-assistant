@@ -7,4 +7,11 @@ extension Notification.Name {
     /// Posted when the daemon's signing key fingerprint changes, indicating an instance switch.
     /// Observers should trigger credential re-bootstrap.
     public static let daemonInstanceChanged = Notification.Name("daemonInstanceChanged")
+
+    /// Posted by `GatewayConnectionManager` when the platform reports the
+    /// currently connected managed assistant no longer exists (404 on the
+    /// `assistants/{id}/health` endpoint). Observers should tear down local
+    /// state for the missing assistant and switch to a replacement or show
+    /// onboarding.
+    public static let managedAssistantRetiredRemotely = Notification.Name("managedAssistantRetiredRemotely")
 }
