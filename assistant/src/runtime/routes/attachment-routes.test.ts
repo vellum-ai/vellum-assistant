@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -9,10 +10,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testWorkspaceDir = mkdtempSync(
-  join(tmpdir(), "attachment-routes-workspace-"),
+// realpathSync resolves the macOS /var → /private/var symlink so the paths
+// match what resolveAllowedFileBackedAttachmentPath returns (it canonicalizes
+// via realpathSync internally).
+const testWorkspaceDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "attachment-routes-workspace-")),
 );
-const testHomeDir = mkdtempSync(join(tmpdir(), "attachment-routes-home-"));
+const testHomeDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "attachment-routes-home-")),
+);
 
 const attachmentsDir = join(testWorkspaceDir, "data", "attachments");
 const conversationsDir = join(testWorkspaceDir, "conversations");
