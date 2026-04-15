@@ -271,7 +271,7 @@ export async function run(
       .sort((a, b) => b.messageCount - a.messageCount)
       .slice(0, maxSenders);
 
-    let resultSenders = sorted.map((s) => ({
+    const resultSenders = sorted.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
       email: s.email,
