@@ -10,6 +10,7 @@ import { setPlatformAssistantId } from "../../../config/env.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import {
   _resetBackend,
+  deleteSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
@@ -18,6 +19,22 @@ const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const ADDRESS_ID = "550e8400-e29b-41d4-a716-446655440000";
 const ADDRESS = "mybot@vellum.me";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
+const PLATFORM_BASE_URL_CREDENTIAL = credentialKey("vellum", "platform_base_url");
+const PLATFORM_ASSISTANT_ID_CREDENTIAL = credentialKey(
+  "vellum",
+  "platform_assistant_id",
+);
+
+/**
+ * Platform API calls made against the configured platform base URL. Filters
+ * out auxiliary fetches (feature-flag sync to the gateway) that are performed
+ * during CLI bootstrap and aren't relevant to these tests.
+ */
+function getPlatformCalls(): ReturnType<typeof getMockFetchCalls> {
+  return getMockFetchCalls().filter((c) =>
+    c.path.startsWith("https://test-platform.vellum.ai/"),
+  );
+}
 
 function mockListAddresses(
   addresses: { id: string; address: string }[] = [
@@ -39,16 +56,24 @@ function mockSendSuccess(deliveryId = "del_abc123", status = 202): void {
 beforeEach(async () => {
   process.exitCode = 0;
   _resetBackend();
+  // Ensure we don't inherit platform credentials from prior test files that
+  // persist to ~/.vellum/protected/keys.enc on disk.
+  await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
+  await deleteSecureKeyAsync(PLATFORM_BASE_URL_CREDENTIAL);
+  await deleteSecureKeyAsync(PLATFORM_ASSISTANT_ID_CREDENTIAL);
   resetMockFetch();
   _setOverridesForTesting({ "email-channel": true });
   setPlatformAssistantId(ASSISTANT_ID);
   await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
 });
 
-afterEach(() => {
+afterEach(async () => {
   resetMockFetch();
   _setOverridesForTesting({});
   setPlatformAssistantId(undefined);
+  await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
+  await deleteSecureKeyAsync(PLATFORM_BASE_URL_CREDENTIAL);
+  await deleteSecureKeyAsync(PLATFORM_ASSISTANT_ID_CREDENTIAL);
   _resetBackend();
 });
 
@@ -67,16 +92,16 @@ describe("assistant email send", () => {
       "Hi there",
     );
 
-    const calls = getMockFetchCalls();
+    const calls = getPlatformCalls();
     expect(calls).toHaveLength(2);
 
     // First call: list addresses to resolve "from"
-    expect(calls[0].path).toBe(
+    expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/email-addresses/`,
     );
 
     // Second call: send via runtime proxy
-    expect(calls[1].path).toBe("/v1/runtime-proxy/email/send/");
+    expect(calls[1].path).toContain("/v1/runtime-proxy/email/send/");
     expect(calls[1].init.method).toBe("POST");
 
     const payload = JSON.parse(calls[1].init.body as string);
@@ -202,6 +227,8 @@ describe("assistant email send", () => {
   });
 
   test("missing platform credentials returns error", async () => {
+    // Remove the API key so VellumPlatformClient.create() returns null.
+    await deleteSecureKeyAsync(API_KEY_CREDENTIAL);
     _resetBackend();
     setPlatformAssistantId(undefined);
 
@@ -252,7 +279,7 @@ describe("assistant email send", () => {
       "Body only, no subject",
     );
 
-    const calls = getMockFetchCalls();
+    const calls = getPlatformCalls();
     const payload = JSON.parse(calls[1].init.body as string);
     expect(payload.subject).toBeUndefined();
     expect(payload.text).toBe("Body only, no subject");
