@@ -13,6 +13,7 @@ mock.module("../../util/logger.js", () => ({
 
 let flagEnabled = true;
 let isAuto = false;
+let conversationType: "standard" | "private" = "standard";
 let configValue: { analysis?: { idleTimeoutMs?: number } } = {
   analysis: { idleTimeoutMs: 600_000 },
 };
@@ -46,6 +47,10 @@ mock.module("../auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
 }));
 
+mock.module("../conversation-crud.js", () => ({
+  getConversationType: (_conversationId: string) => conversationType,
+}));
+
 mock.module("../jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
@@ -70,6 +75,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
+    conversationType = "standard";
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
@@ -149,6 +155,23 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
   test("flag on, source is auto-analysis — no job is enqueued", () => {
     isAuto = true;
+
+    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
+    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "idle" });
+    enqueueAutoAnalysisIfEnabled({
+      conversationId: "c1",
+      trigger: "lifecycle",
+    });
+
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
+  });
+
+  test("flag on, source is private — no job is enqueued for any trigger", () => {
+    // `analyzeConversation` rejects private conversations with FORBIDDEN, so
+    // enqueueing a job for one is guaranteed to fail. Skip silently instead
+    // so we don't create queue/log churn on every private-chat eviction.
+    conversationType = "private";
 
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "idle" });

@@ -13,7 +13,7 @@
  *
  * Two recursion guards apply when the source conversation is itself an
  * auto-analysis conversation:
- *   1. `enqueueAutoAnalysisIfEnabled` short-circuits internally (PR 12),
+ *   1. `enqueueAutoAnalysisIfEnabled` short-circuits internally,
  *      preventing the analyzer from analyzing its own output.
  *   2. `disposeConversation` skips `graph_extract` directly via
  *      `isAutoAnalysisConversation()`, mirroring the guard the indexer

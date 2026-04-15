@@ -2,6 +2,7 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
+import { getConversationType } from "./conversation-crud.js";
 import { upsertDebouncedJob } from "./jobs-store.js";
 
 const log = getLogger("auto-analysis-enqueue");
@@ -23,7 +24,9 @@ export type AutoAnalysisTrigger = "batch" | "idle" | "lifecycle";
  * conversation. Skips silently when:
  *   - the `auto-analyze` feature flag is disabled, OR
  *   - the source conversation is itself an auto-analysis conversation
- *     (recursion guard — we never analyze our own analysis output).
+ *     (recursion guard — we never analyze our own analysis output), OR
+ *   - the source conversation is private (`analyzeConversation` rejects
+ *     private conversations, so enqueueing would guarantee a failed job).
  *
  * All triggers route through `upsertDebouncedJob()` so a pending job for
  * the same conversation coalesces additional enqueue attempts into a
@@ -56,6 +59,14 @@ export function enqueueAutoAnalysisIfEnabled(args: {
     log.debug(
       { conversationId, trigger },
       "Skipping auto-analysis enqueue: source is an auto-analysis conversation",
+    );
+    return;
+  }
+
+  if (getConversationType(conversationId) === "private") {
+    log.debug(
+      { conversationId, trigger },
+      "Skipping auto-analysis enqueue: source is a private conversation",
     );
     return;
   }
