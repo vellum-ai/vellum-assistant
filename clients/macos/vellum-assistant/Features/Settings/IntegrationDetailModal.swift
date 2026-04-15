@@ -173,7 +173,7 @@ struct IntegrationDetailModal: View {
             if !isLoggedIn {
                 if authManager.isSubmitting {
                     VStack(spacing: VSpacing.md) {
-                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, isTransparent: appearance.isChatAvatarTransparent, showBorder: false)
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
                         HStack(spacing: VSpacing.sm) {
                             VBusyIndicator(size: 8, color: VColor.contentTertiary)
                             Text("Logging in...")
@@ -198,7 +198,7 @@ struct IntegrationDetailModal: View {
             } else if connections.isEmpty {
                 if isConnecting {
                     VStack(spacing: VSpacing.md) {
-                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, isTransparent: appearance.isChatAvatarTransparent, showBorder: false)
+                        VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
                         HStack(spacing: VSpacing.sm) {
                             VBusyIndicator(size: 8, color: VColor.contentTertiary)
                             Text("Waiting for authorization...")
@@ -225,7 +225,7 @@ struct IntegrationDetailModal: View {
 
     private func integrationEmptyState(buttonLabel: String = "Connect Account", buttonIcon: String = VIcon.plus.rawValue, onConnect: @escaping () -> Void) -> some View {
         VStack(spacing: VSpacing.md) {
-            VAvatarImage(image: appearance.chatAvatarImage, size: 48, isTransparent: appearance.isChatAvatarTransparent, showBorder: false)
+            VAvatarImage(image: appearance.chatAvatarImage, size: 48, showBorder: false)
 
             Text("Connect Account to continue")
                 .font(VFont.bodyMediumDefault)

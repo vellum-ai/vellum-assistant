@@ -1283,7 +1283,7 @@ struct ConstellationView: View {
 
     @ViewBuilder
     private func centerAvatarView(showGlow: Bool) -> some View {
-        VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
+        VAvatarImage(image: appearance.fullAvatarImage, size: centerAvatarSize, showBorder: false)
             .if(showGlow) { view in
                 view.background(
                     ZStack {

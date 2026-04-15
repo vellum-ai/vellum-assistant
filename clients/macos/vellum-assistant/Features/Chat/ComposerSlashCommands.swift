@@ -115,7 +115,7 @@ struct SlashCommandRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: VSpacing.md) {
-                VAvatarImage(image: appearance.chatAvatarImage, size: 28, isTransparent: appearance.isChatAvatarTransparent)
+                VAvatarImage(image: appearance.chatAvatarImage, size: 28)
                     .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 2) {

@@ -105,7 +105,7 @@ struct ChatEmptyStateView: View {
         HStack(spacing: VSpacing.md) {
             Group {
                 if appearance.customAvatarImage != nil {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 40, isTransparent: appearance.isChatAvatarTransparent)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
                         .scaleEffect(avatarBounceScale)
                         .onTapGesture {
                             SoundManager.shared.play(.characterPoke)
@@ -120,7 +120,7 @@ struct ChatEmptyStateView: View {
                         .scaleEffect(avatarBounceScale)
                         .onTapGesture { triggerBounce() }
                 } else {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: 40, isTransparent: appearance.isChatAvatarTransparent)
+                    VAvatarImage(image: appearance.chatAvatarImage, size: 40)
                         .scaleEffect(avatarBounceScale)
                         .onTapGesture {
                             SoundManager.shared.play(.characterPoke)

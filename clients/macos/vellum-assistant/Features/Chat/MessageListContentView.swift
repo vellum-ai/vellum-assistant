@@ -297,7 +297,7 @@ struct MessageListContentView: View, Equatable {
         let avatarSize = ConversationAvatarFollower.avatarSize
         HStack {
             if appearance.customAvatarImage != nil {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize, isTransparent: appearance.isChatAvatarTransparent)
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
             } else if let body = appearance.characterBodyShape,
                       let eyes = appearance.characterEyeStyle,
                       let color = appearance.characterColor {
@@ -306,7 +306,7 @@ struct MessageListContentView: View, Equatable {
                                    isStreaming: true)
                     .frame(width: avatarSize, height: avatarSize)
             } else {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize, isTransparent: appearance.isChatAvatarTransparent)
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
             }
             Spacer()
         }

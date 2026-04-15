@@ -487,7 +487,7 @@ struct ChatBubble: View, Equatable {
 
         Group {
             if appearance.customAvatarImage != nil {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize, isTransparent: appearance.isChatAvatarTransparent)
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                     .scaleEffect(avatarBounceScale)
                     .onTapGesture {
                         SoundManager.shared.play(.characterPoke)
@@ -504,7 +504,7 @@ struct ChatBubble: View, Equatable {
                     .scaleEffect(avatarBounceScale)
                     .onTapGesture { triggerBounce() }
             } else {
-                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize, isTransparent: appearance.isChatAvatarTransparent)
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
                     .scaleEffect(avatarBounceScale)
                     .onTapGesture {
                         SoundManager.shared.play(.characterPoke)

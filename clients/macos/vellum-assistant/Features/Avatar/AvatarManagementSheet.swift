@@ -44,7 +44,7 @@ struct AvatarManagementSheet: View {
 
     private var actionList: some View {
         VStack(spacing: 0) {
-            VAvatarImage(image: appearance.fullAvatarImage, size: 120, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
+            VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.xl)
 
             VStack(spacing: VSpacing.sm) {
@@ -107,7 +107,7 @@ struct AvatarManagementSheet: View {
 
     private var characterBuilder: some View {
         VStack(spacing: 0) {
-            VAvatarImage(image: draftImage ?? appearance.fullAvatarImage, size: 120, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
+            VAvatarImage(image: draftImage ?? appearance.fullAvatarImage, size: 120, showBorder: false)
                 .padding(.bottom, VSpacing.lg)
 
             VButton(label: "Generate Random", icon: VIcon.dices.rawValue, style: .outlined) {

@@ -45,8 +45,7 @@ struct ComingAliveOverlay: View {
                 .scaleEffect(glowScale)
                 .allowsHitTesting(false)
 
-            // Avatar image — uses precomputed transparency to keep the view body lightweight.
-            VAvatarImage(image: appearance.fullAvatarImage, size: 200, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
+            VAvatarImage(image: appearance.fullAvatarImage, size: 200, showBorder: false)
                 .shadow(color: Meadow.avatarGradientStart.opacity(0.3), radius: 12)
                 .scaleEffect(avatarScale)
                 .opacity(avatarOpacity)

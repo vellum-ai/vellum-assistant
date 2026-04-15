@@ -25,18 +25,6 @@ public struct VAvatarImage: View {
         self.isTransparent = Self.imageHasTransparency(image)
     }
 
-    /// Initializer that accepts a precomputed transparency flag, avoiding the expensive
-    /// bitmap analysis in `imageHasTransparency`. Use this in animated render paths
-    /// where the view is rebuilt frequently (e.g. scale/opacity animations) and the
-    /// underlying image doesn't change between frames.
-    public init(image: NSImage, size: CGFloat, isTransparent: Bool, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
-        self.image = image
-        self.size = size
-        self.borderColor = borderColor
-        self.showBorder = showBorder
-        self.isTransparent = isTransparent
-    }
-
     public var body: some View {
         Image(nsImage: image)
             .interpolation(.none)

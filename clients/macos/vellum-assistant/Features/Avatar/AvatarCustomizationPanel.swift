@@ -36,7 +36,7 @@ struct AvatarCustomizationPanel: View {
                     // Avatar preview
                     HStack {
                         Spacer()
-                        VAvatarImage(image: appearance.fullAvatarImage, size: 120, isTransparent: appearance.isFullAvatarTransparent, showBorder: false)
+                        VAvatarImage(image: appearance.fullAvatarImage, size: 120, showBorder: false)
                         Spacer()
                     }
 
@@ -64,7 +64,7 @@ struct AvatarCustomizationPanel: View {
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
-                    VAvatarImage(image: customImage, size: 48, isTransparent: appearance.isChatAvatarTransparent, showBorder: false)
+                    VAvatarImage(image: customImage, size: 48, showBorder: false)
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Button("Change") { pickImage() }
