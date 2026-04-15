@@ -17,6 +17,7 @@ import { DEFAULT_GATEWAY_PORT } from "./constants";
 import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
+import { computeLocalVersion } from "./local-version.js";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { resolveImageRefs } from "./platform-releases.js";
@@ -653,6 +654,7 @@ export function serviceDockerRunArgs(opts: {
       }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
+        "APP_VERSION",
         "VELLUM_ENVIRONMENT",
         "VELLUM_PLATFORM_URL",
       ]) {
@@ -1187,6 +1189,10 @@ export async function hatchDocker(
     // Write --config key=value pairs to a temp file that gets bind-mounted
     // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
     const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
+
+    if (!process.env.APP_VERSION) {
+      process.env.APP_VERSION = computeLocalVersion();
+    }
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");

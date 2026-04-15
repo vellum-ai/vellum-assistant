@@ -13,9 +13,6 @@ import {
 import { homedir } from "os";
 import { join } from "path";
 
-// Direct import — bun embeds this at compile time so it works in compiled binaries.
-import cliPkg from "../../package.json";
-
 import {
   allocateLocalResources,
   findAssistantByName,
@@ -42,6 +39,7 @@ import { detectOrphanedProcesses } from "./orphan-detection.js";
 import { isProcessAlive, stopProcess } from "./process.js";
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
+import { computeLocalVersion } from "./local-version.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
 import { emitProgress } from "./desktop-progress.js";
 
@@ -272,7 +270,7 @@ export async function hatchLocal(
   console.log("");
 
   if (!process.env.APP_VERSION) {
-    process.env.APP_VERSION = cliPkg.version;
+    process.env.APP_VERSION = computeLocalVersion();
   }
 
   emitProgress(3, 7, "Writing configuration...");
