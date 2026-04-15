@@ -153,6 +153,7 @@ export interface BotDeps {
     daemonUrl: string;
     meetingId: string;
     botApiToken: string;
+    onError: (err: Error) => void;
   }) => DaemonClientLike;
   createHttpServer: (
     opts: HttpServerCallbacks & { apiToken: string },
@@ -197,7 +198,13 @@ export function defaultDeps(): BotDeps {
     startSpeakerScraper,
     startChatReader,
     startAudioCapture,
-    createDaemonClient: (opts) => new DaemonClient(opts),
+    createDaemonClient: (opts) =>
+      new DaemonClient({
+        daemonUrl: opts.daemonUrl,
+        meetingId: opts.meetingId,
+        botApiToken: opts.botApiToken,
+        onError: (err) => opts.onError(err),
+      }),
     createHttpServer,
     onSignal: (signal, handler) => {
       process.on(signal, handler);
@@ -426,6 +433,40 @@ export async function runBot(deps: BotDeps): Promise<void> {
     void shutdown("left", "SIGINT").then(() => deps.exit(0));
   });
 
+  // Terminal-error handler for the daemon client. `DaemonClient.onError`
+  // fires when a batch is rejected with a 4xx or when retries are
+  // exhausted for a 5xx / network failure. Either way the events in that
+  // batch are lost. We can't recover them, but we MUST NOT keep the bot
+  // "joined" while silently dropping every subsequent event — so after
+  // the first failure we log and arm a 30s window; a second failure
+  // inside that window trips a graceful shutdown with state "error".
+  //
+  // A single transient flap (one 5xx burst that outlasts the retry
+  // budget) is tolerable; two in a row is a structural problem.
+  const DAEMON_ERROR_WINDOW_MS = 30_000;
+  let firstDaemonErrorAt: number | null = null;
+  const onDaemonTerminalError = (err: Error): void => {
+    deps.logError(`meet-bot: daemon ingress failure: ${err.message}`);
+    const now = Date.now();
+    if (
+      firstDaemonErrorAt !== null &&
+      now - firstDaemonErrorAt <= DAEMON_ERROR_WINDOW_MS
+    ) {
+      deps.logError(
+        "meet-bot: daemon ingress failing repeatedly; shutting down",
+      );
+      void shutdown("error", `daemon ingress failure: ${err.message}`).then(
+        () => {
+          detachSigterm();
+          detachSigint();
+          deps.exit(1);
+        },
+      );
+      return;
+    }
+    firstDaemonErrorAt = now;
+  };
+
   // Everything below this line — PulseAudio is already up. On any thrown
   // error we publish `lifecycle:error`, drain the daemon client, and
   // exit 1.
@@ -448,6 +489,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       daemonUrl,
       meetingId,
       botApiToken,
+      onError: onDaemonTerminalError,
     });
 
     publishLifecycle(subsystems.daemonClient, meetingId, "joining", deps);
