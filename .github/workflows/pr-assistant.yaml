@@ -44,7 +44,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install linked package dependencies
-        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../meet-contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -83,7 +85,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install linked package dependencies
-        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../meet-contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -119,7 +123,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install linked package dependencies
-        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../meet-contracts && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
