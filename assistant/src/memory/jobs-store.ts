@@ -18,6 +18,7 @@ export type MemoryJobType =
   | "prune_old_conversations"
   | "prune_old_llm_request_logs"
   | "build_conversation_summary"
+  | "conversation_analyze"
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
