@@ -36,6 +36,7 @@ struct ChatEmptyStateView: View {
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
     @State private var avatarBounceScale: CGFloat = 1.0
+    @State private var bounceTask: Task<Void, Never>?
 
     // Stable random pick from SOUL.md (loaded asynchronously, computed once per view lifecycle)
     @State private var soulGreeting: String?
@@ -82,7 +83,10 @@ struct ChatEmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear(perform: handleAppear)
-        .onDisappear { visible = false }
+        .onDisappear {
+            visible = false
+            bounceTask?.cancel()
+        }
         .task {
             guard !soulGreetingLoaded else { return }
             let greetings = await IdentityInfo.loadGreetingsAsync()
@@ -212,7 +216,8 @@ struct ChatEmptyStateView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
             avatarBounceScale = 1.15
         }
-        Task { @MainActor in
+        bounceTask?.cancel()
+        bounceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {

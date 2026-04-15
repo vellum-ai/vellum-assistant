@@ -79,6 +79,7 @@ struct ChatBubble: View, Equatable {
     private static let heuristicUserPreviewLineLimit = 24
 
     @State private var avatarBounceScale: CGFloat = 1.0
+    @State private var bounceTask: Task<Void, Never>?
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
     /// standalone thinking row (which would stack a duplicate avatar).
@@ -514,13 +515,24 @@ struct ChatBubble: View, Equatable {
         // Ensure the tap-triggered bounce animation is preserved despite the
         // parent LazyVStack's .transaction { $0.animation = nil } suppression.
         .animation(.spring(response: 0.3, dampingFraction: 0.5), value: avatarBounceScale)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Poke assistant")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            SoundManager.shared.play(.characterPoke)
+            triggerBounce()
+        }
+        .onDisappear { bounceTask?.cancel() }
     }
 
     private func triggerBounce() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
             avatarBounceScale = 1.15
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        bounceTask?.cancel()
+        bounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
                 avatarBounceScale = 1.0
             }
