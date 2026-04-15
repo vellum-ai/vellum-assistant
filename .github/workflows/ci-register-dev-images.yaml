@@ -25,24 +25,24 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Check all CI workflows passed for this commit
+      - name: Verify push-dev-image succeeded for triggered workflow
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           REPO="${{ github.repository }}"
-          WORKFLOWS=("CI Main Assistant Checks" "CI Main Gateway Checks" "CI Main Credential Executor Checks")
-          for WF_NAME in "${WORKFLOWS[@]}"; do
-            STATUS=$(gh api "repos/${REPO}/actions/workflows" --jq ".workflows[] | select(.name == \"${WF_NAME}\") | .id" | while read WF_ID; do
-              gh api "repos/${REPO}/actions/workflows/${WF_ID}/runs?head_sha=${HEAD_SHA}&status=success&per_page=1" --jq '.total_count'
-            done)
-            if [ "${STATUS:-0}" -lt 1 ]; then
-              echo "Workflow '${WF_NAME}' has not completed successfully for commit ${HEAD_SHA}. Skipping registration."
-              exit 1
-            fi
-            echo "✓ ${WF_NAME} passed for ${HEAD_SHA}"
-          done
-          echo "All CI workflows passed — proceeding with registration."
+          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          # Check that the push-dev-image job in the triggering workflow
+          # actually succeeded (not just the workflow overall, which can
+          # report success even when push-dev-image has continue-on-error).
+          PUSH_CONCLUSION=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" \
+            --jq '.jobs[] | select(.name == "push-dev-image") | .conclusion')
+
+          if [ "$PUSH_CONCLUSION" != "success" ]; then
+            echo "::warning::push-dev-image job did not succeed (conclusion: ${PUSH_CONCLUSION:-not found}). Skipping registration."
+            exit 1
+          fi
+          echo "✓ push-dev-image succeeded for ${{ github.event.workflow_run.name }}"
 
       - name: Generate GitHub App token
         id: app-token
