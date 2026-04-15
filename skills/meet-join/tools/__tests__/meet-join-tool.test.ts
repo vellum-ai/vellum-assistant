@@ -41,7 +41,7 @@ const joinMock = mock(
   }),
 );
 
-mock.module("../../../../../skills/meet-join/daemon/session-manager.js", () => ({
+mock.module("../../daemon/session-manager.js", () => ({
   MeetSessionManager: {
     join: joinMock,
     leave: async () => {},
@@ -50,14 +50,17 @@ mock.module("../../../../../skills/meet-join/daemon/session-manager.js", () => (
   },
 }));
 
-mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "meet") return flagEnabled;
-    return true;
-  },
-}));
+mock.module(
+  "../../../../assistant/src/config/assistant-feature-flags.js",
+  () => ({
+    isAssistantFeatureFlagEnabled: (key: string) => {
+      if (key === "meet") return flagEnabled;
+      return true;
+    },
+  }),
+);
 
-mock.module("../../../config/loader.js", () => ({
+mock.module("../../../../assistant/src/config/loader.js", () => ({
   getConfig: () => ({
     services: {
       meet: {
@@ -67,11 +70,11 @@ mock.module("../../../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../../../daemon/identity-helpers.js", () => ({
+mock.module("../../../../assistant/src/daemon/identity-helpers.js", () => ({
   getAssistantName: () => assistantNameValue,
 }));
 
-mock.module("../../../util/logger.js", () => ({
+mock.module("../../../../assistant/src/util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -86,7 +89,7 @@ const {
   DEFAULT_ASSISTANT_NAME,
 } = await import("../meet-join-tool.js");
 
-import type { ToolContext } from "../../types.js";
+import type { ToolContext } from "../../../../assistant/src/tools/types.js";
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {

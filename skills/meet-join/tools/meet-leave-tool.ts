@@ -12,13 +12,17 @@
 
 import { z } from "zod";
 
-import { MeetSessionManager } from "../../../../skills/meet-join/daemon/session-manager.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
-import { RiskLevel } from "../../permissions/types.js";
-import type { ToolDefinition } from "../../providers/types.js";
-import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { isAssistantFeatureFlagEnabled } from "../../../assistant/src/config/assistant-feature-flags.js";
+import { getConfig } from "../../../assistant/src/config/loader.js";
+import { RiskLevel } from "../../../assistant/src/permissions/types.js";
+import type { ToolDefinition } from "../../../assistant/src/providers/types.js";
+import type {
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../assistant/src/tools/types.js";
+import { getLogger } from "../../../assistant/src/util/logger.js";
+import { MeetSessionManager } from "../daemon/session-manager.js";
 import { MEET_FLAG_KEY } from "./meet-join-tool.js";
 
 const log = getLogger("meet-leave-tool");
