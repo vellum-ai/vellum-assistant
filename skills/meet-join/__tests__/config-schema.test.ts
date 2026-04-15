@@ -2,8 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_MEET_OBJECTION_KEYWORDS,
+  DEFAULT_MEET_PROACTIVE_CHAT_KEYWORDS,
   MeetServiceSchema,
 } from "../config-schema.js";
+
+const DEFAULT_PROACTIVE_CHAT = {
+  enabled: true,
+  detectorKeywords: [...DEFAULT_MEET_PROACTIVE_CHAT_KEYWORDS],
+  tier2DebounceMs: 5_000,
+  escalationCooldownSec: 30,
+  tier2MaxTranscriptSec: 30,
+};
 
 describe("MeetServiceSchema", () => {
   test("empty object parses to the documented defaults (feature off by default)", () => {
@@ -18,6 +27,7 @@ describe("MeetServiceSchema", () => {
       objectionKeywords: [...DEFAULT_MEET_OBJECTION_KEYWORDS],
       dockerNetwork: "bridge",
       maxMeetingMinutes: 240,
+      proactiveChat: DEFAULT_PROACTIVE_CHAT,
     });
   });
 
@@ -46,7 +56,7 @@ describe("MeetServiceSchema", () => {
       maxMeetingMinutes: 60,
     };
     const parsed = MeetServiceSchema.parse(input);
-    expect(parsed).toEqual(input);
+    expect(parsed).toEqual({ ...input, proactiveChat: DEFAULT_PROACTIVE_CHAT });
   });
 
   test("rejects negative maxMeetingMinutes", () => {
