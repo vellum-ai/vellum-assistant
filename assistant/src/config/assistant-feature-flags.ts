@@ -184,31 +184,39 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
     const { getGatewayInternalBaseUrl } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("./env.js") as typeof import("./env.js");
-    const {
-      mintEdgeRelayToken,
-      isSigningKeyInitialized,
-      initAuthSigningKey,
-      resolveSigningKey,
-    } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
-
-    // CLI subprocesses don't run daemon startup, so the signing key
-    // may not be initialized yet. Initialize it now so mintEdgeRelayToken
-    // can produce a valid JWT for the gateway request.
-    if (!isSigningKeyInitialized()) {
-      initAuthSigningKey(resolveSigningKey());
-    }
 
     const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
-    const token = mintEdgeRelayToken();
+
+    // Build request headers. Auth is best-effort: the gateway
+    // auto-authenticates loopback peers (127.0.0.0/8, ::1) so a valid
+    // JWT is only needed for non-local connections. If the signing key
+    // isn't available (e.g. CLI subprocess without ACTOR_TOKEN_SIGNING_KEY
+    // and no key file on disk), we still proceed — the loopback bypass
+    // will authenticate the request.
+    const headers: Record<string, string> = { Accept: "application/json" };
+    try {
+      const {
+        mintEdgeRelayToken,
+        isSigningKeyInitialized,
+        initAuthSigningKey,
+        resolveSigningKey,
+      } =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
+
+      if (!isSigningKeyInitialized()) {
+        initAuthSigningKey(resolveSigningKey());
+      }
+      headers["Authorization"] = `Bearer ${mintEdgeRelayToken()}`;
+    } catch {
+      // Signing key unavailable — proceed without auth header.
+      // The gateway auto-authenticates loopback peers, so this is
+      // fine for CLI subprocesses running in the same pod/machine.
+    }
 
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+      headers,
       signal: AbortSignal.timeout(10_000),
     });
 
