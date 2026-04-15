@@ -25,10 +25,20 @@ export async function runAssistantCommandFull(
 
   const stdoutChunks: string[] = [];
   const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  // Override must invoke the callback (when provided) so that `Writable` streams
+  // piped into `process.stdout` (e.g. pino's CLI destination) can drain.
+  // Without this, only the first write lands and subsequent writes hang in
+  // backpressure. The second arg can be either an encoding string or the callback.
+  process.stdout.write = ((
+    chunk: string | Uint8Array,
+    encoding?: unknown,
+    cb?: (err?: Error | null) => void,
+  ) => {
     stdoutChunks.push(
       typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk),
     );
+    const callback = typeof encoding === "function" ? encoding : cb;
+    if (typeof callback === "function") callback();
     return true;
   }) as typeof process.stdout.write;
 
