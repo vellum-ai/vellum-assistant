@@ -727,6 +727,7 @@ export class AnthropicProvider implements Provider {
         speed,
         output_config,
         cacheTtl: _cacheTtl,
+        max_tokens: _callerMaxTokens,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
