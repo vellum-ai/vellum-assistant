@@ -58,7 +58,6 @@ KNOWN_BROKEN_FILES=(
   "provider-adapters.test.ts"
   "providers-delete.test.ts"
   "qdrant-manager.test.ts"
-  "shell-tool-proxy-mode.test.ts"
   "skill-feature-flags-integration.test.ts"
   "status.test.ts"
   "terminal-tools.test.ts"
