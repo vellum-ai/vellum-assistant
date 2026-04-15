@@ -1,29 +1,16 @@
 /**
- * Regression test: daemon startup must populate the analyze-deps singleton
- * BEFORE starting the memory worker.
+ * Invariant: the analyze-deps singleton must be populated before the memory
+ * worker starts, so any `conversation_analyze` job the worker claims on its
+ * first poll sees a non-null deps bundle.
  *
- * Bug history: the memory worker (`startMemoryJobsWorker`) was kicked off
- * inside the `initializeQdrantAndMemory()` fire-and-forget block, while
- * `setAnalysisDeps()` (the only call site populating the analyze-deps
- * singleton) lived inside `RuntimeHttpServer`'s `buildRouteTable()`. If the
- * worker happened to claim a leftover `conversation_analyze` job before the
- * HTTP server was constructed, the handler would throw "Analysis deps not yet
- * initialized" and the worker would mark the job failed (plain Errors classify
- * as fatal, not retryable), permanently dropping it.
- *
- * Fix: lifecycle.ts constructs `RuntimeHttpServer` (which synchronously calls
- * `setAnalysisDeps()` inside `buildRouteTable()`) BEFORE invoking
- * `void initializeQdrantAndMemory()`. Daemon startup remains non-blocking —
- * the Qdrant init and memory worker startup still run in the background.
- *
- * The two assertions in this file:
- *   1. Source-ordering guard: `lifecycle.ts` must contain the
- *      `new RuntimeHttpServer(` call BEFORE the `void initializeQdrantAndMemory(`
- *      call. This catches future reorderings that would re-introduce the race.
+ * Assertions:
+ *   1. Source-ordering guard: `lifecycle.ts` constructs `RuntimeHttpServer`
+ *      (which synchronously calls `setAnalysisDeps()` inside
+ *      `buildRouteTable()`) before invoking `void initializeQdrantAndMemory()`
+ *      (which kicks off the memory worker).
  *   2. Runtime check: constructing `RuntimeHttpServer` with `sendMessageDeps`
- *      provided must populate the analyze-deps singleton synchronously, so the
- *      memory worker (whose first poll happens via a microtask after lifecycle
- *      kicks it off) sees a non-null deps bundle.
+ *      populates the analyze-deps singleton synchronously by the time the
+ *      constructor returns.
  */
 
 import { readFileSync } from "node:fs";
@@ -81,8 +68,7 @@ describe("daemon lifecycle startup ordering", () => {
   });
 
   test("lifecycle.ts constructs RuntimeHttpServer before kicking off initializeQdrantAndMemory", () => {
-    // Source-level guard: prevents a future reorder from re-introducing the
-    // startup race. We read lifecycle.ts and assert the RuntimeHttpServer
+    // Source-level guard: read lifecycle.ts and assert the RuntimeHttpServer
     // constructor call appears before the fire-and-forget memory init.
     const lifecyclePath = join(
       import.meta.dir,
@@ -108,17 +94,17 @@ describe("daemon lifecycle startup ordering", () => {
       "lifecycle.ts must construct RuntimeHttpServer (which synchronously " +
         "populates the analyze-deps singleton via buildRouteTable → " +
         "setAnalysisDeps) BEFORE invoking `void initializeQdrantAndMemory()`. " +
-        "Reordering these breaks leftover `conversation_analyze` job " +
-        "processing on startup — the memory worker would claim jobs before " +
-        "the deps singleton is populated, the handler would throw, and the " +
-        "worker would classify the plain Error as fatal and drop the job.",
+        "Otherwise the memory worker can claim a leftover " +
+        "`conversation_analyze` job before the deps singleton is populated, " +
+        "the handler throws, and the worker classifies the plain Error as " +
+        "fatal and drops the job.",
     ).toBeLessThan(initQdrantIdx);
   });
 
   test("constructing RuntimeHttpServer with sendMessageDeps populates the analyze-deps singleton synchronously", async () => {
-    // Runtime guard: confirms the wiring inside buildRouteTable still calls
-    // setAnalysisDeps when sendMessageDeps is provided. If this regression
-    // ever moves out of buildRouteTable without an equivalent call site in
+    // Runtime guard: confirms the wiring inside buildRouteTable calls
+    // setAnalysisDeps when sendMessageDeps is provided. If that call ever
+    // moves out of buildRouteTable without an equivalent call site in
     // lifecycle.ts, this assertion fires.
     server = new RuntimeHttpServer({
       port: 0,
@@ -132,10 +118,10 @@ describe("daemon lifecycle startup ordering", () => {
       },
     });
 
-    // The constructor must have populated the singleton synchronously — no
-    // start() call required. The memory worker's first tick runs as a
-    // microtask after lifecycle.ts kicks it off, so the singleton must be
-    // ready by the time the constructor returns.
+    // The constructor populates the singleton synchronously — no start()
+    // call required. The memory worker's first tick runs as a microtask
+    // after lifecycle.ts kicks it off, so the singleton must be ready by
+    // the time the constructor returns.
     expect(getAnalysisDeps()).not.toBeNull();
   });
 });
