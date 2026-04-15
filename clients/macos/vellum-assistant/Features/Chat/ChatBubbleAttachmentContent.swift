@@ -128,20 +128,20 @@ private struct InlineToolCallImageView: View {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
             let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            let scale = nativeWidth > 0 ? min(maxDim / nativeWidth, maxDim / nativeHeight, 1.0) : 1.0
+            let fitWidth = nativeWidth * scale
+            let fitHeight = nativeHeight * scale
             Image(decorative: cgImage, scale: displayScale)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
-                .frame(
-                    maxWidth: min(nativeWidth, maxDim),
-                    maxHeight: min(nativeHeight, maxDim)
-                )
+                .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
             Image(nsImage: renderImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .frame(width: VSpacing.chatBubbleMaxWidth)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
@@ -248,10 +248,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         Rectangle()
                             .fill(VColor.surfaceActive)
                             .frame(
-                                width: isSingleImage ? nil : 160,
+                                width: isSingleImage ? VSpacing.chatBubbleMaxWidth : 160,
                                 height: isSingleImage ? 200 : 120
                             )
-                            .frame(maxWidth: isSingleImage ? VSpacing.chatBubbleMaxWidth : nil)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     }
                 }
@@ -369,20 +368,20 @@ private struct AttachmentImageGrid<Fallback: View>: View {
             let nativeWidth = CGFloat(cgImage.width) / displayScale
             let nativeHeight = CGFloat(cgImage.height) / displayScale
             let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            let scale = nativeWidth > 0 ? min(maxDim / nativeWidth, maxDim / nativeHeight, 1.0) : 1.0
+            let fitWidth = nativeWidth * scale
+            let fitHeight = nativeHeight * scale
             Image(decorative: cgImage, scale: displayScale)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
-                .frame(
-                    maxWidth: min(nativeWidth, maxDim),
-                    maxHeight: min(nativeHeight, maxDim)
-                )
+                .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .frame(width: VSpacing.chatBubbleMaxWidth)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
     }
