@@ -14,6 +14,8 @@ import {
   supportsDiarization,
 } from "./provider-catalog.js";
 
+const log = getLogger("stt-resolver");
+
 // ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
@@ -303,7 +305,7 @@ export async function resolveStreamingTranscriber(
     provider as SttProviderId,
   );
   if (diarizePreference === "required" && !providerSupportsDiarization) {
-    getLogger("stt-resolver").warn(
+    log.warn(
       { providerId: provider },
       "diarization is required but configured STT provider does not support it",
     );

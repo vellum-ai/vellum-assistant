@@ -103,14 +103,19 @@ mock.module("../openai-whisper-stream.js", () => ({
 
 // ---------------------------------------------------------------------------
 // Subject import (after mocks)
+//
+// Use a dynamic `await import(...)` so the module-top `const log = getLogger(...)`
+// in `resolve.ts` is captured by the mocked logger above. Static ESM imports
+// are hoisted above all module-top statements, which would cause `resolve.ts`
+// to evaluate — and call the real `getLogger` — before `mock.module(...)` runs.
 // ---------------------------------------------------------------------------
 
-import {
+const {
   resolveBatchTranscriber,
   resolveConversationStreamingSttCapability,
   resolveStreamingTranscriber,
   resolveTelephonySttCapability,
-} from "../resolve.js";
+} = await import("../resolve.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
