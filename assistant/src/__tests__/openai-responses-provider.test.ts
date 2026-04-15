@@ -78,15 +78,31 @@ function textDeltaEvent(delta: string): FakeStreamEvent {
   return { type: "response.output_text.delta", delta };
 }
 
-function functionCallAddedEvent(callId: string, name: string): FakeStreamEvent {
+function functionCallAddedEvent(
+  callId: string,
+  name: string,
+  itemId?: string,
+): FakeStreamEvent {
   return {
     type: "response.output_item.added",
-    item: { type: "function_call", call_id: callId, name },
+    item: {
+      type: "function_call",
+      id: itemId ?? `item_${callId}`,
+      call_id: callId,
+      name,
+    },
   };
 }
 
-function functionCallArgsDeltaEvent(delta: string): FakeStreamEvent {
-  return { type: "response.function_call_arguments.delta", delta };
+function functionCallArgsDeltaEvent(
+  delta: string,
+  callId?: string,
+): FakeStreamEvent {
+  return {
+    type: "response.function_call_arguments.delta",
+    delta,
+    item_id: callId ? `item_${callId}` : undefined,
+  };
 }
 
 function functionCallArgsDoneEvent(): FakeStreamEvent {
@@ -279,7 +295,7 @@ describe("OpenAIResponsesProvider", () => {
   test("parses tool calls from streaming events", async () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_abc", "file_read"),
-      functionCallArgsDeltaEvent('{"path":"/tmp/test"}'),
+      functionCallArgsDeltaEvent('{"path":"/tmp/test"}', "call_abc"),
       functionCallArgsDoneEvent(),
       completedEvent(10, 15),
     ];
@@ -304,7 +320,7 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [
       textDeltaEvent("I will read that file."),
       functionCallAddedEvent("call_1", "file_read"),
-      functionCallArgsDeltaEvent('{"path":"/a"}'),
+      functionCallArgsDeltaEvent('{"path":"/a"}', "call_1"),
       functionCallArgsDoneEvent(),
       completedEvent(10, 20),
     ];
@@ -332,10 +348,10 @@ describe("OpenAIResponsesProvider", () => {
   test("handles multiple parallel tool calls", async () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_1", "file_read"),
-      functionCallArgsDeltaEvent('{"path":"/a"}'),
+      functionCallArgsDeltaEvent('{"path":"/a"}', "call_1"),
       functionCallArgsDoneEvent(),
       functionCallAddedEvent("call_2", "file_read"),
-      functionCallArgsDeltaEvent('{"path":"/b"}'),
+      functionCallArgsDeltaEvent('{"path":"/b"}', "call_2"),
       functionCallArgsDoneEvent(),
       completedEvent(10, 30),
     ];
@@ -365,7 +381,7 @@ describe("OpenAIResponsesProvider", () => {
   test("handles malformed tool call arguments gracefully", async () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_bad", "test"),
-      functionCallArgsDeltaEvent("not valid json{"),
+      functionCallArgsDeltaEvent("not valid json{", "call_bad"),
       functionCallArgsDoneEvent(),
       completedEvent(10, 5),
     ];
@@ -1008,7 +1024,7 @@ describe("OpenAIResponsesProvider", () => {
   test("handles response with no text content", async () => {
     fakeStreamEvents = [
       functionCallAddedEvent("call_1", "test"),
-      functionCallArgsDeltaEvent("{}"),
+      functionCallArgsDeltaEvent("{}", "call_1"),
       functionCallArgsDoneEvent(),
       completedEvent(10, 5),
     ];

@@ -34,7 +34,8 @@ const EFFORT_TO_REASONING_EFFORT: Record<string, "low" | "medium" | "high"> = {
 interface ResponsesStreamEvent {
   type: string;
   delta?: string;
-  item?: { type?: string; call_id?: string; name?: string };
+  item?: { type?: string; id?: string; call_id?: string; name?: string };
+  item_id?: string;
   response?: {
     model?: string;
     status?: string;
@@ -136,11 +137,13 @@ export class OpenAIResponsesProvider implements Provider {
 
       // Accumulate the response from stream events
       let contentText = "";
+      // Keyed by item_id (from the stream event) to support parallel tool calls.
       const toolCallMap = new Map<
         string,
         { callId: string; name: string; args: string }
       >();
-      let currentToolCallId = "";
+      // Maps item_id → callId so we can look up tool calls from delta events.
+      const itemIdToCallId = new Map<string, string>();
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let inputTokens = 0;
@@ -175,31 +178,39 @@ export class OpenAIResponsesProvider implements Provider {
             case "response.output_item.added": {
               const item = event.item;
               if (item?.type === "function_call") {
-                currentToolCallId = item.call_id ?? "";
+                const callId = item.call_id ?? "";
+                const itemId = item.id ?? callId;
                 const name = item.name ?? "";
-                toolCallMap.set(currentToolCallId, {
-                  callId: currentToolCallId,
+                toolCallMap.set(callId, {
+                  callId,
                   name,
                   args: "",
                 });
+                itemIdToCallId.set(itemId, callId);
               }
               break;
             }
 
             case "response.function_call_arguments.delta": {
+              // Use item_id to route deltas to the correct tool call,
+              // supporting parallel function calls in the stream.
               const delta = event.delta;
-              if (delta && currentToolCallId) {
-                const entry = toolCallMap.get(currentToolCallId);
-                if (entry) {
-                  entry.args += delta;
+              const itemId = event.item_id;
+              if (delta && itemId) {
+                const callId = itemIdToCallId.get(itemId);
+                if (callId) {
+                  const entry = toolCallMap.get(callId);
+                  if (entry) {
+                    entry.args += delta;
+                  }
                 }
               }
               break;
             }
 
             case "response.function_call_arguments.done": {
-              // Tool call arguments are complete; reset current tracking
-              // so the next output_item.added picks up fresh.
+              // Tool call arguments are complete; no action needed since
+              // deltas are routed by item_id.
               break;
             }
 
