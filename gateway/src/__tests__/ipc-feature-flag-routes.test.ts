@@ -54,12 +54,10 @@ const TEST_REGISTRY = {
   ],
 };
 
-const savedBaseDataDir = process.env.BASE_DATA_DIR;
 const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
 beforeEach(() => {
-  process.env.BASE_DATA_DIR = testDir;
   process.env.VELLUM_WORKSPACE_DIR = testDir;
   process.env.GATEWAY_SECURITY_DIR = protectedDir;
   mkdirSync(protectedDir, { recursive: true });
@@ -71,11 +69,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
-  } else {
-    process.env.BASE_DATA_DIR = savedBaseDataDir;
-  }
   if (savedWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {

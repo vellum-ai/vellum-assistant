@@ -57,11 +57,9 @@ const TEST_REGISTRY = {
   ],
 };
 
-const savedBaseDataDir = process.env.BASE_DATA_DIR;
 const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
 beforeEach(() => {
-  process.env.BASE_DATA_DIR = testDir;
   process.env.GATEWAY_SECURITY_DIR = protectedDir;
   mkdirSync(protectedDir, { recursive: true });
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
@@ -73,11 +71,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedBaseDataDir === undefined) {
-    delete process.env.BASE_DATA_DIR;
-  } else {
-    process.env.BASE_DATA_DIR = savedBaseDataDir;
-  }
   if (savedGatewaySecurityDir === undefined) {
     delete process.env.GATEWAY_SECURITY_DIR;
   } else {

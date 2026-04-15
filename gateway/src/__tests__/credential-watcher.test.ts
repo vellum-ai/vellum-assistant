@@ -86,7 +86,7 @@ function encrypt(
 
 /**
  * Write Telegram bot_token and webhook_secret into the encrypted store
- * at $BASE_DATA_DIR/.vellum/protected/keys.enc, using the same key
+ * at $GATEWAY_SECURITY_DIR/keys.enc, using the same key
  * derivation the gateway's credential-reader will use to decrypt.
  */
 function writeEncryptedStore(botToken: string, webhookSecret: string): void {
@@ -192,11 +192,11 @@ let port = 0;
 
 async function startGateway(): Promise<void> {
   port = 49152 + Math.floor(Math.random() * 16383);
-  const { GATEWAY_SECURITY_DIR: _, ...parentEnv } = process.env;
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
-      ...parentEnv,
-      BASE_DATA_DIR: testDir,
+      ...process.env,
+      GATEWAY_SECURITY_DIR: join(testDir, ".vellum", "protected"),
+      VELLUM_WORKSPACE_DIR: join(testDir, ".vellum", "workspace"),
       GATEWAY_PORT: String(port),
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
