@@ -195,7 +195,6 @@ struct SettingsGeneralTab: View {
     private var systemResourcesSection: some View {
         SettingsCard(
             title: "System Resources",
-            subtitle: "Current resource usage on your assistant",
             accessory: {
                 if isRefreshingHealthz {
                     ProgressView()
@@ -216,27 +215,30 @@ struct SettingsGeneralTab: View {
         ) {
             if let healthz {
                 if let disk = healthz.disk {
-                    HStack(alignment: .top) {
-                        Text("Disk Usage:")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .frame(width: 100, alignment: .leading)
-
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            diskUsageBar(usedMb: disk.usedMb, totalMb: disk.totalMb)
-                            Text("\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))")
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                        }
-                    }
+                    resourceBarRow(
+                        label: "Disk Usage:",
+                        ratio: disk.usedMb / max(disk.totalMb, 1),
+                        caption: "\(formatMb(disk.usedMb)) used of \(formatMb(disk.totalMb))",
+                        accessibilityLabel: "Disk usage"
+                    )
                 }
 
                 if let memory = healthz.memory {
-                    resourceRow(label: "Memory:", value: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))")
+                    resourceBarRow(
+                        label: "Memory:",
+                        ratio: memory.currentMb / max(memory.maxMb, 1),
+                        caption: "\(formatMb(memory.currentMb)) / \(formatMb(memory.maxMb))",
+                        accessibilityLabel: "Memory usage"
+                    )
                 }
 
                 if let cpu = healthz.cpu {
-                    resourceRow(label: "CPU:", value: String(format: "%.1f%%", cpu.currentPercent))
+                    resourceBarRow(
+                        label: "CPU:",
+                        ratio: cpu.currentPercent / 100.0,
+                        caption: String(format: "%.1f%%", cpu.currentPercent),
+                        accessibilityLabel: "CPU usage"
+                    )
                 }
 
                 if healthz.disk == nil && healthz.memory == nil && healthz.cpu == nil {
@@ -256,41 +258,37 @@ struct SettingsGeneralTab: View {
         }
     }
 
-    /// Custom disk usage bar built from Capsule shapes. Avoids `ProgressView(.linear)`
-    /// because on macOS its tint is overridden by the system accent color, which
-    /// renders as orange on default installs instead of the themed green.
-    private func diskUsageBar(usedMb: Double, totalMb: Double) -> some View {
-        let ratio = min(1.0, max(0.0, usedMb / max(totalMb, 1)))
-        let isCritical = ratio > 0.9
+    /// A resource row with a label on the left, a capsule usage bar, and a gray
+    /// caption underneath the bar showing the numeric stats.
+    private func resourceBarRow(label: String, ratio: Double, caption: String, accessibilityLabel: String) -> some View {
+        let clamped = min(1.0, max(0.0, ratio))
+        let isCritical = clamped > 0.9
         let fillColor = isCritical ? VColor.systemNegativeStrong : VColor.systemPositiveStrong
-        return GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(VColor.borderHover)
-                Capsule()
-                    .fill(fillColor)
-                    .frame(width: ratio * geo.size.width)
-            }
-        }
-        .frame(height: 8)
-        .accessibilityElement()
-        .accessibilityLabel("Disk usage")
-        .accessibilityValue("\(Int(ratio * 100)) percent")
-    }
-
-    private func resourceRow(label: String, value: String) -> some View {
-        HStack(alignment: .top) {
+        return HStack(alignment: .top) {
             Text(label)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(width: 100, alignment: .leading)
 
-            Text(value)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(VColor.borderHover)
+                        Capsule()
+                            .fill(fillColor)
+                            .frame(width: clamped * geo.size.width)
+                    }
+                }
+                .frame(height: 8)
+                .accessibilityElement()
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityValue("\(Int(clamped * 100)) percent")
 
-            Spacer()
+                Text(caption)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
