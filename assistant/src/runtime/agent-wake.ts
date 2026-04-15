@@ -33,9 +33,9 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
