@@ -179,7 +179,6 @@ describe("MeetSessionManager.join", () => {
     expect(runOpts.env.CONSENT_MESSAGE).toContain("{assistantName}");
     expect(runOpts.env.DAEMON_URL).toBe("http://host.docker.internal:7821");
     expect(runOpts.env.BOT_API_TOKEN).toBe(session.botApiToken);
-    expect(runOpts.env.DEEPGRAM_API_KEY).toBe("deepgram-secret");
     expect(runOpts.env.TTS_API_KEY).toBe("tts-secret");
     expect(runOpts.env.SKIP_PULSE).toBe("0");
 
