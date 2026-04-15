@@ -137,7 +137,7 @@ The lockfile can contain both local and remote entries. Remote entries (cloud pr
 
 ## Docker Volume Architecture
 
-Docker instances use dedicated volumes with per-service access boundaries instead of a single shared data volume. This enforces least-privilege: each service only has filesystem access to the data it owns. A single host bind-mount (`/var/run/docker.sock`) is also attached to the assistant container so the Meet subsystem can spawn sibling bot containers — see [Meet Sibling-Container Model](#meet-sibling-container-model) below.
+Docker instances use dedicated volumes with per-service access boundaries instead of a single shared data volume. This enforces least-privilege: each service only has filesystem access to the data it owns. The assistant container also owns a dedicated `dockerd-data` volume that backs the inner Docker engine used by the Meet subsystem — see [Meet Docker-in-Docker Model](#meet-docker-in-docker-model) below.
 
 ### Volume Layout
 
@@ -146,33 +146,42 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 <instance-name>-gateway-sec     →  /gateway-security    (gateway only)
 <instance-name>-ces-sec         →  /ces-security        (CES only)
 <instance-name>-socket          →  /run/ces-bootstrap   (assistant + CES)
-/var/run/docker.sock            →  /var/run/docker.sock (assistant: rw — host bind, not a named volume)
+<instance-name>-dockerd-data    →  /var/lib/docker      (assistant only — inner dockerd state)
 ```
 
 - **Workspace volume** (`/workspace`): Shared state — config, conversations, apps, skills, database, logs. Set via `VELLUM_WORKSPACE_DIR=/workspace`. The assistant and gateway have read-write access; the CES mounts it read-only (for config reading).
 - **Gateway security volume** (`/gateway-security`): Files private to the gateway container. Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
 - **CES security volume** (`/ces-security`): Credential encryption keys (`keys.enc`, `store.key`). Only the CES container mounts this volume. Set via `CREDENTIAL_SECURITY_DIR=/ces-security`.
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
-- **Docker socket bind-mount** (`/var/run/docker.sock`): Host Docker Engine API, used by the assistant's Meet subsystem to spawn sibling Meet-bot containers. Mounted read-write on the assistant container only. The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as an env-var hint so the workspace-volume helper can find the volume reliably without probing Docker (see `skills/meet-join/daemon/workspace-volume.ts`).
+- **Inner dockerd data volume** (`/var/lib/docker`): Persistent storage for the `dockerd` that runs *inside* the assistant container. Holds the pulled meet-bot image and any in-flight bot container state so image pulls don't repeat on every assistant restart. Only the assistant container mounts this volume.
 
-### Meet Sibling-Container Model
+### Meet Docker-in-Docker Model
 
-Meet bots are **sibling** containers to the assistant, not nested (Docker-in-Docker). The assistant instructs the host's Docker engine via the mounted socket to spawn each bot; bots therefore run next to the assistant on the same engine and share the workspace volume.
+In Docker mode, Meet bots are **nested** containers spawned by a `dockerd` running *inside* the assistant container. The assistant container runs an init supervisor that starts both the daemon and a local `dockerd`; the Meet subsystem connects to that inner engine and spawns bot containers as children of the assistant container.
 
 ```
-                host Docker Engine (/var/run/docker.sock)
-                         |
-           +-------------+--------------+--------------------+
-           |             |              |                    |
-    assistant ct.   gateway ct.     CES ct.          meet-bot ct. (per meeting)
-           |                                                 |
-           +-------- /workspace (<name>-workspace) ----------+
-                     (mounted on both, for artifact exchange)
+  host Docker Engine
+        |
+        +--- assistant ct. (privileged)
+        |       |
+        |       +--- (inner) dockerd
+        |       |        |
+        |       |        +--- meet-bot ct. (per meeting)
+        |       |        +--- meet-bot ct. (per meeting)
+        |       |
+        |       +--- /workspace (<name>-workspace)
+        |
+        +--- gateway ct.
+        +--- CES ct.
 ```
 
-The assistant creates each bot with a bind of the discovered workspace volume at `/workspace` so the bot can drop transcripts, audio, and metadata into `/workspace/meets/<meetingId>/` where the assistant can read them back. Bots have no access to the gateway-security or CES-security volumes.
+Each bot container receives a bind of `/workspace` sourced from the assistant's own `/workspace` mount, so the bot can drop transcripts, audio, and metadata into `/workspace/meets/<meetingId>/` where the assistant can read them back. Bots have no access to the gateway-security or CES-security volumes.
 
-**Security boundary — single-user local only.** Mounting `/var/run/docker.sock` grants the assistant effective root on the host (any container mount, any image run). This is acceptable for single-user local deployments where the assistant is already running with the user's privileges. It is **not** acceptable for managed/multi-tenant mode. Managed Meet support is explicitly out of scope for this Docker-socket approach — the platform deployment (`vellum-assistant-platform`) needs a different spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances.
+**Bot lifecycle is coupled to the assistant container.** Because the inner `dockerd` process runs inside the assistant container, if that container dies the inner engine dies with it and every bot container is torn down automatically. There are no orphan bot containers on the host — `docker ps` on the host only ever lists the assistant/gateway/CES containers.
+
+**Bare-metal fallback.** When the assistant runs directly on the host (bare-metal / local-dev mode) there is no inner `dockerd`; the daemon connects to the host's Docker engine and spawns bot containers as *siblings* of the assistant process. In that configuration host-level `docker ps` does see each bot, and an ungraceful assistant exit can leave orphan bot containers — the meet-bot image's built-in max-meeting-minutes timeout caps their lifetime.
+
+**Security boundary — single-user local only.** The Docker-in-Docker model requires the assistant container to run with `--privileged`, or at minimum `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`, so the inner `dockerd` can set up cgroups, overlay mounts, and container networks. This is acceptable for single-user local deployments where the assistant already runs with the user's privileges. It is **not** acceptable as-is for managed/multi-tenant mode: Kubernetes deployments must configure Pod Security Admission to allow this privilege level on the assistant pod, or swap in a different bot-spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances. Managed Meet support is explicitly out of scope for this Docker-in-Docker approach — see [`vellum-assistant-platform`](../vellum-assistant-platform).
 
 ### Cross-Service Access Patterns
 
