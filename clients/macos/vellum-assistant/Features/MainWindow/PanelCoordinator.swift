@@ -106,7 +106,7 @@ extension MainWindowView {
             )
         case .intelligence:
             IntelligencePanel(
-                onClose: { windowState.selection = nil },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onInvokeSkill: { skill in
                     let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
@@ -149,7 +149,7 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.selection = nil })
+            homePanelView(onDismiss: { windowState.navigateBackOrDismiss() })
         }
     }
 
@@ -636,7 +636,7 @@ extension MainWindowView {
             )
         case .intelligence:
             IntelligencePanel(
-                onClose: { windowState.dismissOverlay() },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onInvokeSkill: { skill in
                     let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
@@ -646,21 +646,21 @@ extension MainWindowView {
                         )
                     }
                     vm?.pendingSkillInvocation = nil
-                    windowState.dismissOverlay()
+                    windowState.navigateBackOrDismiss()
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
                         message: "I'd like to create a new custom skill. What info do you need from me?",
                         forceNew: true
                     )
-                    windowState.dismissOverlay()
+                    windowState.navigateBackOrDismiss()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
                     }
                 },
                 onImportMemory: { message in
                     conversationManager.openConversation(message: message, forceNew: true)
-                    windowState.dismissOverlay()
+                    windowState.navigateBackOrDismiss()
                     if let id = conversationManager.activeConversationId {
                         windowState.selection = .conversation(id)
                     }
@@ -677,24 +677,8 @@ extension MainWindowView {
                 pendingSkillId: $windowState.pendingSkillId
             )
         case .home:
-            homePanelView(onDismiss: { windowState.dismissOverlay() })
+            homePanelView(onDismiss: { windowState.navigateBackOrDismiss() })
         }
-    }
-
-    /// Consistent X close button for panel overlays.
-    func panelDismissAction() {
-        // Avatar customization → back to originating panel; everything else → navigate back
-        if case .panel(.avatarCustomization) = windowState.selection {
-            windowState.selection = .panel(windowState.avatarCustomizationReturnPanel)
-        } else {
-            windowState.navigateBackOrDismiss()
-        }
-    }
-
-    var panelDismissButton: some View {
-        VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: panelDismissAction)
-            .padding(.top, VSpacing.lg)
-            .padding(.trailing, VSpacing.lg)
     }
 
     // MARK: - Dynamic Workspace
