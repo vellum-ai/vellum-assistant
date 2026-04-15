@@ -237,6 +237,15 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
 export interface ResolveStreamingTranscriberOptions {
   /** Audio sample rate in Hz from the client WebSocket connection. */
   sampleRate?: number;
+  /**
+   * Enable provider-side speaker diarization when the resolved provider
+   * supports it (currently Deepgram). Defaults to `false` so existing
+   * callers (telephony, conversation streaming) keep their lean
+   * single-speaker behavior; Meet audio ingest opts in explicitly.
+   *
+   * Providers without diarization silently ignore this flag.
+   */
+  diarize?: boolean;
 }
 
 /**
@@ -280,6 +289,7 @@ export async function resolveStreamingTranscriber(
 
   return createStreamingTranscriber(apiKey, provider as SttProviderId, {
     sampleRate: options.sampleRate,
+    diarize: options.diarize,
   });
 }
 
@@ -288,6 +298,7 @@ export async function resolveStreamingTranscriber(
  */
 interface CreateStreamingTranscriberOptions {
   sampleRate?: number;
+  diarize?: boolean;
 }
 
 /**
@@ -310,6 +321,7 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        diarize: options.diarize,
       });
     }
     case "google-gemini": {

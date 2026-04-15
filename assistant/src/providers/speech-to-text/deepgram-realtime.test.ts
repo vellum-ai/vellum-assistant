@@ -244,7 +244,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("hello wor", { is_final: false }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "partial", text: "hello wor" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello wor",
+      confidence: 0.95,
+    });
   });
 
   test("trims whitespace from partial transcript text", async () => {
@@ -252,7 +256,11 @@ describe("DeepgramRealtimeTranscriber", () => {
 
     mockWs.simulateMessage(resultsFrame("  hello  ", { is_final: false }));
 
-    expect(events[0]).toEqual({ type: "partial", text: "hello" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello",
+      confidence: 0.95,
+    });
   });
 
   test("does not emit partials when interimResults is disabled", async () => {
@@ -275,7 +283,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   test("emits final with empty text for silence segments", async () => {
@@ -284,7 +296,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("", { is_final: true }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.95,
+    });
   });
 
   test("handles missing transcript field gracefully", async () => {
@@ -298,7 +314,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(frame);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.5,
+    });
   });
 
   test("handles missing channel field gracefully", async () => {
@@ -328,9 +348,13 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ type: "partial", text: "hel" });
-    expect(events[1]).toEqual({ type: "partial", text: "hello" });
-    expect(events[2]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({ type: "partial", text: "hel", confidence: 0.95 });
+    expect(events[1]).toEqual({ type: "partial", text: "hello", confidence: 0.95 });
+    expect(events[2]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -694,6 +718,189 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  test("does not include diarize in URL when option is omitted", async () => {
+    let capturedUrl: string | undefined;
+    const origWs = (globalThis as Record<string, unknown>).WebSocket;
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(url: string) {
+        capturedUrl = url;
+        return mockWs;
+      }
+    };
+
+    const transcriber = new DeepgramRealtimeTranscriber(TEST_API_KEY);
+    const { onEvent } = createEventCollector();
+    const startPromise = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await startPromise;
+
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("diarize")).toBeNull();
+
+    (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  test("includes diarize=true when diarize option is enabled", async () => {
+    let capturedUrl: string | undefined;
+    const origWs = (globalThis as Record<string, unknown>).WebSocket;
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(url: string) {
+        capturedUrl = url;
+        return mockWs;
+      }
+    };
+
+    const transcriber = new DeepgramRealtimeTranscriber(TEST_API_KEY, {
+      diarize: true,
+    });
+    const { onEvent } = createEventCollector();
+    const startPromise = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await startPromise;
+
+    const url = new URL(capturedUrl!);
+    expect(url.searchParams.get("diarize")).toBe("true");
+
+    (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Diarization: speakerLabel extraction
+  // ─────────────────────────────────────────────────────────────────
+
+  test("does not emit speakerLabel when diarize is disabled (default)", async () => {
+    const { events } = await startSession();
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [
+          {
+            transcript: "hi",
+            confidence: 0.9,
+            speaker: 0,
+            words: [{ word: "hi", speaker: 0, confidence: 0.9 }],
+          },
+        ],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      type: string;
+      speakerLabel?: string;
+    };
+    expect(event.speakerLabel).toBeUndefined();
+  });
+
+  test("emits speakerLabel from top-level alternative.speaker when diarize is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [
+          { transcript: "hi", confidence: 0.9, speaker: 2 },
+        ],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      type: string;
+      text: string;
+      speakerLabel?: string;
+    };
+    expect(event.type).toBe("final");
+    expect(event.text).toBe("hi");
+    expect(event.speakerLabel).toBe("2");
+  });
+
+  test("derives speakerLabel from per-word speakers when diarize is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    // Four of five words come from speaker 1, one from speaker 0 — the
+    // label should be the dominant "1".
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [
+          {
+            transcript: "good morning to you all",
+            confidence: 0.88,
+            words: [
+              { word: "good", speaker: 1 },
+              { word: "morning", speaker: 1 },
+              { word: "to", speaker: 0 },
+              { word: "you", speaker: 1 },
+              { word: "all", speaker: 1 },
+            ],
+          },
+        ],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(event.speakerLabel).toBe("1");
+    expect(event.confidence).toBe(0.88);
+  });
+
+  test("leaves speakerLabel undefined when diarize is enabled but no speaker info present", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [{ transcript: "hi", confidence: 0.9 }],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      speakerLabel?: string;
+    };
+    expect(event.speakerLabel).toBeUndefined();
+  });
+
+  test("emits speakerLabel on partial events when diarize is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: false,
+      channel: {
+        alternatives: [
+          {
+            transcript: "hello",
+            confidence: 0.7,
+            words: [{ word: "hello", speaker: 3 }],
+          },
+        ],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      type: string;
+      speakerLabel?: string;
+    };
+    expect(event.type).toBe("partial");
+    expect(event.speakerLabel).toBe("3");
   });
 
   // ─────────────────────────────────────────────────────────────────

@@ -463,6 +463,82 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     await setup.ingest.stop();
   });
 
+  test("propagates speakerLabel and confidence from the transcriber onto the transcript chunk", async () => {
+    const setup = newIngestSetup();
+    const captured: Array<unknown> = [];
+    getMeetSessionEventRouter().register("m-diarize", (e) => captured.push(e));
+
+    const startPromise = setup.ingest.start("m-diarize", "/tmp/diarize.sock");
+    await flushMicrotasks();
+    setup.server.connectBot();
+    await startPromise;
+
+    setup.session.emit({
+      type: "final",
+      text: "hi there.",
+      speakerLabel: "0",
+      confidence: 0.92,
+    });
+    setup.session.emit({
+      type: "partial",
+      text: "how are",
+      speakerLabel: "1",
+      confidence: 0.5,
+    });
+
+    expect(captured).toHaveLength(2);
+    const finalEvent = captured[0] as {
+      type: string;
+      isFinal: boolean;
+      text: string;
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(finalEvent.type).toBe("transcript.chunk");
+    expect(finalEvent.isFinal).toBe(true);
+    expect(finalEvent.text).toBe("hi there.");
+    expect(finalEvent.speakerLabel).toBe("0");
+    expect(finalEvent.confidence).toBe(0.92);
+
+    const partialEvent = captured[1] as {
+      type: string;
+      isFinal: boolean;
+      text: string;
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(partialEvent.isFinal).toBe(false);
+    expect(partialEvent.text).toBe("how are");
+    expect(partialEvent.speakerLabel).toBe("1");
+    expect(partialEvent.confidence).toBe(0.5);
+
+    await setup.ingest.stop();
+  });
+
+  test("leaves speakerLabel/confidence unset on transcript chunk when the transcriber does not surface them", async () => {
+    const setup = newIngestSetup();
+    const captured: Array<unknown> = [];
+    getMeetSessionEventRouter().register("m-noextra", (e) => captured.push(e));
+
+    const startPromise = setup.ingest.start("m-noextra", "/tmp/noextra.sock");
+    await flushMicrotasks();
+    setup.server.connectBot();
+    await startPromise;
+
+    setup.session.emit({ type: "final", text: "bare." });
+
+    expect(captured).toHaveLength(1);
+    const event = captured[0] as {
+      type: string;
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(event.speakerLabel).toBeUndefined();
+    expect(event.confidence).toBeUndefined();
+
+    await setup.ingest.stop();
+  });
+
   test("does not dispatch non-transcript events (error / closed)", async () => {
     const setup = newIngestSetup();
     const captured: Array<unknown> = [];

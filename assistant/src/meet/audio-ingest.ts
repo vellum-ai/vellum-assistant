@@ -437,6 +437,12 @@ export class MeetAudioIngest {
    * dispatch it through the session router. Errors, closes, and other
    * non-transcript events are ignored — the session manager owns the
    * provider's lifecycle, not the ingest.
+   *
+   * When the provider emits a `speakerLabel` (Deepgram diarization is
+   * enabled for Meet audio), forward it on the transcript chunk so
+   * {@link MeetSpeakerResolver} can bind the opaque ASR label to a real
+   * participant identity. `confidence` rides along when the provider
+   * surfaces it.
    */
   private handleTranscriberEvent(
     meetingId: string,
@@ -448,14 +454,18 @@ export class MeetAudioIngest {
       return;
     }
 
-    // The existing streaming transcribers do not yet surface speaker /
-    // confidence metadata; leave those optional fields unset.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
       timestamp: new Date().toISOString(),
       isFinal: event.type === "final",
       text: event.text,
+      ...(event.speakerLabel !== undefined
+        ? { speakerLabel: String(event.speakerLabel) }
+        : {}),
+      ...(event.confidence !== undefined
+        ? { confidence: event.confidence }
+        : {}),
     };
 
     getMeetSessionEventRouter().dispatch(meetingId, transcript);
@@ -471,12 +481,16 @@ export class MeetAudioIngest {
  * assistant's STT catalog (reads `services.stt.provider` and looks up
  * credentials centrally).
  *
+ * Meet audio ingest always requests diarization so {@link MeetSpeakerResolver}
+ * can bind opaque ASR speaker labels to real participant identities.
+ * Providers without diarization support silently ignore the flag.
+ *
  * Throws {@link MeetAudioIngestError} when no streaming-capable provider
  * is configured so the session manager can surface a clear join-failure
  * message pointing at `services.stt.provider`.
  */
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
-  const transcriber = await resolveStreamingTranscriber();
+  const transcriber = await resolveStreamingTranscriber({ diarize: true });
   if (!transcriber) {
     throw new MeetAudioIngestError(
       "No streaming-capable STT provider is configured. " +
