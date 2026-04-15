@@ -43,11 +43,20 @@ export const HeartbeatConfigSchema = z
     const startNull = config.activeHoursStart == null;
     const endNull = config.activeHoursEnd == null;
     if (startNull !== endNull) {
+      // Emit on both fields so validateWithSchema's delete-and-retry repair
+      // can strip whichever side was set (and no-op the null side), letting
+      // the config fall back to the schema defaults without a full reset.
+      const message =
+        "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be null";
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
-        message:
-          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be null",
+        path: ["activeHoursStart"],
+        message,
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeHoursEnd"],
+        message,
       });
       return;
     }

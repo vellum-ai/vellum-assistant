@@ -47,11 +47,20 @@ export const FilingConfigSchema = z
     const startNull = config.activeHoursStart == null;
     const endNull = config.activeHoursEnd == null;
     if (startNull !== endNull) {
+      // Emit on both fields so validateWithSchema's delete-and-retry repair
+      // can strip whichever side was set (and no-op the null side), letting
+      // the config fall back to both-null defaults without a full reset.
+      const message =
+        "filing.activeHoursStart and filing.activeHoursEnd must both be set or both be null";
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
-        message:
-          "filing.activeHoursStart and filing.activeHoursEnd must both be set or both be null",
+        path: ["activeHoursStart"],
+        message,
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeHoursEnd"],
+        message,
       });
       return;
     }

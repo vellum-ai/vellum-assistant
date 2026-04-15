@@ -2073,6 +2073,37 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.provider).toBe("twilio");
   });
 
+  test("recovers from partial filing.activeHours without wiping unrelated fields", () => {
+    // Only activeHoursStart is set. The superRefine must emit the issue so
+    // the loader's delete-and-retry can strip the set field; otherwise the
+    // mismatch persists and the config falls back to full defaults (which
+    // would reset maxTokens below to 64000).
+    writeConfig({
+      maxTokens: 4096,
+      filing: { activeHoursStart: 8 },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(4096);
+    expect(config.filing.activeHoursStart).toBeNull();
+    expect(config.filing.activeHoursEnd).toBeNull();
+  });
+
+  test("recovers from partial heartbeat.activeHours without wiping unrelated fields", () => {
+    // activeHoursStart is explicitly nulled while activeHoursEnd defaults to
+    // 22 — a mismatch. Without emitting on both paths, delete-and-retry can't
+    // resolve this (deleting the null side is a no-op) and the whole config
+    // would be reset to defaults.
+    writeConfig({
+      maxTokens: 4096,
+      heartbeat: { activeHoursStart: null },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(4096);
+    // Both fall back to the heartbeat defaults (8, 22).
+    expect(config.heartbeat.activeHoursStart).toBe(8);
+    expect(config.heartbeat.activeHoursEnd).toBe(22);
+  });
+
   test("applies calls defaults when not specified", () => {
     writeConfig({});
     const config = loadConfig();
