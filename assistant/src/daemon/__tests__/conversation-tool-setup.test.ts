@@ -10,9 +10,9 @@
  * - macos requires a connected SSE client for host tools that flow through
  *   the proxy (e.g. host_bash, host_file_*), so `hasNoClient: true` denies
  *   those on macos.
- * - host_browser is NOT in the macos capability set (PR #24571) because the
- *   proxy path requires a Chrome extension that isn't guaranteed to be
- *   attached; macos browser tools fall back to local Playwright Chromium.
+ * - host_browser is NOT in the macos capability set because the proxy path
+ *   requires a Chrome extension that isn't guaranteed to be attached; macos
+ *   browser tools fall back to local Playwright Chromium.
  *
  * The per-capability check (`supportsHostProxy(transport, capability)`) runs
  * first and is authoritative for structural support, so host_bash and
@@ -74,12 +74,12 @@ describe("isToolActiveForContext — host tool capability gating", () => {
     ).toBe(false);
   });
 
-  test("host_browser is NOT active for macOS (capability dropped — uses local Playwright)", () => {
-    // PR #24571 dropped `host_browser` from the macos capability set because
-    // the proxy path requires a Chrome extension that isn't guaranteed to be
-    // attached; macos browser tools fall back to local Playwright Chromium
-    // instead. The per-capability check is authoritative, so host_browser is
-    // filtered out for macos regardless of client connection state.
+  test("host_browser is NOT active for macOS (uses local Playwright)", () => {
+    // host_browser is not in the macos capability set because the proxy path
+    // requires a Chrome extension that isn't guaranteed to be attached; macos
+    // browser tools fall back to local Playwright Chromium instead. The
+    // per-capability check is authoritative, so host_browser is filtered out
+    // for macos regardless of client connection state.
     expect(
       isToolActiveForContext(
         "host_browser",
