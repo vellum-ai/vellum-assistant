@@ -39,7 +39,6 @@ EXPERIMENTAL_FILES=(
 # To triage an entry: run `bun test <path>` from `assistant/` and fix the
 # underlying code or tests until the file is green, then remove it here.
 KNOWN_BROKEN_FILES=(
-  "backup-routes.test.ts"
   "connect.test.ts"
   "credentials-cli.test.ts"
   "email-attachment.test.ts"

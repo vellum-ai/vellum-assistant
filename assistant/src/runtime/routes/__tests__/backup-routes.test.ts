@@ -84,22 +84,17 @@ mock.module("../../../config/loader.js", () => ({
   },
 }));
 
-// -- DB + trust-cache mocks ------------------------------------------------
-// handleBackupRestore must call `resetDb()` BEFORE `restoreFromSnapshot` and
-// `invalidateConfigCache()` + `clearTrustCache()` AFTER (matching the
-// migration importer). Tests record the call sequence via
-// `recoveryCallOrder` and assert on the relative ordering.
+// -- Trust-cache mock ------------------------------------------------------
+// handleBackupRestore must call `invalidateConfigCache()` + `clearTrustCache()`
+// AFTER a successful `restoreFromSnapshot` (matching the migration importer).
+// `resetDb()` is now called internally by `restoreFromSnapshot` itself (see
+// backup/restore.ts) rather than by the handler, so it's covered by the
+// restore.test.ts suite instead of asserted here.
+// Tests record the call sequence via `recoveryCallOrder` and assert on the
+// relative ordering.
 
-let mockResetDbCalls = 0;
 let mockClearTrustCacheCalls = 0;
 const recoveryCallOrder: string[] = [];
-
-mock.module("../../../memory/db-connection.js", () => ({
-  resetDb: () => {
-    mockResetDbCalls += 1;
-    recoveryCallOrder.push("resetDb");
-  },
-}));
 
 mock.module("../../../permissions/trust-store.js", () => ({
   clearCache: () => {
@@ -295,7 +290,6 @@ beforeEach(() => {
     restoredFiles: 0,
   };
   mockVerifyResult = { valid: true };
-  mockResetDbCalls = 0;
   mockInvalidateConfigCacheCalls = 0;
   mockClearTrustCacheCalls = 0;
   recoveryCallOrder.length = 0;
@@ -317,34 +311,52 @@ afterEach(() => {
 describe("handleBackupList", () => {
   test("empty workspace: returns empty local array and one unreachable iCloud default", async () => {
     // Use default offsite destinations (null) so the iCloud default kicks in.
-    mockBackupConfig = makeConfig({
-      localDirectory: LOCAL_DIR,
-      offsite: {
-        enabled: true,
-        destinations: null,
-      },
-    });
+    // `getICloudDriveRoot` reads `process.env.HOME` at call time. Overriding
+    // HOME to our ROOT tempdir both (a) keeps the test hermetic — it does not
+    // depend on whether the dev machine has iCloud Drive enabled or contains
+    // any real backup bundles at the real iCloud path, and (b) ensures the
+    // derived default iCloud dir is unreachable (no Library/Mobile Documents
+    // under ROOT) so the probe returns `reachable: false` and the snapshots
+    // array is empty.
+    const origHome = process.env.HOME;
+    process.env.HOME = ROOT;
+    try {
+      mockBackupConfig = makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: {
+          enabled: true,
+          destinations: null,
+        },
+      });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      local: SnapshotEntry[];
-      offsite: Array<{
-        destination: { path: string; encrypt: boolean };
-        snapshots: SnapshotEntry[];
-        reachable: boolean;
-      }>;
-      nextRunAt: string | null;
-    };
-    expect(body.local).toEqual([]);
-    // iCloud default is present as a single destination. Whether it's
-    // reachable depends on whether the CI agent has iCloud Drive enabled —
-    // we only assert its presence and shape, not `reachable`.
-    expect(body.offsite).toHaveLength(1);
-    expect(body.offsite[0].destination.encrypt).toBe(true);
-    expect(body.offsite[0].snapshots).toEqual([]);
-    expect(typeof body.offsite[0].reachable).toBe("boolean");
-    expect(body.nextRunAt).toBeNull();
+      const res = await handleBackupList(
+        new Request("http://localhost/v1/backups"),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        local: SnapshotEntry[];
+        offsite: Array<{
+          destination: { path: string; encrypt: boolean };
+          snapshots: SnapshotEntry[];
+          reachable: boolean;
+        }>;
+        nextRunAt: string | null;
+      };
+      expect(body.local).toEqual([]);
+      // iCloud default is present as a single destination pointing at the
+      // derived-from-ROOT iCloud path, which does not exist on disk.
+      expect(body.offsite).toHaveLength(1);
+      expect(body.offsite[0].destination.encrypt).toBe(true);
+      expect(body.offsite[0].snapshots).toEqual([]);
+      expect(body.offsite[0].reachable).toBe(false);
+      expect(body.nextRunAt).toBeNull();
+    } finally {
+      if (origHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = origHome;
+      }
+    }
   });
 
   test("two local files: returned newest-first", async () => {
@@ -748,11 +760,14 @@ describe("handleBackupRestore", () => {
 
   test("successful restore runs the full recovery sequence in order", async () => {
     // Regression test for the restore-corrupts-daemon-state gap:
-    // handleBackupRestore must call resetDb() BEFORE restoreFromSnapshot
-    // (so the live SQLite handle is closed before the file is overwritten)
-    // and invalidateConfigCache() + clearTrustCache() AFTER (so the daemon
+    // handleBackupRestore must invoke `restoreFromSnapshot` FIRST (which
+    // internally calls `resetDb()` before overwriting `assistant.db`), then
+    // invalidateConfigCache() + clearTrustCache() AFTER (so the daemon
     // re-reads the restored config/trust rules). The migration importer
     // already does this — the backup handler must match.
+    // Note: `resetDb` ordering vs the commit step is verified in
+    // src/backup/__tests__/restore.test.ts; here we only verify the
+    // handler-level ordering of restoreFromSnapshot → cache invalidations.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -766,21 +781,21 @@ describe("handleBackupRestore", () => {
       jsonRequest("POST", { path: snapshotPath }),
     );
     expect(res.status).toBe(200);
-    expect(mockResetDbCalls).toBe(1);
     expect(mockInvalidateConfigCacheCalls).toBe(1);
     expect(mockClearTrustCacheCalls).toBe(1);
     expect(recoveryCallOrder).toEqual([
-      "resetDb",
       "restoreFromSnapshot",
       "invalidateConfigCache",
       "clearTrustCache",
     ]);
   });
 
-  test("restore failure still closes the DB singleton before throwing", async () => {
-    // Even on failure, resetDb must have been called — we don't want the
-    // daemon to keep writing through an open handle to a file that's been
-    // partially overwritten by a failed commit.
+  test("restore failure leaves caches untouched", async () => {
+    // When `restoreFromSnapshot` throws, the handler must NOT invalidate
+    // in-process caches — nothing new was written to disk, so the cached
+    // config/trust state still reflects reality. (The SQLite handle reset
+    // is now the responsibility of `restoreFromSnapshot` itself and is
+    // covered by src/backup/__tests__/restore.test.ts.)
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -795,7 +810,6 @@ describe("handleBackupRestore", () => {
       jsonRequest("POST", { path: snapshotPath }),
     );
     expect(res.status).toBe(500);
-    expect(mockResetDbCalls).toBe(1);
     // Caches should NOT be invalidated on failure — the in-process caches
     // still reflect the pre-restore state on disk (the bundle write failed
     // so there's nothing new to re-read).
