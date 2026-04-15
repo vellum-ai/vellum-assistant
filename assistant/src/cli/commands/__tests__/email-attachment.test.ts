@@ -292,7 +292,11 @@ describe("assistant email attachment", () => {
       "--list",
     );
 
-    const calls = getMockFetchCalls();
+    // Filter out the CLI bootstrap fetch to /v1/feature-flags so this test
+    // focuses on the attachment-related calls it actually cares about.
+    const calls = getMockFetchCalls().filter(
+      (c) => !c.path.includes("/v1/feature-flags"),
+    );
     expect(calls).toHaveLength(1);
     expect(calls[0].path).toContain(
       `/v1/assistants/${ASSISTANT_ID}/emails/${MESSAGE_ID}/attachments/`,
@@ -312,7 +316,11 @@ describe("assistant email attachment", () => {
       tmpDir,
     );
 
-    const calls = getMockFetchCalls();
+    // Filter out the CLI bootstrap fetch to /v1/feature-flags so this test
+    // focuses on the attachment-related calls it actually cares about.
+    const calls = getMockFetchCalls().filter(
+      (c) => !c.path.includes("/v1/feature-flags"),
+    );
     expect(calls).toHaveLength(2);
     expect(calls[0].path).toContain(`/attachments/${ATT_ID_1}/`);
     expect(calls[1].path).toContain(`/attachments/${ATT_ID_1}/download/`);

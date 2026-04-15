@@ -54,7 +54,6 @@ EXPERIMENTAL_FILES=(
 KNOWN_BROKEN_FILES=(
   "byo-connection.test.ts"
   "conversation-tool-setup.test.ts"
-  "email-attachment.test.ts"
   "email-list.test.ts"
   "email-send.test.ts"
   "email-unregister.test.ts"
