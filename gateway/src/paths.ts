@@ -20,7 +20,7 @@ function safeUserInfoHomedir(): string {
 /**
  * @deprecated Only used as a fallback when VELLUM_WORKSPACE_DIR /
  * GATEWAY_SECURITY_DIR are not set. Logs a warning so we can identify
- * hatch entrypoints that still rely on the old BASE_DATA_DIR path.
+ * hatch entrypoints that still rely on the old path.
  *
  * Home fallback chain: `$HOME` → `userInfo().homedir` → `homedir()`.
  * `homedir()` alone is insufficient because libuv's `uv_os_homedir` returns
@@ -34,10 +34,7 @@ function safeUserInfoHomedir(): string {
  */
 export function getLegacyRootDir(): string {
   return join(
-    process.env.BASE_DATA_DIR?.trim() ||
-      process.env.HOME ||
-      safeUserInfoHomedir() ||
-      homedir(),
+    process.env.HOME || safeUserInfoHomedir() || homedir(),
     ".vellum",
   );
 }

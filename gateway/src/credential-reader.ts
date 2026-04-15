@@ -14,11 +14,7 @@ import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
 import { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
 
-export {
-  getGatewaySecurityDir,
-  getLegacyRootDir,
-  getWorkspaceDir,
-} from "./paths.js";
+export { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
 
 const log = getLogger("credential-reader");
 
