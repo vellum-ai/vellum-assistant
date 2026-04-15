@@ -206,16 +206,15 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             const registry = fs.readFileSync('assistant/src/workspace/migrations/registry.ts', 'utf-8');
-            const registryDir = 'assistant/src/workspace/migrations';
             const importMap = {};
-            for (const m of registry.matchAll(/import\s+\{\s*(\w+)\s*\}\s+from\s+['\x22]([^'\x22]+)['\x22];/g)) {
+            for (const m of registry.matchAll(/import\s+\{\s*(\w+)\s*\}\s+from\s+['\x22]\.\/([^'\x22]+)['\x22];/g)) {
               importMap[m[1]] = m[2];
             }
             const arrayMatch = registry.match(/WORKSPACE_MIGRATIONS[^=]*=\s*\[([\s\S]*?)\]/);
             const entries = arrayMatch[1].match(/\w+/g);
             const lastVar = entries[entries.length - 1];
             const relPath = importMap[lastVar];
-            const filePath = path.resolve(registryDir, relPath.replace(/\.js$/, '.ts'));
+            const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
             const src = fs.readFileSync(filePath, 'utf-8');
             const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
             console.log(idMatch[1]);
