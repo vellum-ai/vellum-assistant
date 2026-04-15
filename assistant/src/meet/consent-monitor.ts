@@ -36,6 +36,7 @@
 import type {
   InboundChatEvent,
   MeetBotEvent,
+  ParticipantChangeEvent,
   TranscriptChunkEvent,
 } from "@vellumai/meet-contracts";
 
@@ -188,6 +189,37 @@ export class MeetConsentMonitor {
   /** In-flight flag so overlapping keyword hits don't fan out LLM calls. */
   private llmInFlight = false;
 
+  /**
+   * Monotonic timestamp (`this.now()`) of the most recent content-bearing
+   * event: a final transcript chunk from a non-bot speaker, an inbound
+   * chat message (the bot's own outbound chat is already stripped upstream
+   * by the chat reader's self-filter), or a `participant.change` with a
+   * non-bot joiner. Compared against {@link lastLlmCheckContentTimestamp}
+   * on every timer tick to decide whether any new objection signal has
+   * actually arrived since the last LLM check.
+   */
+  private lastContentTimestamp: number | null = null;
+
+  /**
+   * Value of {@link lastContentTimestamp} at the moment the tick-driven LLM
+   * check last fired (or `null` before the first tick-driven check). When
+   * a timer tick finds `lastContentTimestamp === lastLlmCheckContentTimestamp`
+   * it means no content-bearing event has arrived since the previous check,
+   * so the tick is skipped. Keyword-triggered LLM calls are unchanged by
+   * this watermark — only the 20s tick path both consults and advances it.
+   */
+  private lastLlmCheckContentTimestamp: number | null = null;
+
+  /**
+   * The bot's own participant id, discovered lazily from the first
+   * `participant.change` event whose `joined[].isSelf === true`. Used to
+   * drop transcript chunks whose resolved speaker id matches the bot (the
+   * bot is a silent listener, so this should never happen in practice, but
+   * cheap defense-in-depth keeps the watermark honest if an ASR pipeline
+   * mis-tags a chunk).
+   */
+  private botParticipantId: string | null = null;
+
   constructor(deps: MeetConsentMonitorDeps) {
     this.meetingId = deps.meetingId;
     this.assistantId = deps.assistantId;
@@ -264,6 +296,10 @@ export class MeetConsentMonitor {
         this.onInboundChat(event);
         return;
       }
+      if (event.type === "participant.change") {
+        this.onParticipantChange(event);
+        return;
+      }
     } catch (err) {
       log.warn(
         { err, meetingId: this.meetingId, eventType: event.type },
@@ -290,6 +326,18 @@ export class MeetConsentMonitor {
     this.transcriptBuffer.push(entry);
     this.trimTranscriptBuffer();
 
+    // Content-bearing for the tick-skip watermark iff the speaker is not
+    // the bot itself. The bot is a silent listener, so `speakerId ===
+    // botParticipantId` should be vanishingly rare — we guard it anyway so
+    // a mis-tagged ASR chunk can't falsely advance the watermark.
+    if (
+      this.botParticipantId === null ||
+      event.speakerId === undefined ||
+      event.speakerId !== this.botParticipantId
+    ) {
+      this.lastContentTimestamp = this.now();
+    }
+
     if (this.matchesKeyword(raw)) {
       void this.maybeRunLLMCheck("keyword:transcript");
     }
@@ -309,8 +357,49 @@ export class MeetConsentMonitor {
     this.chatBuffer.push(entry);
     while (this.chatBuffer.length > CHAT_BUFFER_SIZE) this.chatBuffer.shift();
 
+    // Every `InboundChatEvent` the monitor receives is already non-self —
+    // the in-page chat reader strips the bot's own outbound messages via
+    // its `selfName`/`data-is-self` filter before publishing the event.
+    // A defensive `fromId === botParticipantId` check is layered on top in
+    // case the upstream filter ever regresses.
+    if (
+      this.botParticipantId === null ||
+      event.fromId !== this.botParticipantId
+    ) {
+      this.lastContentTimestamp = this.now();
+    }
+
     if (this.matchesKeyword(raw)) {
       void this.maybeRunLLMCheck("keyword:chat");
+    }
+  }
+
+  /**
+   * New participants are exactly when a re-check is cheap insurance —
+   * someone who hasn't seen the consent disclosure may object immediately.
+   * Reset the watermark so the next 20s tick fires an LLM call regardless
+   * of whether the new participant has spoken yet. The `isSelf` joiner
+   * also gives us the bot's participant id, which is used downstream to
+   * ignore bot-tagged transcript chunks.
+   *
+   * Only `joined.length > 0` is content-bearing — leaves and speaker-tile
+   * changes are not, since "someone left" never creates a fresh objection
+   * risk the monitor hasn't already seen.
+   */
+  private onParticipantChange(event: ParticipantChangeEvent): void {
+    for (const participant of event.joined) {
+      if (participant.isSelf && this.botParticipantId === null) {
+        this.botParticipantId = participant.id;
+      }
+    }
+    // Only count *non-bot* joiners as content-bearing: a bot-self rejoin
+    // (unusual, but possible on reconnect) is not a new participant who
+    // might object.
+    const hasNonBotJoiner = event.joined.some(
+      (p) => p.isSelf !== true && p.id !== this.botParticipantId,
+    );
+    if (hasNonBotJoiner) {
+      this.lastContentTimestamp = this.now();
     }
   }
 
@@ -368,6 +457,32 @@ export class MeetConsentMonitor {
       this.chatBuffer.length === 0
     ) {
       return;
+    }
+
+    // Content-watermark skip: on a tick, if nothing content-bearing has
+    // arrived since the last tick-driven LLM check, skip the call. The
+    // keyword path is intentionally excluded — keyword hits always fire.
+    if (
+      trigger === "tick" &&
+      this.lastContentTimestamp === this.lastLlmCheckContentTimestamp
+    ) {
+      log.debug(
+        {
+          event: "consent_monitor.timer.skipped_no_new_content",
+          meetingId: this.meetingId,
+          lastContentTimestamp: this.lastContentTimestamp,
+        },
+        "MeetConsentMonitor: timer tick skipped — no new non-bot content",
+      );
+      return;
+    }
+
+    // Advance the tick-path watermark to the current content timestamp
+    // before firing. Only the tick path advances the watermark so the
+    // keyword fast-path keeps its existing semantics (PR 3 will add a
+    // separate debounce for keyword-triggered calls).
+    if (trigger === "tick") {
+      this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
     }
 
     const prompt = this.buildPrompt();
