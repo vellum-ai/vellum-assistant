@@ -486,7 +486,7 @@ struct VoiceSettingsView: View {
 
     @ViewBuilder
     private var ttsVoiceIdField: some View {
-        if draftTTSProvider == "elevenlabs" || draftTTSProvider == "fish-audio" {
+        if selectedTTSProvider?.supportsVoiceSelection == true {
             VTextField(
                 "Voice ID",
                 placeholder: "\(selectedTTSProvider?.displayName ?? "Provider") Voice ID (optional)",
