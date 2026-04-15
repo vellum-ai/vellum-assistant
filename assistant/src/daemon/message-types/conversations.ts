@@ -461,6 +461,20 @@ export interface ConversationErrorMessage {
   errorCategory?: string;
 }
 
+/** Reason the conversation list was invalidated. */
+export type ConversationListInvalidatedReason =
+  | "created"
+  | "renamed"
+  | "deleted"
+  | "reordered"
+  | "seen_changed";
+
+/** Server push — tells clients their sidebar conversation list is stale. */
+export interface ConversationListInvalidated {
+  type: "conversation_list_invalidated";
+  reason: ConversationListInvalidatedReason;
+}
+
 /** Server push — broadcast when a schedule creates a conversation. */
 export interface ScheduleConversationCreated {
   type: "schedule_conversation_created";
@@ -524,5 +538,6 @@ export type _ConversationsServerMessages =
   | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
+  | ConversationListInvalidated
   | ScheduleConversationCreated
   | OpenConversation;
