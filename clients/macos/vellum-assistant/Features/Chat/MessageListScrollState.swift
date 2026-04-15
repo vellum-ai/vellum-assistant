@@ -80,7 +80,17 @@ final class MessageListScrollState {
 
     // MARK: - Computed
 
+    /// With inverted scroll (180° rotation), contentOffsetY is 0 at the visual
+    /// bottom (latest messages) and increases as you scroll toward older messages.
+    /// So contentOffsetY itself IS the distance from the latest messages.
     var distanceFromBottom: CGFloat {
+        lastContentOffsetY
+    }
+
+    /// Distance from the visual top (oldest messages) in inverted scroll.
+    /// Approaches 0 when the user scrolls to the oldest messages — used by
+    /// the pagination sentinel to trigger loading older history.
+    var distanceFromTop: CGFloat {
         scrollContentHeight - lastContentOffsetY - scrollContainerHeight
     }
 

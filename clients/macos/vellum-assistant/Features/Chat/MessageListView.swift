@@ -148,7 +148,9 @@ struct MessageListView: View {
             .id(conversationId)
             .flipped()  // Invert the scroll — visual bottom becomes natural top
             .overlay(alignment: .bottom) {
-                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .bottom) })
+                // Inverted scroll: SwiftUI's .top edge maps to the visual bottom
+                // (latest messages), so we scroll to .top to reach them.
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .top) })
             }
             .onAppear {
                 handleAppear()
