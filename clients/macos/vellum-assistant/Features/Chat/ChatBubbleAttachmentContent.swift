@@ -138,11 +138,14 @@ private struct InlineToolCallImageView: View {
                 .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            Image(nsImage: renderImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: VSpacing.chatBubbleMaxWidth)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            HStack(spacing: 0) {
+                Image(nsImage: renderImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                Spacer(minLength: 0)
+            }
         }
     }
 }
@@ -378,11 +381,14 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 .frame(width: fitWidth, height: fitHeight)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         } else {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: VSpacing.chatBubbleMaxWidth)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            HStack(spacing: 0) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                Spacer(minLength: 0)
+            }
         }
     }
 
