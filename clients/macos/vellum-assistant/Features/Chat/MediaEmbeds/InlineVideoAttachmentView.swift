@@ -126,7 +126,7 @@ struct InlineVideoAttachmentView: View {
                 .accessibilityLabel("Save video")
             }
         }
-        .frame(maxWidth: 360)
+        .frame(width: 360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
         .onHover { isHovering = $0 }
         .onDisappear {
@@ -165,7 +165,6 @@ struct InlineVideoAttachmentView: View {
                     .lineLimit(1)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             prepareAndPlay()
@@ -184,7 +183,6 @@ struct InlineVideoAttachmentView: View {
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func failedView(_ failure: VideoPlaybackFailure) -> some View {
@@ -215,7 +213,6 @@ struct InlineVideoAttachmentView: View {
                     .foregroundStyle(VColor.contentTertiary)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             handleFailedTileTap(failure)

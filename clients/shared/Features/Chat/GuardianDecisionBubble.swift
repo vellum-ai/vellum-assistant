@@ -131,23 +131,26 @@ public struct GuardianDecisionBubble: View {
                 Group {
                     if previewIsLong {
                         ScrollView {
-                            Text(preview)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                            HStack(spacing: 0) {
+                                Text(preview)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .textSelection(.enabled)
+                                Spacer(minLength: 0)
+                            }
                         }
                         .frame(height: 120)
                     } else {
-                        Text(preview)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(VColor.contentSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                        HStack(spacing: 0) {
+                            Text(preview)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(VColor.contentSecondary)
+                                .textSelection(.enabled)
+                            Spacer(minLength: 0)
+                        }
                     }
                 }
                 .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.sm)
                         .fill(VColor.surfaceOverlay)
