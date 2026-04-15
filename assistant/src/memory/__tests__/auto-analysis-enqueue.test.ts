@@ -90,15 +90,22 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(debouncedCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'batch', normal source — enqueueMemoryJob called", () => {
+  test("flag on, trigger = 'batch', normal source — upsertDebouncedJob called with runAfter ≈ now", () => {
+    const before = Date.now();
+
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
 
-    expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]).toMatchObject({
-      type: "conversation_analyze",
-      payload: { conversationId: "c1" },
-    });
-    expect(debouncedCalls).toHaveLength(0);
+    const after = Date.now();
+
+    expect(debouncedCalls).toHaveLength(1);
+    expect(debouncedCalls[0]!.type).toBe("conversation_analyze");
+    expect(debouncedCalls[0]!.payload).toEqual({ conversationId: "c1" });
+    // "batch" fires immediately (no debounce), so runAfter ≈ now. We use
+    // upsertDebouncedJob so two consecutive batch crossings coalesce into
+    // a single pending job rather than spawning duplicates.
+    expect(debouncedCalls[0]!.runAfter).toBeGreaterThanOrEqual(before);
+    expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
+    expect(enqueueCalls).toHaveLength(0);
   });
 
   test("flag on, trigger = 'idle', normal source — upsertDebouncedJob called with runAfter ≈ now + idleTimeoutMs", () => {

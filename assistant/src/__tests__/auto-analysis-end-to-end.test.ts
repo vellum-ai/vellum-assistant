@@ -17,7 +17,15 @@
  * dispatch would also claim embed_segment and graph_extract jobs whose
  * real backends would time out in this test context.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { and, eq } from "drizzle-orm";
 
@@ -184,19 +192,21 @@ function seedMessage(
 async function indexMessages(
   conversationId: string,
   count: number,
+  offset = 0,
 ): Promise<void> {
   const now = Date.now();
   for (let i = 0; i < count; i++) {
-    const messageId = `${conversationId}-msg-${i}`;
-    const text = longEnoughText(`${conversationId}-${i}`);
-    seedMessage(conversationId, messageId, text, now + i);
+    const idx = offset + i;
+    const messageId = `${conversationId}-msg-${idx}`;
+    const text = longEnoughText(`${conversationId}-${idx}`);
+    seedMessage(conversationId, messageId, text, now + idx);
     await indexMessageNow(
       {
         messageId,
         conversationId,
         role: "user",
         content: JSON.stringify([{ type: "text", text }]),
-        createdAt: now + i,
+        createdAt: now + idx,
       },
       TEST_CONFIG.memory,
     );
@@ -373,5 +383,120 @@ describe("auto-analysis end-to-end trigger path", () => {
     // retrieval and aren't recursion-prone).
     expect(countJobsOfType("conversation_analyze", analysisConv.id)).toBe(0);
     expect(countJobsOfType("graph_extract", analysisConv.id)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Independent cadence: analysis.batchSize gates the auto-analysis
+// batch trigger separately from extraction.batchSize. This regression
+// guards against a previous wiring bug where the indexer piggy-backed
+// on the extraction counter, causing analysis to fire at extraction's
+// cadence instead of its own (default 30 vs. 10).
+// ─────────────────────────────────────────────────────────────────
+
+describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
+  // Mutate the shared TEST_CONFIG batch sizes for this block. The
+  // mocked `getConfig()` returns the same reference, so changes are
+  // observed by the indexer immediately.
+  const originalExtractionBatch = TEST_CONFIG.memory.extraction.batchSize;
+  const originalAnalysisBatch = TEST_CONFIG.analysis.batchSize;
+
+  beforeEach(() => {
+    _setOverridesForTesting({ "auto-analyze": true });
+    TEST_CONFIG.memory.extraction.batchSize = 2;
+    TEST_CONFIG.analysis.batchSize = 5;
+  });
+
+  afterEach(() => {
+    TEST_CONFIG.memory.extraction.batchSize = originalExtractionBatch;
+    TEST_CONFIG.analysis.batchSize = originalAnalysisBatch;
+  });
+
+  test("4 messages: extraction trips twice, analysis stays below threshold (0 jobs)", async () => {
+    const source = createConversation("cadence-source-4");
+    await indexMessages(source.id, 4);
+
+    // Extraction batch (size 2) is crossed at messages 2 and 4 → at
+    // least one graph_extract job should exist for this conversation.
+    // (The exact count depends on whether the per-message
+    // upsertDebouncedJob coalesced them with the immediate enqueues.)
+    expect(countJobsOfType("graph_extract", source.id)).toBeGreaterThanOrEqual(
+      1,
+    );
+
+    // Analysis batch (size 5) is NOT crossed by 4 messages → zero
+    // batch-triggered analysis jobs. The idle-debounced enqueue
+    // upserts a single far-future row; that's not a duplicate.
+    expect(countJobsOfType("conversation_analyze", source.id)).toBeLessThanOrEqual(
+      1,
+    );
+
+    // Stronger: any pending analysis job must be debounced (runAfter
+    // far in the future), not the immediate batch fire.
+    const db = getDb();
+    const analysisRows = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "conversation_analyze"))
+      .all()
+      .filter((row) => {
+        try {
+          const payload = JSON.parse(row.payload) as {
+            conversationId?: string;
+          };
+          return payload.conversationId === source.id;
+        } catch {
+          return false;
+        }
+      });
+    for (const row of analysisRows) {
+      // idleTimeoutMs = 600_000 → all rows here should be debounced
+      // (runAfter ≫ now). Allow a small clock-skew margin.
+      expect(row.runAfter).toBeGreaterThan(Date.now() + 60_000);
+    }
+  });
+
+  test("5th message crosses analysis.batchSize → conversation_analyze enqueued for immediate run", async () => {
+    const source = createConversation("cadence-source-5");
+
+    // First 4 messages: analysis batch threshold not yet reached.
+    await indexMessages(source.id, 4);
+
+    // Fifth message: crosses analysis.batchSize=5 → batch-triggered
+    // upsert should produce a row whose runAfter is roughly "now"
+    // (the immediate-fire path), not pushed into the future by the
+    // idle debounce.
+    const before = Date.now();
+    await indexMessages(source.id, 1, 4);
+    const after = Date.now();
+
+    const db = getDb();
+    const analysisRows = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "conversation_analyze"))
+      .all()
+      .filter((row) => {
+        try {
+          const payload = JSON.parse(row.payload) as {
+            conversationId?: string;
+          };
+          return payload.conversationId === source.id;
+        } catch {
+          return false;
+        }
+      });
+
+    // Exactly one row — the dedupe in upsertDebouncedJob coalesces the
+    // batch trigger and the per-message idle upsert into a single
+    // pending job.
+    expect(analysisRows.length).toBe(1);
+
+    // The row's runAfter is "now" (batch trigger ran AFTER the idle
+    // upsert this iteration, so it pulled the runAfter back to now).
+    // Allow a 1s margin on either side for clock skew.
+    const row = analysisRows[0]!;
+    expect(row.runAfter).toBeGreaterThanOrEqual(before - 1_000);
+    expect(row.runAfter).toBeLessThanOrEqual(after + 1_000);
   });
 });
