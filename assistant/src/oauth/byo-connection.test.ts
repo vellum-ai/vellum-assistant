@@ -77,6 +77,7 @@ const mockConnections = new Map<
     expiresAt: number | null;
     grantedScopes?: string;
     accountInfo?: string | null;
+    status?: string;
   }
 >();
 const mockApps = new Map<
@@ -92,15 +93,26 @@ const mockProviders = new Map<
   string,
   {
     key: string;
+    provider: string;
     tokenExchangeUrl: string;
     tokenEndpointAuthMethod?: string;
     tokenExchangeBodyFormat?: string;
     baseUrl?: string;
+    managedServiceConfigKey?: string | null;
   }
 >();
 
 mock.module("./oauth-store.js", () => ({
   getConnectionByProvider: (service: string) => mockConnections.get(service),
+  getActiveConnection: (
+    service: string,
+    opts?: { clientId?: string; account?: string },
+  ) => {
+    const conn = mockConnections.get(service);
+    if (!conn) return undefined;
+    if (opts?.account && conn.accountInfo !== opts.account) return undefined;
+    return conn;
+  },
   getConnection: (id: string) => {
     for (const conn of mockConnections.values()) {
       if (conn.id === id) return conn;
@@ -193,6 +205,7 @@ async function setupCredential(
   const connId = `conn-${service}`;
   mockProviders.set(service, {
     key: service,
+    provider: service,
     tokenExchangeUrl: "https://oauth2.googleapis.com/token",
     tokenExchangeBodyFormat: "form",
     // Only well-known providers (gmail) have a baseUrl; custom services don't
@@ -200,6 +213,7 @@ async function setupCredential(
       service === "google"
         ? "https://gmail.googleapis.com/gmail/v1/users/me"
         : undefined,
+    managedServiceConfigKey: null,
   });
   mockApps.set(appId, {
     id: appId,
@@ -214,6 +228,7 @@ async function setupCredential(
     expiresAt: opts?.expiresAt ?? Date.now() + 3600 * 1000,
     grantedScopes: JSON.stringify(opts?.grantedScopes ?? ["read", "write"]),
     accountInfo: null,
+    status: "active",
   });
   // Store access token in oauth-store key format
   await setSecureKeyAsync(
@@ -511,7 +526,7 @@ describe("resolveOAuthConnection", () => {
   test("throws when no base URL configured", async () => {
     await setupCredential("custom-service");
     await expect(resolveOAuthConnection("custom-service")).rejects.toThrow(
-      /No base URL configured for "custom-service"/,
+      /OAuth provider "custom-service" has no base URL configured/,
     );
   });
 });
