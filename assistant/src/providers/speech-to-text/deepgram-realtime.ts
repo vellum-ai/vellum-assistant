@@ -92,11 +92,17 @@ export interface DeepgramRealtimeOptions {
   /**
    * Enable Deepgram's built-in speaker diarization. Default: false.
    *
-   * When true, `diarize=true` is appended to the Deepgram WebSocket URL,
-   * which causes Deepgram to include a `speaker` integer on each word in
-   * the response. The adapter aggregates per-segment speakers (mode, with
-   * first-word tiebreaker) into a `speakerLabel` emitted on partial/final
-   * events.
+   * When `true`, the adapter appends `diarize=true` to the Deepgram live
+   * URL so Deepgram attaches a `speaker` integer to each word (and
+   * sometimes a top-level `speaker` to the alternative). The adapter
+   * aggregates per-segment speakers (mode, with first-word tiebreaker)
+   * into a single `speakerLabel` emitted on `partial` / `final` events,
+   * alongside the alternative's `confidence`. Consumers (e.g. Meet) use
+   * this stable-within-session label to bind opaque ASR speakers to real
+   * participant identities.
+   *
+   * Kept off by default so existing non-Meet callers (telephony, chat
+   * composer) preserve their current lean URL + response shape.
    */
   diarize?: boolean;
 }
@@ -106,19 +112,33 @@ export interface DeepgramRealtimeOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * A single word within a Deepgram streaming alternative. When diarization is
- * enabled, each word carries a `speaker` integer identifying the detected
- * speaker turn.
+ * A single word within a Deepgram streaming alternative. When diarization
+ * is enabled, each word carries a numeric `speaker` tag identifying the
+ * detected speaker turn — stable within a session (but opaque — Deepgram
+ * has no real-world identity).
  */
 interface DeepgramStreamWord {
   word?: string;
   speaker?: number;
+  confidence?: number;
+  start?: number;
+  end?: number;
 }
 
-/** A single transcript alternative within a Deepgram streaming response. */
+/**
+ * A single transcript alternative within a Deepgram streaming response.
+ *
+ * When `diarize=true`, Deepgram attaches per-word speaker tags in the
+ * `words` array. Some API versions also surface a top-level `speaker`
+ * tag on the alternative itself when a chunk is dominated by a single
+ * speaker — we check both fields when extracting a label for the chunk.
+ */
 interface DeepgramStreamAlternative {
   transcript?: string;
   confidence?: number;
+  /** Present on some API versions when the chunk has a dominant speaker. */
+  speaker?: number;
+  /** Per-word speaker tags when diarization is enabled. */
   words?: DeepgramStreamWord[];
 }
 
@@ -180,56 +200,6 @@ interface WsLike {
 const WS_OPEN = 1;
 
 // ---------------------------------------------------------------------------
-// Speaker-label aggregation
-// ---------------------------------------------------------------------------
-
-/**
- * Pick a representative speaker label from a Deepgram alternative's `words`
- * array.
- *
- * Deepgram tags each word with a `speaker` integer when diarization is on.
- * A single transcript segment can span multiple speakers if the endpointer
- * didn't cleanly break between turns, so we aggregate:
- *
- * 1. Count occurrences of each `speaker` value across the words.
- * 2. Pick the most common (mode).
- * 3. On tie, pick the speaker of the first word in the segment.
- * 4. If no word carries a `speaker` (diarization disabled or response variant),
- *    return `undefined`.
- *
- * The returned label is `String(speaker)` to match the `speakerLabel` contract
- * on {@link SttStreamServerPartialEvent} / {@link SttStreamServerFinalEvent}.
- */
-function pickSpeakerLabel(
-  words: DeepgramStreamWord[] | undefined,
-): string | undefined {
-  if (!words || words.length === 0) return undefined;
-
-  const counts = new Map<number, number>();
-  let firstSpeaker: number | undefined;
-
-  for (const word of words) {
-    if (typeof word?.speaker !== "number") continue;
-    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
-    counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
-  }
-
-  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
-
-  // Find the max count; on ties, prefer the first-word speaker.
-  let bestSpeaker = firstSpeaker;
-  let bestCount = counts.get(firstSpeaker) ?? 0;
-  for (const [speaker, count] of counts) {
-    if (count > bestCount) {
-      bestSpeaker = speaker;
-      bestCount = count;
-    }
-  }
-
-  return String(bestSpeaker);
-}
-
-// ---------------------------------------------------------------------------
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
@@ -254,9 +224,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly inactivityTimeoutMs: number;
   private readonly sampleRate: number;
   /**
-   * Whether speaker diarization is requested. When true, `diarize=true` is
-   * forwarded to the Deepgram WebSocket and per-word `speaker` values are
-   * aggregated into a `speakerLabel` on each emitted transcript event.
+   * Whether speaker diarization is requested. Forwarded to the Deepgram
+   * WebSocket as `diarize=true` and drives speaker-label extraction from
+   * Results frames — see {@link DeepgramRealtimeOptions.diarize}.
    */
   private readonly diarize: boolean;
 
@@ -517,6 +487,13 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * - `speech_final: true` — endpointing detected a pause; combined with
    *   `is_final: true`, this marks a natural utterance boundary.
    *
+   * When {@link DeepgramRealtimeOptions.diarize} is enabled, the frame
+   * also carries per-word speaker tags under
+   * `channel.alternatives[0].words[].speaker`. We derive a single
+   * per-chunk `speakerLabel` by picking the dominant speaker across the
+   * words — see {@link extractSpeakerLabel}. Confidence is taken from
+   * the top alternative when present.
+   *
    * We emit:
    * - `partial` for `is_final: false` frames (if interim results enabled).
    * - `final` for `is_final: true` frames.
@@ -532,22 +509,30 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     // Extract text, defaulting to empty string for silence segments.
     const text = typeof transcript === "string" ? transcript.trim() : "";
 
-    const speakerLabel = pickSpeakerLabel(alternative?.words);
+    const speakerLabel = this.diarize
+      ? extractSpeakerLabel(alternative)
+      : undefined;
+    const confidence =
+      typeof alternative?.confidence === "number"
+        ? alternative.confidence
+        : undefined;
 
     if (frame.is_final) {
       // Committed transcript — emit as final.
-      this.emitEvent(
-        speakerLabel !== undefined
-          ? { type: "final", text, speakerLabel }
-          : { type: "final", text },
-      );
+      this.emitEvent({
+        type: "final",
+        text,
+        ...(speakerLabel !== undefined ? { speakerLabel } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
+      });
     } else if (this.interimResults) {
       // Interim transcript — emit as partial.
-      this.emitEvent(
-        speakerLabel !== undefined
-          ? { type: "partial", text, speakerLabel }
-          : { type: "partial", text },
-      );
+      this.emitEvent({
+        type: "partial",
+        text,
+        ...(speakerLabel !== undefined ? { speakerLabel } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
+      });
     }
   }
 
@@ -729,4 +714,58 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     return `${this.baseUrl}/v1/listen?${params.toString()}`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a single `speakerLabel` for a diarized chunk.
+ *
+ * Deepgram exposes speaker tags in two shapes:
+ *   1. Some API versions attach a top-level `speaker` on the alternative
+ *      when the chunk is dominated by a single voice.
+ *   2. In the general case, per-word speaker tags live on
+ *      `alternatives[0].words[].speaker`.
+ *
+ * We prefer the top-level tag when present; otherwise we pick the
+ * most-frequent per-word speaker. On ties we fall back to the first
+ * word's speaker so short segments where the endpointer didn't cleanly
+ * break between turns still attribute deterministically.
+ *
+ * Returns `undefined` when no speaker information is available — the
+ * resolver treats unlabeled chunks the same as a non-diarizing provider.
+ *
+ * The returned label is `String(speaker)` to match the `speakerLabel`
+ * contract on {@link SttStreamServerPartialEvent} /
+ * {@link SttStreamServerFinalEvent}.
+ */
+function extractSpeakerLabel(
+  alternative: DeepgramStreamAlternative | undefined,
+): string | undefined {
+  if (!alternative) return undefined;
+  if (typeof alternative.speaker === "number") {
+    return String(alternative.speaker);
+  }
+  const words = alternative.words;
+  if (!Array.isArray(words) || words.length === 0) return undefined;
+  const counts = new Map<number, number>();
+  let firstSpeaker: number | undefined;
+  for (const word of words) {
+    if (typeof word.speaker !== "number") continue;
+    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
+    counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
+  }
+  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+  // Pick the most common speaker; on ties, prefer the first-word speaker.
+  let bestSpeaker = firstSpeaker;
+  let bestCount = counts.get(firstSpeaker) ?? 0;
+  for (const [speaker, count] of counts) {
+    if (count > bestCount) {
+      bestSpeaker = speaker;
+      bestCount = count;
+    }
+  }
+  return String(bestSpeaker);
 }

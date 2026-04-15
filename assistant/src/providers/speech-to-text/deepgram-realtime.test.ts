@@ -254,7 +254,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("hello wor", { is_final: false }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "partial", text: "hello wor" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello wor",
+      confidence: 0.95,
+    });
   });
 
   test("trims whitespace from partial transcript text", async () => {
@@ -262,7 +266,11 @@ describe("DeepgramRealtimeTranscriber", () => {
 
     mockWs.simulateMessage(resultsFrame("  hello  ", { is_final: false }));
 
-    expect(events[0]).toEqual({ type: "partial", text: "hello" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hello",
+      confidence: 0.95,
+    });
   });
 
   test("does not emit partials when interimResults is disabled", async () => {
@@ -285,7 +293,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   test("emits final with empty text for silence segments", async () => {
@@ -294,7 +306,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("", { is_final: true }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.95,
+    });
   });
 
   test("handles missing transcript field gracefully", async () => {
@@ -308,7 +324,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(frame);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "",
+      confidence: 0.5,
+    });
   });
 
   test("handles missing channel field gracefully", async () => {
@@ -335,7 +355,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     mockWs.simulateMessage(resultsFrame("hello world", { is_final: true }));
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
     // `in` check: the key must not exist at all, not just be undefined.
     expect("speakerLabel" in events[0]).toBe(false);
   });
@@ -359,6 +383,7 @@ describe("DeepgramRealtimeTranscriber", () => {
       type: "final",
       text: "hello world",
       speakerLabel: "0",
+      confidence: 0.95,
     });
   });
 
@@ -384,6 +409,7 @@ describe("DeepgramRealtimeTranscriber", () => {
       type: "final",
       text: "yes exactly right here",
       speakerLabel: "1",
+      confidence: 0.95,
     });
   });
 
@@ -409,6 +435,7 @@ describe("DeepgramRealtimeTranscriber", () => {
       type: "final",
       text: "alpha beta gamma delta",
       speakerLabel: "2",
+      confidence: 0.95,
     });
   });
 
@@ -428,6 +455,7 @@ describe("DeepgramRealtimeTranscriber", () => {
       type: "partial",
       text: "hel",
       speakerLabel: "0",
+      confidence: 0.95,
     });
   });
 
@@ -444,7 +472,11 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toEqual({ type: "final", text: "no speakers here" });
+    expect(events[0]).toEqual({
+      type: "final",
+      text: "no speakers here",
+      confidence: 0.95,
+    });
     expect("speakerLabel" in events[0]).toBe(false);
   });
 
@@ -508,9 +540,21 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ type: "partial", text: "hel" });
-    expect(events[1]).toEqual({ type: "partial", text: "hello" });
-    expect(events[2]).toEqual({ type: "final", text: "hello world" });
+    expect(events[0]).toEqual({
+      type: "partial",
+      text: "hel",
+      confidence: 0.95,
+    });
+    expect(events[1]).toEqual({
+      type: "partial",
+      text: "hello",
+      confidence: 0.95,
+    });
+    expect(events[2]).toEqual({
+      type: "final",
+      text: "hello world",
+      confidence: 0.95,
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -874,6 +918,35 @@ describe("DeepgramRealtimeTranscriber", () => {
     );
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
+  });
+
+  // Top-level `speaker` on the alternative is a separate Deepgram response
+  // shape that some API versions use when a chunk is dominated by one voice.
+  // The word-level path is covered in the Diarization section above; this
+  // test guarantees we pick up the shorter form as well.
+  test("emits speakerLabel from top-level alternative.speaker when diarize is enabled", async () => {
+    const { events } = await startSession({ diarize: true });
+
+    const frame = JSON.stringify({
+      type: "Results",
+      is_final: true,
+      channel: {
+        alternatives: [{ transcript: "hi", confidence: 0.9, speaker: 2 }],
+      },
+    });
+    mockWs.simulateMessage(frame);
+
+    expect(events).toHaveLength(1);
+    const event = events[0] as {
+      type: string;
+      text: string;
+      speakerLabel?: string;
+      confidence?: number;
+    };
+    expect(event.type).toBe("final");
+    expect(event.text).toBe("hi");
+    expect(event.speakerLabel).toBe("2");
+    expect(event.confidence).toBe(0.9);
   });
 
   // ─────────────────────────────────────────────────────────────────

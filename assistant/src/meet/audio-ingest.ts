@@ -466,6 +466,12 @@ export class MeetAudioIngest {
    * dispatch it through the session router. Errors, closes, and other
    * non-transcript events are ignored — the session manager owns the
    * provider's lifecycle, not the ingest.
+   *
+   * When the provider emits a `speakerLabel` (Deepgram diarization is
+   * enabled for Meet audio), forward it on the transcript chunk so
+   * {@link MeetSpeakerResolver} can bind the opaque ASR label to a real
+   * participant identity. `confidence` rides along when the provider
+   * surfaces it.
    */
   private handleTranscriberEvent(
     meetingId: string,
@@ -480,9 +486,10 @@ export class MeetAudioIngest {
     // `speakerLabel` is populated by provider adapters that support
     // diarization (currently Deepgram). Non-diarizing providers leave it
     // undefined — downstream consumers treat that as "unknown speaker".
-    // Stable `speakerId` and `confidence` remain unset; the speaker
-    // resolver (PR 7) will derive `speakerId` by cross-checking the
-    // label against Meet's DOM-sourced active-speaker signal.
+    // Stable `speakerId` remains unset; the speaker resolver (PR 7)
+    // derives it by cross-checking the label against Meet's DOM-sourced
+    // active-speaker signal. `confidence` rides through when the
+    // provider surfaces it so observers can weight low-confidence chunks.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
@@ -490,7 +497,10 @@ export class MeetAudioIngest {
       isFinal: event.type === "final",
       text: event.text,
       ...(event.speakerLabel !== undefined
-        ? { speakerLabel: event.speakerLabel }
+        ? { speakerLabel: String(event.speakerLabel) }
+        : {}),
+      ...(event.confidence !== undefined
+        ? { confidence: event.confidence }
         : {}),
     };
 
@@ -506,6 +516,10 @@ export class MeetAudioIngest {
  * Default streaming-transcriber factory — resolves the provider via the
  * assistant's STT catalog (reads `services.stt.provider` and looks up
  * credentials centrally).
+ *
+ * Meet audio ingest always requests diarization so {@link MeetSpeakerResolver}
+ * can bind opaque ASR speaker labels to real participant identities.
+ * Providers without diarization support silently ignore the flag.
  *
  * Passes the meet-bot's capture sample rate through to the resolver so
  * Meet's audio ingest does not depend on any adapter's per-provider default.
@@ -529,6 +543,9 @@ export class MeetAudioIngest {
 async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
   const transcriber = await resolveStreamingTranscriber({
     sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+    // `"preferred"`: enable diarization when the configured provider can
+    // do it, but don't refuse to start on providers that can't — Meet
+    // falls back to DOM-based speaker attribution via MeetSpeakerResolver.
     diarize: "preferred",
   });
   if (!transcriber) {

@@ -488,7 +488,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     await setup.ingest.stop();
   });
 
-  test("propagates speakerLabel from partial and final events into TranscriptChunkEvent", async () => {
+  test("propagates speakerLabel and confidence from partial and final events into TranscriptChunkEvent", async () => {
     const setup = newIngestSetup();
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-speaker", (e) => captured.push(e));
@@ -498,15 +498,21 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     setup.server.connectBot();
     await startPromise;
 
-    // Partial event with a speaker label.
-    setup.session.emit({ type: "partial", text: "hi ", speakerLabel: "1" });
-    // Final event with a different speaker label.
+    // Partial event with a speaker label + confidence.
+    setup.session.emit({
+      type: "partial",
+      text: "hi ",
+      speakerLabel: "1",
+      confidence: 0.5,
+    });
+    // Final event with a different speaker label + confidence.
     setup.session.emit({
       type: "final",
       text: "hi there.",
       speakerLabel: "2",
+      confidence: 0.92,
     });
-    // Event without a speaker label — field stays undefined.
+    // Event without a speaker label or confidence — fields stay undefined.
     setup.session.emit({ type: "partial", text: "..." });
 
     expect(captured).toHaveLength(3);
@@ -516,29 +522,35 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
       isFinal: boolean;
       text: string;
       speakerLabel?: string;
+      confidence?: number;
     };
     expect(partial.type).toBe("transcript.chunk");
     expect(partial.isFinal).toBe(false);
     expect(partial.text).toBe("hi ");
     expect(partial.speakerLabel).toBe("1");
+    expect(partial.confidence).toBe(0.5);
 
     const final = captured[1] as {
       type: string;
       isFinal: boolean;
       text: string;
       speakerLabel?: string;
+      confidence?: number;
     };
     expect(final.type).toBe("transcript.chunk");
     expect(final.isFinal).toBe(true);
     expect(final.text).toBe("hi there.");
     expect(final.speakerLabel).toBe("2");
+    expect(final.confidence).toBe(0.92);
 
     const unlabeled = captured[2] as {
       type: string;
       speakerLabel?: string;
+      confidence?: number;
     };
     expect(unlabeled.type).toBe("transcript.chunk");
     expect(unlabeled.speakerLabel).toBeUndefined();
+    expect(unlabeled.confidence).toBeUndefined();
 
     await setup.ingest.stop();
   });
