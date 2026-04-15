@@ -69,11 +69,21 @@ export const FilingConfigSchema = z
       config.activeHoursEnd != null &&
       config.activeHoursStart === config.activeHoursEnd
     ) {
+      // Emit on both fields. Filing's defaults are null/null, so single-emit
+      // on one side would cascade: delete-and-retry strips one key, the null
+      // default recreates a new mismatch, and the loader falls back to full
+      // defaults — wiping unrelated fields like maxTokens.
+      const message =
+        "filing.activeHoursStart and filing.activeHoursEnd must not be equal (would create an empty window)";
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeHoursStart"],
+        message,
+      });
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["activeHoursEnd"],
-        message:
-          "filing.activeHoursStart and filing.activeHoursEnd must not be equal (would create an empty window)",
+        message,
       });
     }
   });

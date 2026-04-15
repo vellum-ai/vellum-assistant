@@ -2090,9 +2090,8 @@ describe("loadConfig with schema validation", () => {
 
   test("recovers from partial heartbeat.activeHours without wiping unrelated fields", () => {
     // activeHoursStart is explicitly nulled while activeHoursEnd defaults to
-    // 22 — a mismatch. Without emitting on both paths, delete-and-retry can't
-    // resolve this (deleting the null side is a no-op) and the whole config
-    // would be reset to defaults.
+    // 22 — a mismatch. Single-emit on the null side lets delete-and-retry
+    // strip activeHoursStart, after which the default (8) restores it.
     writeConfig({
       maxTokens: 4096,
       heartbeat: { activeHoursStart: null },
@@ -2102,6 +2101,37 @@ describe("loadConfig with schema validation", () => {
     // Both fall back to the heartbeat defaults (8, 22).
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
+  });
+
+  test("partial heartbeat.activeHours preserves the explicit non-null value", () => {
+    // User sets activeHoursEnd: 20 and nulls activeHoursStart. Single-emit
+    // on the null side strips activeHoursStart only — default 8 restores
+    // it, user's explicit 20 survives. Dual-emit would strip both and lose
+    // the 20.
+    writeConfig({
+      maxTokens: 1234,
+      heartbeat: { activeHoursStart: null, activeHoursEnd: 20 },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(1234);
+    expect(config.heartbeat.activeHoursStart).toBe(8);
+    expect(config.heartbeat.activeHoursEnd).toBe(20);
+  });
+
+  test("recovers from equal filing.activeHours without wiping unrelated fields", () => {
+    // activeHoursStart === activeHoursEnd is invalid (empty window). Filing's
+    // defaults are null/null, so single-emit on one path would strip one side
+    // and the null default would recreate a mismatch — cascading to a full
+    // defaults reset that wipes maxTokens. Dual-emit strips both sides so
+    // both defaults restore to null.
+    writeConfig({
+      maxTokens: 1234,
+      filing: { activeHoursStart: 5, activeHoursEnd: 5 },
+    });
+    const config = loadConfig();
+    expect(config.maxTokens).toBe(1234);
+    expect(config.filing.activeHoursStart).toBeNull();
+    expect(config.filing.activeHoursEnd).toBeNull();
   });
 
   test("applies calls defaults when not specified", () => {
