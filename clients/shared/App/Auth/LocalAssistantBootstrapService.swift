@@ -15,6 +15,7 @@ public protocol CredentialStorage: Sendable {
 public enum LocalBootstrapError: LocalizedError, Sendable {
     case authenticationRequired
     case registrationFailed(String)
+    case registrationConflict
     case provisioningFailed(String)
     case assistantInjectionFailed
     case multipleOrganizations
@@ -25,6 +26,8 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "Sign in required to register your assistant"
         case .registrationFailed(let message):
             return "Registration failed: \(message)"
+        case .registrationConflict:
+            return "A different assistant is already registered for your account. Retire it to register this one."
         case .provisioningFailed(let message):
             return "API key provisioning failed: \(message)"
         case .assistantInjectionFailed:
@@ -354,7 +357,7 @@ public final class LocalAssistantBootstrapService {
         return session.data?.user?.id
     }
 
-    private enum ErrorContext {
+    private enum ErrorContext: Equatable {
         case registration
         case provisioning
     }
@@ -364,6 +367,8 @@ public final class LocalAssistantBootstrapService {
             switch platformErr {
             case .authenticationRequired:
                 return .authenticationRequired
+            case .serverError(statusCode: 400, _) where context == .registration:
+                return .registrationConflict
             default:
                 switch context {
                 case .registration:
