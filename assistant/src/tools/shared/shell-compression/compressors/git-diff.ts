@@ -1,5 +1,6 @@
 const LOCK_FILE_PATTERNS = [
-  // Explicit lock manifest names
+  // Explicit lock manifest names only — no broad catch-alls to avoid
+  // misclassifying code files (e.g., redis-lock.ts, screen.lock).
   /^package-lock\.json$/,
   /^yarn\.lock$/,
   /^Cargo\.lock$/,
@@ -11,9 +12,9 @@ const LOCK_FILE_PATTERNS = [
   /^mix\.lock$/,
   /^flake\.lock$/,
   /^bun\.lock$/,
-  // Catch-all: files ending in .lock or containing -lock. in name
-  /\.lock$/i,
-  /-lock\./,
+  /^bun\.lockb$/,
+  /^shrinkwrap\.yaml$/,
+  /^pnpm-lock\.json$/,
 ];
 
 const MAX_FILE_DIFF_CHARS = 5000;
