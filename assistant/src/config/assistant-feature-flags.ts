@@ -20,7 +20,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { getLogger } from "../util/logger.js";
 import type { AssistantConfig } from "./schema.js";
+
+const log = getLogger("feature-flags");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,6 +189,7 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
       require("./env.js") as typeof import("./env.js");
 
     const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
+    log.info({ url }, "fetchOverridesFromGateway: starting");
 
     // Build request headers. Auth is best-effort: the gateway
     // auto-authenticates loopback peers (127.0.0.0/8, ::1) so a valid
@@ -204,14 +208,23 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
 
+      log.info(
+        { signingKeyInitialized: isSigningKeyInitialized() },
+        "fetchOverridesFromGateway: signing key status",
+      );
       if (!isSigningKeyInitialized()) {
         initAuthSigningKey(resolveSigningKey());
       }
       headers["Authorization"] = `Bearer ${mintEdgeRelayToken()}`;
-    } catch {
+      log.info("fetchOverridesFromGateway: auth header set");
+    } catch (authErr) {
       // Signing key unavailable — proceed without auth header.
       // The gateway auto-authenticates loopback peers, so this is
       // fine for CLI subprocesses running in the same pod/machine.
+      log.warn(
+        { err: authErr },
+        "fetchOverridesFromGateway: signing key unavailable, proceeding without auth",
+      );
     }
 
     const response = await fetch(url, {
@@ -220,12 +233,22 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
       signal: AbortSignal.timeout(10_000),
     });
 
+    log.info(
+      { status: response.status, ok: response.ok },
+      "fetchOverridesFromGateway: HTTP response",
+    );
     if (!response.ok) return {};
 
     const parsed = (await response.json()) as {
       flags?: Array<{ key: string; enabled: boolean }>;
     };
-    if (!Array.isArray(parsed.flags)) return {};
+    if (!Array.isArray(parsed.flags)) {
+      log.warn(
+        { parsed },
+        "fetchOverridesFromGateway: response missing flags array",
+      );
+      return {};
+    }
 
     const result: Record<string, boolean> = {};
     for (const entry of parsed.flags) {
@@ -233,8 +256,16 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
         result[entry.key] = entry.enabled;
       }
     }
+    log.info(
+      { count: Object.keys(result).length, keys: Object.keys(result) },
+      "fetchOverridesFromGateway: parsed flags",
+    );
     return result;
-  } catch {
+  } catch (outerErr) {
+    log.error(
+      { err: outerErr },
+      "fetchOverridesFromGateway: outer catch — fetch failed entirely",
+    );
     return {};
   }
 }
@@ -257,17 +288,30 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * gateway fetch clobbering their setup or polluting fetch mocks.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
-  if (cachedOverrides != null) return;
+  if (cachedOverrides != null) {
+    log.info("initFeatureFlagOverrides: cache already populated, skipping");
+    return;
+  }
 
   const gatewayOverrides = await fetchOverridesFromGateway();
   if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;
+    log.info(
+      {
+        count: Object.keys(gatewayOverrides).length,
+        emailChannel: gatewayOverrides["email-channel"],
+      },
+      "initFeatureFlagOverrides: cache populated from gateway",
+    );
     return;
   }
 
   // Gateway returned empty or failed. Leave the cache unset so
   // loadOverrides() falls through to file on the next sync read,
   // regardless of containerized vs local mode.
+  log.warn(
+    "initFeatureFlagOverrides: gateway returned empty, cache NOT populated — will fall through to file",
+  );
 }
 
 /**
@@ -396,17 +440,53 @@ export function isAssistantFeatureFlagEnabled(
 
   // 1. Check overrides from gateway / local file
   const explicit = overrides[key];
-  if (typeof explicit === "boolean") return explicit;
+  if (typeof explicit === "boolean") {
+    if (key === "email-channel") {
+      log.info(
+        { key, value: explicit, source: "overrides" },
+        "isAssistantFeatureFlagEnabled: resolved from overrides",
+      );
+    }
+    return explicit;
+  }
 
   // 2. Check remote values (platform-pushed, cached locally)
   const remote = loadRemoteValues();
   const remoteValue = remote[key];
-  if (typeof remoteValue === "boolean") return remoteValue;
+  if (typeof remoteValue === "boolean") {
+    if (key === "email-channel") {
+      log.info(
+        { key, value: remoteValue, source: "remote" },
+        "isAssistantFeatureFlagEnabled: resolved from remote",
+      );
+    }
+    return remoteValue;
+  }
 
   // 3. For declared keys, use the registry default
-  if (declared) return declared.defaultEnabled;
+  if (declared) {
+    if (key === "email-channel") {
+      log.info(
+        {
+          key,
+          value: declared.defaultEnabled,
+          source: "registry-default",
+          overridesKeys: Object.keys(overrides),
+          remoteKeys: Object.keys(remote),
+        },
+        "isAssistantFeatureFlagEnabled: resolved from registry default",
+      );
+    }
+    return declared.defaultEnabled;
+  }
 
   // 4. Undeclared keys with no persisted override default to enabled
+  if (key === "email-channel") {
+    log.info(
+      { key, value: true, source: "undeclared-default" },
+      "isAssistantFeatureFlagEnabled: undeclared key defaulting to true",
+    );
+  }
   return true;
 }
 
