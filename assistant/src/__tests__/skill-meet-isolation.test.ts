@@ -65,6 +65,9 @@ const ALLOWLIST = new Set([
   "clients/macos/build.sh", // packages skill deps into daemon bundle
   "scripts/build-meet-bot-image.sh", // builds the meet-bot Docker image
 
+  // --- Test runner (discovers tests inside skills/meet-join/ subpackages) ---
+  "assistant/scripts/test.sh", // runs bun test across meet-join workspace packages
+
   // --- Documentation (top-level architecture references) ---
   "AGENTS.md", // architecture and invariant documentation
   "ARCHITECTURE.md", // architecture documentation
