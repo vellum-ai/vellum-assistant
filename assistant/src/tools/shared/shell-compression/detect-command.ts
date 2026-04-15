@@ -54,10 +54,10 @@ const CATEGORIES: Array<{ category: CommandCategory; pattern: RegExp }> = [
     category: "git-status",
     pattern: /\bgit\s+status\b/,
   },
-  // Directory listing — only when NOT after a pipe
+  // Directory listing
   {
     category: "directory-listing",
-    pattern: /(?<!\|[^|]*)\b(ls|find|tree)\b/,
+    pattern: /\b(ls|find|tree)\b/,
   },
   // Search tools
   {
@@ -76,8 +76,8 @@ const CATEGORIES: Array<{ category: CommandCategory; pattern: RegExp }> = [
  * Detect the primary command category from a shell command string.
  *
  * Handles ANSI codes, `cd && ...` chains, env-var prefixes, `sudo`,
- * and pipes (the first command in a pipeline determines the category,
- * except for directory-listing which must not follow a pipe).
+ * and pipes. Only the head segment of a pipeline (before the first `|`)
+ * is classified, since that command produces the output we compress.
  */
 export function detectCommand(command: string): DetectResult {
   if (!command || !command.trim()) {
@@ -85,7 +85,11 @@ export function detectCommand(command: string): DetectResult {
   }
 
   const cleaned = stripAnsi(command);
-  const stripped = stripPrefixes(cleaned);
+  // Extract the head segment of a pipeline — only the first command before
+  // any `|` produces the output we'll compress.
+  const pipeIndex = cleaned.indexOf("|");
+  const headSegment = pipeIndex >= 0 ? cleaned.slice(0, pipeIndex) : cleaned;
+  const stripped = stripPrefixes(headSegment);
 
   for (const { category, pattern } of CATEGORIES) {
     const match = stripped.match(pattern);

@@ -94,9 +94,7 @@ describe("detectCommand", () => {
   });
 
   test("ls after pipe should NOT be directory-listing", () => {
-    expect(detectCommand("cat file.txt | ls").category).not.toBe(
-      "directory-listing",
-    );
+    expect(detectCommand("cat file.txt | ls").category).toBe("unknown");
   });
 
   // ── Search results ────────────────────────────────────────────
@@ -189,6 +187,20 @@ describe("detectCommand", () => {
     expect(detectCommand("pytest | tee output.log").category).toBe(
       "test-runner",
     );
+  });
+
+  // ── Pipeline head restriction ──────────────────────────────────
+
+  test("echo 'pytest' -> unknown (pytest is in argument, not command)", () => {
+    expect(detectCommand('echo "pytest"').category).toBe("unknown");
+  });
+
+  test("echo hi | pytest -> unknown (echo produces output)", () => {
+    expect(detectCommand("echo hi | pytest").category).toBe("unknown");
+  });
+
+  test("cat file | grep pattern -> unknown (cat produces output)", () => {
+    expect(detectCommand("cat file | grep pattern").category).toBe("unknown");
   });
 
   // ── Unknown commands ──────────────────────────────────────────
