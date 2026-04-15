@@ -16,12 +16,19 @@ export interface OpenRouterProviderOptions {
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 // Models on OpenRouter prefixed `anthropic/` are routed through OpenRouter's
-// Anthropic-compatible Messages API (`<baseURL>/anthropic/v1/messages`) so that
+// Anthropic-compatible Messages API at `<root>/v1/messages` (where `<root>` is
+// the OpenRouter API root, e.g. `https://openrouter.ai/api`) so that
 // Anthropic-native features — extended thinking, prompt caching, cache TTL,
 // output_config — work without lossy translation through the OpenAI chat
-// completions compatibility layer.
+// completions compatibility layer. The Anthropic SDK appends `/v1/messages` to
+// its configured baseURL, so we strip the trailing `/v1` segment from the
+// OpenAI-compat base before handing it to the SDK.
 function isAnthropicModel(model: string): boolean {
   return model.startsWith("anthropic/");
+}
+
+function toAnthropicMessagesBaseURL(openRouterBaseURL: string): string {
+  return openRouterBaseURL.replace(/\/v1\/?$/, "");
 }
 
 export class OpenRouterProvider extends OpenAIProvider {
@@ -95,7 +102,7 @@ export class OpenRouterProvider extends OpenAIProvider {
         this.openRouterApiKey,
         this.defaultModel,
         {
-          baseURL: `${this.resolvedBaseURL}/anthropic`,
+          baseURL: toAnthropicMessagesBaseURL(this.resolvedBaseURL),
           streamTimeoutMs: this.providerStreamTimeoutMs,
           authToken: this.openRouterApiKey,
         },
