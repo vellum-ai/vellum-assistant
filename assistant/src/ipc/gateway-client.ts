@@ -66,6 +66,10 @@ export async function ipcCall(
     };
 
     const connectTimer = setTimeout(() => {
+      log.warn(
+        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
+        "IPC connect timed out",
+      );
       finish(undefined);
     }, CONNECT_TIMEOUT_MS);
 
@@ -86,6 +90,10 @@ export async function ipcCall(
       // Keep this timer ref'd (not unref'd) so the process waits for the
       // response or timeout before exiting — the socket itself is unref'd.
       callTimer = setTimeout(() => {
+        log.warn(
+          { method, socketPath, timeoutMs: DEFAULT_CALL_TIMEOUT_MS },
+          "IPC call timed out waiting for response",
+        );
         finish(undefined);
       }, DEFAULT_CALL_TIMEOUT_MS);
 
@@ -119,17 +127,25 @@ export async function ipcCall(
     });
 
     socket.on("error", (err) => {
-      // ENOENT / ECONNREFUSED are expected when gateway hasn't started
-      if (
-        (err as NodeJS.ErrnoException).code !== "ENOENT" &&
-        (err as NodeJS.ErrnoException).code !== "ECONNREFUSED"
-      ) {
-        log.warn({ err }, "Gateway IPC socket error");
-      }
+      log.warn(
+        {
+          err,
+          code: (err as NodeJS.ErrnoException).code,
+          method,
+          socketPath,
+        },
+        "Gateway IPC socket error",
+      );
       finish(undefined);
     });
 
     socket.on("close", () => {
+      if (!settled) {
+        log.warn(
+          { method, socketPath },
+          "Gateway IPC socket closed before response",
+        );
+      }
       finish(undefined);
     });
   });

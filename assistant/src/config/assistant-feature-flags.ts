@@ -121,6 +121,14 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 let cachedOverrides: Record<string, boolean> | null = null;
 
 /**
+ * True when `cachedOverrides` was populated by the gateway IPC fetch (or
+ * preseeded by a test). False/unset when the cache was populated by the sync
+ * file fallback in `loadOverrides()`, which must not prevent a subsequent
+ * authoritative gateway fetch from running.
+ */
+let cachedOverridesFromGateway = false;
+
+/**
  * File format for the local feature-flags.json override file, matching the
  * gateway's feature-flag-store.ts schema.
  */
@@ -206,17 +214,18 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * gateway IPC call clobbering their setup.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
-  if (cachedOverrides != null) return;
+  if (cachedOverridesFromGateway) return;
 
   const gatewayOverrides = await fetchOverridesFromGateway();
   if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;
+    cachedOverridesFromGateway = true;
     return;
   }
 
-  // Gateway returned empty or failed. Leave the cache unset so
-  // loadOverrides() falls through to file on the next sync read,
-  // regardless of containerized vs local mode.
+  // Gateway returned empty or failed. If the cache was populated from the
+  // file fallback, leave it in place for the next sync read. Otherwise leave
+  // unset so `loadOverrides()` falls through to file on first sync read.
 }
 
 /**
@@ -229,9 +238,6 @@ export async function initFeatureFlagOverrides(): Promise<void> {
 function loadOverrides(): Record<string, boolean> {
   if (cachedOverrides != null) return cachedOverrides;
 
-  // Cache not yet populated (initFeatureFlagOverrides wasn't called or
-  // hasn't finished). Fall back to the local file so the resolver still
-  // works, just without gateway data.
   cachedOverrides = loadOverridesFromFile();
   return cachedOverrides;
 }
@@ -297,6 +303,7 @@ function loadRemoteValues(): Record<string, boolean> {
  */
 export function clearFeatureFlagOverridesCache(): void {
   cachedOverrides = null;
+  cachedOverridesFromGateway = false;
   cachedRemoteValues = null;
 }
 
@@ -318,6 +325,7 @@ export function _setOverridesForTesting(
   overrides: Record<string, boolean>,
 ): void {
   cachedOverrides = { ...overrides };
+  cachedOverridesFromGateway = true;
   cachedRemoteValues = {};
 }
 
