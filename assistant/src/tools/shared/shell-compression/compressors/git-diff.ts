@@ -150,8 +150,9 @@ export function compressGitDiff(
   stderr: string,
   exitCode: number | null,
 ): string {
-  // Error case: prepend stderr and return as-is
-  if (exitCode !== 0 && exitCode !== null) {
+  // Error case: non-zero exit, null exit (killed by signal), or stderr with
+  // no exit code — return raw output so diagnostics aren't lost.
+  if ((exitCode !== 0 && exitCode !== null) || (exitCode === null && stderr)) {
     return stderr ? `${stderr}\n${stdout}` : stdout;
   }
 
@@ -170,6 +171,17 @@ export function compressGitDiff(
 
   // Filter to only actual diff sections (skip preamble captured by the split)
   const diffSections = sections.filter((s) => s.startsWith("diff --git"));
+
+  // No actual diff sections after filtering (e.g. git show on a merge commit
+  // with no file changes, or truncated output) — return as-is.
+  if (diffSections.length === 0) {
+    let fallback = stdout;
+    if (stderr.trim()) {
+      fallback += "\n\n--- stderr ---\n" + stderr.trim();
+    }
+    return fallback;
+  }
+
   const compressed = diffSections
     .map((section) => compressFileDiff(section.trimEnd()))
     .join("\n");

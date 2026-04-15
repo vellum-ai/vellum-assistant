@@ -72,8 +72,9 @@ export function compressShellOutput(
 
   const compressedLength = compressed.length;
 
-  // Only use compressed version if it's actually shorter
-  if (compressedLength >= originalLength) {
+  // Guard against empty compression results — a compressor returning empty
+  // string would replace real output with nothing.
+  if (!compressed.trim() || compressedLength >= originalLength) {
     return {
       compressed: "",
       originalLength,
