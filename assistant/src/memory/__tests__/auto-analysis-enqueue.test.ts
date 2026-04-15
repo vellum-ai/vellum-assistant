@@ -69,9 +69,15 @@ mock.module("../jobs-store.js", () => ({
   },
 }));
 
+// Mirror production semantics from `isUntrustedTrustClass` in
+// actor-trust-resolver.ts: anything that isn't `guardian` is untrusted.
+// Keeping these in sync guards the compaction trust boundary — a drifting
+// mock would let regressions pass as false positives.
 mock.module("../../runtime/actor-trust-resolver.js", () => ({
   isUntrustedTrustClass: (trustClass: string | undefined) =>
-    trustClass === "unknown" || trustClass === "untrusted",
+    trustClass === "trusted_contact" ||
+    trustClass === "unknown" ||
+    trustClass === undefined,
 }));
 
 import {
@@ -281,10 +287,14 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
     expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after);
   });
 
-  test("undefined trust class (treated as guardian for internal call paths) — enqueues", () => {
+  test("undefined trust class — skips (fail-closed when trust is unresolved)", () => {
+    // `isUntrustedTrustClass(undefined)` is true in production, so
+    // compaction-triggered analysis must NOT fire when the caller cannot
+    // establish a trust class.
     enqueueAutoAnalysisOnCompaction("c1", undefined);
 
-    expect(debouncedCalls).toHaveLength(1);
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
   });
 
   test("unknown trust class — skips (mirrors memory-extraction trust boundary)", () => {
@@ -294,12 +304,14 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
     expect(debouncedCalls).toHaveLength(0);
   });
 
-  test("trusted_contact trust class — enqueues (not untrusted)", () => {
-    // trusted_contact is not in the untrusted set per
-    // isUntrustedTrustClass, so compaction-triggered analysis still fires.
+  test("trusted_contact trust class — skips (only guardian is trusted)", () => {
+    // trusted_contact is in the untrusted set per production
+    // `isUntrustedTrustClass`, so compaction-triggered analysis must NOT
+    // fire. Only `guardian` passes the gate.
     enqueueAutoAnalysisOnCompaction("c1", "trusted_contact");
 
-    expect(debouncedCalls).toHaveLength(1);
+    expect(enqueueCalls).toHaveLength(0);
+    expect(debouncedCalls).toHaveLength(0);
   });
 
   test("guardian trust but flag off — helper still gates via enqueueAutoAnalysisIfEnabled", () => {
