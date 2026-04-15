@@ -16,6 +16,20 @@ function isRateLimitError(e: unknown): boolean {
   return /\b429\b/.test(e.message);
 }
 
+function isAbortError(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === "AbortError") return true;
+  if (e instanceof Error && e.message === "fetch deadline exceeded") return true;
+  // AbortSignal.reason propagated through promise chains
+  if (
+    e instanceof Error &&
+    "cause" in e &&
+    e.cause instanceof Error &&
+    e.cause.message === "fetch deadline exceeded"
+  )
+    return true;
+  return false;
+}
+
 const MAX_MESSAGES_CAP = 5000;
 const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
@@ -77,6 +91,7 @@ export async function run(
     // overlapping fetch latency with pagination latency
     const allMessageIds: string[] = [];
     const fetchPromises: Promise<GmailMessage[]>[] = [];
+    const fetchAbort = new AbortController();
     let pageToken: string | undefined = inputPageToken;
     let truncated = false;
     let timeBudgetExceeded = false;
@@ -119,6 +134,7 @@ export async function run(
           "metadata",
           metadataHeaders,
           "id,internalDate,payload/headers",
+          fetchAbort.signal,
         ),
       );
       pageToken = listResp.nextPageToken ?? undefined;
@@ -154,19 +170,15 @@ export async function run(
     }
 
     // Settle all fetch promises — collect successes and tolerate 429 failures.
-    // Race each promise against a deadline so slow retries don't exceed the
-    // executor's 120s tool timeout.
+    // Abort in-flight requests when the deadline fires so they don't continue
+    // consuming API quota in the background.
     const elapsedMs = Date.now() - startTime;
     const settleDeadlineMs = Math.max(TIME_BUDGET_MS - elapsedMs, 5_000);
-    const deadlineRejection = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("fetch deadline exceeded")),
-        settleDeadlineMs,
-      ),
-    );
-    const settled = await Promise.allSettled(
-      fetchPromises.map((p) => Promise.race([p, deadlineRejection])),
-    );
+    const deadlineTimer = setTimeout(() => {
+      fetchAbort.abort(new Error("fetch deadline exceeded"));
+    }, settleDeadlineMs);
+    const settled = await Promise.allSettled(fetchPromises);
+    clearTimeout(deadlineTimer);
     const messages: GmailMessage[] = [];
     for (const result of settled) {
       if (result.status === "fulfilled") {
@@ -174,10 +186,7 @@ export async function run(
       } else if (isRateLimitError(result.reason)) {
         rateLimited = true;
         truncated = true;
-      } else if (
-        result.reason instanceof Error &&
-        result.reason.message === "fetch deadline exceeded"
-      ) {
+      } else if (isAbortError(result.reason)) {
         timeBudgetExceeded = true;
         truncated = true;
       } else {
