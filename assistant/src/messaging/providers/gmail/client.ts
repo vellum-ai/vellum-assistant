@@ -53,6 +53,30 @@ function isIdempotent(options?: RequestInit): boolean {
   return IDEMPOTENT_METHODS.has(method);
 }
 
+/** Sleep that wakes immediately when the abort signal fires. */
+async function signalAwareSleep(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    return;
+  }
+  const s = signal; // narrow for closures
+  s.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      s.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(s.reason ?? new Error("aborted"));
+    }
+    s.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 interface GmailRequestOptions extends RequestInit {
   /** Override method-based retry eligibility. When true, retries on 429/5xx even for POST requests. */
   retryable?: boolean;
@@ -147,7 +171,7 @@ async function request<T>(
         /\b(429|5\d{2})\b/.test(err.message)
       ) {
         const delayMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await signalAwareSleep(delayMs, signal);
         continue;
       }
       throw err;
@@ -160,7 +184,7 @@ async function request<T>(
         const delayMs = retryAfter
           ? parseInt(retryAfter, 10) * 1000
           : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await signalAwareSleep(delayMs, signal);
         continue;
       }
       const bodyStr =
@@ -318,7 +342,7 @@ async function executeBatchCall(
           const delayMs = retryAfter
             ? parseInt(retryAfter, 10) * 1000
             : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-          await new Promise((r) => setTimeout(r, delayMs));
+          await signalAwareSleep(delayMs, signal);
           continue;
         }
         const errBody = await resp.text().catch(() => "");
