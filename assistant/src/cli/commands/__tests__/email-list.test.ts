@@ -17,7 +17,6 @@ import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
-const ASSISTANT_ID_CREDENTIAL = credentialKey("vellum", "platform_assistant_id");
 
 /**
  * Return the recorded fetch calls, excluding the feature-flag fetch that
@@ -84,10 +83,6 @@ beforeEach(async () => {
   _setOverridesForTesting({ "email-channel": true });
   setPlatformAssistantId(ASSISTANT_ID);
   await setSecureKeyAsync(API_KEY_CREDENTIAL, "test-api-key");
-  // Ensure the credential store does not contain a stray platform_assistant_id
-  // from dev machine state — the "missing assistant ID" test relies on the
-  // fallback lookup returning empty.
-  await deleteSecureKeyAsync(ASSISTANT_ID_CREDENTIAL);
 });
 
 afterEach(() => {
