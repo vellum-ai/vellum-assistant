@@ -3,8 +3,8 @@
  * pre-populates the feature flag cache before CLI program construction.
  *
  * Uses the shared mock-gateway-ipc utility (installed in test-preload.ts)
- * so the real gateway-client.ts code is exercised without needing a live
- * gateway socket.
+ * which mocks gateway-client.ts so no test connects to a real gateway
+ * socket.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -40,7 +40,7 @@ describe("initFeatureFlagOverrides", () => {
   });
 
   it("falls back gracefully when gateway socket is unavailable", async () => {
-    mockGatewayIpc(null, { error: true, code: "ENOENT" });
+    mockGatewayIpc(null, { error: true });
 
     // Should not throw
     await initFeatureFlagOverrides();

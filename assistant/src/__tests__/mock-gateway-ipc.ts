@@ -1,5 +1,5 @@
 /**
- * Global test utility for mocking gateway IPC calls via `node:net`.
+ * Global test utility for mocking gateway IPC calls.
  *
  * Usage:
  *   import { mockGatewayIpc, resetMockGatewayIpc } from "../__tests__/mock-gateway-ipc.js";
@@ -14,7 +14,7 @@
  *   });
  *
  *   it("simulates socket error", async () => {
- *     mockGatewayIpc(null, { error: true, code: "ENOENT" });
+ *     mockGatewayIpc(null, { error: true });
  *     ...
  *   });
  *
@@ -22,69 +22,49 @@
  * file gets a no-op IPC layer by default — no test accidentally connects to
  * a real gateway socket. Call `mockGatewayIpc()` to configure specific
  * responses when the test cares about the IPC result.
+ *
+ * Mocks `gateway-client.ts` (not `node:net`) so that proxy / tunnel tests
+ * that need real TCP sockets continue to work.
  */
 
-import { EventEmitter } from "node:events";
 import { mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Configurable state
 // ---------------------------------------------------------------------------
 
-/** IPC result the fake gateway will return (keyed by method name). */
+/** Feature flag values the fake gateway IPC will return. */
+let featureFlags: Record<string, boolean> = {};
+
+/** Raw IPC results keyed by method name (for non-feature-flag methods). */
 let ipcResults: Record<string, unknown> = {};
 
-/** Whether the fake socket should simulate a connection error. */
+/** Whether ipcCall / ipcGetFeatureFlags should return empty / error-like. */
 let simulateError = false;
-
-/** Error code to use when simulating an error. */
-let simulateErrorCode = "ENOENT";
-
-// ---------------------------------------------------------------------------
-// FakeSocket — simulates the gateway IPC protocol
-// ---------------------------------------------------------------------------
-
-class FakeSocket extends EventEmitter {
-  unref() {
-    /* no-op */
-  }
-  destroy() {
-    /* no-op */
-  }
-  write(data: string) {
-    try {
-      const req = JSON.parse(data.trim());
-      const result =
-        req.method in ipcResults ? ipcResults[req.method] : undefined;
-      const response = JSON.stringify({ id: req.id, result });
-      queueMicrotask(() => {
-        this.emit("data", Buffer.from(response + "\n"));
-      });
-    } catch {
-      // Malformed request — ignore
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Register the mock (called once from test-preload.ts)
 // ---------------------------------------------------------------------------
 
 export function installGatewayIpcMock(): void {
-  mock.module("node:net", () => ({
-    connect(_path: string) {
-      const socket = new FakeSocket();
-      queueMicrotask(() => {
-        if (simulateError) {
-          const err = new Error(simulateErrorCode) as NodeJS.ErrnoException;
-          err.code = simulateErrorCode;
-          socket.emit("error", err);
-          socket.emit("close");
-        } else {
-          socket.emit("connect");
-        }
-      });
-      return socket;
+  mock.module("../ipc/gateway-client.js", () => ({
+    async ipcCall(method: string) {
+      if (simulateError) {
+        return undefined;
+      }
+      if (method in ipcResults) {
+        return ipcResults[method];
+      }
+      if (method === "get_feature_flags") {
+        return featureFlags;
+      }
+      return undefined;
+    },
+    async ipcGetFeatureFlags() {
+      if (simulateError) {
+        return {};
+      }
+      return { ...featureFlags };
     },
   }));
 }
@@ -96,25 +76,25 @@ export function installGatewayIpcMock(): void {
 /**
  * Configure the fake gateway IPC response.
  *
- * @param flags — feature flag map returned by `get_feature_flags`. Pass
- *   `null` to skip setting a result (useful when only simulating errors).
- * @param opts.error — simulate a socket connection error
- * @param opts.code — error code (default "ENOENT")
- * @param opts.results — raw method→result map for arbitrary IPC methods
+ * @param flags — feature flag map returned by `get_feature_flags` /
+ *   `ipcGetFeatureFlags`. Pass `null` to skip setting flags (useful when
+ *   only simulating errors or setting raw results).
+ * @param opts.error — simulate a socket connection error (ipcCall returns
+ *   undefined, ipcGetFeatureFlags returns {})
+ * @param opts.results — raw method->result map for arbitrary IPC methods
  */
 export function mockGatewayIpc(
   flags?: Record<string, boolean> | null,
-  opts?: { error?: boolean; code?: string; results?: Record<string, unknown> },
+  opts?: { error?: boolean; results?: Record<string, unknown> },
 ): void {
   if (flags != null) {
-    ipcResults["get_feature_flags"] = flags;
+    featureFlags = { ...flags };
   }
   if (opts?.results) {
     Object.assign(ipcResults, opts.results);
   }
   if (opts?.error) {
     simulateError = true;
-    simulateErrorCode = opts.code ?? "ENOENT";
   }
 }
 
@@ -122,7 +102,7 @@ export function mockGatewayIpc(
  * Reset all IPC mock state back to defaults (empty flags, no errors).
  */
 export function resetMockGatewayIpc(): void {
+  featureFlags = {};
   ipcResults = {};
   simulateError = false;
-  simulateErrorCode = "ENOENT";
 }
