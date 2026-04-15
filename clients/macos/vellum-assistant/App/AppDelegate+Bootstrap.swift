@@ -230,41 +230,34 @@ extension AppDelegate {
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
     func performInitialBootstrap() async {
-        // Try importing a CLI-persisted guardian token first. During non-local
-        // hatches the CLI calls /v1/guardian/init and saves the result to
-        // ~/.config/vellum/assistants/<id>/guardian-token.json. Importing from
-        // this file avoids a redundant (and often 403-failing) HTTP bootstrap.
-        if let assistantId = LockfileAssistant.loadActiveAssistantId(),
-           GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-            log.info("Imported guardian token from CLI file — skipping HTTP bootstrap")
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
+
+        // Try importing a guardian token that was already written to disk
+        // (e.g. by the CLI during hatch or by AppleContainersLauncher).
+        if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+            log.info("Imported guardian token from file — skipping HTTP bootstrap")
             return
         }
 
-        // For apple-container assistants the launcher (AppleContainersLauncher)
-        // handles the one-time bootstrap secret and writes the token file.
-        // We must NOT call /v1/guardian/init ourselves — doing so would send a
-        // random UUID as the bootstrap secret, racing with the launcher and
-        // potentially consuming the one-time secret or triggering a 403.
-        // Instead, poll for the token file the launcher will create.
-        if let assistant = LockfileAssistant.loadByName(
-            LockfileAssistant.loadActiveAssistantId() ?? ""
-        ), assistant.isAppleContainer {
-            let maxAttempts = 30
-            let delay: UInt64 = 2_000_000_000 // 2 seconds per poll, ~60s total
-            log.info("Apple-container assistant — polling for guardian token file")
-            for attempt in 1...maxAttempts {
-                guard !Task.isCancelled else { return }
-                try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled else { return }
+        // The token file doesn't exist yet — the launcher/CLI may still be
+        // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
+        let maxAttempts = 30
+        let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
+        for attempt in 1...maxAttempts {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
 
-                if GuardianTokenFileReader.importIfAvailable(assistantId: assistant.assistantId) {
-                    log.info("Imported guardian token from file after \(attempt) poll(s)")
-                    return
-                }
+            if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+                log.info("Imported guardian token from file after \(attempt) poll(s)")
+                return
             }
-            log.warning("Guardian token file did not appear after \(maxAttempts) polls — launcher may have failed")
-            return
         }
+
+        // Token file never appeared — fall back to HTTP bootstrap via
+        // /v1/guardian/init. This path generates its own random bootstrap
+        // secret which may fail if the runtime already consumed the real one.
+        log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
 
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
@@ -281,7 +274,7 @@ extension AppDelegate {
             )
 
             if success {
-                log.info("Initial actor token bootstrap succeeded")
+                log.info("Initial actor token bootstrap succeeded via HTTP fallback")
                 return
             }
 
