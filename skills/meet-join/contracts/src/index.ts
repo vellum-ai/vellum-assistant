@@ -5,8 +5,8 @@
  * container that joins a meeting) and the assistant daemon.
  *
  * This package is intentionally free of imports from `assistant/`,
- * `meet-bot/`, or any implementation module so that both sides can
- * depend on it without circular references.
+ * `skills/meet-join/bot/`, or any implementation module so that both sides
+ * can depend on it without circular references.
  *
  * Two directions:
  *

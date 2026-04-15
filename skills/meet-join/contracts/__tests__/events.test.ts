@@ -31,22 +31,22 @@ import {
 } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
-// Independence guard — the package must not pull in assistant or meet-bot.
+// Independence guard — the package must not pull in assistant or the bot.
 // ---------------------------------------------------------------------------
 
 describe("package independence", () => {
   const sourceFiles = ["../src/index.ts", "../src/events.ts", "../src/commands.ts"];
 
   for (const file of sourceFiles) {
-    test(`${file} does not import from assistant/ or meet-bot/`, () => {
+    test(`${file} does not import from assistant/ or skills/meet-join/bot/`, () => {
       const src = require("node:fs").readFileSync(
         require("node:path").resolve(__dirname, file),
         "utf-8",
       );
       expect(src).not.toMatch(/from\s+['"].*assistant\//);
-      expect(src).not.toMatch(/from\s+['"].*meet-bot\//);
+      expect(src).not.toMatch(/from\s+['"].*meet-join\/bot\//);
       expect(src).not.toMatch(/require\(['"].*assistant\//);
-      expect(src).not.toMatch(/require\(['"].*meet-bot\//);
+      expect(src).not.toMatch(/require\(['"].*meet-join\/bot\//);
     });
   }
 });
