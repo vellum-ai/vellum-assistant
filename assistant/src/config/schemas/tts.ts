@@ -30,7 +30,7 @@ export const TtsElevenLabsProviderConfigSchema = z
       .string({
         error: "services.tts.providers.elevenlabs.voiceId must be a string",
       })
-      .min(1, "services.tts.providers.elevenlabs.voiceId must not be empty")
+      .transform((v) => v || DEFAULT_ELEVENLABS_VOICE_ID)
       .default(DEFAULT_ELEVENLABS_VOICE_ID)
       .describe("ElevenLabs voice ID for text-to-speech"),
     voiceModelId: z
@@ -150,7 +150,7 @@ export const TtsDeepgramProviderConfigSchema = z
       .string({
         error: "services.tts.providers.deepgram.model must be a string",
       })
-      .min(1, "services.tts.providers.deepgram.model must not be empty")
+      .transform((v) => v || "aura-asteria-en")
       .default("aura-asteria-en")
       .describe("Deepgram TTS model identifier"),
     format: z

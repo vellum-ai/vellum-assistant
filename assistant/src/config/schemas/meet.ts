@@ -58,7 +58,7 @@ export const MeetServiceSchema = z
       ),
     containerImage: z
       .string({ error: "services.meet.containerImage must be a string" })
-      .min(1, "services.meet.containerImage must not be empty")
+      .transform((v) => v || "vellum-meet-bot:dev")
       .default("vellum-meet-bot:dev")
       .describe(
         "Docker image tag used to spawn the Meet bot container for each joined meeting",
@@ -99,7 +99,7 @@ export const MeetServiceSchema = z
       ),
     dockerNetwork: z
       .string({ error: "services.meet.dockerNetwork must be a string" })
-      .min(1, "services.meet.dockerNetwork must not be empty")
+      .transform((v) => v || "bridge")
       .default("bridge")
       .describe("Docker network the Meet bot container attaches to"),
     maxMeetingMinutes: z

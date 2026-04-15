@@ -12,7 +12,7 @@ export const ElevenLabsConfigSchema = z
   .object({
     voiceId: z
       .string({ error: "elevenlabs.voiceId must be a string" })
-      .min(1, "elevenlabs.voiceId must not be empty")
+      .transform((v) => v || DEFAULT_ELEVENLABS_VOICE_ID)
       .default(DEFAULT_ELEVENLABS_VOICE_ID)
       .describe("ElevenLabs voice ID for text-to-speech"),
     voiceModelId: z
