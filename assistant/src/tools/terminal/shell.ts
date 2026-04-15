@@ -383,6 +383,7 @@ class ShellTool implements Tool {
           code,
           timedOut,
           timeoutSec,
+          { command },
         );
 
         resolve({

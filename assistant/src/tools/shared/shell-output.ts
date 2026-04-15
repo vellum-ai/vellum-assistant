@@ -3,7 +3,13 @@ import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
+import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
+import { compressShellOutput } from "./shell-compression/index.js";
+
+const log = getLogger("shell-output");
 
 export const MAX_OUTPUT_LENGTH = 20_000;
 
@@ -40,10 +46,32 @@ export function formatShellOutput(
   code: number | null,
   timedOut: boolean,
   timeoutSec: number,
+  options?: { command?: string },
 ): ShellOutputResult {
   let output = stdout;
   if (stderr) {
     output += (output ? "\n" : "") + stderr;
+  }
+
+  // Command-aware compression: reduce output before the hard truncation
+  // limit so that information is preserved rather than chopped.
+  if (
+    options?.command &&
+    isAssistantFeatureFlagEnabled("shell-output-compression", getConfig())
+  ) {
+    const result = compressShellOutput(options.command, stdout, stderr, code);
+    if (result.wasCompressed) {
+      output = result.compressed;
+      log.debug(
+        {
+          category: result.category,
+          originalLength: result.originalLength,
+          compressedLength: result.compressedLength,
+          savings: `${((1 - result.compressedLength / result.originalLength) * 100).toFixed(1)}%`,
+        },
+        "Shell output compressed",
+      );
+    }
   }
 
   const statusParts: string[] = [];
@@ -57,7 +85,10 @@ export function formatShellOutput(
   if (output.length > MAX_OUTPUT_LENGTH) {
     let fullOutputPath: string | undefined;
     try {
-      fullOutputPath = join(tmpdir(), `vellum-shell-output-${randomUUID()}.txt`);
+      fullOutputPath = join(
+        tmpdir(),
+        `vellum-shell-output-${randomUUID()}.txt`,
+      );
       writeFileSync(fullOutputPath, output, { encoding: "utf-8", mode: 0o600 });
       trackedTempFiles.add(fullOutputPath);
     } catch {

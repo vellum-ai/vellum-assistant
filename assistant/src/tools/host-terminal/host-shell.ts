@@ -263,6 +263,7 @@ class HostShellTool implements Tool {
           code,
           timedOut,
           timeoutSec,
+          { command },
         );
 
         resolve({

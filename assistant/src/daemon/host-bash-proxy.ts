@@ -14,6 +14,7 @@ interface PendingRequest {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   timeoutSec: number;
+  command: string;
   /** Detach the abort listener from the caller's signal. No-op when no signal was passed. */
   detachAbort: () => void;
 }
@@ -115,6 +116,7 @@ export class HostBashProxy {
         reject,
         timer,
         timeoutSec,
+        command: input.command,
         detachAbort,
       });
 
@@ -170,6 +172,7 @@ export class HostBashProxy {
       response.exitCode,
       response.timedOut,
       entry.timeoutSec,
+      { command: entry.command },
     );
     entry.resolve(result);
   }
