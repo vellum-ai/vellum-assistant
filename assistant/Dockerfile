@@ -1,5 +1,5 @@
 # Use debian as base image
-FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS builder
+FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS builder
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ RUN cd /app/assistant && bun install --frozen-lockfile
 COPY assistant ./assistant
 
 # Final stage
-FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
+FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
 
 WORKDIR /app/assistant
 
