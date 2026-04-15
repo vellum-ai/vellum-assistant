@@ -14,8 +14,12 @@ public struct VAvatarImage: View {
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
 
-    /// Cached transparency result to avoid expensive bitmap analysis on every render.
+    /// Whether the source image has a transparent background, computed once at init.
     private let isTransparent: Bool
+
+    /// Alpha byte value below which a pixel is considered transparent.
+    /// 242/255 ≈ 0.949, matching the original ~0.95 float threshold.
+    private static let alphaOpaqueThreshold: UInt8 = 242
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
@@ -26,29 +30,40 @@ public struct VAvatarImage: View {
     }
 
     public var body: some View {
+        if isTransparent {
+            baseImage
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            baseImage
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .overlay {
+                    if showBorder {
+                        Circle()
+                            .strokeBorder(borderColor, lineWidth: 1)
+                    }
+                }
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var baseImage: some View {
         Image(nsImage: image)
             .interpolation(.none)
             .resizable()
-            .aspectRatio(contentMode: isTransparent ? .fit : .fill)
-            .frame(width: size, height: size)
-            .clipShape(isTransparent ? AnyShape(RoundedRectangle(cornerRadius: 0)) : AnyShape(Circle()))
-            .overlay {
-                if showBorder && !isTransparent {
-                    Circle()
-                        .strokeBorder(borderColor, lineWidth: 1)
-                }
-            }
-            .accessibilityHidden(true)
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
     ///
-    /// Uses direct `CGImage` pixel access via `CGDataProvider` instead of
+    /// Uses `CGContext` bitmap rendering for direct pixel access instead of
     /// `NSImage.tiffRepresentation`, which triggers the full TIFF encoding
     /// pipeline on the main thread (~2000ms for large images).
     ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsimage/cgimage(forproposedRect:context:hints:)
-    public static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+    private static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
         guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
         }
@@ -85,7 +100,7 @@ public struct VAvatarImage: View {
         guard let data = context.data else { return false }
         let pixels = data.bindMemory(to: UInt32.self, capacity: width * height)
 
-        // Sample corners and edge midpoints — same 8 points as before.
+        // Sample corners and edge midpoints (8 points).
         let samplePoints: [(Int, Int)] = [
             (0, 0), (width - 1, 0),
             (0, height - 1), (width - 1, height - 1),
@@ -97,7 +112,7 @@ public struct VAvatarImage: View {
         for (x, y) in samplePoints {
             let pixel = pixels[y * width + x]
             let alpha = UInt8((pixel >> 24) & 0xFF)
-            if alpha < 242 { // ~0.95 threshold (242/255 ≈ 0.949)
+            if alpha < alphaOpaqueThreshold {
                 return true
             }
         }

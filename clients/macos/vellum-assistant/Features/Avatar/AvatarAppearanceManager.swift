@@ -160,7 +160,6 @@ final class AvatarAppearanceManager {
             guard response.isSuccess, !response.data.isEmpty else {
                 if customAvatarImage != nil { customAvatarImage = nil }
                 cachedChatAvatar = nil
-
                 updateDockIcon()
                 return
             }
