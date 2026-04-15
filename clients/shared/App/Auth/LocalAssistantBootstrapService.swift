@@ -368,7 +368,8 @@ public final class LocalAssistantBootstrapService {
             switch platformErr {
             case .authenticationRequired:
                 return .authenticationRequired
-            case .serverError(statusCode: 400, _) where context == .registration:
+            case .serverError(statusCode: 400, let detail) where context == .registration
+                    && detail?.contains("Deregister the existing assistant") == true:
                 return .registrationConflict
             default:
                 switch context {
