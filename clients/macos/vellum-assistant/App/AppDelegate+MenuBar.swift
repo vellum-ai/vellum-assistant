@@ -984,9 +984,9 @@ extension AppDelegate {
         }
 
         PreChatOnboardingState.clearPersistedState()
-        let flowView = PreChatOnboardingFlow { _ in
-            self.preChatPreviewWindow?.close()
-            self.preChatPreviewWindow = nil
+        let flowView = PreChatOnboardingFlow { [weak self] _ in
+            self?.preChatPreviewWindow?.close()
+            self?.preChatPreviewWindow = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(

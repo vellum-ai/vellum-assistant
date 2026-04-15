@@ -97,8 +97,12 @@ struct ToolSelectionView: View {
         }
         .onAppear {
             // Restore otherText from selectedTools if resuming
-            if let existing = selectedTools.first(where: { $0.hasPrefix("other:") }) {
-                otherText = String(existing.dropFirst(6))
+            let otherEntries = selectedTools
+                .filter { $0.hasPrefix("other:") }
+                .map { String($0.dropFirst(6)) }
+                .sorted()
+            if !otherEntries.isEmpty {
+                otherText = otherEntries.joined(separator: ", ")
                 otherExpanded = true
             }
             withAnimation(VAnimation.slow.delay(0.1)) {
@@ -257,9 +261,15 @@ struct ToolSelectionView: View {
         // Remove any previous other: entries
         selectedTools = selectedTools.filter { !$0.hasPrefix("other:") && $0 != "other" }
 
-        let trimmed = otherText.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty {
-            selectedTools.insert("other:\(trimmed)")
+        // Split comma-separated input into individual entries so each custom tool
+        // is stored discretely (e.g. "other:Trello", "other:Basecamp").
+        let entries = otherText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        for entry in entries {
+            selectedTools.insert("other:\(entry)")
         }
     }
 

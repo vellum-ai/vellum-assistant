@@ -32,7 +32,10 @@ final class PreChatOnboardingState {
             parts.append("focused on \(taskLabels)")
         }
         if !selectedTools.isEmpty {
-            let toolLabels = selectedTools.sorted().prefix(3).joined(separator: ", ")
+            // Strip internal "other:" prefix so display reads "Trello" not "other:Trello"
+            let toolLabels = selectedTools.sorted().prefix(3)
+                .map { $0.hasPrefix("other:") ? String($0.dropFirst(6)) : $0 }
+                .joined(separator: ", ")
             parts.append("mostly in \(toolLabels)")
         }
         if parts.isEmpty { return "Let's get to know each other." }

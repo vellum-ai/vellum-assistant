@@ -5,7 +5,9 @@ import VellumAssistantShared
 /// (tool selection → task/tone → name exchange) with slide transitions.
 ///
 /// Calls `onComplete` with a populated `PreChatOnboardingContext` when the
-/// user finishes the flow, or `nil` when the user skips everything.
+/// user finishes or skips through the flow. Skipping individual screens
+/// advances to the next screen; the final screen always calls `finish()`
+/// so downstream consumers receive a context with sensible defaults.
 @MainActor
 struct PreChatOnboardingFlow: View {
     @State private var state: PreChatOnboardingState
@@ -67,8 +69,12 @@ struct PreChatOnboardingFlow: View {
     // MARK: - Completion
 
     private func finish() {
+        // Strip internal "other:" prefix so backend receives clean tool names
+        let cleanTools = state.selectedTools.sorted().map { id in
+            id.hasPrefix("other:") ? String(id.dropFirst(6)) : id
+        }
         let context = PreChatOnboardingContext(
-            tools: Array(state.selectedTools).sorted(),
+            tools: cleanTools,
             tasks: Array(state.selectedTasks).sorted(),
             tone: state.toneLabel,
             userName: state.userName.isEmpty ? nil : state.userName,
