@@ -89,6 +89,16 @@ export interface DeepgramRealtimeOptions {
   inactivityTimeoutMs?: number;
   /** Audio sample rate in Hz (default: 16000). Passed through from the client WebSocket connection. */
   sampleRate?: number;
+  /**
+   * Enable Deepgram's built-in speaker diarization. Default: false.
+   *
+   * NOTE: Accepted and stored today but NOT yet forwarded to the Deepgram
+   * WebSocket. Runtime wiring lands in the adapter PR that emits
+   * `speakerLabel` on streaming events (meet-phase-1-6 PR 4). This option
+   * is plumbed here first so the config schema and constructor surface are
+   * available for downstream callers without changing transcriber behavior.
+   */
+  diarize?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +192,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
   private readonly sampleRate: number;
+  /**
+   * Whether speaker diarization is requested. Stored here but not yet
+   * forwarded to the Deepgram WebSocket — see the comment on
+   * {@link DeepgramRealtimeOptions.diarize}.
+   */
+  private readonly diarize: boolean;
 
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
@@ -214,6 +230,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.inactivityTimeoutMs =
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
     this.sampleRate = options.sampleRate ?? 16_000;
+    this.diarize = options.diarize ?? false;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
