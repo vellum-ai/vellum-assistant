@@ -21,6 +21,10 @@
  *   - If a user turn (or another wake) is currently in flight on the same
  *     conversation, the wake is queued behind it (single-flight per
  *     `conversationId`).
+ *   - While the wake's agent loop is running, the conversation is marked
+ *     as processing (via {@link WakeTarget.markProcessing}) so a user send
+ *     that arrives mid-wake is queued by `enqueueMessage` instead of
+ *     launching a concurrent `agentLoop.run()` on the same conversation.
  *
  * Logging:
  *   - Emits one structured log line per wake:
@@ -33,7 +37,6 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -45,6 +48,15 @@ const log = getLogger("agent-wake");
  * interface rather than importing `Conversation` directly so the wake
  * helper stays decoupled from the heavyweight conversation class and is
  * easy to exercise under unit tests.
+ *
+ * Translation note: the wake deliberately hands the adapter a raw
+ * {@link AgentEvent} via {@link emitAgentEvent} rather than a
+ * `ServerMessage`. The normal user-turn path translates `AgentEvent` into
+ * the correctly-shaped wire protocol frames (e.g.
+ * `text_delta` → `assistant_text_delta` with `conversationId`) via the
+ * canonical handler in `conversation-agent-loop-handlers.ts`. Passing raw
+ * events means the adapter can reuse that translation rather than the
+ * wake helper shipping malformed frames.
  */
 export interface WakeTarget {
   readonly conversationId: string;
@@ -52,14 +64,29 @@ export interface WakeTarget {
   /**
    * Live LLM-visible history. We read a snapshot, append the internal hint
    * for the run, and then (on non-empty output) append the resulting
-   * assistant message to this array so subsequent turns see it.
+   * assistant message(s) to this array so subsequent turns see them.
    */
   getMessages(): Message[];
   pushMessage(message: Message): void;
-  /** Client emitter — e.g. SSE. We only call this when the wake produces output. */
-  emitToClient(msg: ServerMessage): void;
+  /**
+   * Forward a raw agent event so the adapter can translate it to the
+   * correct `ServerMessage` shape (e.g. stamping `conversationId`,
+   * renaming `text_delta` → `assistant_text_delta`) before emission.
+   *
+   * Only called when the wake produces output worth emitting — silent
+   * no-op wakes never flush buffered events.
+   */
+  emitAgentEvent(event: AgentEvent): void;
   /** True if the conversation is already processing a turn. */
   isProcessing(): boolean;
+  /**
+   * Toggle the conversation's in-flight processing marker. The wake
+   * wraps its `agentLoop.run()` invocation in
+   * `markProcessing(true) … markProcessing(false)` so a concurrent user
+   * send sees `isProcessing() === true` and queues the message instead
+   * of spawning a parallel agent loop.
+   */
+  markProcessing(on: boolean): void;
 }
 
 export interface WakeOptions {
@@ -182,44 +209,49 @@ async function waitUntilIdle(
 }
 
 /**
- * Inspect the final assistant message of the post-run history to decide
- * whether the wake produced output worth persisting/emitting.
+ * Inspect the post-run history slice to decide whether the wake produced
+ * output worth persisting/emitting, and collect any tool-use names from
+ * the *first* assistant reply (used only for logging).
  */
-function inspectAssistantOutput(
+function inspectWakeOutput(
   baselineLength: number,
   updatedHistory: Message[],
 ): {
-  assistantMessage: Message | null;
+  tailMessages: Message[];
   hasVisibleText: boolean;
   toolUseNames: string[];
 } {
   // The agent loop appends assistant messages (and tool_result user
   // messages) onto the history it was given. We gave it baseline +
   // internal hint, so anything at index >= baselineLength + 1 came from
-  // the run. The *first* message past the hint is the assistant reply.
+  // the run.
   const firstAssistantIndex = baselineLength + 1;
   if (updatedHistory.length <= firstAssistantIndex) {
-    return { assistantMessage: null, hasVisibleText: false, toolUseNames: [] };
+    return { tailMessages: [], hasVisibleText: false, toolUseNames: [] };
   }
-  const assistantMessage = updatedHistory[firstAssistantIndex];
-  if (!assistantMessage || assistantMessage.role !== "assistant") {
-    return { assistantMessage: null, hasVisibleText: false, toolUseNames: [] };
-  }
-  const blocks = Array.isArray(assistantMessage.content)
-    ? assistantMessage.content
-    : [];
+  const tailMessages = updatedHistory.slice(firstAssistantIndex);
+
+  // Scan every tail message for visible text or tool_use blocks. A
+  // multi-step run (assistant → tool_result → assistant) still counts as
+  // "produced output" when the final assistant message is just a summary
+  // — we must persist the entire tail so the DB mirrors in-memory
+  // history.
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
-  for (const block of blocks) {
-    if (block.type === "text" && typeof block.text === "string") {
-      if (block.text.trim().length > 0) {
-        hasVisibleText = true;
+  for (const msg of tailMessages) {
+    if (msg.role !== "assistant") continue;
+    const blocks = Array.isArray(msg.content) ? msg.content : [];
+    for (const block of blocks) {
+      if (block.type === "text" && typeof block.text === "string") {
+        if (block.text.trim().length > 0) {
+          hasVisibleText = true;
+        }
+      } else if (block.type === "tool_use") {
+        toolUseNames.push(block.name);
       }
-    } else if (block.type === "tool_use") {
-      toolUseNames.push(block.name);
     }
   }
-  return { assistantMessage, hasVisibleText, toolUseNames };
+  return { tailMessages, hasVisibleText, toolUseNames };
 }
 
 /**
@@ -271,18 +303,20 @@ export async function wakeAgentForOpportunity(
 
     // Buffer events during the run. If the agent produces no visible
     // output and no tool calls, we drop everything silently. If it does,
-    // we flush the buffer to the client so the client sees normal
-    // streaming events (deltas, tool_use, tool_result, etc.).
-    const buffered: ServerMessage[] = [];
+    // we flush the buffered events via the target's translation-aware
+    // emitter so clients receive correctly-shaped wire frames (e.g.
+    // `assistant_text_delta` with `conversationId`, not the raw
+    // `text_delta` variant of `AgentEvent`).
+    const buffered: AgentEvent[] = [];
     const onEvent = (event: AgentEvent): void => {
-      // AgentEvent and ServerMessage share several variants by shape.
-      // The conversation's runtime normally translates AgentEvent into
-      // client events via a richer handler; for wake, we buffer the raw
-      // event types and forward only those that are directly
-      // client-safe. Unknown types are dropped (they produce no UI).
-      const ev = event as unknown as ServerMessage;
-      buffered.push(ev);
+      buffered.push(event);
     };
+
+    // Mark processing for the duration of the run so a concurrent user
+    // send is queued by `enqueueMessage()` rather than spawning a second
+    // concurrent agent loop on the same conversation (which would
+    // interleave writes to `conversation.messages`).
+    target.markProcessing(true);
 
     let updatedHistory: Message[];
     let runError: Error | null = null;
@@ -296,6 +330,18 @@ export async function wakeAgentForOpportunity(
     } catch (err) {
       runError = err instanceof Error ? err : new Error(String(err));
       updatedHistory = runInput;
+    } finally {
+      // Release the processing marker regardless of success/failure so
+      // the next user turn (or wake) isn't blocked waiting on a stale
+      // flag.
+      try {
+        target.markProcessing(false);
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: markProcessing(false) threw; continuing",
+        );
+      }
     }
 
     const durationMs = nowFn() - startedAt;
@@ -307,13 +353,15 @@ export async function wakeAgentForOpportunity(
       return { invoked: true, producedToolCalls: false };
     }
 
-    const { assistantMessage, hasVisibleText, toolUseNames } =
-      inspectAssistantOutput(baseline.length, updatedHistory);
+    const { tailMessages, hasVisibleText, toolUseNames } = inspectWakeOutput(
+      baseline.length,
+      updatedHistory,
+    );
 
     const producedToolCalls = toolUseNames.length > 0;
     const producedOutput = producedToolCalls || hasVisibleText;
 
-    if (!producedOutput || !assistantMessage) {
+    if (!producedOutput || tailMessages.length === 0) {
       log.info(
         {
           source,
@@ -327,13 +375,14 @@ export async function wakeAgentForOpportunity(
       return { invoked: true, producedToolCalls: false };
     }
 
-    // Output produced: flush buffered client events and persist the
-    // assistant message so the transcript stays consistent. The internal
-    // hint is NOT persisted and NOT emitted — only the assistant reply
-    // (and any downstream tool-result user messages) is.
+    // Output produced: flush buffered client events through the target's
+    // translator and persist the full tail (assistant messages + any
+    // intervening tool_result user messages) so the DB mirrors the
+    // in-memory history. The internal hint is NOT persisted and NOT
+    // emitted.
     for (const event of buffered) {
       try {
-        target.emitToClient(event);
+        target.emitAgentEvent(event);
       } catch (err) {
         log.warn(
           { conversationId, source, err },
@@ -342,24 +391,30 @@ export async function wakeAgentForOpportunity(
       }
     }
 
-    // Append assistant message and any subsequent tool_result user
-    // messages to live history. The hint itself stays out of history.
-    for (let i = baseline.length + 1; i < updatedHistory.length; i++) {
-      const msg = updatedHistory[i];
-      if (msg) target.pushMessage(msg);
+    // Append every tail message to live in-memory history. Without this,
+    // the next turn would rebuild from DB and lose the live references.
+    for (const msg of tailMessages) {
+      target.pushMessage(msg);
     }
 
-    try {
-      await addMessage(
-        conversationId,
-        assistantMessage.role,
-        JSON.stringify(assistantMessage.content),
-      );
-    } catch (err) {
-      log.warn(
-        { conversationId, source, err },
-        "agent-wake: failed to persist assistant message",
-      );
+    // Persist every tail message (assistant outputs + tool_result user
+    // messages from the loop's own tool execution). If we only persisted
+    // the first assistant message, a rehydration from DB would have a
+    // `tool_use` with no matching `tool_result`, which the provider
+    // would reject on the next turn.
+    for (const msg of tailMessages) {
+      try {
+        await addMessage(
+          conversationId,
+          msg.role,
+          JSON.stringify(msg.content),
+        );
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err, role: msg.role },
+          "agent-wake: failed to persist wake-tail message",
+        );
+      }
     }
 
     log.info(
@@ -369,6 +424,7 @@ export async function wakeAgentForOpportunity(
         durationMs,
         producedToolCalls,
         toolNamesCalled: toolUseNames,
+        tailMessageCount: tailMessages.length,
       },
       "agent-wake: produced output",
     );

@@ -470,8 +470,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         agentLoop: mockAgent.loop,
         getMessages: () => history,
         pushMessage: (msg) => history.push(msg),
-        emitToClient: () => {},
+        emitAgentEvent: () => {},
         isProcessing: () => false,
+        markProcessing: () => {},
       };
 
       // Opportunity callback → real agent wake. We await the wake
@@ -583,8 +584,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         agentLoop: mockAgent.loop,
         getMessages: () => history,
         pushMessage: (msg) => history.push(msg),
-        emitToClient: () => {},
+        emitAgentEvent: () => {},
         isProcessing: () => false,
+        markProcessing: () => {},
       };
 
       const wakeSpy = mock(async () => {
@@ -666,8 +668,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         agentLoop: mockAgent.loop,
         getMessages: () => history,
         pushMessage: (msg) => history.push(msg),
-        emitToClient: () => {},
+        emitAgentEvent: () => {},
         isProcessing: () => false,
+        markProcessing: () => {},
       };
 
       const wakePromises: Array<
@@ -759,8 +762,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         agentLoop: mockAgent.loop,
         getMessages: () => history,
         pushMessage: (msg) => history.push(msg),
-        emitToClient: () => {},
+        emitAgentEvent: () => {},
         isProcessing: () => false,
+        markProcessing: () => {},
       };
 
       const wakePromises: Array<Promise<void>> = [];
