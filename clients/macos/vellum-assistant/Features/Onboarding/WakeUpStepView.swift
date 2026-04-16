@@ -81,7 +81,7 @@ struct WakeUpStepView: View {
                     onContinueWithVellum()
                 }
 
-                VButton(label: "Continue Without Account", style: .outlined, isFullWidth: true) {
+                VButton(label: "Continue without account", style: .ghost) {
                     state?.skippedAuth = true
                     onStartWithAPIKey()
                 }
