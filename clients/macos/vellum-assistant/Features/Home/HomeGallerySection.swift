@@ -69,7 +69,6 @@ struct HomeGallerySection: View {
                             title: "Authorise $128.50 payment",
                             subtitle: "Invoice #2024-0391",
                             attachment: (fileName: "invoice-2024-0391.pdf", fileSize: "245 KB"),
-                            showDismiss: true,
                             onAuthorise: {},
                             onDeny: {},
                             onDismiss: {}

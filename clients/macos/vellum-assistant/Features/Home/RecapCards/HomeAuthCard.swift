@@ -16,7 +16,6 @@ struct HomeAuthCard: View {
     let title: String
     let subtitle: String?
     let attachment: (fileName: String, fileSize: String)?
-    let showDismiss: Bool
     let onAuthorise: () -> Void
     let onDeny: () -> Void
     let onDismiss: (() -> Void)?
@@ -25,7 +24,6 @@ struct HomeAuthCard: View {
         title: String,
         subtitle: String? = nil,
         attachment: (fileName: String, fileSize: String)? = nil,
-        showDismiss: Bool = false,
         onAuthorise: @escaping () -> Void,
         onDeny: @escaping () -> Void,
         onDismiss: (() -> Void)? = nil
@@ -33,7 +31,6 @@ struct HomeAuthCard: View {
         self.title = title
         self.subtitle = subtitle
         self.attachment = attachment
-        self.showDismiss = showDismiss
         self.onAuthorise = onAuthorise
         self.onDeny = onDeny
         self.onDismiss = onDismiss
