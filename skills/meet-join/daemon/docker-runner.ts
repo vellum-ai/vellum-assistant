@@ -299,22 +299,19 @@ function requestRaw(
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = Buffer.byteLength(payload);
     }
-    const req = httpRequest(
-      { socketPath, method, path, headers },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => {
-          const raw = Buffer.concat(chunks).toString("utf8");
-          const status = res.statusCode ?? 0;
-          if (status < 200 || status >= 300) {
-            reject(new DockerApiError(method, path, status, raw));
-            return;
-          }
-          resolve(raw);
-        });
-      },
-    );
+    const req = httpRequest({ socketPath, method, path, headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const status = res.statusCode ?? 0;
+        if (status < 200 || status >= 300) {
+          reject(new DockerApiError(method, path, status, raw));
+          return;
+        }
+        resolve(raw);
+      });
+    });
     req.on("error", (err) => reject(err));
     if (payload !== null) req.write(payload);
     req.end();
@@ -555,11 +552,7 @@ export class DockerRunner {
   }
 
   /** Issue a unix-socket HTTP request and decode the JSON body, if any. */
-  private request<T>(
-    method: string,
-    path: string,
-    body: unknown,
-  ): Promise<T> {
+  private request<T>(method: string, path: string, body: unknown): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const payload =
         body === null || body === undefined ? null : JSON.stringify(body);

@@ -325,9 +325,8 @@ describe("MeetSessionManager.join", () => {
     // (audio-ingest is stalled), but the resolver must still return the
     // token the bot is presenting on `Authorization: Bearer …`.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    const pendingToken = getMeetSessionEventRouter().resolveBotApiToken(
-      "m-pending",
-    );
+    const pendingToken =
+      getMeetSessionEventRouter().resolveBotApiToken("m-pending");
     expect(pendingToken).toMatch(/^[0-9a-f]{64}$/);
 
     // Let the ingest finish; the session now lands in `this.sessions`
@@ -1687,9 +1686,8 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     // Confirm the declared return type is `Promise<ChatOpportunityDecision>`
     // by exercising the type — this asserts nothing at runtime but guards
     // against accidental drift in the injected callback's signature.
-    const _typeGuard: (
-      p: string,
-    ) => Promise<ChatOpportunityDecision> = args.callDetectorLLM;
+    const _typeGuard: (p: string) => Promise<ChatOpportunityDecision> =
+      args.callDetectorLLM;
     expect(typeof _typeGuard).toBe("function");
 
     await manager.leave("m-llm-shape", "cleanup");

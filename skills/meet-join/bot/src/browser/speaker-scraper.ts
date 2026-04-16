@@ -195,11 +195,11 @@ export function startSpeakerScraper(
           return { speakerId, speakerName };
         };
 
-        const callback = (w[callbackName] as
+        const callback = w[callbackName] as
           | ((
               snapshot: { speakerId: string; speakerName: string } | null,
             ) => void)
-          | undefined);
+          | undefined;
 
         // Emit the initial active speaker (if any) so Node-side state is
         // primed. Dedupe on the Node side means this is a no-op unless the
@@ -207,11 +207,11 @@ export function startSpeakerScraper(
         if (callback) callback(extractSnapshot());
 
         const observer = new MutationObserver(() => {
-          const fresh = (w[callbackName] as
+          const fresh = w[callbackName] as
             | ((
                 snapshot: { speakerId: string; speakerName: string } | null,
               ) => void)
-            | undefined);
+            | undefined;
           if (fresh) fresh(extractSnapshot());
         });
 

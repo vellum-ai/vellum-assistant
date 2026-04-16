@@ -33,7 +33,10 @@
 
 import type { Page } from "playwright";
 
-import type { Participant, ParticipantChangeEvent } from "../../../contracts/index.js";
+import type {
+  Participant,
+  ParticipantChangeEvent,
+} from "../../../contracts/index.js";
 
 import { selectors } from "./dom-selectors.js";
 
@@ -129,8 +132,7 @@ export function startParticipantScraper(
             const el = node as HTMLElement;
             const id = el.getAttribute("data-participant-id");
             const nameEl = el.querySelector(nameSelector);
-            const name =
-              (nameEl?.textContent ?? "").trim() || null;
+            const name = (nameEl?.textContent ?? "").trim() || null;
             // Meet marks the signed-in / joining user's row with
             // `data-self-name` instead of `data-participant-name`. We
             // use this authoritative marker to flag the bot's own row;

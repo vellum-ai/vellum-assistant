@@ -105,8 +105,7 @@ class MeetSendChatTool implements Tool {
       const active = MeetSessionManager.activeSessions();
       if (active.length === 0) {
         return {
-          content:
-            "Error: no active Meet session to send chat to.",
+          content: "Error: no active Meet session to send chat to.",
           isError: true,
         };
       }

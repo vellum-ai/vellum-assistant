@@ -182,7 +182,10 @@ async function tick(ms = 0): Promise<void> {
  */
 async function waitFor(
   predicate: () => boolean,
-  { timeoutMs = 2000, intervalMs = 5 }: { timeoutMs?: number; intervalMs?: number } = {},
+  {
+    timeoutMs = 2000,
+    intervalMs = 5,
+  }: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

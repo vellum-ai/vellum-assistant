@@ -87,11 +87,8 @@ mock.module("../../../../assistant/src/util/logger.js", () => ({
     }),
 }));
 
-const {
-  meetSpeakTool,
-  meetCancelSpeakTool,
-  MEET_SPEAK_MAX_TEXT_LENGTH,
-} = await import("../meet-speak-tool.js");
+const { meetSpeakTool, meetCancelSpeakTool, MEET_SPEAK_MAX_TEXT_LENGTH } =
+  await import("../meet-speak-tool.js");
 
 import type { ToolContext } from "../../../../assistant/src/tools/types.js";
 
@@ -170,10 +167,7 @@ describe("meet_speak input validation", () => {
 
   test("rejects non-string text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSpeakTool.execute(
-      { text: 123 },
-      makeContext(),
-    );
+    const result = await meetSpeakTool.execute({ text: 123 }, makeContext());
     expect(result.isError).toBe(true);
     expect(speakMock).not.toHaveBeenCalled();
   });
@@ -266,10 +260,7 @@ describe("meet_speak disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetSpeakTool.execute(
-      { text: "hi" },
-      makeContext(),
-    );
+    const result = await meetSpeakTool.execute({ text: "hi" }, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(result.content).toContain("m1");

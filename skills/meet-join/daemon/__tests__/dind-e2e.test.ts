@@ -348,9 +348,7 @@ describe("Meet DinD E2E (net-new coverage vs. docker-mode-e2e.test.ts)", () => {
       // end-to-end proof that the DinD plumbing carries the
       // daemon-localhost contract all the way from create → inspect →
       // session.
-      expect(session.botBaseUrl).toBe(
-        `http://127.0.0.1:${ephemeralHostPort}`,
-      );
+      expect(session.botBaseUrl).toBe(`http://127.0.0.1:${ephemeralHostPort}`);
     } finally {
       await manager.leave("m-port", "test-cleanup");
     }

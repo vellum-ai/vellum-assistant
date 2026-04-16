@@ -31,11 +31,7 @@ import {
   type ScraperPage,
 } from "../src/browser/speaker-scraper.js";
 
-const FIXTURE_PATH = join(
-  import.meta.dir,
-  "fixtures",
-  "meet-dom-ingame.html",
-);
+const FIXTURE_PATH = join(import.meta.dir, "fixtures", "meet-dom-ingame.html");
 
 interface JsdomPageHarness {
   page: ScraperPage;
@@ -288,11 +284,9 @@ describe("startSpeakerScraper", () => {
   });
 
   test("stop() is idempotent", async () => {
-    const { stop } = startSpeakerScraper(
-      harness.page,
-      () => {},
-      { meetingId: "meeting-1" },
-    );
+    const { stop } = startSpeakerScraper(harness.page, () => {}, {
+      meetingId: "meeting-1",
+    });
     stopScraper = stop;
 
     // Calling stop() twice must not throw.

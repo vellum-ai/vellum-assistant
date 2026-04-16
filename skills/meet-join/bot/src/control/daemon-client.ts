@@ -116,8 +116,7 @@ export class DaemonClient {
     this.authHeader = `Bearer ${opts.botApiToken}`;
     this.doFetch =
       opts.fetch ??
-      ((...args) =>
-        (globalThis.fetch as unknown as FetchFn)(...args));
+      ((...args) => (globalThis.fetch as unknown as FetchFn)(...args));
     this.onError = opts.onError;
     this.maxBatchSize = opts.maxBatchSize ?? MAX_BATCH_SIZE;
     this.flushIntervalMs = opts.flushIntervalMs ?? FLUSH_INTERVAL_MS;

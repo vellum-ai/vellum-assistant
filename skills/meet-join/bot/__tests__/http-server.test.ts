@@ -9,7 +9,10 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createHttpServer, type HttpServerHandle } from "../src/control/http-server.js";
+import {
+  createHttpServer,
+  type HttpServerHandle,
+} from "../src/control/http-server.js";
 import { BotState } from "../src/control/state.js";
 
 const API_TOKEN = "test-token-abc";

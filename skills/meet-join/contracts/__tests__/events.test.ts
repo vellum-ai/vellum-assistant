@@ -301,7 +301,13 @@ describe("InboundChatEventSchema", () => {
 
 describe("LifecycleEventSchema", () => {
   test("parses every lifecycle state", () => {
-    for (const state of ["joining", "joined", "leaving", "left", "error"] as const) {
+    for (const state of [
+      "joining",
+      "joined",
+      "leaving",
+      "left",
+      "error",
+    ] as const) {
       const result = LifecycleEventSchema.parse({
         type: "lifecycle",
         meetingId: "meet-1",
@@ -473,7 +479,9 @@ describe("PlayAudioCommandSchema", () => {
   });
 
   test("rejects missing streamId", () => {
-    expect(() => PlayAudioCommandSchema.parse({ type: "play_audio" })).toThrow();
+    expect(() =>
+      PlayAudioCommandSchema.parse({ type: "play_audio" }),
+    ).toThrow();
   });
 });
 

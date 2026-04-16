@@ -29,7 +29,7 @@ required.
 
 If you do need a new external reference (e.g. a new central registry has to
 learn about Meet), add the file path to the `ALLOWLIST` in
-`skill-meet-isolation.test.ts` with a comment explaining *why* the reference
+`skill-meet-isolation.test.ts` with a comment explaining _why_ the reference
 is necessary and why it cannot live inside the skill.
 
 ## Central registries that stay put

@@ -266,8 +266,7 @@ export class MeetConsentMonitor {
       deps.setIntervalFn ?? ((cb, ms) => setInterval(cb, ms));
     this.clearIntervalFn =
       deps.clearIntervalFn ??
-      ((handle) =>
-        clearInterval(handle as ReturnType<typeof setInterval>));
+      ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
     this.now = deps.now ?? Date.now;
   }
 
@@ -350,8 +349,7 @@ export class MeetConsentMonitor {
 
     if (this.isDuplicate("t", raw)) return;
 
-    const speaker =
-      event.speakerLabel ?? event.speakerId ?? "Unknown speaker";
+    const speaker = event.speakerLabel ?? event.speakerId ?? "Unknown speaker";
     const entry: TranscriptEntry = {
       tMs: this.now(),
       timestamp: event.timestamp,
@@ -629,9 +627,7 @@ export class MeetConsentMonitor {
     const chatLines =
       this.chatBuffer.length === 0
         ? "(none)"
-        : this.chatBuffer
-            .map((e) => `${e.fromName}: ${e.text}`)
-            .join("\n");
+        : this.chatBuffer.map((e) => `${e.fromName}: ${e.text}`).join("\n");
     const transcriptLines =
       this.transcriptBuffer.length === 0
         ? "(none)"

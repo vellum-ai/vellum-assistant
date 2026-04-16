@@ -20,7 +20,10 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { createHttpServer, type HttpServerHandle } from "../src/control/http-server.js";
+import {
+  createHttpServer,
+  type HttpServerHandle,
+} from "../src/control/http-server.js";
 import { BotState } from "../src/control/state.js";
 import {
   DEFAULT_BYTES_PER_MS,
@@ -241,14 +244,17 @@ describe("POST /play_audio (streaming)", () => {
       o += c.length;
     }
 
-    const res = await fetch(`http://127.0.0.1:${port}/play_audio?stream_id=s-1`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${API_TOKEN}`,
-        "content-type": "application/octet-stream",
+    const res = await fetch(
+      `http://127.0.0.1:${port}/play_audio?stream_id=s-1`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${API_TOKEN}`,
+          "content-type": "application/octet-stream",
+        },
+        body: flat,
       },
-      body: flat,
-    });
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { streamId: string; bytes: number };
     expect(body.streamId).toBe("s-1");
@@ -509,11 +515,7 @@ describe("POST /play_audio (streaming)", () => {
       expect(byte === 0xaa || byte === 0xbb || byte === 0xcc).toBe(true);
     }
     // A's trailing silence: all zeros.
-    for (
-      let i = bodyAJson.bytes;
-      i < bodyAJson.bytes + silenceBytes;
-      i++
-    ) {
+    for (let i = bodyAJson.bytes; i < bodyAJson.bytes + silenceBytes; i++) {
       expect(shim.buffer[i]).toBe(0);
     }
     // B's payload region: *must* be exclusively 0x42 — any pattern-A byte

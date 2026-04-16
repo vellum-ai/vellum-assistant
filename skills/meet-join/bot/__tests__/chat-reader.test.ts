@@ -68,10 +68,7 @@ interface FakePage {
  * Build a fake Playwright `Page` wrapping a JSDOM document. Only the subset
  * of Page methods used by `chat-reader.ts` is implemented.
  */
-function createFakePage(
-  html: string,
-  opts: FakePageOptions = {},
-): FakePage {
+function createFakePage(html: string, opts: FakePageOptions = {}): FakePage {
   const dom = new JSDOM(html, { runScripts: "outside-only" });
   const window = dom.window;
   const document = window.document;
@@ -112,7 +109,9 @@ function createFakePage(
       toggleClicks += 1;
       // If the message list has been removed, recreate it so a subsequent
       // query succeeds.
-      if (!document.querySelector('[role="list"][aria-label="Chat messages"]')) {
+      if (
+        !document.querySelector('[role="list"][aria-label="Chat messages"]')
+      ) {
         const aside = document.querySelector("aside");
         const list = document.createElement("div");
         list.setAttribute("role", "list");
@@ -161,10 +160,7 @@ function createFakePage(
   };
 
   const page: Partial<Page> = {
-    evaluate: (async (
-      fn: (...args: unknown[]) => unknown,
-      arg?: unknown,
-    ) => {
+    evaluate: (async (fn: (...args: unknown[]) => unknown, arg?: unknown) => {
       return runInPage(fn, arg);
     }) as unknown as Page["evaluate"],
     exposeFunction: (async (name: string, cb: Function) => {
@@ -296,11 +292,10 @@ describe("startChatReader", () => {
     const fake = createFakePage(CHAT_FIXTURE);
     const events: InboundChatEvent[] = [];
 
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "m1", selfName: "Alice" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "m1",
+      selfName: "Alice",
+    });
 
     await flushMicrotasks();
     // The fixture's pre-existing message is from "Alice" — since Alice is
@@ -348,11 +343,10 @@ describe("startChatReader", () => {
     const fake = createFakePage(CHAT_FIXTURE);
     const events: InboundChatEvent[] = [];
 
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "m1", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "m1",
+      selfName: "Bot",
+    });
 
     await flushMicrotasks();
     // Drop the fixture's pre-existing message from the comparison.
@@ -385,11 +379,10 @@ describe("startChatReader", () => {
     expect(fake.panelToggleClicks()).toBe(0);
 
     const events: InboundChatEvent[] = [];
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "m1", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "m1",
+      selfName: "Bot",
+    });
 
     // Exactly one click to open the panel; once open, no further clicks.
     expect(fake.panelToggleClicks()).toBe(1);
@@ -409,11 +402,10 @@ describe("startChatReader", () => {
   test("does not click the panel toggle when the panel is already open", async () => {
     const fake = createFakePage(CHAT_FIXTURE);
 
-    reader = await startChatReader(
-      fake.page,
-      () => {},
-      { meetingId: "m1", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, () => {}, {
+      meetingId: "m1",
+      selfName: "Bot",
+    });
 
     expect(fake.panelToggleClicks()).toBe(0);
   });
@@ -422,11 +414,10 @@ describe("startChatReader", () => {
     const fake = createFakePage(CHAT_FIXTURE);
     const events: InboundChatEvent[] = [];
 
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "custom-meeting-xyz", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "custom-meeting-xyz",
+      selfName: "Bot",
+    });
 
     await flushMicrotasks();
     fake.appendMessage({
@@ -446,11 +437,10 @@ describe("startChatReader", () => {
     const fake = createFakePage(CHAT_FIXTURE, { failExposeFunction: true });
     const events: InboundChatEvent[] = [];
 
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "m1", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "m1",
+      selfName: "Bot",
+    });
 
     // Polling fires an immediate tick, so the fixture's pre-existing
     // message should surface without waiting an interval.
@@ -473,11 +463,10 @@ describe("startChatReader", () => {
     const fake = createFakePage(CHAT_FIXTURE);
     const events: InboundChatEvent[] = [];
 
-    reader = await startChatReader(
-      fake.page,
-      (event) => events.push(event),
-      { meetingId: "m1", selfName: "Bot" },
-    );
+    reader = await startChatReader(fake.page, (event) => events.push(event), {
+      meetingId: "m1",
+      selfName: "Bot",
+    });
 
     await reader.stop();
     await reader.stop(); // second call must not throw

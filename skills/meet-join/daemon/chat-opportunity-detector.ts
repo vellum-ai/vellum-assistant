@@ -208,7 +208,10 @@ export class MeetChatOpportunityDetector {
     this.now = deps.now ?? Date.now;
 
     this.patterns = this.config.enabled
-      ? this.buildPatterns(deps.assistantDisplayName, this.config.detectorKeywords)
+      ? this.buildPatterns(
+          deps.assistantDisplayName,
+          this.config.detectorKeywords,
+        )
       : [];
   }
 
@@ -275,8 +278,7 @@ export class MeetChatOpportunityDetector {
     const raw = event.text ?? "";
     if (raw.trim().length === 0) return;
 
-    const speaker =
-      event.speakerLabel ?? event.speakerId ?? "Unknown speaker";
+    const speaker = event.speakerLabel ?? event.speakerId ?? "Unknown speaker";
     this.transcriptBuffer.push({
       tMs: this.now(),
       timestamp: event.timestamp,
@@ -336,10 +338,7 @@ export class MeetChatOpportunityDetector {
       // Address + question: `(hey|hi|ok|so),? <assistantName>[,.]? … ?`.
       try {
         patterns.push(
-          new RegExp(
-            `(hey|hi|ok|so),?\\s+${nameLiteral}[,.]?\\s+.*\\?$`,
-            "i",
-          ),
+          new RegExp(`(hey|hi|ok|so),?\\s+${nameLiteral}[,.]?\\s+.*\\?$`, "i"),
         );
       } catch (err) {
         log.warn(
@@ -498,7 +497,7 @@ export class MeetChatOpportunityDetector {
       `Tier 1 reason: ${triggerReason}\n\n` +
       "Would the AI assistant chiming in via meeting chat be appropriate " +
       "and helpful here? Reply JSON only: " +
-      '{ shouldRespond: bool, reason: string }'
+      "{ shouldRespond: bool, reason: string }"
     );
   }
 

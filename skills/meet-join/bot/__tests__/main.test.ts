@@ -17,10 +17,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type {
-  LifecycleEvent,
-  MeetBotEvent,
-} from "../../contracts/index.js";
+import type { LifecycleEvent, MeetBotEvent } from "../../contracts/index.js";
 
 import { runBot, type BotDeps, type DaemonClientLike } from "../src/main.js";
 import { BotState } from "../src/control/state.js";
@@ -84,9 +81,10 @@ interface MakeDepsOpts {
   pulseError?: Error;
 }
 
-function makeDeps(
-  opts: MakeDepsOpts = {},
-): { deps: BotDeps; handles: MockHandles } {
+function makeDeps(opts: MakeDepsOpts = {}): {
+  deps: BotDeps;
+  handles: MockHandles;
+} {
   const calls: RecordedCall[] = [];
   const daemonEvents: MeetBotEvent[] = [];
   let daemonStopped = false;
@@ -340,9 +338,7 @@ describe("runBot — boot sequence", () => {
     const indexOf = (kind: string): number => order.indexOf(kind);
 
     expect(indexOf("browser.create")).toBeGreaterThanOrEqual(0);
-    expect(indexOf("daemon.create")).toBeGreaterThan(
-      indexOf("browser.create"),
-    );
+    expect(indexOf("daemon.create")).toBeGreaterThan(indexOf("browser.create"));
     expect(indexOf("join.meet")).toBeGreaterThan(indexOf("daemon.create"));
     expect(indexOf("scraper.participant.start")).toBeGreaterThan(
       indexOf("join.meet"),
@@ -391,9 +387,7 @@ describe("runBot — boot sequence", () => {
     const speakerCall = handles.calls.find(
       (c) => c.kind === "scraper.speaker.start",
     );
-    const chatCall = handles.calls.find(
-      (c) => c.kind === "scraper.chat.start",
-    );
+    const chatCall = handles.calls.find((c) => c.kind === "scraper.chat.start");
 
     expect(participantCall?.meetingId).toBe("m-1");
     expect(speakerCall?.meetingId).toBe("m-1");
@@ -635,9 +629,7 @@ describe("runBot — daemon-client terminal errors", () => {
     expect(
       handles.errors.some((e) => e.includes("daemon ingress failure")),
     ).toBe(true);
-    expect(
-      handles.errors.some((e) => e.includes("status 503")),
-    ).toBe(true);
+    expect(handles.errors.some((e) => e.includes("status 503"))).toBe(true);
   });
 
   test("second terminal error within the window triggers graceful shutdown + exit 1", async () => {
@@ -645,7 +637,9 @@ describe("runBot — daemon-client terminal errors", () => {
     const { deps, handles } = makeDeps();
     await runBot(deps);
 
-    handles.fireDaemonError(new Error("ingress rejected batch with status 400"));
+    handles.fireDaemonError(
+      new Error("ingress rejected batch with status 400"),
+    );
     handles.fireDaemonError(new Error("ingress returned status 503"));
 
     const deadline = Date.now() + 1_000;
@@ -675,12 +669,9 @@ describe("runBot — daemon-client terminal errors", () => {
 
     // Both failures were logged, plus the "shutting down" banner.
     expect(
-      handles.errors.filter((e) => e.includes("daemon ingress failure"))
-        .length,
+      handles.errors.filter((e) => e.includes("daemon ingress failure")).length,
     ).toBeGreaterThanOrEqual(2);
-    expect(
-      handles.errors.some((e) => e.includes("shutting down")),
-    ).toBe(true);
+    expect(handles.errors.some((e) => e.includes("shutting down"))).toBe(true);
   });
 
   test("daemon-error shutdown deduplicates against SIGTERM", async () => {
@@ -716,7 +707,9 @@ describe("runBot — event wiring", () => {
 
     // Capture the participant-scraper onEvent so we can invoke it by hand.
     let participantOnEvent:
-      | ((event: import("../../contracts/index.js").ParticipantChangeEvent) => void)
+      | ((
+          event: import("../../contracts/index.js").ParticipantChangeEvent,
+        ) => void)
       | null = null;
     let speakerOnEvent:
       | ((event: import("../../contracts/index.js").SpeakerChangeEvent) => void)

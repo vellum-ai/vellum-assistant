@@ -151,9 +151,7 @@ export const MeetServiceSchema = z
             error:
               "services.meet.proactiveChat.tier2DebounceMs must be a number",
           })
-          .int(
-            "services.meet.proactiveChat.tier2DebounceMs must be an integer",
-          )
+          .int("services.meet.proactiveChat.tier2DebounceMs must be an integer")
           .nonnegative(
             "services.meet.proactiveChat.tier2DebounceMs must be non-negative",
           )

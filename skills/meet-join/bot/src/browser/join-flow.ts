@@ -113,9 +113,7 @@ async function captureFailureHtml(
     return htmlPath;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `meet-bot: html capture failed for ${name}: ${msg}\n`,
-    );
+    process.stderr.write(`meet-bot: html capture failed for ${name}: ${msg}\n`);
     return null;
   }
 }

@@ -74,7 +74,10 @@ async function startMockDocker(): Promise<MockDocker> {
         url: req.url ?? "",
         body: Buffer.concat(chunks).toString("utf8"),
       });
-      const queued = queue.shift() ?? { status: 500, body: "no response queued" };
+      const queued = queue.shift() ?? {
+        status: 500,
+        body: "no response queued",
+      };
       const serialized =
         queued.body === null
           ? ""
@@ -92,7 +95,10 @@ async function startMockDocker(): Promise<MockDocker> {
   });
 
   // Use a short socket path — unix sockets cap out around 104 bytes on macOS.
-  const socketPath = join(tempDir, `docker-${Math.random().toString(36).slice(2)}.sock`);
+  const socketPath = join(
+    tempDir,
+    `docker-${Math.random().toString(36).slice(2)}.sock`,
+  );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, () => {
@@ -618,9 +624,7 @@ describe("DockerRunner workspace-mount mode branching", () => {
     await expect(
       runner.run({
         image: "vellum-meet-bot:dev",
-        workspaceMounts: [
-          { target: "/sockets", subpath: "meets/m1/sockets" },
-        ],
+        workspaceMounts: [{ target: "/sockets", subpath: "meets/m1/sockets" }],
       }),
     ).rejects.toThrow(expected);
   });

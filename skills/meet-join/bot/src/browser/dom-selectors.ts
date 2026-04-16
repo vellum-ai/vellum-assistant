@@ -110,8 +110,8 @@ export const chatSelectors = {
   MESSAGE_NODE: 'div[role="listitem"][data-message-id]',
 
   /** Subselectors applied within a MESSAGE_NODE to extract rendered fields. */
-  MESSAGE_SENDER: '[data-sender-name]',
-  MESSAGE_TEXT: '[data-message-text]',
+  MESSAGE_SENDER: "[data-sender-name]",
+  MESSAGE_TEXT: "[data-message-text]",
   MESSAGE_TIMESTAMP: "time[datetime]",
 } as const;
 
@@ -130,7 +130,7 @@ export const participantSelectors = {
   NODE: '[role="listitem"][data-participant-id]',
 
   /** Subselectors applied within a NODE. */
-  NAME: '[data-self-name], [data-participant-name]',
+  NAME: "[data-self-name], [data-participant-name]",
 
   /** Shown when a participant is currently presenting (screen-share). */
   // TODO(meet-dom): Meet varies between class-based and aria-based presenter
@@ -186,7 +186,8 @@ export const controlSelectors = {
 export const selectors = {
   // Prejoin
   PREJOIN_NAME_INPUT: prejoinSelectors.NAME_INPUT,
-  PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON: prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
+  PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON:
+    prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
   PREJOIN_ASK_TO_JOIN_BUTTON: prejoinSelectors.ASK_TO_JOIN_BUTTON,
   PREJOIN_JOIN_NOW_BUTTON: prejoinSelectors.JOIN_NOW_BUTTON,
 
@@ -204,8 +205,10 @@ export const selectors = {
   INGAME_PARTICIPANT_LIST: participantSelectors.LIST,
   INGAME_PARTICIPANT_NODE: participantSelectors.NODE,
   INGAME_PARTICIPANT_NAME: participantSelectors.NAME,
-  INGAME_PARTICIPANT_PRESENTER_INDICATOR: participantSelectors.PRESENTER_INDICATOR,
-  INGAME_PARTICIPANT_SPEAKING_INDICATOR: participantSelectors.SPEAKING_INDICATOR,
+  INGAME_PARTICIPANT_PRESENTER_INDICATOR:
+    participantSelectors.PRESENTER_INDICATOR,
+  INGAME_PARTICIPANT_SPEAKING_INDICATOR:
+    participantSelectors.SPEAKING_INDICATOR,
 
   // Speaker
   INGAME_ACTIVE_SPEAKER_INDICATOR,

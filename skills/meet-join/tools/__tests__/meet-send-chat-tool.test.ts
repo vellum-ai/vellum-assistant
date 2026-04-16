@@ -145,10 +145,7 @@ describe("meet_send_chat input validation", () => {
 
   test("rejects empty text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSendChatTool.execute(
-      { text: "" },
-      makeContext(),
-    );
+    const result = await meetSendChatTool.execute({ text: "" }, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("text");
     expect(sendChatMock).not.toHaveBeenCalled();
@@ -156,10 +153,7 @@ describe("meet_send_chat input validation", () => {
 
   test("rejects non-string text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSendChatTool.execute(
-      { text: 123 },
-      makeContext(),
-    );
+    const result = await meetSendChatTool.execute({ text: 123 }, makeContext());
     expect(result.isError).toBe(true);
     expect(sendChatMock).not.toHaveBeenCalled();
   });

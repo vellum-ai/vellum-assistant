@@ -33,14 +33,7 @@
 
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   MeetBotEvent,
@@ -454,7 +447,9 @@ function wrapSessionManager(
             (err !== null &&
               typeof err === "object" &&
               (err as { code?: unknown }).code === "MEET_TTS_CANCELLED");
-          const reason: "cancelled" | "error" = isCancel ? "cancelled" : "error";
+          const reason: "cancelled" | "error" = isCancel
+            ? "cancelled"
+            : "error";
           void publishToHub({
             type: "meet.speaking_ended",
             meetingId,
@@ -489,7 +484,10 @@ function participantChangeWithSelf(): ParticipantChangeEvent {
   };
 }
 
-function speakerChange(speakerId: string, speakerName = "Bob"): SpeakerChangeEvent {
+function speakerChange(
+  speakerId: string,
+  speakerName = "Bob",
+): SpeakerChangeEvent {
   return {
     type: "speaker.change",
     meetingId: MEETING_ID,
@@ -652,7 +650,9 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
     const captured = captureHub();
     try {
       dispatcher.dispatch(MEETING_ID, participantChangeWithSelf());
-      const result = await session.speak({ text: "I am about to be interrupted" });
+      const result = await session.speak({
+        text: "I am about to be interrupted",
+      });
       expect(result.streamId).toBe("stream-barge");
 
       await captured.waitFor((m) => m.type === "meet.speaking_started");

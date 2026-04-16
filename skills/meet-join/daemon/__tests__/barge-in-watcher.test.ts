@@ -368,7 +368,10 @@ describe("MeetBargeInWatcher — speaker.change cancel path", () => {
     expect(watcher._hasPendingCancel()).toBe(true);
 
     // Floor returns to the bot before the debounce expires.
-    dispatcher.dispatch(MEETING_ID, speakerChange(BOT_PARTICIPANT_ID, "Velissa"));
+    dispatcher.dispatch(
+      MEETING_ID,
+      speakerChange(BOT_PARTICIPANT_ID, "Velissa"),
+    );
     expect(watcher._hasPendingCancel()).toBe(false);
     expect(timer.pending.size).toBe(0);
 
@@ -386,7 +389,10 @@ describe("MeetBargeInWatcher — speaker.change cancel path", () => {
     hub.publish(speakingStarted());
     await flushPromises();
 
-    dispatcher.dispatch(MEETING_ID, speakerChange(BOT_PARTICIPANT_ID, "Velissa"));
+    dispatcher.dispatch(
+      MEETING_ID,
+      speakerChange(BOT_PARTICIPANT_ID, "Velissa"),
+    );
     expect(timer.pending.size).toBe(0);
     expect(watcher._hasPendingCancel()).toBe(false);
     expect(session.cancelSpeak).toHaveBeenCalledTimes(0);

@@ -580,10 +580,7 @@ describe("MeetStorageWriter audio pipeline (mocked spawn)", () => {
     writer.start();
     await writer.startAudio(pcm.source);
 
-    dispatcher.dispatch(
-      "m1",
-      lifecycleLeft("m1", "2024-01-01T00:00:00.000Z"),
-    );
+    dispatcher.dispatch("m1", lifecycleLeft("m1", "2024-01-01T00:00:00.000Z"));
 
     expect(lastChild()!.stdin.ended).toBe(true);
 

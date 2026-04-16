@@ -133,9 +133,9 @@ the meet subsystem, run this manual verification loop.
    - `segments.jsonl` — one JSON line per DOM-reported speaker span.
    - `participants.json` — full final participant snapshot.
    - `meta.json` — summary record written on the `lifecycle:left` event.
-   Open each file and spot-check that it's well-formed and reflects the
-   meeting content (no empty transcripts when people were clearly
-   speaking, no missing speaker names that were visible in the Meet UI).
+     Open each file and spot-check that it's well-formed and reflects the
+     meeting content (no empty transcripts when people were clearly
+     speaking, no missing speaker names that were visible in the Meet UI).
 6. **Verify graceful daemon shutdown.** Join a meeting, wait for the bot
    to stabilize, then kill the assistant with `SIGTERM` (the Vellum CLI's
    stop flow, or `kill <daemon-pid>`). Expected: the bot leaves the
