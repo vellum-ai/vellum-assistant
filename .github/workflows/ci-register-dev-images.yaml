@@ -218,6 +218,16 @@ jobs:
 
         id: migration-ceilings
         run: |
+          # Migration ceilings must reflect the assistant image's commit,
+          # not the triggering workflow's commit (which may be for a
+          # different service). Temporarily check out the assistant's SHA.
+          ASSISTANT_SHA="${{ steps.images.outputs.assistant_sha }}"
+          CURRENT_SHA=$(git rev-parse HEAD)
+          if [ "$ASSISTANT_SHA" != "$CURRENT_SHA" ]; then
+            echo "Checking out assistant SHA ${ASSISTANT_SHA:0:7} for migration ceilings (current: ${CURRENT_SHA:0:7})"
+            git checkout "$ASSISTANT_SHA" -- assistant/src/memory/migrations/registry.ts assistant/src/workspace/migrations/
+          fi
+
           # Extract max DB migration version from the registry
           DB_VERSION=$(node -e "
             const fs = require('fs');
