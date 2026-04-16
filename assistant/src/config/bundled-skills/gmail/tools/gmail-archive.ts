@@ -23,6 +23,34 @@ function decodeSenderEmail(senderId: string): string | null {
   }
 }
 
+/**
+ * Persist archived sender emails to the blocklist for future sessions.
+ * Only runs when the archive was initiated via a validated scan_id path
+ * (not bare message_ids) to prevent unverified emails from being recorded.
+ */
+function recordBlocklist(
+  scanId: string | undefined,
+  senderIds: string[] | undefined,
+): void {
+  if (!scanId || !senderIds?.length) return;
+  const archivedEmails: string[] = [];
+  for (const sid of senderIds) {
+    try {
+      const email = Buffer.from(sid, "base64url").toString("utf-8");
+      if (email.includes("@")) archivedEmails.push(email);
+    } catch {
+      // Skip undecodable sender IDs
+    }
+  }
+  if (archivedEmails.length > 0) {
+    try {
+      addToBlocklist(archivedEmails);
+    } catch {
+      // Non-fatal — preferences are best-effort
+    }
+  }
+}
+
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -210,6 +238,7 @@ export async function run(
       await modifyMessage(connection, messageIds[0], {
         removeLabelIds: ["INBOX"],
       });
+      recordBlocklist(scanId, senderIds);
       return ok("Message archived.");
     }
 
@@ -219,25 +248,7 @@ export async function run(
         removeLabelIds: ["INBOX"],
       });
     }
-    // Record archived sender emails for future sessions (only after success)
-    if (senderIds?.length) {
-      const archivedEmails: string[] = [];
-      for (const sid of senderIds) {
-        try {
-          const email = Buffer.from(sid, "base64url").toString("utf-8");
-          if (email.includes("@")) archivedEmails.push(email);
-        } catch {
-          // Skip undecodable sender IDs
-        }
-      }
-      if (archivedEmails.length > 0) {
-        try {
-          addToBlocklist(archivedEmails);
-        } catch {
-          // Non-fatal — preferences are best-effort
-        }
-      }
-    }
+    recordBlocklist(scanId, senderIds);
     return ok(`Archived ${messageIds.length} message(s).`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
