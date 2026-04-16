@@ -12,10 +12,14 @@ import SwiftUI
 /// the child via `placeSubviews` — no alignment query cascade.
 ///
 /// Reference: [Layout.explicitAlignment](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-8ofeu)
-struct BottomAlignedMinHeightLayout: Layout {
-    let minHeight: CGFloat
+public struct BottomAlignedMinHeightLayout: Layout {
+    public let minHeight: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public init(minHeight: CGFloat) {
+        self.minHeight = minHeight
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let child = subviews.first else {
             return CGSize(width: proposal.replacingUnspecifiedDimensions().width, height: minHeight)
         }
@@ -26,7 +30,7 @@ struct BottomAlignedMinHeightLayout: Layout {
         )
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         let childSize = child.sizeThatFits(
             ProposedViewSize(width: bounds.width, height: bounds.height)
@@ -45,7 +49,7 @@ extension View {
     /// Applies a minimum height with bottom alignment without creating
     /// `_FlexFrameLayout`. When `minHeight` is nil, no constraint is applied.
     @ViewBuilder
-    func bottomAlignedMinHeight(_ minHeight: CGFloat?) -> some View {
+    public func bottomAlignedMinHeight(_ minHeight: CGFloat?) -> some View {
         if let minHeight {
             BottomAlignedMinHeightLayout(minHeight: minHeight) { self }
         } else {
