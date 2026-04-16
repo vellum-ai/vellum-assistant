@@ -187,7 +187,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: '1.3.9'
+          bun-version: '1.3.11'
 
       - name: Compute dev version
         id: version

@@ -20,7 +20,7 @@ error() { echo "error: $*" >&2; exit 1; }
 # Pre-flight: ensure bun is available (install automatically if missing)
 # ---------------------------------------------------------------------------
 # Keep this version in sync with .tool-versions (bun).
-EXPECTED_BUN_VERSION="1.3.9"
+EXPECTED_BUN_VERSION="1.3.11"
 
 if ! command -v bun &>/dev/null; then
   info "Bun not found — installing bun-v${EXPECTED_BUN_VERSION} from https://bun.sh"
