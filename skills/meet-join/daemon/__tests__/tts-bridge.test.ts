@@ -508,6 +508,187 @@ describe("MeetTtsBridge.speak", () => {
   });
 });
 
+describe("MeetTtsBridge abort reason classification", () => {
+  test("ffmpeg error mid-stream surfaces as MeetTtsError, not MeetTtsCancelledError", async () => {
+    // Regression: after #25989, runPost threw MeetTtsCancelledError whenever
+    // abort.signal.aborted was true — including when the ffmpeg child's
+    // `error` event handler called abort.abort(err) with a raw ErrnoException.
+    // The session manager's classifier then misclassified the failure as
+    // reason=cancelled instead of reason=error.
+    //
+    // This test simulates an ffmpeg crash mid-stream: the provider starts
+    // emitting chunks, the ffmpeg child emits an `error` event (which the
+    // bridge catches and calls abort.abort(err)), and the completion promise
+    // must reject with something that is NOT a MeetTtsCancelledError so the
+    // session manager can emit reason=error.
+    const payload = [
+      new Uint8Array([1, 2, 3, 4]),
+      new Uint8Array([5, 6, 7, 8]),
+    ];
+    const provider = makeCannedProvider({ chunks: payload, gapMs: 100 });
+
+    let transcodeChild: FakeFfmpegChild | null = null;
+    const spawn = mock((..._args: unknown[]) => {
+      const maybeArgs = _args[1];
+      const isProbe =
+        Array.isArray(maybeArgs) &&
+        maybeArgs.length === 1 &&
+        maybeArgs[0] === "-version";
+      if (isProbe) {
+        return makeFakeProbeChild() as unknown as ReturnType<
+          typeof import("node:child_process").spawn
+        >;
+      }
+      transcodeChild = makeFakeFfmpegChild();
+      return transcodeChild as unknown as ReturnType<
+        typeof import("node:child_process").spawn
+      >;
+    }) as unknown as typeof import("node:child_process").spawn;
+
+    const bridge = new MeetTtsBridge(
+      {
+        meetingId: MEETING_ID,
+        botBaseUrl: fakeBot.url,
+        botApiToken: TOKEN,
+      },
+      {
+        providerFactory: () => provider,
+        spawn,
+        newStreamId: () => "stream-ffmpeg-crash",
+      },
+    );
+
+    const { completion } = await bridge.speak({ text: "will crash" });
+
+    // Give the first chunk time to flow before crashing ffmpeg.
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Simulate an ffmpeg runtime error (e.g. SIGKILL, I/O error).
+    const ffmpegErr = new Error("ffmpeg process exited unexpectedly") as NodeJS.ErrnoException;
+    ffmpegErr.code = "EPIPE";
+    transcodeChild!.emit("error", ffmpegErr);
+
+    // The completion must reject, but NOT with MeetTtsCancelledError.
+    let caught: unknown;
+    try {
+      await completion;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught).not.toBeInstanceOf(MeetTtsCancelledError);
+    // The original ffmpeg error should propagate through.
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("ffmpeg process exited unexpectedly");
+
+    // Active stream map is clean after settlement.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bridge.activeStreamCount()).toBe(0);
+  });
+
+  test("provider synthesizeStream rejection mid-stream surfaces as Error, not MeetTtsCancelledError", async () => {
+    // Regression: the provider's synthesizeStream .catch handler calls
+    // abort.abort(err) with the provider's rejection. After #25989, runPost
+    // treated any aborted signal as a cancel, losing the real error.
+    //
+    // This test uses a provider that rejects after its first chunk.
+
+    const rejectingProvider: TtsProvider = {
+      id: "rejecting-test-provider",
+      capabilities: { supportsStreaming: true, supportedFormats: ["pcm"] },
+      async synthesize(): Promise<{ audio: Buffer; contentType: string }> {
+        throw new Error("not implemented");
+      },
+      async synthesizeStream(_request, onChunk) {
+        // Emit one chunk successfully, then reject.
+        onChunk(new Uint8Array([0xaa, 0xbb]));
+        await new Promise((r) => setTimeout(r, 20));
+        throw new Error("provider upstream 503: service unavailable");
+      },
+    };
+
+    const { spawn } = makeSpawnMock();
+
+    const bridge = new MeetTtsBridge(
+      {
+        meetingId: MEETING_ID,
+        botBaseUrl: fakeBot.url,
+        botApiToken: TOKEN,
+      },
+      {
+        providerFactory: () => rejectingProvider,
+        spawn,
+        newStreamId: () => "stream-provider-reject",
+      },
+    );
+
+    const { completion } = await bridge.speak({ text: "will reject" });
+
+    let caught: unknown;
+    try {
+      await completion;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught).not.toBeInstanceOf(MeetTtsCancelledError);
+    // The propagated error should be the provider's original rejection or
+    // a wrapper that preserves the original message.
+    expect(caught).toBeInstanceOf(Error);
+
+    // Active stream map is clean after settlement.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bridge.activeStreamCount()).toBe(0);
+  });
+
+  test("caller cancel still produces MeetTtsCancelledError (not regressed)", async () => {
+    // Ensure the fix doesn't break the happy cancel path: when cancel() is
+    // called, the abort.signal.reason is a MeetTtsCancelledError, so
+    // runPost should still throw MeetTtsCancelledError.
+    const payload = [
+      new Uint8Array([1, 2]),
+      new Uint8Array([3, 4]),
+      new Uint8Array([5, 6]),
+    ];
+    const provider = makeCannedProvider({ chunks: payload, gapMs: 200 });
+    const { spawn } = makeSpawnMock();
+
+    const bridge = new MeetTtsBridge(
+      {
+        meetingId: MEETING_ID,
+        botBaseUrl: fakeBot.url,
+        botApiToken: TOKEN,
+      },
+      {
+        providerFactory: () => provider,
+        spawn,
+        newStreamId: () => "stream-cancel-ok",
+      },
+    );
+
+    const { streamId, completion } = await bridge.speak({
+      text: "will be cancelled normally",
+    });
+
+    // Give the POST time to open.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Cancel via the bridge's cancel method — this sets abort.signal.reason
+    // to a MeetTtsCancelledError.
+    await bridge.cancel(streamId);
+
+    let caught: unknown;
+    try {
+      await completion;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(MeetTtsCancelledError);
+    expect((caught as MeetTtsCancelledError).code).toBe("MEET_TTS_CANCELLED");
+    expect(bridge.activeStreamCount()).toBe(0);
+  });
+});
+
 describe("MeetTtsBridge constructor validation", () => {
   test("throws when meetingId is empty", () => {
     expect(

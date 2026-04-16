@@ -497,11 +497,23 @@ export class MeetTtsBridge {
       });
     } catch (err) {
       if (abort.signal.aborted) {
-        // Caller-initiated cancel (explicit cancel / cancelAll / barge-in).
-        // Surface via a typed sentinel so the session manager's classifier
-        // can publish `meet.speaking_ended { reason: "cancelled" }` instead
-        // of misclassifying the cancel as a natural completion.
-        throw new MeetTtsCancelledError();
+        // The AbortController is shared between caller-initiated cancels
+        // (which set the reason to a MeetTtsCancelledError) and internal
+        // error paths (ffmpeg crash, provider reject, stdin write error)
+        // which set the reason to the original error. Only surface a
+        // MeetTtsCancelledError when the abort was actually a cancel —
+        // otherwise propagate the original reason so the session manager's
+        // classifier emits `reason: "error"`.
+        if (abort.signal.reason instanceof MeetTtsCancelledError) {
+          throw abort.signal.reason;
+        }
+        // Internal error aborted the signal — propagate the original cause.
+        throw abort.signal.reason instanceof Error
+          ? abort.signal.reason
+          : new MeetTtsError(
+              "MEET_TTS_BOT_UNREACHABLE",
+              `Bot /play_audio aborted for streamId=${streamId}: ${String(abort.signal.reason)}`,
+            );
       }
       throw new MeetTtsError(
         "MEET_TTS_BOT_UNREACHABLE",
@@ -509,6 +521,21 @@ export class MeetTtsBridge {
       );
     }
     if (!response.ok) {
+      // Check abort before throwing BOT_REJECTED — a 4xx/5xx racing with
+      // a caller-cancel should classify as cancel, not error. Symmetric
+      // with the post-drain abort check on the 200 path below.
+      if (abort.signal.aborted) {
+        if (abort.signal.reason instanceof MeetTtsCancelledError) {
+          throw abort.signal.reason;
+        }
+        throw abort.signal.reason instanceof Error
+          ? abort.signal.reason
+          : new MeetTtsError(
+              "MEET_TTS_BOT_REJECTED",
+              `Bot /play_audio returned ${response.status} for streamId=${streamId} (aborted)`,
+              response.status,
+            );
+      }
       const detail = await response.text().catch(() => "");
       throw new MeetTtsError(
         "MEET_TTS_BOT_REJECTED",
@@ -524,7 +551,14 @@ export class MeetTtsBridge {
     // reports reason=cancelled even on races where the bot saw EOF and
     // replied 200 before the abort propagated.
     if (abort.signal.aborted) {
-      throw new MeetTtsCancelledError();
+      if (abort.signal.reason instanceof MeetTtsCancelledError) {
+        throw abort.signal.reason;
+      }
+      // Internal error aborted after a successful drain — propagate the
+      // original cause rather than misclassifying as cancelled.
+      throw abort.signal.reason instanceof Error
+        ? abort.signal.reason
+        : new Error(String(abort.signal.reason));
     }
   }
 
