@@ -191,8 +191,6 @@ export class FilingService {
     log.info("Running filing job");
 
     try {
-      const config = getConfig().filing;
-
       const conversation = bootstrapConversation({
         conversationType: "background",
         source: "filing",
@@ -207,7 +205,7 @@ export class FilingService {
       });
 
       await this.deps.processMessage(conversation.id, FILING_PROMPT_TEMPLATE, {
-        speed: config.speed,
+        callSite: "filingAgent",
       });
 
       log.info({ conversationId: conversation.id }, "Filing job completed");
