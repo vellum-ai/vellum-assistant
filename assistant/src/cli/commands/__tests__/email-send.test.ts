@@ -111,7 +111,7 @@ describe("assistant email send", () => {
     expect(calls[1].init.method).toBe("POST");
 
     const payload = JSON.parse(calls[1].init.body as string);
-    expect(payload.to).toBe("user@example.com");
+    expect(payload.to).toEqual(["user@example.com"]);
     expect(payload.from_address).toBe(ADDRESS);
     expect(payload.subject).toBe("Hello");
     expect(payload.text).toBe("Hi there");
@@ -320,5 +320,97 @@ describe("assistant email send", () => {
     expect(process.exitCode).toBe(1);
     const parsed = JSON.parse(output.trim());
     expect(parsed.error).toContain("suppressed");
+  });
+
+  test("multiple to recipients are sent as array", async () => {
+    mockListAddresses();
+    mockSendSuccess();
+
+    await runAssistantCommand(
+      "email",
+      "send",
+      "alice@example.com",
+      "bob@example.com",
+      "-s",
+      "Team",
+      "-b",
+      "Hi all",
+    );
+
+    const calls = getPlatformCalls();
+    const payload = JSON.parse(calls[1].init.body as string);
+    expect(payload.to).toEqual(["alice@example.com", "bob@example.com"]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("--cc and --bcc are included in payload", async () => {
+    mockListAddresses();
+    mockSendSuccess();
+
+    await runAssistantCommand(
+      "email",
+      "send",
+      "alice@example.com",
+      "--cc",
+      "bob@example.com",
+      "--bcc",
+      "carol@example.com",
+      "-s",
+      "FYI",
+      "-b",
+      "See below",
+    );
+
+    const calls = getPlatformCalls();
+    const payload = JSON.parse(calls[1].init.body as string);
+    expect(payload.to).toEqual(["alice@example.com"]);
+    expect(payload.cc).toEqual(["bob@example.com"]);
+    expect(payload.bcc).toEqual(["carol@example.com"]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("multiple --cc flags accumulate", async () => {
+    mockListAddresses();
+    mockSendSuccess();
+
+    await runAssistantCommand(
+      "email",
+      "send",
+      "alice@example.com",
+      "--cc",
+      "bob@example.com",
+      "--cc",
+      "dave@example.com",
+      "-s",
+      "Team",
+      "-b",
+      "Hi",
+    );
+
+    const calls = getPlatformCalls();
+    const payload = JSON.parse(calls[1].init.body as string);
+    expect(payload.cc).toEqual(["bob@example.com", "dave@example.com"]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  test("cc and bcc omitted from payload when not provided", async () => {
+    mockListAddresses();
+    mockSendSuccess();
+
+    await runAssistantCommand(
+      "email",
+      "send",
+      "user@example.com",
+      "-s",
+      "Hi",
+      "-b",
+      "Hello",
+    );
+
+    const calls = getPlatformCalls();
+    const payload = JSON.parse(calls[1].init.body as string);
+    expect(payload.cc).toBeUndefined();
+    expect(payload.bcc).toBeUndefined();
+    expect(process.exitCode).toBe(0);
   });
 });
