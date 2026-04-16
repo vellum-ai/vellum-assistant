@@ -30,14 +30,17 @@ export interface RunBtwSidechainParams {
   systemPrompt?: string;
   tools?: ToolDefinition[];
   maxTokens?: number;
+  modelIntent?: ModelIntent;
   /**
-   * Opt-in routing through the unified LLM call-site resolver. When set, the
-   * provider resolves provider/model/maxTokens/etc. via
-   * `resolveCallSiteConfig(callSite, config.llm)` instead of `modelIntent`.
-   * `callSite` wins when both are passed.
+   * Unified call-site identifier. When set, the provider layer resolves
+   * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+   * via `resolveCallSiteConfig(callSite, config.llm)`. `callSite` wins over
+   * `modelIntent` when both are passed. When neither is passed, defaults to
+   * `'identityIntro'` since this side-chain runner was originally introduced
+   * for the identity intro generation path; callers (greeting, title, etc.)
+   * override it with their own call-site ID.
    */
   callSite?: LLMCallSite;
-  modelIntent?: ModelIntent;
   signal?: AbortSignal;
   timeoutMs?: number;
   onEvent?: (event: ProviderEvent) => void;
@@ -97,9 +100,16 @@ export async function runBtwSidechain(
       config: {
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
+        // Resolution precedence: explicit callSite → explicit modelIntent →
+        // default callSite "identityIntro" (the original purpose of this
+        // side-chain runner). PR 5's contract says `callSite` wins over
+        // `modelIntent` when both are present, so we set them mutually
+        // exclusively here for clarity.
         ...(params.callSite !== undefined
           ? { callSite: params.callSite }
-          : { modelIntent: params.modelIntent ?? "latency-optimized" }),
+          : params.modelIntent !== undefined
+            ? { modelIntent: params.modelIntent }
+            : { callSite: "identityIntro" as LLMCallSite }),
       },
       onEvent: (event) => {
         if (event.type === "text_delta") {

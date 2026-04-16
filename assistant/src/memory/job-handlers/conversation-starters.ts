@@ -60,7 +60,7 @@ export function buildMemoryRollup(scopeId: string): string {
         and(
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
           eq(memoryGraphNodes.scopeId, scopeId),
-        )
+        ),
       )
       .orderBy(desc(memoryGraphNodes.significance))
       .limit(60)
@@ -111,19 +111,21 @@ function buildNewItemsDiff(scopeId: string): string {
      WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
      ORDER BY created DESC LIMIT 20`,
     scopeId,
-    lastGenAt
+    lastGenAt,
   );
 
   if (newItems.length === 0) return "";
 
   return (
     "## New since last generation\n" +
-    newItems.map((i) => {
-      const nl = i.content.indexOf("\n");
-      const subject = nl >= 0 ? i.content.slice(0, nl) : i.content;
-      const statement = nl >= 0 ? i.content.slice(nl + 1) : i.content;
-      return `- (${i.kind}) ${subject}: ${statement}`;
-    }).join("\n")
+    newItems
+      .map((i) => {
+        const nl = i.content.indexOf("\n");
+        const subject = nl >= 0 ? i.content.slice(0, nl) : i.content;
+        const statement = nl >= 0 ? i.content.slice(nl + 1) : i.content;
+        return `- (${i.kind}) ${subject}: ${statement}`;
+      })
+      .join("\n")
   );
 }
 
@@ -162,7 +164,8 @@ export const CONVERSATION_STARTER_CATEGORIES = [
   "integration",
 ] as const;
 
-export type ConversationStarterCategory = typeof CONVERSATION_STARTER_CATEGORIES[number];
+export type ConversationStarterCategory =
+  (typeof CONVERSATION_STARTER_CATEGORIES)[number];
 
 interface GeneratedStarter {
   label: string;
@@ -288,7 +291,7 @@ Bad → Good (incomplete phrase → complete):
     const response = await provider.sendMessage(
       [
         userMessage(
-          "Generate personalized conversation starters based on my context."
+          "Generate personalized conversation starters based on my context.",
         ),
       ],
       [
@@ -338,14 +341,14 @@ Bad → Good (incomplete phrase → complete):
           },
         },
         signal,
-      }
+      },
     );
     cleanup();
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
       log.warn(
-        "No tool_use block in conversation starters generation response"
+        "No tool_use block in conversation starters generation response",
       );
       return [];
     }
@@ -363,7 +366,7 @@ Bad → Good (incomplete phrase → complete):
           s.label.length > 0 &&
           s.label.length <= 40 &&
           typeof s.prompt === "string" &&
-          s.prompt.length > 0
+          s.prompt.length > 0,
       )
       .slice(0, 4)
       .map((s) => ({
@@ -372,7 +375,7 @@ Bad → Good (incomplete phrase → complete):
         category:
           typeof s.category === "string" &&
           (CONVERSATION_STARTER_CATEGORIES as readonly string[]).includes(
-            s.category
+            s.category,
           )
             ? s.category
             : "productivity",
@@ -386,7 +389,7 @@ Bad → Good (incomplete phrase → complete):
 // ── Job handler ───────────────────────────────────────────────────
 
 export async function generateConversationStartersJob(
-  job: MemoryJob
+  job: MemoryJob,
 ): Promise<void> {
   const scopeId = asString(job.payload.scopeId) ?? "default";
 
@@ -419,7 +422,7 @@ export async function generateConversationStartersJob(
         and(
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
           eq(memoryGraphNodes.scopeId, scopeId),
-        )
+        ),
       )
       .groupBy(memoryGraphNodes.type)
       .all();
@@ -453,7 +456,7 @@ export async function generateConversationStartersJob(
   // Count active items for checkpoint
   const countRow = rawGet<{ c: number }>(
     `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
-    scopeId
+    scopeId,
   );
   const totalActive = countRow?.c ?? 0;
 
@@ -474,6 +477,6 @@ export async function generateConversationStartersJob(
 
   log.info(
     { scopeId, batch: nextBatch, count: starters.length },
-    "Generated conversation starters"
+    "Generated conversation starters",
   );
 }

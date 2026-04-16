@@ -16,7 +16,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
@@ -178,9 +177,7 @@ async function handleBtw(
             userPersona,
             channelPersona,
             userSlug,
-            ...(isGreeting
-              ? { modelIntent: getConfig().ui.greetingModelIntent }
-              : {}),
+            ...(isGreeting ? { callSite: "emptyStateGreeting" as const } : {}),
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(
