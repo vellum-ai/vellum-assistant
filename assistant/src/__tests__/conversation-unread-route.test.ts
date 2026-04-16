@@ -19,7 +19,7 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-const mockMarkConversationUnread = mock((_conversationId: string) => {});
+const mockMarkConversationUnread = mock((_conversationId: string) => true);
 
 mock.module("../memory/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: () => new Map(),
