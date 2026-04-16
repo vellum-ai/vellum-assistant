@@ -631,7 +631,10 @@ struct ChatBubble: View, Equatable {
 
         let text = message.text as NSString
         let contentWidth = max(bubbleMaxWidth - 2 * VSpacing.lg, 0)
-        let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        // Match the font used by `MarkdownSegmentView` (VFont.chat = 16pt DM Sans)
+        // so the estimate tracks the actual rendered text height. Using a smaller
+        // system font under-counts height and misses messages that render >150pt.
+        let font = VFont.nsChat
         let textRect = text.boundingRect(
             with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
