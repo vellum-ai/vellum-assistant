@@ -1539,7 +1539,7 @@ export async function draftSkill(
               [],
               undefined,
               {
-                config: { modelIntent: "latency-optimized", max_tokens: 256 },
+                config: { callSite: "skillCategoryInference", max_tokens: 256 },
                 signal,
               },
             );
