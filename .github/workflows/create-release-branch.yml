@@ -175,15 +175,15 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - name: Disable local git hooks
-        run: git config --unset core.hooksPath || true
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Install assistant dependencies
         working-directory: assistant
         run: bun install --frozen-lockfile
+
+      - name: Disable local git hooks
+        run: git config --unset core.hooksPath || true
 
       - name: Create release branch and bump versions
         env:
