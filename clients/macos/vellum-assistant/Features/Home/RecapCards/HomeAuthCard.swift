@@ -47,7 +47,7 @@ struct HomeAuthCard: View {
                 )
             }
         }
-        .padding(VSpacing.md)
+        .padding(VSpacing.sm)
         .if(isSimple) { view in
             view
                 .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
@@ -67,16 +67,47 @@ struct HomeAuthCard: View {
     // MARK: - Header
 
     private var headerRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            HomeRecapCardHeader(
-                icon: .file,
-                title: title,
-                subtitle: subtitle
-            )
-
-            Spacer(minLength: 0)
-
+        HStack(spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.sm) {
+                iconCircle
+                titleStack
+            }
             actionButtons
+        }
+    }
+
+    // MARK: - Icon
+
+    private var iconCircle: some View {
+        ZStack {
+            Circle()
+                .fill(VColor.auxWhite)
+                .frame(width: 38, height: 38)
+            VIconView(.file, size: 18)
+                .foregroundStyle(VColor.contentDisabled)
+        }
+    }
+
+    // MARK: - Title
+
+    @ViewBuilder
+    private var titleStack: some View {
+        if let subtitle {
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(title)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+            }
+        } else {
+            Text(title)
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentEmphasized)
+                .lineLimit(1)
         }
     }
 
