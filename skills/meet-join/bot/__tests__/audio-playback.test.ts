@@ -385,4 +385,147 @@ describe("POST /play_audio (streaming)", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  test("concurrent POSTs with different streamIds serialize — second pre-empts first, bytes never interleave", async () => {
+    // Regression guard: the bot only owns a single shared pacat stdin (the
+    // audio-playback module-level singleton), so two concurrent POSTs with
+    // *different* streamIds must not race on `handle.write()`. A fresh POST
+    // must abort whatever is currently in flight, wait for its trailing-
+    // silence flush to land, and only then begin writing its own bytes.
+    server = build();
+    const { port } = await server.start(0);
+
+    // Distinct byte patterns so any interleaving would surface as a visible
+    // mixing of pattern-A bytes into the pattern-B region of the shim.
+    const chunkA1 = new Uint8Array(512).fill(0xaa);
+    const chunkA2 = new Uint8Array(512).fill(0xbb);
+    const chunkA3 = new Uint8Array(512).fill(0xcc);
+    const payloadB = new Uint8Array(1024).fill(0x42);
+
+    // Gate the A body so the first chunk delivers immediately but the rest
+    // is withheld until the test releases it — this keeps A "in flight"
+    // long enough for us to issue B concurrently.
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const bodyA = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(chunkA1);
+        await gateA;
+        try {
+          controller.enqueue(chunkA2);
+          controller.enqueue(chunkA3);
+        } catch {
+          // Reader cancelled — expected once B's POST aborts us.
+        }
+        controller.close();
+      },
+    });
+
+    const postA = fetch(`http://127.0.0.1:${port}/play_audio?stream_id=a`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${API_TOKEN}`,
+        "content-type": "application/octet-stream",
+      },
+      body: bodyA,
+      // @ts-expect-error — undici/fetch extension, not in lib.dom types
+      duplex: "half",
+    });
+
+    // Let A get a foothold — it must have registered in activeStreams and
+    // written at least its first chunk before we fire B, otherwise B would
+    // see an empty registry and not need to pre-empt anything.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Second POST with a different streamId and a complete body. This
+    // should abort A, wait for A's finally/silence-flush to land, then
+    // write payloadB to the shim uninterrupted.
+    const postB = fetch(`http://127.0.0.1:${port}/play_audio?stream_id=b`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${API_TOKEN}`,
+        "content-type": "application/octet-stream",
+      },
+      body: payloadB,
+    });
+
+    // Give B's POST handler time to hit the server and run its abort step
+    // (step 1 in the serialization logic in http-server.ts) before we
+    // release A's gate. Without this wait, `releaseA()` would unblock A's
+    // body coroutine immediately — before B's abort lands — and A would
+    // complete normally, leaving nothing for B to pre-empt.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Release A's gate so A's body coroutine can finish (the bot's reader
+    // has already been cancelled at this point, so the later chunks are
+    // dropped on the floor — this is the whole point of the test).
+    releaseA();
+
+    const [resA, resB] = await Promise.all([postA, postB]);
+
+    // -------- A was cancelled mid-stream --------
+    expect(resA.status).toBe(499);
+    const bodyAJson = (await resA.json()) as {
+      streamId: string;
+      bytes: number;
+      cancelled: boolean;
+    };
+    expect(bodyAJson.streamId).toBe("a");
+    expect(bodyAJson.cancelled).toBe(true);
+    // A must not have delivered its full payload (cancelled before the
+    // gate-released chunks could be written).
+    const fullAPayload = chunkA1.length + chunkA2.length + chunkA3.length;
+    expect(bodyAJson.bytes).toBeLessThan(fullAPayload);
+
+    // -------- B completed cleanly with its full payload --------
+    expect(resB.status).toBe(200);
+    const bodyBJson = (await resB.json()) as {
+      streamId: string;
+      bytes: number;
+    };
+    expect(bodyBJson.streamId).toBe("b");
+    expect(bodyBJson.bytes).toBe(payloadB.length);
+
+    // -------- Shim byte layout: A partial + silence + B full + silence --------
+    //
+    // Under the old (broken) code both handlers wrote to the shared pacat
+    // stdin concurrently, which would leave pattern-A bytes (0xaa/0xbb/0xcc)
+    // mixed into payloadB's region of the buffer. With the fix, the buffer
+    // must be strictly sequential:
+    //   [ A-partial (≤ fullAPayload bytes of 0xaa/0xbb/0xcc) ]
+    //   [ TRAILING_SILENCE (50ms of zeros) ]
+    //   [ B-full (payloadB.length bytes of 0x42) ]
+    //   [ TRAILING_SILENCE (50ms of zeros) ]
+    const silenceBytes = 50 * DEFAULT_BYTES_PER_MS;
+    const expectedTotal =
+      bodyAJson.bytes + silenceBytes + payloadB.length + silenceBytes;
+    expect(shim.buffer.length).toBe(expectedTotal);
+
+    // A's partial prefix: only 0xaa, 0xbb, or 0xcc bytes allowed.
+    for (let i = 0; i < bodyAJson.bytes; i++) {
+      const byte = shim.buffer[i]!;
+      expect(byte === 0xaa || byte === 0xbb || byte === 0xcc).toBe(true);
+    }
+    // A's trailing silence: all zeros.
+    for (
+      let i = bodyAJson.bytes;
+      i < bodyAJson.bytes + silenceBytes;
+      i++
+    ) {
+      expect(shim.buffer[i]).toBe(0);
+    }
+    // B's payload region: *must* be exclusively 0x42 — any pattern-A byte
+    // here would be the interleaving regression this test is guarding.
+    const bStart = bodyAJson.bytes + silenceBytes;
+    const bEnd = bStart + payloadB.length;
+    for (let i = bStart; i < bEnd; i++) {
+      expect(shim.buffer[i]).toBe(0x42);
+    }
+    // B's trailing silence: all zeros.
+    for (let i = bEnd; i < expectedTotal; i++) {
+      expect(shim.buffer[i]).toBe(0);
+    }
+  });
 });
