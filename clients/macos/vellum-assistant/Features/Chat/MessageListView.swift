@@ -143,7 +143,7 @@ struct MessageListView: View {
                 // so the first message always starts at the top of the viewport.
                 // Uses Layout protocol instead of .frame(minHeight:alignment:)
                 // to avoid _FlexFrameLayout's O(n × depth) explicitAlignment
-                // cascade through the entire LazyVStack subtree. See LUM-944.
+                // cascade through the entire LazyVStack subtree.
                 .bottomAlignedMinHeight(viewportHeight.isFinite ? viewportHeight : nil)
             }
             .scrollContentBackground(.hidden)
