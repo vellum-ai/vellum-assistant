@@ -1035,6 +1035,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         // Reset pagination so the display window doesn't reference indices beyond the
         // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
     }
 
@@ -1052,6 +1053,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 msgs[i].stripHeavyContent()
             }
         }
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
         // Only mark history as unloaded if there's a conversation to reload from.
         // Conversations without a conversation ID (new, empty) have nothing to fetch —
@@ -1243,6 +1245,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
                 }
                 self.hasMoreHistory = true
+                self.isShowAllMode = false
                 self.displayedMessageCount = Self.messagePageSize
             }
         }
@@ -2241,6 +2244,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
         // Reset pagination so the view shows the most-recent page after history loads.
+        self.isShowAllMode = false
         self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
         // Strip heavy data from old messages after a (potentially large) history load.

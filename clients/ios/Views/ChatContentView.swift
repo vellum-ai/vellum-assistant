@@ -126,10 +126,9 @@ struct ChatContentView: View {
     /// The slice of messages shown in the view, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
         let all = viewModel.displayedMessages
-        // When the user has scrolled back through the full history (displayedMessageCount
-        // reaches all.count), keep showing everything — don't clamp the window back down
-        // as new messages arrive, which would cause previously loaded history to vanish.
-        guard viewModel.displayedMessageCount < all.count else { return all }
+        // In show-all mode, return all messages so new incoming messages stay visible
+        // and previously loaded history doesn't vanish.
+        guard !viewModel.isShowAllMode && viewModel.displayedMessageCount < all.count else { return all }
         return Array(all.suffix(viewModel.displayedMessageCount))
     }
 
