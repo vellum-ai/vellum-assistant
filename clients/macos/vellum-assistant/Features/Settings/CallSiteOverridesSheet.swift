@@ -280,39 +280,42 @@ struct CallSiteOverridesSheet: View {
     }
 
     private func saveAll() {
-        // Write every draft in a single batch so the daemon sees all of the
-        // changes (including the implicit clears for rows the user toggled
-        // off) atomically. `setCallSiteOverrides` handles the deep-merge
-        // payload and aligns the local cache with what's persisted.
-        let merged = CallSiteCatalog.all.map { entry in
-            drafts[entry.id] ?? entry
+        // Pass only entries with active overrides — entries the user
+        // toggled off must be omitted so `setCallSiteOverrides` routes
+        // them through the entry-level null path that clears every leaf
+        // (provider, model, profile, plus any maxTokens/effort/etc. that
+        // may have been set elsewhere). Including a row with all-nil
+        // fields would emit field-level nulls and leave hidden leaves.
+        let merged = CallSiteCatalog.all.compactMap { entry -> CallSiteOverride? in
+            guard let draft = drafts[entry.id], draft.hasOverride else { return nil }
+            return draft
         }
         store.setCallSiteOverrides(merged)
-        // Every draft is now the new persisted state — refresh the baseline
-        // for each entry so future external updates are detected correctly.
-        for entry in merged {
-            lastSyncedFromStore[entry.id] = entry
+        // After the batch lands, every draft's baseline is the draft itself
+        // (the daemon now matches local). Refresh baselines for ALL catalog
+        // entries — both the ones we sent and the implicitly-cleared ones.
+        for entry in CallSiteCatalog.all {
+            if let draft = drafts[entry.id] {
+                lastSyncedFromStore[entry.id] = draft
+            }
         }
     }
 
     private func resetAll() {
-        // Build a payload of fully-cleared entries (provider/model/profile
-        // all nil) so the batch endpoint nulls them out on the daemon. The
-        // local draft cache is replaced first so the UI reflects the reset
-        // before the network round trip completes.
-        let cleared = CallSiteCatalog.all.map { entry in
-            CallSiteOverride(
+        // Reset every catalog entry locally and pass an empty list to the
+        // store so `setCallSiteOverrides` nulls the entire `callSites.<id>`
+        // entry on the daemon — clearing not just provider/model/profile
+        // but also any advanced leaves (maxTokens, effort, temperature,
+        // contextWindow) that may have been set via manual config edits.
+        for entry in CallSiteCatalog.all {
+            let cleared = CallSiteOverride(
                 id: entry.id,
                 displayName: entry.displayName,
                 domain: entry.domain
             )
+            drafts[entry.id] = cleared
+            lastSyncedFromStore[entry.id] = cleared
         }
-        for entry in cleared {
-            drafts[entry.id] = entry
-            // Baseline matches the cleared state so unrelated external
-            // updates after the reset are still detected and applied.
-            lastSyncedFromStore[entry.id] = entry
-        }
-        store.setCallSiteOverrides(cleared)
+        store.setCallSiteOverrides([])
     }
 }
