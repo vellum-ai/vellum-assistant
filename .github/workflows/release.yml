@@ -1542,8 +1542,8 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
+          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin ces-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules ../../credential-executor/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
@@ -1877,6 +1877,7 @@ jobs:
           ASSISTANT_SRC_DIR="../../assistant"
           CLI_SRC_DIR="../../cli"
           GATEWAY_SRC_DIR="../../gateway"
+          CES_SRC_DIR="../../credential-executor"
 
           DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
           DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
@@ -1925,6 +1926,13 @@ jobs:
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
 
+          # Credential-executor (CES)
+          (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          mkdir -p ces-bin
+          bun build --compile --target=bun-darwin-x64 \
+            "$CES_SRC_DIR/src/main.ts" --outfile ces-bin/credential-executor
+          chmod +x ces-bin/credential-executor
+
       - name: Build release .app
         run: |
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
@@ -1968,8 +1976,8 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
+          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin ces-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules ../../credential-executor/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           df -h .
 
