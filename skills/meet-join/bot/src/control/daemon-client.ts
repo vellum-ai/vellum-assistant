@@ -25,7 +25,7 @@
  * that shape here so the two sides stay interoperable.
  */
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../../../contracts/index.js";
 
 /** Default flush cadence and batch size — tuned in the PR description. */
 const MAX_BATCH_SIZE = 20;

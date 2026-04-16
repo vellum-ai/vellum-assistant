@@ -54,7 +54,7 @@ import type {
   ParticipantChangeEvent,
   SpeakerChangeEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../contracts/index.js";
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";

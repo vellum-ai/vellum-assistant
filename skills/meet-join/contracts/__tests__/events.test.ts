@@ -1,9 +1,8 @@
 /**
- * Tests for @vellumai/meet-contracts
+ * Tests for meet-join wire-protocol contracts.
  *
  * These tests verify:
- * 1. The package can be consumed independently (no assistant/ or meet-bot
- *    imports).
+ * 1. The contracts are free of imports from assistant/ or meet-bot.
  * 2. Every event and command schema parses valid payloads and rejects
  *    malformed ones.
  * 3. The discriminated unions (MeetBotEvent, MeetBotCommand) correctly
@@ -28,14 +27,14 @@ import {
   TranscriptChunkEventSchema,
   type MeetBotCommand,
   type MeetBotEvent,
-} from "../src/index.js";
+} from "../index.js";
 
 // ---------------------------------------------------------------------------
-// Independence guard — the package must not pull in assistant or the bot.
+// Independence guard — contracts must not pull in assistant or the bot.
 // ---------------------------------------------------------------------------
 
-describe("package independence", () => {
-  const sourceFiles = ["../src/index.ts", "../src/events.ts", "../src/commands.ts"];
+describe("contract independence", () => {
+  const sourceFiles = ["../index.ts", "../events.ts", "../commands.ts"];
 
   for (const file of sourceFiles) {
     test(`${file} does not import from assistant/ or skills/meet-join/bot/`, () => {

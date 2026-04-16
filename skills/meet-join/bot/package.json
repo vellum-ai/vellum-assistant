@@ -12,7 +12,6 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@vellumai/meet-contracts": "file:../contracts",
     "hono": "4.12.14",
     "playwright": "1.58.2",
     "zod": "4.3.6"

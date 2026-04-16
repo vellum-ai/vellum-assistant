@@ -27,7 +27,7 @@
  * handler graph.
  */
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../contracts/index.js";
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 

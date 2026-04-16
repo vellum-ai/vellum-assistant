@@ -25,7 +25,7 @@ import type {
   ParticipantChangeEvent,
   SpeakerChangeEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import {

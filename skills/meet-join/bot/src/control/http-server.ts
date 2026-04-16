@@ -11,7 +11,7 @@
  *   - `DELETE /play_audio/:streamId`  — cancel an in-flight playback (barge-in).
  *
  * Every mutating route validates its body against the corresponding Zod
- * schema from `@vellumai/meet-contracts` so command shapes stay in sync with
+ * schema from the contracts barrel so command shapes stay in sync with
  * the daemon side of the wire protocol.
  *
  * Auth: every route (including `/health`, so the probe matches production)
@@ -23,7 +23,7 @@
 import {
   LeaveCommandSchema,
   SendChatCommandSchema,
-} from "@vellumai/meet-contracts";
+} from "../../../contracts/index.js";
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 

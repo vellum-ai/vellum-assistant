@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../../contracts/index.js";
 
 import {
   __resetMeetSessionEventRouterForTests,

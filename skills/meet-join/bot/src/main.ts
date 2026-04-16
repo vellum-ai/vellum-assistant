@@ -47,7 +47,7 @@ import type {
   MeetBotEvent,
   ParticipantChangeEvent,
   SpeakerChangeEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import { sendChat } from "./browser/chat-bridge.js";
 import { startChatReader, type ChatReader } from "./browser/chat-reader.js";

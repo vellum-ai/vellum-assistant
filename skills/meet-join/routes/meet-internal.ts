@@ -5,7 +5,7 @@
  *
  * The request body is a batched JSON array of {@link MeetBotEvent} values.
  * Every event is validated with the Zod discriminated union schema from
- * `@vellumai/meet-contracts`; one invalid entry fails the entire batch
+ * the contracts barrel (`contracts/index.ts`); one invalid entry fails the entire batch
  * with 400 (mirrors how `meet-contracts` models the wire protocol as a
  * union — partial acceptance would leak an inconsistent event stream to
  * downstream subscribers).
@@ -38,7 +38,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 
-import { MeetBotEventSchema } from "@vellumai/meet-contracts";
+import { MeetBotEventSchema } from "../contracts/index.js";
 import { z } from "zod";
 
 import {

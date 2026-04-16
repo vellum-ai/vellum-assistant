@@ -43,7 +43,7 @@
 
 import type { Page } from "playwright";
 
-import type { InboundChatEvent } from "@vellumai/meet-contracts";
+import type { InboundChatEvent } from "../../../contracts/index.js";
 
 import { chatSelectors } from "./dom-selectors.js";
 

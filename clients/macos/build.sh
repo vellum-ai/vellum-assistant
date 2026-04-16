@@ -309,9 +309,9 @@ install_shared_packages() {
     local repo_root="$SCRIPT_DIR/../.."
     local pkg_dirs=("$repo_root"/packages/*/)
     # The daemon imports MeetServiceSchema from skills/meet-join/config-schema.ts
-    # and @vellumai/meet-contracts (file: → skills/meet-join/contracts), so both
-    # need node_modules for `zod` to resolve during the bundle step.
-    pkg_dirs+=("$repo_root/skills/meet-join/" "$repo_root/skills/meet-join/contracts/")
+    # and the meet-join contracts, so the skill needs node_modules for `zod` to
+    # resolve during the bundle step.
+    pkg_dirs+=("$repo_root/skills/meet-join/")
     for pkg_dir in "${pkg_dirs[@]}"; do
         [ -f "${pkg_dir}package.json" ] || continue
         (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)

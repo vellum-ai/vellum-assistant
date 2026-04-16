@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { ParticipantChangeEvent } from "@vellumai/meet-contracts";
+import type { ParticipantChangeEvent } from "../../contracts/index.js";
 
 import { selectors } from "../src/browser/dom-selectors.js";
 import { startParticipantScraper } from "../src/browser/participant-scraper.js";

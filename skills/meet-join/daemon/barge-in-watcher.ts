@@ -41,7 +41,7 @@ import type {
   ParticipantChangeEvent,
   SpeakerChangeEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../contracts/index.js";
 
 import {
   type AssistantEventCallback,

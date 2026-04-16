@@ -15,8 +15,8 @@ about Meet — everywhere else, Meet is opaque.
 
 The complete allowlist and enforcement live in
 `assistant/src/__tests__/skill-meet-isolation.test.ts`. A guard test scans the
-repo for references to `skills/meet-join/` or `@vellumai/meet-contracts` and
-fails CI if any non-allowlisted file imports from the skill.
+repo for references to `skills/meet-join/` and fails CI if any non-allowlisted
+file imports from the skill.
 
 ## When you need a new external reference
 
@@ -56,9 +56,9 @@ are **not** candidates for relocation into `skills/meet-join/`:
   `assistant/src/config/schemas/services.ts`** — the central config
   schema composes the per-service schemas, including `MeetService`.
 
-Among these, only files that actually import from `skills/meet-join/` or
-`@vellumai/meet-contracts` trip the guard test. `config/schema.ts` and
-`config/schemas/services.ts` do, so they're in the allowlist. The
-message-types file currently does not, but is allowlisted pre-emptively in
-case a future change introduces such an import. The feature-flag registry
-JSON contains neither substring and is not in the allowlist.
+Among these, only files that actually import from `skills/meet-join/` trip
+the guard test. `config/schema.ts` and `config/schemas/services.ts` do, so
+they're in the allowlist. The message-types file currently does not, but is
+allowlisted pre-emptively in case a future change introduces such an import.
+The feature-flag registry JSON contains neither substring and is not in the
+allowlist.

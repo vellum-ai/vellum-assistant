@@ -22,7 +22,7 @@ import { describe, expect, test } from "bun:test";
 
 /**
  * Files outside `skills/meet-join/` that are permitted to reference the
- * skill directory or the `@vellumai/meet-contracts` package.
+ * skill directory.
  *
  * Paths are relative to the repo root. When adding a new entry, include a
  * comment explaining *why* the reference is necessary (and why it cannot
@@ -47,11 +47,9 @@ const ALLOWLIST = new Set([
 
   // --- Container build / packaging ---
   ".dockerignore", // include/exclude rules for the skill directory
-  "assistant/Dockerfile", // COPY skills/meet-join/contracts into image
+  "assistant/Dockerfile", // COPY skills/meet-join into image
   "assistant/tsconfig.json", // include paths for skill TS sources
-  "assistant/knip.json", // tracks @vellumai/meet-contracts as a known dep
-  "assistant/package.json", // file: dependency on skills/meet-join/contracts
-  "assistant/bun.lock", // lockfile (auto-generated from package.json)
+  "assistant/knip.json", // knip config excluding skill sub-packages
 
   // --- CI workflows (path triggers and skill install steps) ---
   ".github/workflows/ci-main-assistant.yaml",
@@ -72,12 +70,9 @@ const ALLOWLIST = new Set([
 
 /**
  * Patterns that indicate a reference to Meet code living under
- * `skills/meet-join/` or the sibling `@vellumai/meet-contracts` package.
+ * `skills/meet-join/`.
  */
-const MEET_REFERENCE_PATTERNS = [
-  "skills/meet-join",
-  "@vellumai/meet-contracts",
-];
+const MEET_REFERENCE_PATTERNS = ["skills/meet-join"];
 
 function isTestFile(filePath: string): boolean {
   return (
@@ -96,7 +91,7 @@ function isSkillInternal(filePath: string): boolean {
 }
 
 describe("skill-meet-isolation guard", () => {
-  test("no non-allowlisted files reference skills/meet-join/ or @vellumai/meet-contracts", () => {
+  test("no non-allowlisted files reference skills/meet-join/", () => {
     const grepPattern = MEET_REFERENCE_PATTERNS.map((p) =>
       p.replace(/\//g, "\\/"),
     ).join("|");
@@ -126,7 +121,7 @@ describe("skill-meet-isolation guard", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Found non-allowlisted files referencing skills/meet-join/ or @vellumai/meet-contracts.",
+        "Found non-allowlisted files referencing skills/meet-join/.",
         "All Meet runtime code must live under skills/meet-join/.",
         "See skills/meet-join/AGENTS.md for the rationale.",
         "",

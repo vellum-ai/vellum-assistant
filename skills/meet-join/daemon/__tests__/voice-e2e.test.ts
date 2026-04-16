@@ -46,7 +46,7 @@ import type {
   MeetBotEvent,
   ParticipantChangeEvent,
   SpeakerChangeEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import type { ServerMessage } from "../../../../assistant/src/daemon/message-protocol.js";
 import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";

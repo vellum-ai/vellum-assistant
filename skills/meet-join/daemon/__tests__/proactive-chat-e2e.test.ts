@@ -44,7 +44,7 @@ import {
   test,
 } from "bun:test";
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../../contracts/index.js";
 
 import type { AgentEvent } from "../../../../assistant/src/agent/loop.js";
 import type { Message } from "../../../../assistant/src/providers/types.js";

@@ -20,7 +20,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   LifecycleEvent,
   MeetBotEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import { runBot, type BotDeps, type DaemonClientLike } from "../src/main.js";
 import { BotState } from "../src/control/state.js";
@@ -716,13 +716,13 @@ describe("runBot — event wiring", () => {
 
     // Capture the participant-scraper onEvent so we can invoke it by hand.
     let participantOnEvent:
-      | ((event: import("@vellumai/meet-contracts").ParticipantChangeEvent) => void)
+      | ((event: import("../../contracts/index.js").ParticipantChangeEvent) => void)
       | null = null;
     let speakerOnEvent:
-      | ((event: import("@vellumai/meet-contracts").SpeakerChangeEvent) => void)
+      | ((event: import("../../contracts/index.js").SpeakerChangeEvent) => void)
       | null = null;
     let chatOnEvent:
-      | ((event: import("@vellumai/meet-contracts").InboundChatEvent) => void)
+      | ((event: import("../../contracts/index.js").InboundChatEvent) => void)
       | null = null;
 
     const { deps, handles } = makeDeps();

@@ -42,7 +42,7 @@ import {
   type Socket as NetSocket,
 } from "node:net";
 
-import type { TranscriptChunkEvent } from "@vellumai/meet-contracts";
+import type { TranscriptChunkEvent } from "../contracts/index.js";
 
 import { resolveStreamingTranscriber } from "../../../assistant/src/providers/speech-to-text/resolve.js";
 import type {

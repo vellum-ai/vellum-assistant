@@ -33,7 +33,7 @@
 
 import type { Page } from "playwright";
 
-import type { Participant, ParticipantChangeEvent } from "@vellumai/meet-contracts";
+import type { Participant, ParticipantChangeEvent } from "../../../contracts/index.js";
 
 import { selectors } from "./dom-selectors.js";
 

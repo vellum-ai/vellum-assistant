@@ -63,7 +63,7 @@
 import type {
   SpeakerChangeEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../contracts/index.js";
 
 import type { PromptSpeakerMetadata } from "../../../assistant/src/calls/speaker-identification.js";
 import { SpeakerIdentityTracker } from "../../../assistant/src/calls/speaker-identification.js";

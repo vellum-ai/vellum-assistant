@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../../contracts/index.js";
 
 import { MeetSessionEventRouter } from "../../daemon/session-event-router.js";
 import { handleMeetInternalEvents } from "../meet-internal.js";

@@ -33,7 +33,7 @@
  */
 
 import type { Page } from "playwright";
-import type { SpeakerChangeEvent } from "@vellumai/meet-contracts";
+import type { SpeakerChangeEvent } from "../../../contracts/index.js";
 
 import { INGAME_ACTIVE_SPEAKER_INDICATOR } from "./dom-selectors.js";
 

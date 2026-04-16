@@ -20,8 +20,6 @@ ENV PATH="/root/.bun/bin:${PATH}"
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
-COPY skills/meet-join/contracts ./skills/meet-join/contracts
-
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile

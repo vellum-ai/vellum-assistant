@@ -25,7 +25,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   SpeakerChangeEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import { SpeakerIdentityTracker } from "../../../../assistant/src/calls/speaker-identification.js";
 import type {

@@ -37,7 +37,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
 
-import type { InboundChatEvent } from "@vellumai/meet-contracts";
+import type { InboundChatEvent } from "../../contracts/index.js";
 import type { Page } from "playwright";
 
 import { sendChat } from "../src/browser/chat-bridge.js";

@@ -43,7 +43,7 @@
  * spin up SQLite or the real singleton.
  */
 
-import type { MeetBotEvent } from "@vellumai/meet-contracts";
+import type { MeetBotEvent } from "../contracts/index.js";
 
 import type { ServerMessage } from "../../../assistant/src/daemon/message-protocol.js";
 import { buildAssistantEvent } from "../../../assistant/src/runtime/assistant-event.js";

@@ -35,7 +35,7 @@ import type {
   InboundChatEvent,
   MeetBotEvent,
   TranscriptChunkEvent,
-} from "@vellumai/meet-contracts";
+} from "../contracts/index.js";
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import {

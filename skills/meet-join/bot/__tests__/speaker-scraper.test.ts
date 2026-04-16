@@ -24,7 +24,7 @@ import { JSDOM } from "jsdom";
 import {
   SpeakerChangeEventSchema,
   type SpeakerChangeEvent,
-} from "@vellumai/meet-contracts";
+} from "../../contracts/index.js";
 
 import {
   startSpeakerScraper,
