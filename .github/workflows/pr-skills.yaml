@@ -66,7 +66,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.2'
 
       - name: Prettier check
         run: npx prettier --check --ignore-unknown "skills/${{ matrix.skill }}/**"
@@ -83,7 +83,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.2'
 
       - name: Check for cross-skill imports
         run: node scripts/skills/lint-skill-imports.mjs
@@ -100,7 +100,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.2'
 
       - name: Validate SKILL.md files
         run: node scripts/skills/lint-skill-spec.mjs
@@ -192,7 +192,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.2'
 
       - name: Validate catalog.json
         run: node scripts/skills/check-catalog.mjs
