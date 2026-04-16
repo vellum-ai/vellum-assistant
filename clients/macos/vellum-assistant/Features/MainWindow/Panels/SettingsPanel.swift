@@ -187,6 +187,10 @@ struct SettingsPanel: View {
                         .background { OverlayScrollerStyle() }
                 }
                 .scrollContentBackground(.hidden)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                }
             }
             .frame(maxWidth: .infinity)
         }
