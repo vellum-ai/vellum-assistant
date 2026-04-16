@@ -578,6 +578,22 @@ export class DaemonServer {
     }
   }
 
+  /** Best-effort sync of the IDENTITY.md name to the platform record. */
+  private syncIdentityToPlatform(): void {
+    try {
+      const identityPath = getWorkspacePromptPath("IDENTITY.md");
+      const content = existsSync(identityPath)
+        ? readFileSync(identityPath, "utf-8")
+        : "";
+      const fields = parseIdentityFields(content);
+      if (fields.name) {
+        syncIdentityNameToPlatform(fields.name);
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to sync identity to platform at startup");
+    }
+  }
+
   private broadcastConfigChanged(): void {
     this.broadcast({ type: "config_changed" });
   }
@@ -841,6 +857,8 @@ export class DaemonServer {
       () => this.broadcastConfigChanged(),
       () => this.broadcastFeatureFlagsChanged(),
     );
+
+    this.syncIdentityToPlatform();
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
