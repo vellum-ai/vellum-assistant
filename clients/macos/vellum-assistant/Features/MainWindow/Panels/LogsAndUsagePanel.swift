@@ -591,10 +591,10 @@ struct UsageTabContent: View {
     }
 
     private var groupColumnWidth: CGFloat {
-        store.selectedGroupBy == .conversation ? 200 : 130
+        store.selectedGroupBy == .conversation ? 200 : 260
     }
 
-    private let breakdownTableWidth: CGFloat = 500
+    private let breakdownTableWidth: CGFloat = 640
 
     @ViewBuilder
     private func breakdownTable(_ entries: [UsageGroupBreakdownEntry]) -> some View {
