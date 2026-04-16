@@ -1,23 +1,23 @@
 /**
- * CLI-side IPC client for communicating with the assistant daemon.
+ * CLI IPC client for communicating with the assistant daemon.
  *
- * Mirrors the gateway IPC client pattern (`assistant/src/ipc/gateway-client.ts`):
- * one-shot connect → call → disconnect. Returns `undefined` on any failure
- * so callers can fall back or report errors.
+ * One-shot connect → call → disconnect over the CLI IPC socket.
+ * Returns a typed result object so callers can distinguish success
+ * from connection failures and method errors.
  *
- * The socket lives at `{workspaceDir}/assistant.sock`.
+ * The socket lives at `{workspaceDir}/assistant-cli.sock`.
  */
 
 import { connect, type Socket } from "node:net";
 
 import { getLogger } from "../util/logger.js";
 
-import { getDaemonSocketPath } from "./daemon-ipc-server.js";
+import { getCliSocketPath } from "./cli-server.js";
 
-const log = getLogger("daemon-ipc-client");
+const log = getLogger("cli-ipc-client");
 
 // ---------------------------------------------------------------------------
-// Types (mirror daemon-ipc-server.ts protocol)
+// Types (mirror cli-server.ts protocol)
 // ---------------------------------------------------------------------------
 
 type IpcRequest = {
@@ -39,7 +39,7 @@ type IpcResponse = {
 const DEFAULT_CALL_TIMEOUT_MS = 60_000; // wake may take time (agent loop runs)
 const CONNECT_TIMEOUT_MS = 3_000;
 
-export interface DaemonIpcCallResult<T = unknown> {
+export interface CliIpcCallResult<T = unknown> {
   ok: boolean;
   result?: T;
   error?: string;
@@ -52,19 +52,19 @@ export interface DaemonIpcCallResult<T = unknown> {
  * Returns a typed result object so callers can distinguish success from
  * connection failures and method errors.
  */
-export async function daemonIpcCall<T = unknown>(
+export async function cliIpcCall<T = unknown>(
   method: string,
   params?: Record<string, unknown>,
   options?: { timeoutMs?: number },
-): Promise<DaemonIpcCallResult<T>> {
-  const socketPath = getDaemonSocketPath();
+): Promise<CliIpcCallResult<T>> {
+  const socketPath = getCliSocketPath();
   const callTimeoutMs = options?.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
 
-  return new Promise<DaemonIpcCallResult<T>>((resolve) => {
+  return new Promise<CliIpcCallResult<T>>((resolve) => {
     let settled = false;
     let callTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const finish = (result: DaemonIpcCallResult<T>) => {
+    const finish = (result: CliIpcCallResult<T>) => {
       if (settled) return;
       settled = true;
       clearTimeout(connectTimer);
@@ -76,7 +76,7 @@ export async function daemonIpcCall<T = unknown>(
     const connectTimer = setTimeout(() => {
       log.debug(
         { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
-        "Daemon IPC connect timed out",
+        "CLI IPC connect timed out",
       );
       finish({
         ok: false,
@@ -98,7 +98,7 @@ export async function daemonIpcCall<T = unknown>(
       callTimer = setTimeout(() => {
         log.debug(
           { method, socketPath, timeoutMs: callTimeoutMs },
-          "Daemon IPC call timed out waiting for response",
+          "CLI IPC call timed out waiting for response",
         );
         finish({ ok: false, error: "Request timed out" });
       }, callTimeoutMs);
@@ -130,7 +130,7 @@ export async function daemonIpcCall<T = unknown>(
 
     socket.on("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
-      log.debug({ err, code, method, socketPath }, "Daemon IPC socket error");
+      log.debug({ err, code, method, socketPath }, "CLI IPC socket error");
       finish({
         ok: false,
         error:

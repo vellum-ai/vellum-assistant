@@ -10,7 +10,7 @@ import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
-import { daemonIpcCall } from "../../ipc/daemon-ipc-client.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import {
   clearAll as clearAllConversations,
   countConversationsByScheduleJobId,
@@ -429,7 +429,7 @@ Examples:
         conversationId: string,
         opts: { hint: string; source: string; json?: boolean },
       ) => {
-        const result = await daemonIpcCall<{
+        const result = await cliIpcCall<{
           invoked: boolean;
           producedToolCalls: boolean;
         }>("wake_conversation", {

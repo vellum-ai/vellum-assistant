@@ -1,17 +1,17 @@
 /**
- * Assistant daemon IPC server — exposes daemon capabilities to CLI commands
- * and external processes over a Unix domain socket.
+ * CLI IPC server — exposes daemon capabilities to CLI commands and external
+ * processes over a Unix domain socket.
  *
- * Mirrors the gateway IPC server pattern (`gateway/src/ipc/server.ts`):
- * newline-delimited JSON over a Unix domain socket with request/response
- * semantics.
+ * This is the preferred method of inter-process communication between the
+ * CLI and the daemon. File-based signals and the HTTP port are deprecated
+ * in favor of this IPC socket.
  *
- * Protocol:
+ * Protocol: newline-delimited JSON over a Unix domain socket.
  * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
  * - Response: { "id": string, "result"?: unknown, "error"?: string }
  *
- * The socket lives at `{workspaceDir}/assistant.sock` on the workspace volume
- * so CLI commands running in the same container can connect to it.
+ * The socket lives at `{workspaceDir}/assistant-cli.sock` on the workspace
+ * volume so CLI commands running in the same container can connect to it.
  */
 
 import { existsSync, unlinkSync } from "node:fs";
@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-const log = getLogger("daemon-ipc-server");
+const log = getLogger("cli-ipc-server");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,14 +53,14 @@ export type IpcRoute = {
 // Server
 // ---------------------------------------------------------------------------
 
-export class DaemonIpcServer {
+export class CliIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
   private socketPath: string;
 
   constructor(routes?: IpcRoute[]) {
-    this.socketPath = getDaemonSocketPath();
+    this.socketPath = getCliSocketPath();
     if (routes) {
       for (const route of routes) {
         this.methods.set(route.method, route.handler);
@@ -114,11 +114,11 @@ export class DaemonIpcServer {
     });
 
     this.server.on("error", (err) => {
-      log.error({ err }, "Daemon IPC server error");
+      log.error({ err }, "CLI IPC server error");
     });
 
     this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "Daemon IPC server listening");
+      log.info({ path: this.socketPath }, "CLI IPC server listening");
     });
   }
 
@@ -229,6 +229,6 @@ export class DaemonIpcServer {
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function getDaemonSocketPath(): string {
-  return join(getWorkspaceDir(), "assistant.sock");
+export function getCliSocketPath(): string {
+  return join(getWorkspaceDir(), "assistant-cli.sock");
 }

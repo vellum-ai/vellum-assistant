@@ -1,5 +1,21 @@
 # Tools - Agent Instructions
 
+## CLI ↔ Daemon Communication
+
+**The Unix domain socket IPC (`assistant-cli.sock`) is the preferred method
+of inter-process communication between CLI commands and the running daemon.**
+
+File-based signals (`signals/` directory + `ConfigWatcher`) and the HTTP
+port are deprecated for new CLI-to-daemon interactions. New commands that
+need to invoke daemon-side state (conversations, wake, in-memory lookups)
+should use the `cliIpcCall()` helper from `assistant/src/ipc/cli-client.ts`
+and register the corresponding method on the `CliIpcServer` in
+`assistant/src/daemon/server.ts`.
+
+The IPC protocol is newline-delimited JSON over a Unix domain socket:
+- Request:  `{ "id": string, "method": string, "params"?: object }`
+- Response: `{ "id": string, "result"?: unknown, "error"?: string }`
+
 ## New Non-Skill Tools Are Strongly Discouraged
 
 **Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from Team Jarvis.
