@@ -147,7 +147,7 @@ struct ComposerTextEditor: NSViewRepresentable {
             object: textView,
             queue: .main
         ) { [weak coordinator] _ in
-            coordinator?.measureHeight(textView)
+            coordinator?.scheduleMeasureHeight(textView)
         }
 
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -157,12 +157,10 @@ struct ComposerTextEditor: NSViewRepresentable {
             object: scrollView.contentView,
             queue: .main
         ) { [weak coordinator] _ in
-            coordinator?.measureHeight(textView)
+            coordinator?.scheduleMeasureHeight(textView)
         }
 
-        DispatchQueue.main.async {
-            coordinator.measureHeight(textView)
-        }
+        coordinator.scheduleMeasureHeight(textView)
 
         return scrollView
     }
@@ -209,6 +207,11 @@ struct ComposerTextEditor: NSViewRepresentable {
                 .paragraphStyle: textView.defaultParagraphStyle ?? NSParagraphStyle.default,
                 .foregroundColor: textColor,
             ]
+            // Typography mutations (font / line spacing / color) can change
+            // wrapped height without always producing a deterministic delta
+            // in `NSTextStorage.hash`, so force the next measurement to run
+            // a real layout pass instead of hitting the skip-guard cache.
+            coordinator.invalidateMeasureHeightCache()
         }
 
         textView.cmdEnterToSend = cmdEnterToSend
@@ -241,7 +244,7 @@ struct ComposerTextEditor: NSViewRepresentable {
             )
         }
 
-        context.coordinator.measureHeight(textView)
+        coordinator.scheduleMeasureHeight(textView)
     }
 
     static func dismantleNSView(_ scrollView: IntrinsicScrollView, coordinator: Coordinator) {
@@ -253,6 +256,7 @@ struct ComposerTextEditor: NSViewRepresentable {
             NotificationCenter.default.removeObserver(boundsObserver)
             coordinator.boundsObserver = nil
         }
+        coordinator.cancelPendingMeasureHeight()
     }
 
     // MARK: - Coordinator
@@ -271,6 +275,24 @@ struct ComposerTextEditor: NSViewRepresentable {
         var pendingFirstResponderValue: Bool?
         weak var textView: ComposerTextView?
 
+        // Coalesce rapid measureHeight requests: multiple calls in the same
+        // runloop cycle (upstream SwiftUI state cascades, scroll+resize
+        // interleaving, per-keystroke textDidChange) collapse into a single
+        // layout pass on the next main-queue turn. `NSLayoutManager` is not
+        // thread-safe, so the work stays on the main thread — we only defer
+        // it, never move it off-main.
+        // Ref: https://developer.apple.com/documentation/appkit/nslayoutmanager
+        private var pendingMeasureWork: DispatchWorkItem?
+
+        // Skip-guard: avoid re-running `ensureLayout`+`usedRect` when neither
+        // the text storage content nor the wrapping width has changed since
+        // the last successful measurement. `NSAttributedString.hash` is
+        // content-and-attribute based, so it invalidates on any edit.
+        // `containerSize.width` (under `widthTracksTextView = true`) captures
+        // split-view / window resize.
+        private var lastMeasuredStorageHash: Int = 0
+        private var lastMeasuredContainerWidth: CGFloat = -1
+
         init(parent: ComposerTextEditor) {
             self.parent = parent
         }
@@ -285,7 +307,7 @@ struct ComposerTextEditor: NSViewRepresentable {
             if parent.cursorPosition != pos {
                 parent.cursorPosition = pos
             }
-            measureHeight(textView)
+            scheduleMeasureHeight(textView)
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -308,8 +330,55 @@ struct ComposerTextEditor: NSViewRepresentable {
             }
         }
 
+        /// Request a height measurement on the next runloop turn. Cancels any
+        /// pending request so rapid bursts resolve to a single `ensureLayout`
+        /// pass instead of N synchronous passes. Uses `DispatchQueue.main.async`
+        /// (not a timed delay) so the update lands within the same render
+        /// frame as the triggering event.
+        func scheduleMeasureHeight(_ textView: NSTextView) {
+            pendingMeasureWork?.cancel()
+            let item = DispatchWorkItem { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.measureHeight(textView)
+            }
+            pendingMeasureWork = item
+            DispatchQueue.main.async(execute: item)
+        }
+
+        /// Cancel any pending measurement. Call from `dismantleNSView` so a
+        /// deferred layout pass never fires against a torn-down view.
+        func cancelPendingMeasureHeight() {
+            pendingMeasureWork?.cancel()
+            pendingMeasureWork = nil
+        }
+
+        /// Force the next `measureHeight` call to perform a real layout pass
+        /// regardless of the storage-hash / width cache. Used when upstream
+        /// typography changes (font, line spacing, text color) can affect
+        /// wrapped height.
+        func invalidateMeasureHeightCache() {
+            lastMeasuredStorageHash = 0
+            lastMeasuredContainerWidth = -1
+        }
+
         func measureHeight(_ textView: NSTextView) {
             guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
+
+            // Skip if neither the content nor the wrapping width has changed
+            // since the last successful measurement. `ensureLayout` is O(n) in
+            // glyph count on its first call after an invalidation, so skipping
+            // redundant invocations is essential for large text (pastes, long
+            // messages) where a single pass can block the main thread for
+            // multiple seconds.
+            let storageHash = textView.textStorage?.hash ?? 0
+            let width = tc.containerSize.width
+            if storageHash == lastMeasuredStorageHash,
+               width == lastMeasuredContainerWidth {
+                return
+            }
+            lastMeasuredStorageHash = storageHash
+            lastMeasuredContainerWidth = width
+
             lm.ensureLayout(for: tc)
             let usedHeight = ceil(lm.usedRect(for: tc).height)
             let contentHeight = usedHeight + textView.textContainerInset.height * 2
