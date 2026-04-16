@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
@@ -91,5 +97,12 @@ export const extractMeetConfigMigration: WorkspaceMigration = {
     config.services = services;
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+
+    // Remove the skill-owned file so a subsequent run() re-migrates cleanly.
+    try {
+      unlinkSync(meetConfigPath);
+    } catch {
+      // Best-effort cleanup.
+    }
   },
 };
