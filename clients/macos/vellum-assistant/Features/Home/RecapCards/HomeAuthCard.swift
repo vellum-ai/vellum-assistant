@@ -54,7 +54,7 @@ struct HomeAuthCard: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(VColor.borderBase.opacity(0.4), lineWidth: 1)
+                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
                 )
                 .clipShape(Capsule())
         }
@@ -70,7 +70,7 @@ struct HomeAuthCard: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.borderBase.opacity(0.4), lineWidth: 1)
+                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
