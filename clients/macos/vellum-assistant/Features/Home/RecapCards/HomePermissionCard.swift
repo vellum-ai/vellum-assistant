@@ -18,7 +18,7 @@ struct HomePermissionCard: View {
     @State private var isExpanded = false
 
     var body: some View {
-        HomeRecapCardView(showDismiss: showDismiss, onDismiss: onDismiss) {
+        HomeRecapCardView {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 HomeRecapCardHeader(
                     icon: .shieldAlert,

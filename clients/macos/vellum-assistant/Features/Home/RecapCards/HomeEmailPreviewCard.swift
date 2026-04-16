@@ -38,7 +38,7 @@ struct HomeEmailPreviewCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView(showDismiss: showDismiss, onDismiss: onDismiss) {
+        HomeRecapCardView {
             VStack(spacing: VSpacing.lg) {
                 HomeRecapCardHeader(
                     icon: .mail,

@@ -28,7 +28,7 @@ struct HomeReplyCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView(showDismiss: showDismiss, onDismiss: onDismiss) {
+        HomeRecapCardView {
             VStack(spacing: 0) {
                 header
                 composerBar

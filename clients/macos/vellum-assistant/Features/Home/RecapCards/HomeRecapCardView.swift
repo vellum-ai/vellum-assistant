@@ -5,17 +5,11 @@ import VellumAssistantShared
 /// glassmorphic rounded surface with shadow that wraps arbitrary
 /// card content via a `@ViewBuilder` slot.
 struct HomeRecapCardView<Content: View>: View {
-    let showDismiss: Bool
-    let onDismiss: (() -> Void)?
     private let content: Content
 
     init(
-        showDismiss: Bool = false,
-        onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
-        self.showDismiss = showDismiss
-        self.onDismiss = onDismiss
         self.content = content()
     }
 

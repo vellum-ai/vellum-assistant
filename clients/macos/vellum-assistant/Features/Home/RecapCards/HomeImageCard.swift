@@ -32,7 +32,7 @@ struct HomeImageCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView(showDismiss: showDismiss, onDismiss: onDismiss) {
+        HomeRecapCardView {
             VStack(spacing: VSpacing.md) {
                 HomeRecapCardHeader(
                     icon: .image,
