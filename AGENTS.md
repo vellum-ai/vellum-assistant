@@ -136,6 +136,10 @@ All LLM calls must go through the provider abstraction — use `getConfiguredPro
 
 Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimized'`) instead of hardcoded model IDs. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
+## Skill Isolation
+
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. Guard test: `skill-meet-isolation.test.ts`. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
+
 ## Tooling Direction
 
 New non-skill tool registrations are strongly discouraged — prefer skills instead. See `assistant/src/tools/AGENTS.md` for rationale, approved CES exceptions, and alternatives.

@@ -1,6 +1,5 @@
 import * as Sentry from "@sentry/node";
 
-import { MeetSessionManager } from "../../../skills/meet-join/daemon/session-manager.js";
 import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -15,6 +14,7 @@ import { getLogger } from "../util/logger.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import type { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import type { DaemonServer } from "./server.js";
+import { runShutdownHooks } from "./shutdown-registry.js";
 
 const log = getLogger("lifecycle");
 
@@ -73,15 +73,13 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
       // Don't let hook failures block shutdown
     }
 
-    // Tear down active Meet sessions before stopping the server so the bot
-    // `/leave` HTTP round-trip and the `meet.left` SSE emission both have
-    // live transports. `shutdownAll` races the set of `leave()` calls
-    // against a shared 15s deadline; past that it force-stops any
-    // remaining containers directly so the daemon exit doesn't leak them.
+    // Run registered skill shutdown hooks (e.g. meet-join session teardown)
+    // before stopping the server so any HTTP round-trips and SSE emissions
+    // still have live transports.
     try {
-      await MeetSessionManager.shutdownAll("daemon-shutdown");
+      await runShutdownHooks("daemon-shutdown");
     } catch (err) {
-      log.warn({ err }, "Meet session shutdown failed (non-fatal)");
+      log.warn({ err }, "Skill shutdown hooks failed (non-fatal)");
     }
 
     // Commit any uncommitted workspace changes before stopping the server.
