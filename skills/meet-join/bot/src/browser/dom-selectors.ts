@@ -50,8 +50,22 @@ export const prejoinSelectors = {
   /**
    * Text input where the joining participant types their display name. Meet
    * exposes this with `aria-label="Your name"` when the user is not signed in.
+   * Signed-in flows skip this input (the name comes from the Google account),
+   * so callers must treat it as optional.
    */
   NAME_INPUT: 'input[aria-label="Your name"]',
+
+  /**
+   * "Use microphone and camera" button in the media-permission modal Meet
+   * overlays on the prejoin screen for anonymous joiners. The modal blocks the
+   * underlying prejoin UI until it is dismissed, so the bot must click this
+   * (or the "Continue without microphone and camera" link) before any other
+   * prejoin selector becomes interactable. Chromium's
+   * `--use-fake-ui-for-media-stream` only auto-accepts the *browser's* native
+   * permission prompt — this dialog is rendered by Meet itself and must be
+   * clicked through explicitly.
+   */
+  MEDIA_PROMPT_ACCEPT_BUTTON: 'button[aria-label="Use microphone and camera"]',
 
   /**
    * "Ask to join" button shown when the meeting is locked and the bot needs
@@ -172,6 +186,7 @@ export const controlSelectors = {
 export const selectors = {
   // Prejoin
   PREJOIN_NAME_INPUT: prejoinSelectors.NAME_INPUT,
+  PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON: prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
   PREJOIN_ASK_TO_JOIN_BUTTON: prejoinSelectors.ASK_TO_JOIN_BUTTON,
   PREJOIN_JOIN_NOW_BUTTON: prejoinSelectors.JOIN_NOW_BUTTON,
 

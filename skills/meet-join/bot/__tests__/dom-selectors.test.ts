@@ -47,6 +47,17 @@ describe("prejoin selectors", () => {
     expect(input.getAttribute("aria-label")).toBe("Your name");
   });
 
+  test("MEDIA_PROMPT_ACCEPT_BUTTON resolves the media-permission accept button", () => {
+    const nodes = doc.querySelectorAll(
+      prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
+    );
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("BUTTON");
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe(
+      "Use microphone and camera",
+    );
+  });
+
   test("ASK_TO_JOIN_BUTTON resolves the ask-to-join button", () => {
     const nodes = doc.querySelectorAll(prejoinSelectors.ASK_TO_JOIN_BUTTON);
     expect(nodes.length).toBe(1);
@@ -194,6 +205,10 @@ describe("flat selectors aggregate", () => {
   test("exposes each named constant from the individual groups", () => {
     const cases: Array<[keyof typeof selectors, string]> = [
       ["PREJOIN_NAME_INPUT", prejoinSelectors.NAME_INPUT],
+      [
+        "PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON",
+        prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
+      ],
       ["PREJOIN_ASK_TO_JOIN_BUTTON", prejoinSelectors.ASK_TO_JOIN_BUTTON],
       ["PREJOIN_JOIN_NOW_BUTTON", prejoinSelectors.JOIN_NOW_BUTTON],
       ["INGAME_CHAT_PANEL_BUTTON", chatSelectors.PANEL_BUTTON],

@@ -59,8 +59,16 @@ const log = getLogger("meet-audio-ingest");
  * after `start()` opens it. Exceeding this rejects `start()` with a clear
  * error so the session manager can abort the join and clean up the
  * container.
+ *
+ * Must be larger than the bot's worst-case prejoin+admission path, not just
+ * its connect cost. The bot only opens the audio socket *after* `joinMeet`
+ * returns, and `joinMeet` may legitimately block for `MEETING_ROOM_TIMEOUT_MS`
+ * (90s) while a host admits the bot through the "Ask to join" lobby. Plus
+ * cold-start (Chrome launch + Meet page load + modal dismissal) adds another
+ * ~10s. Anything under ~100s races the join flow and causes the daemon to
+ * rollback a bot that was still legitimately mid-join.
  */
-export const BOT_CONNECT_TIMEOUT_MS = 30_000;
+export const BOT_CONNECT_TIMEOUT_MS = 120_000;
 
 /**
  * Sample rate (Hz) of the PCM frames the meet-bot captures and forwards over

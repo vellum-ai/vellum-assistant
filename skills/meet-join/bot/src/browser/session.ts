@@ -60,6 +60,14 @@ export const CHROMIUM_ARGS: readonly string[] = [
   "--no-sandbox",
   "--disable-dev-shm-usage",
   "--disable-setuid-sandbox",
+  // Disable GPU acceleration — there is no GPU in the container and Chromium's
+  // GPU-process initialization is a common source of early crashes in
+  // containerized Xvfb setups, even with `--headless=new` disabled.
+  "--disable-gpu",
+  // Silence crash-reporter and background-networking subsystems that are
+  // irrelevant for a short-lived bot and occasionally misbehave under Xvfb.
+  "--disable-background-networking",
+  "--disable-breakpad",
   "--window-size=1280,720",
 ];
 

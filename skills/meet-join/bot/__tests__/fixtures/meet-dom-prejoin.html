@@ -47,6 +47,20 @@
           </button>
         </div>
       </div>
+
+      <!--
+        Media-permission modal Meet overlays on the prejoin screen for
+        anonymous joiners. Blocks the underlying UI until the "Use microphone
+        and camera" button (or the "Continue without" link) is clicked.
+      -->
+      <div role="dialog" aria-label="Do you want people to see and hear you in the meeting?">
+        <button type="button" aria-label="Use microphone and camera">
+          Use microphone and camera
+        </button>
+        <button type="button" aria-label="Continue without microphone and camera">
+          Continue without microphone and camera
+        </button>
+      </div>
     </div>
   </body>
 </html>

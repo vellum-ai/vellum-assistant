@@ -7,15 +7,19 @@
  *
  * Call graph:
  *
- *   1. Wait for the prejoin name input.
- *   2. Fill the name input with `displayName`.
- *   3. Branch on the admission policy:
+ *   1. Dismiss the media-permission modal if Meet rendered one (blocks the
+ *      prejoin UI underneath for anonymous joiners).
+ *   2. Wait for either the prejoin name input OR a join button — signed-in
+ *      flows skip the name input entirely, so treating it as mandatory would
+ *      hang the bot for 30s on a page that's otherwise interactable.
+ *   3. Fill the name input with `displayName` if it is present.
+ *   4. Branch on the admission policy:
  *        - If "Join now" is present, click it (signed-in / same-domain flow).
  *        - Else click "Ask to join" (locked meeting — host admits the bot).
- *   4. Wait for the in-meeting UI (the red "Leave call" button is the
+ *   5. Wait for the in-meeting UI (the red "Leave call" button is the
  *      canonical marker — it only mounts once the bot is actually in the
  *      meeting room).
- *   5. Post `consentMessage` in chat so human participants are informed that
+ *   6. Post `consentMessage` in chat so human participants are informed that
  *      an AI assistant is listening.
  *
  * Error strategy: every step throws a descriptive `Error` when a selector
@@ -23,13 +27,23 @@
  * container orchestrator notices the failure.
  */
 
+import { writeFile } from "node:fs/promises";
+
 import type { Page } from "playwright";
 
 import { postConsentMessage } from "./chat-bridge.js";
 import { selectors } from "./dom-selectors.js";
 
-/** How long to wait for the prejoin name input to mount. */
+/** How long to wait for the prejoin surface to mount. */
 const PREJOIN_TIMEOUT_MS = 30_000;
+
+/**
+ * How long to wait for Meet's media-permission modal. Short by design — if
+ * Meet didn't render the modal (signed-in flows, older UI variants) we want
+ * to fall through to the prejoin wait quickly rather than spending the full
+ * prejoin budget on a dialog that will never appear.
+ */
+const MEDIA_PROMPT_TIMEOUT_MS = 5_000;
 
 /**
  * How long to wait for the meeting-room UI after clicking the join button.
@@ -60,7 +74,9 @@ const DIAGNOSTICS_DIR = "/out";
  * Best-effort: snapshot the current page to `/out/<name>.png` so an
  * operator can see exactly what Google Meet was showing when a selector
  * timed out. Never re-throws — diagnostics must not mask the real join
- * failure that triggered the capture.
+ * failure that triggered the capture. Logs capture failures to stderr so
+ * the operator can tell "capture was attempted and failed" apart from
+ * "capture was never attempted".
  */
 async function captureFailureSnapshot(
   page: Page,
@@ -70,7 +86,36 @@ async function captureFailureSnapshot(
   try {
     await page.screenshot({ path: snapPath, fullPage: true });
     return snapPath;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `meet-bot: screenshot capture failed for ${name}: ${msg}\n`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Best-effort: dump the current page's HTML to `/out/<name>.html`. Useful
+ * when the screenshot path fails (page crashed, missing display) or when
+ * Meet served an entirely different surface (sign-in wall, unsupported-
+ * browser interstitial) and we want to inspect what selectors WOULD have
+ * matched.
+ */
+async function captureFailureHtml(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  const htmlPath = `${DIAGNOSTICS_DIR}/${name}.html`;
+  try {
+    const html = await page.content();
+    await writeFile(htmlPath, html, "utf8");
+    return htmlPath;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `meet-bot: html capture failed for ${name}: ${msg}\n`,
+    );
     return null;
   }
 }
@@ -90,6 +135,20 @@ async function safePageUrl(page: Page): Promise<string | null> {
 }
 
 /**
+ * Best-effort: capture the current page title. A title like "Meet — <code>"
+ * means the prejoin DOM loaded but our selectors are wrong; a title like
+ * "Sign in — Google Accounts" or "Unsupported browser" tells us Meet served
+ * something else entirely.
+ */
+async function safePageTitle(page: Page): Promise<string | null> {
+  try {
+    return await page.title();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Drive the Google Meet prejoin surface to completion and deliver the consent
  * notice.
  *
@@ -103,27 +162,63 @@ export async function joinMeet(
 ): Promise<void> {
   const { displayName, consentMessage } = opts;
 
-  // Step 1 — wait for the prejoin name input so we know the page has reached
-  // the "Ready to join?" stage (rather than, say, a Google login redirect).
+  // Step 1 — dismiss the media-permission modal if Meet rendered one. The
+  // modal blocks the underlying prejoin UI from being interacted with (even
+  // from visible selectors), so the bot must click through it before doing
+  // anything else. Best-effort — a missing modal is the signed-in happy path
+  // and must not fail the join.
   try {
-    await page.waitForSelector(selectors.PREJOIN_NAME_INPUT, {
-      timeout: PREJOIN_TIMEOUT_MS,
+    await page.waitForSelector(selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON, {
+      timeout: MEDIA_PROMPT_TIMEOUT_MS,
     });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    await page.click(selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON);
+  } catch {
+    // No modal — proceed directly to the prejoin surface.
+  }
+
+  // Step 2 — wait for the prejoin surface to be ready. Meet shows the
+  // "Your name" input only for anonymous joiners; signed-in flows skip
+  // straight to the join buttons. `Promise.any` resolves as soon as any one
+  // of the three selectors becomes visible, and only rejects if all three
+  // time out — which is the signal that Meet served something other than a
+  // prejoin (login redirect, error screen, etc.).
+  try {
+    await Promise.any([
+      page.waitForSelector(selectors.PREJOIN_NAME_INPUT, {
+        timeout: PREJOIN_TIMEOUT_MS,
+      }),
+      page.waitForSelector(selectors.PREJOIN_JOIN_NOW_BUTTON, {
+        timeout: PREJOIN_TIMEOUT_MS,
+      }),
+      page.waitForSelector(selectors.PREJOIN_ASK_TO_JOIN_BUTTON, {
+        timeout: PREJOIN_TIMEOUT_MS,
+      }),
+    ]);
+  } catch {
     const url = await safePageUrl(page);
+    const title = await safePageTitle(page);
     const snap = await captureFailureSnapshot(page, "prejoin-failure");
+    const html = await captureFailureHtml(page, "prejoin-failure");
     throw new Error(
-      `meet-bot: prejoin name input did not appear within ${PREJOIN_TIMEOUT_MS}ms: ${msg}` +
+      `meet-bot: prejoin surface did not appear within ${PREJOIN_TIMEOUT_MS}ms` +
         (url ? ` (final URL: ${url})` : "") +
-        (snap ? ` (screenshot: ${snap})` : ""),
+        (title ? ` (page title: ${JSON.stringify(title)})` : "") +
+        (snap ? ` (screenshot: ${snap})` : "") +
+        (html ? ` (html: ${html})` : ""),
     );
   }
 
-  // Step 2 — populate the display name.
-  await page.fill(selectors.PREJOIN_NAME_INPUT, displayName);
+  // Step 3 — populate the display name if the input is present. Signed-in
+  // flows (and some Meet UI variants) don't render it, in which case the
+  // account's name is used instead.
+  const nameInputCount = await page
+    .locator(selectors.PREJOIN_NAME_INPUT)
+    .count();
+  if (nameInputCount > 0) {
+    await page.fill(selectors.PREJOIN_NAME_INPUT, displayName);
+  }
 
-  // Step 3 — choose the admission button. Prefer "Join now" because it is the
+  // Step 4 — choose the admission button. Prefer "Join now" because it is the
   // happy-path branch for signed-in / same-domain sessions; fall back to
   // "Ask to join" for locked meetings.
   const joinNowCount = await page
@@ -135,7 +230,7 @@ export async function joinMeet(
     await page.click(selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
   }
 
-  // Step 4 — wait for the in-meeting UI. The "Leave call" button only mounts
+  // Step 5 — wait for the in-meeting UI. The "Leave call" button only mounts
   // once the bot is inside the meeting room, so it is our canonical signal
   // that the admission flow succeeded.
   try {
@@ -153,7 +248,7 @@ export async function joinMeet(
     );
   }
 
-  // Step 5 — drop the consent notice. `postConsentMessage` handles opening
+  // Step 6 — drop the consent notice. `postConsentMessage` handles opening
   // the chat panel if it is still collapsed.
   await postConsentMessage(page, consentMessage);
 }
