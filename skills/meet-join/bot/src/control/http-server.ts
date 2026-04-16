@@ -105,8 +105,11 @@ const TRAILING_SILENCE_MS = 50;
 
 /**
  * In-flight playback registry — keyed by the stream's uuid so `DELETE
- * /play_audio/:streamId` can target a specific stream. The value is just
- * the `AbortController` the POST handler is racing against.
+ * /play_audio/:streamId` can target a specific stream. Cross-stream
+ * serialization (so concurrent POSTs with different ids can't interleave
+ * PCM on the shared pacat stdin) is handled separately via a chained
+ * playback promise; this registry just exists so individual cancels can
+ * be routed to the right abort controller.
  */
 interface ActiveStream {
   controller: AbortController;
@@ -128,6 +131,18 @@ export function createHttpServer(
   const playbackFactory = startPlayback ?? startAudioPlayback;
 
   const activeStreams = new Map<string, ActiveStream>();
+
+  /**
+   * Tail of the playback queue. Every POST /play_audio appends itself to
+   * this chain so handlers run strictly one at a time — critical because
+   * audio-playback's module-level singleton hands every handler the same
+   * pacat stdin, and two concurrent `handle.write(...)` loops would
+   * interleave PCM bytes on that shared sink. When a new POST arrives it
+   * (a) aborts everything currently registered and (b) awaits the current
+   * `playbackChain` before doing any writes of its own, then publishes a
+   * fresh promise as the new tail for the next arrival to queue behind.
+   */
+  let playbackChain: Promise<void> = Promise.resolve();
 
   const app = new Hono();
 
@@ -256,19 +271,44 @@ export function createHttpServer(
     const streamId =
       providedId && providedId.length > 0 ? providedId : randomUUID();
 
-    // If a stream id was reused, cancel whatever's in flight first. This
-    // matches the barge-in semantics we want in Phase 3: a fresh POST with
-    // the same id supersedes the old one.
-    const existing = activeStreams.get(streamId);
-    if (existing) {
-      existing.controller.abort();
+    // Serialize against every in-flight stream, not just one with the same
+    // id. The bot owns a single shared pacat stdin (see audio-playback's
+    // module-level singleton), so two concurrent POSTs with *different*
+    // streamIds would race on `handle.write()` and produce interleaved
+    // PCM. Semantics: last-writer-wins — a fresh POST pre-empts whatever
+    // is playing.
+    //
+    // Step 1: abort every currently-registered stream so any in-flight
+    //         writer exits its read loop at the next iteration.
+    // Step 2: splice a fresh completion promise into `playbackChain` *now*
+    //         (before awaiting) so a later POST that arrives while we're
+    //         still waiting queues behind us, not beside us. Without the
+    //         splice two concurrent arrivals could both await the same
+    //         prior chain tail and then both start writing in parallel.
+    // Step 3: await the previous chain tail so the prior handler's
+    //         trailing-silence flush has landed before we touch
+    //         `handle.write()`.
+    for (const prior of activeStreams.values()) {
+      prior.controller.abort();
     }
+    const previousChain = playbackChain;
+    let releaseChain!: () => void;
+    playbackChain = new Promise<void>((resolve) => {
+      releaseChain = resolve;
+    });
+    // `previousChain` never rejects — all handlers below resolve their
+    // slot in a `finally`, and silence-flush errors are swallowed — so
+    // awaiting it directly is safe.
+    await previousChain;
 
     let handle: AudioPlaybackHandle;
     try {
       handle = playbackFactory(playbackSpawnOptions);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Release our slot so the next POST in the chain isn't blocked on a
+      // handler that failed before it even registered.
+      releaseChain();
       return c.json({ error: `failed to start playback: ${message}` }, 500);
     }
 
@@ -289,6 +329,7 @@ export function createHttpServer(
       } catch {
         // Best-effort; silence is cosmetic.
       }
+      releaseChain();
       return c.json({ streamId, bytes: 0 }, 200);
     }
 
@@ -357,6 +398,10 @@ export function createHttpServer(
       } catch {
         // Best-effort.
       }
+      // Release our slot in the playback chain *after* the silence flush
+      // so any POST queued behind us only unblocks once the shared pacat
+      // stdin is fully quiesced.
+      releaseChain();
     }
 
     if (writeError) {
