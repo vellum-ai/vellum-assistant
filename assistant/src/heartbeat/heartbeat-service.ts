@@ -2,7 +2,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import type { Speed } from "../config/schemas/inference.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
@@ -82,7 +81,7 @@ export interface HeartbeatDeps {
   processMessage: (
     conversationId: string,
     content: string,
-    options?: { speed?: Speed; callSite?: LLMCallSite },
+    options?: { callSite?: LLMCallSite },
   ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
@@ -334,7 +333,6 @@ export class HeartbeatService {
     await this.runCredentialHealthCheck();
 
     try {
-      const config = getConfig().heartbeat;
       const checklist = this.readChecklist();
       const { prompt, includedReengagement } = this.buildPrompt(checklist);
 
@@ -352,7 +350,7 @@ export class HeartbeatService {
       });
 
       await this.deps.processMessage(conversation.id, prompt, {
-        speed: config.speed,
+        callSite: "heartbeatAgent",
       });
 
       if (includedReengagement) {
