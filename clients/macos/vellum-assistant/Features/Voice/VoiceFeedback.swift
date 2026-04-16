@@ -13,7 +13,7 @@ enum VoiceFeedback {
             log.warning("System sound 'Tink' not available for activation chime")
             return
         }
-        sound.play()
+        SoundManager.audioQueue.async { sound.play() }
         log.debug("Played activation chime")
     }
 
@@ -23,7 +23,7 @@ enum VoiceFeedback {
             log.warning("System sound 'Pop' not available for deactivation chime")
             return
         }
-        sound.play()
+        SoundManager.audioQueue.async { sound.play() }
         log.debug("Played deactivation chime")
     }
 }

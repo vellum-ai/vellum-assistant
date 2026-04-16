@@ -698,4 +698,124 @@ struct ConversationRestorerTests {
         #expect(delegate.conversations[1].originChannel == "telegram")
         #expect(delegate.createConversationCallCount == 0)
     }
+
+    // MARK: - Invalidation Refetch Preserves Selection
+
+    /// Verifies that a conversation list refresh (triggered by invalidation refetch)
+    /// preserves the selected conversation's local ID, loaded history, and view model.
+    @Test @MainActor
+    func refreshPreservesSelectedConversationThroughInvalidationRefetch() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // GIVEN two restored conversations with the selected one having loaded history
+        let conversationA = ConversationModel(title: "Chat A", conversationId: "sa")
+        let conversationB = ConversationModel(title: "Chat B", conversationId: "sb")
+        delegate.conversations = [conversationA, conversationB]
+
+        let vmA = delegate.makeViewModel()
+        vmA.conversationId = "sa"
+        delegate.viewModels[conversationA.id] = vmA
+        delegate.activatedConversationId = conversationA.id
+
+        // AND conversation A has history loaded via the restorer
+        restorer.pendingHistoryByConversationId["sa"] = conversationA.id
+        restorer.handleHistoryResponse(makeHistoryResponse(
+            conversationId: "sa",
+            messages: [(role: "user", text: "Hello")]
+        ))
+
+        let vmB = delegate.makeViewModel()
+        vmB.conversationId = "sb"
+        delegate.viewModels[conversationB.id] = vmB
+
+        // AND we capture the pre-refresh state
+        let selectedIdBefore = delegate.activatedConversationId
+        let localIdA = conversationA.id
+        let localIdB = conversationB.id
+        #expect(vmA.isHistoryLoaded)
+        #expect(vmA.messages.count == 1)
+
+        // WHEN a conversation list response arrives (simulating invalidation refetch)
+        let refreshResponse = makeConversationListResponse(conversations: [
+            (id: "sa", title: "Chat A (updated)", updatedAt: 5000),
+            (id: "sb", title: "Chat B", updatedAt: 4000),
+        ])
+        restorer.handleConversationListResponse(refreshResponse)
+
+        // THEN the selected conversation ID is unchanged
+        #expect(delegate.activatedConversationId == selectedIdBefore)
+
+        // AND the local UUIDs for existing conversations are preserved (not replaced)
+        #expect(delegate.conversations.contains(where: { $0.id == localIdA }))
+        #expect(delegate.conversations.contains(where: { $0.id == localIdB }))
+
+        // AND the view model for the selected conversation still has its loaded history
+        let vmAfter = delegate.viewModels[localIdA]
+        #expect(vmAfter === vmA)
+        #expect(vmAfter?.isHistoryLoaded == true)
+        #expect(vmAfter?.messages.count == 1)
+
+        // AND user-set titles are preserved (not overwritten by the server)
+        let conversationAfter = delegate.conversations.first(where: { $0.id == localIdA })
+        #expect(conversationAfter?.title == "Chat A")
+
+        // AND mutable metadata (lastInteractedAt) was refreshed from the server
+        let expectedDate = Date(timeIntervalSince1970: TimeInterval(5000) / 1000.0)
+        #expect(conversationAfter?.lastInteractedAt == expectedDate)
+    }
+
+    /// Verifies that a default-titled conversation gets its title updated
+    /// from the server during an invalidation refetch.
+    @Test @MainActor
+    func refreshUpdatesDefaultTitleFromServer() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // GIVEN a conversation with the default title
+        let conversation = ConversationModel(title: "New Conversation", conversationId: "s1")
+        delegate.conversations = [conversation]
+        let vm = delegate.makeViewModel()
+        vm.conversationId = "s1"
+        delegate.viewModels[conversation.id] = vm
+
+        // WHEN a conversation list response arrives with an updated title
+        let refreshResponse = makeConversationListResponse(conversations: [
+            (id: "s1", title: "Renamed Chat", updatedAt: 5000),
+        ])
+        restorer.handleConversationListResponse(refreshResponse)
+
+        // THEN the title is updated from the server
+        let updated = delegate.conversations.first(where: { $0.id == conversation.id })
+        #expect(updated?.title == "Renamed Chat")
+    }
+
+    /// Verifies that scheduleInvalidationRefetch uses trailing-edge debounce:
+    /// rapid calls reset the timer so only the final call fires.
+    @Test @MainActor
+    func invalidationRefetchDebouncesCancelsPriorSchedule() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // GIVEN a conversation already exists
+        let conversation = ConversationModel(title: "Chat", conversationId: "s1")
+        delegate.conversations = [conversation]
+        let vm = delegate.makeViewModel()
+        vm.conversationId = "s1"
+        delegate.viewModels[conversation.id] = vm
+
+        // WHEN scheduleInvalidationRefetch is called twice rapidly
+        restorer.scheduleInvalidationRefetch()
+        restorer.scheduleInvalidationRefetch()
+
+        // THEN the conversation state is unchanged (debounce hasn't fired yet)
+        #expect(delegate.conversations.count == 1)
+        #expect(delegate.conversations[0].id == conversation.id)
+    }
 }

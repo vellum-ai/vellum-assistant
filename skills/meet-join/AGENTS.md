@@ -17,23 +17,15 @@ Skills wire into the assistant through registries:
 - **Routes**: `registerSkillRoute()` in `assistant/src/runtime/skill-route-registry.ts`
 - **Shutdown**: `registerShutdownHook()` in `assistant/src/daemon/shutdown-registry.ts`
 
-The assistant owns its own copy of `MeetServiceSchema` in
-`assistant/src/config/schemas/meet.ts` for config composition. The skill's
-`config-schema.ts` is the skill-internal copy.
-
-The complete allowlist and enforcement live in
-`assistant/src/__tests__/skill-meet-isolation.test.ts`. A guard test scans the
-repo for references to `skills/meet-join/` and fails CI if any non-allowlisted
-file imports from the skill.
+The meet skill owns its config schema (`config-schema.ts`) and reads its
+configuration from `$VELLUM_WORKSPACE_DIR/config/meet.json` via `meet-config.ts`.
+The assistant's global `config.json` does not contain meet configuration.
 
 ## When you need a new external reference
 
-Before adding a file to the allowlist, check whether the new code could
-instead live inside `skills/meet-join/` or be moved into `assistant/src/`.
-
-If you do need a new external reference, add the file path to the `ALLOWLIST`
-in `skill-meet-isolation.test.ts` with a comment explaining _why_ the
-reference is necessary and why it cannot live inside the skill.
+Before adding a new reference to `skills/meet-join/` from outside the skill,
+check whether the new code could instead live inside `skills/meet-join/` or be
+moved into `assistant/src/`.
 
 ## Central registries that stay put
 
