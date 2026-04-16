@@ -141,8 +141,10 @@ struct MessageListView: View {
                 // In the inverted scroll, short content gravity-pulls to the
                 // visual bottom. Pin it to the pre-flip bottom (= visual top)
                 // so the first message always starts at the top of the viewport.
-                .frame(minHeight: viewportHeight.isFinite ? viewportHeight : nil,
-                       alignment: .bottom)
+                // Uses Layout protocol instead of .frame(minHeight:alignment:)
+                // to avoid _FlexFrameLayout's O(n × depth) explicitAlignment
+                // cascade through the entire LazyVStack subtree.
+                .bottomAlignedMinHeight(viewportHeight.isFinite ? viewportHeight : nil)
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)

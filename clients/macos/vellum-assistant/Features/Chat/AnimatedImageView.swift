@@ -63,20 +63,28 @@ struct AnimatedImageView: View {
                 // preventing the upscale blur that Image(nsImage:) causes.
                 let nativeWidth = CGFloat(cgImage.width) / displayScale
                 let nativeHeight = CGFloat(cgImage.height) / displayScale
+                // Use definite dimensions to avoid _FlexFrameLayout inside
+                // LazyVStack cells. Cap both width and height (same logic as
+                // gifSize) so portrait images are bounded too.
+                let dimensionScale = min(maxDimension / max(nativeWidth, 1), maxDimension / max(nativeHeight, 1), 1.0)
+                let cappedWidth = nativeWidth * dimensionScale
+                let cappedHeight = nativeHeight * dimensionScale
                 Image(decorative: cgImage, scale: displayScale)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(
-                        maxWidth: min(nativeWidth, maxDimension),
-                        maxHeight: min(nativeHeight, maxDimension)
-                    )
+                    .frame(width: cappedWidth, height: cappedHeight)
             } else if let image = loadedImage {
-                // Fallback when CGImage extraction fails
+                // Fallback when CGImage extraction fails. Cap both dimensions
+                // using definite frame to avoid _FlexFrameLayout.
+                let size = image.size
+                let fallbackScale = (size.width > 0 && size.height > 0)
+                    ? min(maxDimension / size.width, maxDimension / size.height, 1.0)
+                    : 1.0
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: maxDimension, maxHeight: maxDimension)
+                    .frame(width: size.width * fallbackScale, height: size.height * fallbackScale)
             } else {
                 VIconView(.image, size: 24)
                     .foregroundStyle(VColor.contentTertiary)

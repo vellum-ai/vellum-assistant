@@ -157,12 +157,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var avatarChangeObserver: NSObjectProtocol?
     /// Cached circular avatar image for the menu bar icon. Invalidated only
     /// when `AvatarAppearanceManager.avatarDidChangeNotification` fires, so
-    /// connection-status changes, pulse ticks, and thinking-state toggles
-    /// reuse the cached image instead of re-resolving the avatar getter chain.
+    /// connection-status changes and thinking-state toggles reuse the cached
+    /// image instead of re-resolving the avatar getter chain.
     var cachedMenuBarAvatar: NSImage?
-    var pulseTimer: Timer?
-    var pulsePhase: CGFloat = 1.0
-    var pulseDirection: CGFloat = -1.0
+    /// Dedicated Core Animation layer for the status dot overlay on the
+    /// menu-bar button. Animated via CABasicAnimation so the pulse runs on
+    /// CA's render-server thread, avoiding main-thread CA::Transaction
+    /// contention during status-bar menu display.
+    var statusDotLayer: CAShapeLayer?
     /// Cached value of the `multi-platform-assistant` flag, read once when
     /// the status item is constructed in `setupMenuBar()`. Flag changes
     /// require relaunch; the status item does not subscribe to live updates
@@ -540,7 +542,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
-        setupMenuBar()
+        // setupMenuBar() is deferred to the next main-actor turn because
+        // NSStatusBar.system.statusItem(withLength:) performs a synchronous
+        // Mach IPC roundtrip to SystemUIServer that blocks for 1–2+ seconds
+        // on cold launch (LUM-895). Deferring via Task { @MainActor in }
+        // pays the IPC cost during an idle run-loop iteration after
+        // applicationDidFinishLaunching returns — the same pattern used by
+        // SavePanelWarmup (LUM-763). The status item is not user-interactable
+        // until the run loop starts processing events, so there is no
+        // functional regression. patchAppMenuTitles(), installFileMenuDelegate(),
+        // and setupHotKey() do not depend on the status item.
+        Task { @MainActor in
+            self.setupMenuBar()
+        }
         patchAppMenuTitles()
         installFileMenuDelegate()
         setupHotKey()
@@ -850,8 +864,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
-        pulseTimer?.invalidate()
-        pulseTimer = nil
+        statusDotLayer?.removeAllAnimations()
+        statusDotLayer?.removeFromSuperlayer()
+        statusDotLayer = nil
         threadWindowManager?.closeAll()
         voiceInput?.prepareForTermination()
         voiceInput?.stop()

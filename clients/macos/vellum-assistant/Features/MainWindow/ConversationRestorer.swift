@@ -56,6 +56,8 @@ final class ConversationRestorer {
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
     private var fetchConversationListTask: Task<Void, Never>?
+    /// Debounce task for `conversation_list_invalidated` refetch.
+    private var invalidationRefetchTask: Task<Void, Never>?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -67,6 +69,7 @@ final class ConversationRestorer {
 
     deinit {
         fetchConversationListTask?.cancel()
+        invalidationRefetchTask?.cancel()
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -80,6 +83,8 @@ final class ConversationRestorer {
                     self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
                     self.handleConversationTitleUpdated(response)
+                case .conversationListInvalidated:
+                    self.scheduleInvalidationRefetch()
                 default:
                     break
                 }
@@ -270,6 +275,14 @@ final class ConversationRestorer {
                 existing.displayOrder = session.displayOrder.map { Int($0) }
                 existing.hostAccess = session.hostAccess ?? false
                 existing.forkParent = session.forkParent
+                // Refresh mutable fields from the server so invalidation refetches
+                // pick up renames, source changes, and interaction timestamps.
+                if existing.title == "New Conversation" {
+                    existing.title = session.title
+                }
+                existing.lastInteractedAt = Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0)
+                existing.source = session.source
+                existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
                 delegate.conversations[existingIdx] = existing
                 // Attention merge must go through mergeAssistantAttention so that
                 // pendingAttentionOverrides are reconciled (e.g. a notification
@@ -391,6 +404,33 @@ final class ConversationRestorer {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.conversations[index].title = response.title
+    }
+
+    // MARK: - Invalidation Debounce
+
+    /// Trailing-edge debounce for `conversation_list_invalidated` events.
+    /// Cancels any pending refetch and schedules a new one after 250 ms,
+    /// reusing the existing page-1 fetch + merge path so that selection,
+    /// scroll position, and per-conversation history are preserved.
+    /// If pagination is in flight, defers the refetch until pagination settles
+    /// to avoid misrouting the page-1 response through the append path.
+    func scheduleInvalidationRefetch() {
+        invalidationRefetchTask?.cancel()
+        invalidationRefetchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled else { return }
+            // Wait for any in-flight "Load More" pagination to finish so the
+            // page-1 response isn't misrouted through appendConversations.
+            // Poll every 250ms, giving up after ~5s to avoid stalling forever.
+            var paginationWaitAttempts = 0
+            while self.delegate?.isLoadingMoreConversations == true, paginationWaitAttempts < 20 {
+                paginationWaitAttempts += 1
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+            }
+            self.fetchConversationListTask?.cancel()
+            self.fetchConversationList()
+        }
     }
 
     // MARK: - Private

@@ -575,6 +575,10 @@ Examples:
     .option("-b, --body <text>", "Email body (plain text)")
     .option("-f, --file <path>", "Read body from file")
     .option("--html <path>", "HTML body file (optional)")
+    .option(
+      "--reply-to <email_id>",
+      "Reply to an email by its ID (auto-resolves threading headers and subject)",
+    )
     .addHelpText(
       "after",
       `
@@ -587,12 +591,19 @@ from the assistant's registered email address.
 
 Body source priority: --body flag > --file flag > stdin (if not a TTY).
 
+When --reply-to is provided, the platform auto-resolves In-Reply-To,
+References, and Subject headers from the referenced email. You can
+still override subject with -s.
+
 Examples:
   $ assistant email send user@example.com -s "Hello" -b "Hi there"
   ✓ Sent to user@example.com (delivery_id: abc123)
 
-  $ echo "Body text" | assistant email send user@example.com -s "Hello"
+  $ assistant email send user@example.com -b "Thanks!" --reply-to 019d96e4-e5d2-7201-890e-04a21e8f95bb
   ✓ Sent to user@example.com (delivery_id: def456)
+
+  $ echo "Body text" | assistant email send user@example.com -s "Hello"
+  ✓ Sent to user@example.com (delivery_id: ghi789)
 
   $ assistant email send user@example.com -s "Hello" -b "Hi" --json
   {"delivery_id":"abc123","status":"accepted"}`,
@@ -605,6 +616,7 @@ Examples:
           body?: string;
           file?: string;
           html?: string;
+          replyTo?: string;
         },
         cmd: Command,
       ) => {
@@ -676,6 +688,7 @@ Examples:
           };
           if (opts.subject) payload.subject = opts.subject;
           if (html) payload.html = html;
+          if (opts.replyTo) payload.reply_to = opts.replyTo;
 
           // 5. Send via runtime proxy
           const response = await client.fetch("/v1/runtime-proxy/email/send/", {
