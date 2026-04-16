@@ -175,6 +175,9 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
+      - name: Disable local git hooks
+        run: git config --unset core.hooksPath || true
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
