@@ -51,7 +51,6 @@ struct HomeAuthCard: View {
         .if(isSimple) { view in
             view
                 .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
-                .overlay(Capsule().strokeBorder(VColor.borderBase, lineWidth: 1))
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
@@ -60,13 +59,9 @@ struct HomeAuthCard: View {
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                         .fill(VColor.surfaceLift.opacity(0.1))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.borderBase, lineWidth: 1)
-                )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
-        .vShadow(VShadow.md)
+        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 12, x: 0, y: 4)
     }
 
     // MARK: - Header
