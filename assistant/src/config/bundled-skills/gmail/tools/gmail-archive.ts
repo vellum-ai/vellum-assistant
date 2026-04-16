@@ -173,24 +173,6 @@ export async function run(
         "The provided sender IDs do not match the scan results. Please re-run the scan.",
       );
     }
-
-    // Record archived sender emails for future sessions
-    const archivedEmails: string[] = [];
-    for (const sid of senderIds) {
-      try {
-        const email = Buffer.from(sid, "base64url").toString("utf-8");
-        if (email.includes("@")) archivedEmails.push(email);
-      } catch {
-        // Skip undecodable sender IDs
-      }
-    }
-    if (archivedEmails.length > 0) {
-      try {
-        addToBlocklist(archivedEmails);
-      } catch {
-        // Non-fatal — preferences are best-effort
-      }
-    }
   } else if (messageIds?.length) {
     // Batch message_ids path requires surface action confirmation
     if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
@@ -236,6 +218,25 @@ export async function run(
       await batchModifyMessages(connection, chunk, {
         removeLabelIds: ["INBOX"],
       });
+    }
+    // Record archived sender emails for future sessions (only after success)
+    if (senderIds?.length) {
+      const archivedEmails: string[] = [];
+      for (const sid of senderIds) {
+        try {
+          const email = Buffer.from(sid, "base64url").toString("utf-8");
+          if (email.includes("@")) archivedEmails.push(email);
+        } catch {
+          // Skip undecodable sender IDs
+        }
+      }
+      if (archivedEmails.length > 0) {
+        try {
+          addToBlocklist(archivedEmails);
+        } catch {
+          // Non-fatal — preferences are best-effort
+        }
+      }
     }
     return ok(`Archived ${messageIds.length} message(s).`);
   } catch (e) {
