@@ -321,6 +321,74 @@ function requestRaw(
   });
 }
 
+/**
+ * Like {@link requestRaw} but returns the raw response bytes instead of a
+ * UTF-8 string. Used by the container-logs fetcher, which has to look at
+ * byte-level framing (Docker's multiplexed `{type, size, payload}` wrap).
+ */
+function requestRawBuffer(
+  socketPath: string,
+  method: string,
+  path: string,
+): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const req = httpRequest(
+      {
+        socketPath,
+        method,
+        path,
+        headers: { Host: UNIX_SOCKET_HOST, Accept: "*/*" },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const buf = Buffer.concat(chunks);
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(
+              new DockerApiError(method, path, status, buf.toString("utf8")),
+            );
+            return;
+          }
+          resolve(buf);
+        });
+      },
+    );
+    req.on("error", (err) => reject(err));
+    req.end();
+  });
+}
+
+/**
+ * Strip Docker's 8-byte multiplexed framing from a logs response body so
+ * the result reads like the container's combined stdout/stderr would on
+ * the terminal. Frame format:
+ *
+ * ```
+ *   [0]      stream type (0=stdin, 1=stdout, 2=stderr)
+ *   [1..3]   zero padding
+ *   [4..7]   payload size (big-endian uint32)
+ *   [8..]    payload bytes
+ * ```
+ *
+ * Any malformed tail (truncated mid-frame) is silently dropped — this is
+ * a diagnostic helper, not a reliable log pipeline.
+ */
+export function demultiplexDockerLogs(buf: Buffer): string {
+  const parts: string[] = [];
+  let offset = 0;
+  while (offset + 8 <= buf.length) {
+    const size = buf.readUInt32BE(offset + 4);
+    const start = offset + 8;
+    const end = start + size;
+    if (end > buf.length) break;
+    parts.push(buf.subarray(start, end).toString("utf8"));
+    offset = end;
+  }
+  return parts.join("");
+}
+
 export class DockerRunner {
   readonly socketPath: string;
   private readonly resolveMode: () => DaemonRuntimeMode;
@@ -429,6 +497,27 @@ export class DockerRunner {
       `/${DOCKER_API_VERSION}/containers/${containerId}/json`,
       null,
     );
+  }
+
+  /**
+   * Fetch the container's accumulated stdout/stderr as a single string.
+   *
+   * Wraps `GET /containers/<id>/logs?stdout=1&stderr=1`. The API emits a
+   * multiplexed framing (8-byte header, then payload) when the container
+   * was not started with a TTY — we always spawn without TTY, so the
+   * stream needs demultiplexing before it's human-readable. This is a
+   * best-effort diagnostic hook called from the rollback path; any
+   * Docker-side error is wrapped as {@link DockerApiError} so callers can
+   * swallow it without losing the original join failure.
+   */
+  async logs(
+    containerId: string,
+    opts: { tailLines?: number } = {},
+  ): Promise<string> {
+    const tail = opts.tailLines ?? "all";
+    const path = `/${DOCKER_API_VERSION}/containers/${containerId}/logs?stdout=1&stderr=1&tail=${tail}`;
+    const raw = await requestRawBuffer(this.socketPath, "GET", path);
+    return demultiplexDockerLogs(raw);
   }
 
   // -------------------------------------------------------------------------

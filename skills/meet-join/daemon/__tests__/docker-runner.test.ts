@@ -14,6 +14,7 @@ import {
 
 import {
   buildCreateBody,
+  demultiplexDockerLogs,
   DockerApiError,
   DockerRunner,
   dockerSocketUnreachableMessage,
@@ -449,6 +450,43 @@ describe("extractBoundPorts", () => {
 // ---------------------------------------------------------------------------
 // Mode-aware workspace mounts + host-gateway flag (Phase 1.10 — DinD)
 // ---------------------------------------------------------------------------
+
+describe("demultiplexDockerLogs", () => {
+  // Build a framed chunk matching Docker's multiplexed logs framing:
+  //   [streamType(1)][0,0,0][size(uint32 BE, 4)][payload]
+  // streamType: 1 = stdout, 2 = stderr.
+  function frame(stream: 1 | 2, payload: string): Buffer {
+    const data = Buffer.from(payload, "utf8");
+    const header = Buffer.alloc(8);
+    header.writeUInt8(stream, 0);
+    header.writeUInt32BE(data.length, 4);
+    return Buffer.concat([header, data]);
+  }
+
+  test("concatenates stdout and stderr frames in order", () => {
+    const buf = Buffer.concat([
+      frame(1, "step 1\n"),
+      frame(2, "warn from stderr\n"),
+      frame(1, "step 2\n"),
+    ]);
+    expect(demultiplexDockerLogs(buf)).toBe(
+      "step 1\nwarn from stderr\nstep 2\n",
+    );
+  });
+
+  test("returns empty string for an empty buffer", () => {
+    expect(demultiplexDockerLogs(Buffer.alloc(0))).toBe("");
+  });
+
+  test("drops a truncated trailing frame instead of throwing", () => {
+    const complete = frame(1, "ok\n");
+    // Truncate the second frame mid-payload.
+    const truncated = frame(1, "will not appear").subarray(0, 10);
+    expect(demultiplexDockerLogs(Buffer.concat([complete, truncated]))).toBe(
+      "ok\n",
+    );
+  });
+});
 
 describe("DockerRunner workspace-mount mode branching", () => {
   let mock: MockDocker;

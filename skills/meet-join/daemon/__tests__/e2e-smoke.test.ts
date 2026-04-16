@@ -164,6 +164,7 @@ function makeMockRunner() {
     stop: mock(async () => {}),
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: "container-e2e-1" })),
+    logs: mock(async () => ""),
   };
 }
 

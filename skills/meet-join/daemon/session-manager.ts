@@ -53,7 +53,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../../../assistant/src/config/loader.js";
@@ -438,7 +438,7 @@ export interface MeetSessionManagerDeps {
   /** Factory for the Docker runner — swapped in tests. */
   dockerRunnerFactory?: () => Pick<
     DockerRunner,
-    "run" | "stop" | "remove" | "inspect"
+    "run" | "stop" | "remove" | "inspect" | "logs"
   >;
   /** Override the function that fetches credentials. */
   getProviderKey?: (provider: string) => Promise<string | undefined>;
@@ -549,6 +549,20 @@ export interface MeetSessionManagerDeps {
 
 class MeetSessionManagerImpl {
   private sessions = new Map<string, ActiveSession>();
+  /**
+   * Bot API tokens for sessions whose container has been spawned but whose
+   * full {@link ActiveSession} record has not yet been inserted into
+   * {@link sessions} (that insertion only happens after the audio-ingest
+   * handshake completes). The meet-internal events route needs the token
+   * resolver to answer the moment the bot's {@link DaemonClient} starts
+   * POSTing `lifecycle:joining` — which happens long before the session
+   * lands in `sessions`, so we register the token here as soon as we mint
+   * it and delete once the session is in `sessions` (or the join rolls
+   * back). Without this, early bot events get 401s, the bot's terminal-
+   * error handler trips, and the bot shuts down before it ever reaches
+   * the audio-socket connect or the meet "Ask to join" click.
+   */
+  private pendingBotTokens = new Map<string, string>();
   private deps: Required<MeetSessionManagerDeps>;
 
   constructor(deps: MeetSessionManagerDeps = {}) {
@@ -593,10 +607,13 @@ class MeetSessionManagerImpl {
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
     // resolver. Install it once at construction time — it reads live state
-    // from `this.sessions`, so it stays correct as sessions come and go.
+    // from `this.sessions` (and {@link pendingBotTokens} during the
+    // container-spawn / audio-ingest window, before the session lands in
+    // `sessions`), so it stays correct as sessions come and go.
     getMeetSessionEventRouter().setBotApiTokenResolver((meetingId) => {
       const session = this.sessions.get(meetingId);
-      return session ? session.botApiToken : null;
+      if (session) return session.botApiToken;
+      return this.pendingBotTokens.get(meetingId) ?? null;
     });
   }
 
@@ -680,6 +697,13 @@ class MeetSessionManagerImpl {
     mkdirSync(outDir, { recursive: true });
 
     const botApiToken = generateBotApiToken();
+    // Pre-register the token so `/v1/internal/meet/:id/events` can
+    // authenticate the bot's earliest `lifecycle:joining` POST — which
+    // fires before the `ActiveSession` record lands in `this.sessions`
+    // (that happens only after the audio-ingest handshake completes).
+    // Cleared on every join-rollback path below and replaced by the
+    // authoritative `this.sessions` lookup once the session is in the map.
+    this.pendingBotTokens.set(meetingId, botApiToken);
 
     // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
     const ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
@@ -795,6 +819,7 @@ class MeetSessionManagerImpl {
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
+      this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         meetingId,
@@ -810,10 +835,12 @@ class MeetSessionManagerImpl {
     if (!boundPort) {
       // Roll back the container so we don't leak a started-but-unreachable
       // bot. Best-effort — surface the original error either way.
+      await captureBotLogs(runner, runResult.containerId, meetingDir);
       await runner.remove(runResult.containerId).catch(() => {});
       audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
+      this.pendingBotTokens.delete(meetingId);
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
@@ -841,9 +868,11 @@ class MeetSessionManagerImpl {
         "Meet audio ingest failed to start — rolling back container",
       );
       await runner.stop(runResult.containerId).catch(() => {});
+      await captureBotLogs(runner, runResult.containerId, meetingDir);
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
+      this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         meetingId,
@@ -960,6 +989,9 @@ class MeetSessionManagerImpl {
       bargeInWatcher,
     };
     this.sessions.set(meetingId, session);
+    // `this.sessions` is now the authoritative source for the resolver;
+    // the pre-registered pending entry is no longer needed.
+    this.pendingBotTokens.delete(meetingId);
 
     // Fan `participant.change` / `speaker.change` / final transcript chunks
     // out as `meet.*` events on the assistant event hub.
@@ -1782,6 +1814,35 @@ export function substituteAssistantName(
 }
 
 /** Strip internal fields (`timeoutHandle`) from a session before exposing it. */
+/**
+ * Best-effort: pull the bot container's accumulated stdout/stderr and
+ * persist it to `<meetingDir>/bot.log` before the container is removed.
+ * Called from every join-rollback path that has a containerId so a
+ * post-mortem exists even after `runner.remove()` deletes the container.
+ * Any Docker-side failure (container already gone, socket timeout, etc.)
+ * is swallowed — log capture must never mask the original join error.
+ */
+async function captureBotLogs(
+  runner: { logs: (id: string) => Promise<string> },
+  containerId: string,
+  meetingDir: string,
+): Promise<void> {
+  try {
+    const body = await runner.logs(containerId);
+    const dest = join(meetingDir, "bot.log");
+    writeFileSync(dest, body);
+    log.info(
+      { containerId, dest, bytes: body.length },
+      "Captured bot container logs before rollback",
+    );
+  } catch (err) {
+    log.warn(
+      { err, containerId, meetingDir },
+      "Failed to capture bot container logs (continuing rollback)",
+    );
+  }
+}
+
 function sessionView(session: ActiveSession): MeetSession {
   return {
     meetingId: session.meetingId,

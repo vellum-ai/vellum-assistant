@@ -49,6 +49,47 @@ export interface JoinMeetOptions {
 }
 
 /**
+ * Directory the bot can write diagnostic artifacts to. Matches the
+ * session-manager's `/out` mount, which is bound back to the host at
+ * `<workspace>/meets/<meetingId>/out/` — so anything we drop here is
+ * visible to the operator even after the container is torn down.
+ */
+const DIAGNOSTICS_DIR = "/out";
+
+/**
+ * Best-effort: snapshot the current page to `/out/<name>.png` so an
+ * operator can see exactly what Google Meet was showing when a selector
+ * timed out. Never re-throws — diagnostics must not mask the real join
+ * failure that triggered the capture.
+ */
+async function captureFailureSnapshot(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  const snapPath = `${DIAGNOSTICS_DIR}/${name}.png`;
+  try {
+    await page.screenshot({ path: snapPath, fullPage: true });
+    return snapPath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort: capture the current page URL so a 301/redirect to a
+ * sign-in wall (or a completely different Meet surface) is obvious from
+ * the error message. Returns `null` silently if the page has already
+ * been closed.
+ */
+async function safePageUrl(page: Page): Promise<string | null> {
+  try {
+    return page.url();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Drive the Google Meet prejoin surface to completion and deliver the consent
  * notice.
  *
@@ -70,8 +111,12 @@ export async function joinMeet(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const url = await safePageUrl(page);
+    const snap = await captureFailureSnapshot(page, "prejoin-failure");
     throw new Error(
-      `meet-bot: prejoin name input did not appear within ${PREJOIN_TIMEOUT_MS}ms: ${msg}`,
+      `meet-bot: prejoin name input did not appear within ${PREJOIN_TIMEOUT_MS}ms: ${msg}` +
+        (url ? ` (final URL: ${url})` : "") +
+        (snap ? ` (screenshot: ${snap})` : ""),
     );
   }
 
@@ -99,8 +144,12 @@ export async function joinMeet(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const url = await safePageUrl(page);
+    const snap = await captureFailureSnapshot(page, "admission-failure");
     throw new Error(
-      `meet-bot: in-meeting UI did not appear within ${MEETING_ROOM_TIMEOUT_MS}ms (host may not have admitted the bot): ${msg}`,
+      `meet-bot: in-meeting UI did not appear within ${MEETING_ROOM_TIMEOUT_MS}ms (host may not have admitted the bot): ${msg}` +
+        (url ? ` (final URL: ${url})` : "") +
+        (snap ? ` (screenshot: ${snap})` : ""),
     );
   }
 

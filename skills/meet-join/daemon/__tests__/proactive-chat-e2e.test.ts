@@ -178,6 +178,7 @@ function makeMockRunnerPointingAt(fakeBot: FakeBotServer) {
     stop: mock(async () => {}),
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: runResult.containerId })),
+    logs: mock(async () => ""),
   };
 }
 

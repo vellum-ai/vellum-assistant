@@ -46,6 +46,7 @@ interface MockRunner {
   stop: ReturnType<typeof mock>;
   remove: ReturnType<typeof mock>;
   inspect: ReturnType<typeof mock>;
+  logs: ReturnType<typeof mock>;
 }
 
 function makeMockRunner(
@@ -82,6 +83,7 @@ function makeMockRunner(
     stop: mock(async () => {}),
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: runResult.containerId })),
+    logs: mock(async () => ""),
   };
 }
 
@@ -278,6 +280,96 @@ describe("MeetSessionManager.join", () => {
     expect(getMeetSessionEventRouter().resolveBotApiToken("other")).toBeNull();
 
     await manager.leave("m2", "cleanup");
+  });
+
+  test("token resolver is populated during the container-spawn / audio-ingest window (regression: #26005-ish)", async () => {
+    // Before the fix, the bot API token only became resolvable once the
+    // `ActiveSession` record landed in `this.sessions`, which happens
+    // AFTER `audioIngestPromise` resolves. The bot's `DaemonClient`
+    // starts POSTing `lifecycle:joining` events well before that, so
+    // every early event got a 401, tripped the bot's terminal-error
+    // handler, and the bot shut itself down before it ever reached the
+    // audio-socket connect or the "Ask to join" click. This test pins
+    // the resolver in place from the moment the container starts.
+    //
+    // We stall the audio ingest's `start()` so the resolver is checked
+    // during the exact window the bot's HTTP traffic hits.
+    let resolveIngestStart: () => void = () => {};
+    const ingestStartPromise = new Promise<void>((r) => {
+      resolveIngestStart = r;
+    });
+    const factory = (): MeetAudioIngestLike => ({
+      start: mock(async () => {
+        await ingestStartPromise;
+      }),
+      stop: mock(async () => {}),
+      subscribePcm: mock(() => () => {}),
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: factory,
+    });
+
+    const joinPromise = manager.join({
+      url: "u",
+      meetingId: "m-pending",
+      conversationId: "c",
+    });
+
+    // Yield so `join()` gets past token generation + runner.run().
+    // At this point `this.sessions` does NOT yet contain the session
+    // (audio-ingest is stalled), but the resolver must still return the
+    // token the bot is presenting on `Authorization: Bearer …`.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const pendingToken = getMeetSessionEventRouter().resolveBotApiToken(
+      "m-pending",
+    );
+    expect(pendingToken).toMatch(/^[0-9a-f]{64}$/);
+
+    // Let the ingest finish; the session now lands in `this.sessions`
+    // and the resolver keeps returning the same token.
+    resolveIngestStart();
+    const session = await joinPromise;
+    // Cast away the `| null` from the resolver's return type — we
+    // already asserted non-null above, but `toMatch` doesn't narrow.
+    expect(session.botApiToken).toBe(pendingToken as string);
+    expect(getMeetSessionEventRouter().resolveBotApiToken("m-pending")).toBe(
+      pendingToken,
+    );
+
+    await manager.leave("m-pending", "cleanup");
+    expect(
+      getMeetSessionEventRouter().resolveBotApiToken("m-pending"),
+    ).toBeNull();
+  });
+
+  test("token resolver is cleared when container spawn fails (no pending-token leak)", async () => {
+    // If `runner.run()` throws, the rollback path must drop the
+    // pre-registered pending token so a later retry with a fresh token
+    // doesn't see a stale match.
+    const runner = makeMockRunner({ runError: new Error("spawn boom") });
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+    });
+
+    await expect(
+      manager.join({
+        url: "u",
+        meetingId: "m-spawn-fail",
+        conversationId: "c",
+      }),
+    ).rejects.toThrow(/spawn boom/);
+
+    expect(
+      getMeetSessionEventRouter().resolveBotApiToken("m-spawn-fail"),
+    ).toBeNull();
   });
 
   test("rejects a second join for the same meeting id", async () => {
