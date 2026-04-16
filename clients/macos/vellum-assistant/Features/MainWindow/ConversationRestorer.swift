@@ -277,7 +277,7 @@ final class ConversationRestorer {
                 existing.forkParent = session.forkParent
                 // Refresh mutable fields from the server so invalidation refetches
                 // pick up renames, source changes, and interaction timestamps.
-                if existing.title == "New Conversation" || existing.title == nil {
+                if existing.title == "New Conversation" {
                     existing.title = session.title
                 }
                 existing.lastInteractedAt = Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0)
