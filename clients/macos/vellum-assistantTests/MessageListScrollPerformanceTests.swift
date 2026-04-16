@@ -100,7 +100,8 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                     assistantActivityAnchor: "",
                     assistantActivityReason: nil,
                     activeSubagentFingerprint: version % 5,
-                    displayedMessageCount: version % 1000
+                    displayedMessageCount: version % 1000,
+                    firstVisibleMessageId: nil
                 )
                 // Force an equality check (the hot path in MessageListView.derivedState).
                 if let prev = lastKey {
@@ -395,7 +396,8 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             assistantActivityAnchor: "",
             assistantActivityReason: nil,
             activeSubagentFingerprint: 7,
-            displayedMessageCount: 100
+            displayedMessageCount: 100,
+            firstVisibleMessageId: nil
         )
         cache.cachedProjection = TranscriptProjector.project(
             messages: buildMessages(count: 5),
