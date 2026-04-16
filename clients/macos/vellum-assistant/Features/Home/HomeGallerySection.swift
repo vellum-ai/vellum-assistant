@@ -132,15 +132,16 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeAssistantCard",
-                    description: "Assistant-to-assistant message card with Authorise/Deny actions."
+                    description: "Assistant-to-assistant message card with Allow Once/Deny actions."
                 )
 
                 VCard {
                     HomeAssistantCard(
-                        title: "Research Assistant wants to share findings",
-                        threadName: "Weekly Report",
+                        title: "John’s assistant wants to send a message to your assistant",
+                        threadName: "Thread Name",
                         onAuthorise: {},
-                        onDeny: {}
+                        onDeny: {},
+                        onDismiss: {}
                     )
                 }
             }
