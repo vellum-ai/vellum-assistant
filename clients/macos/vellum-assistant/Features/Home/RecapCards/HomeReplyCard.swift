@@ -84,6 +84,11 @@ struct HomeReplyCard: View {
                 .font(VFont.bodyLargeDefault)
                 .foregroundStyle(VColor.contentEmphasized)
                 .accessibilityLabel(Text("Reply message"))
+                .onSubmit {
+                    if !inputText.isEmpty {
+                        onSend(inputText)
+                    }
+                }
         }
     }
 
