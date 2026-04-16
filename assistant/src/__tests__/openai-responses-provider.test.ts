@@ -121,13 +121,24 @@ function functionCallArgsDoneEvent(
 function completedEvent(
   inputTokens: number,
   outputTokens: number,
-  opts?: { reasoningTokens?: number; model?: string; status?: string },
+  opts?: {
+    reasoningTokens?: number;
+    model?: string;
+    status?: string;
+    output?: unknown[];
+  },
 ): FakeStreamEvent {
+  // The production OpenAI SDK always includes an `output` array on the
+  // response.completed event's response object. Default to an empty array so
+  // the mock matches the real SDK shape (the normalizer in llm-context-
+  // normalization.ts uses `output` as the signal to detect Responses API
+  // payloads in stored diagnostics).
   return {
     type: "response.completed",
     response: {
       model: opts?.model ?? "gpt-5.2",
       status: opts?.status ?? "completed",
+      output: opts?.output ?? [],
       usage: {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
@@ -903,9 +914,20 @@ describe("OpenAIResponsesProvider", () => {
   // rawRequest / rawResponse diagnostics
   // -----------------------------------------------------------------------
   test("captures rawRequest and rawResponse for diagnostics", async () => {
+    // The OpenAI SDK's response.completed event includes an `output` array
+    // on the response. The normalizer in llm-context-normalization.ts uses
+    // the presence of `output` as the signal to detect Responses API
+    // payloads in stored diagnostics, so the provider must preserve it.
+    const sdkOutput = [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "Hello" }],
+      },
+    ];
     fakeStreamEvents = [
       textDeltaEvent("Hello"),
-      completedEvent(10, 5, { model: "gpt-5.2" }),
+      completedEvent(10, 5, { model: "gpt-5.2", output: sdkOutput }),
     ];
 
     const result = await provider.sendMessage(
@@ -920,12 +942,14 @@ describe("OpenAIResponsesProvider", () => {
     expect(rawReq.instructions).toBe("System prompt");
     expect(rawReq.store).toBe(false);
 
-    // rawResponse should contain the final response object
+    // rawResponse should contain the final response object, including `output`
+    // which downstream normalization relies on for Responses API detection.
     const rawResp = result.rawResponse as Record<string, unknown>;
     expect(rawResp).toBeDefined();
     expect((rawResp as any).model).toBe("gpt-5.2");
     expect((rawResp as any).usage.input_tokens).toBe(10);
     expect((rawResp as any).usage.output_tokens).toBe(5);
+    expect((rawResp as any).output).toEqual(sdkOutput);
   });
 
   // -----------------------------------------------------------------------

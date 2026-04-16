@@ -43,6 +43,10 @@ interface ResponsesStreamEvent {
   response?: {
     model?: string;
     status?: string;
+    /** Full output items array — preserved as part of rawResponse for the
+     *  LLM context normalizer, which uses its presence to detect Responses
+     *  API payloads in stored diagnostics. */
+    output?: unknown[];
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
