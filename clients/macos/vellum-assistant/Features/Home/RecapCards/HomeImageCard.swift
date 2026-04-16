@@ -1,0 +1,107 @@
+import SwiftUI
+import VellumAssistantShared
+
+/// Recap card displaying a large image preview with Save and Open in Finder
+/// action buttons. Uses `HomeRecapCardView` as the outer container and
+/// `HomeRecapCardHeader` for the icon + title row.
+struct HomeImageCard: View {
+    let title: String
+    let threadName: String?
+    let image: NSImage?
+    let showDismiss: Bool
+    let onSave: () -> Void
+    let onOpenInFinder: () -> Void
+    let onDismiss: (() -> Void)?
+
+    init(
+        title: String,
+        threadName: String? = nil,
+        image: NSImage? = nil,
+        showDismiss: Bool = false,
+        onSave: @escaping () -> Void,
+        onOpenInFinder: @escaping () -> Void,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.threadName = threadName
+        self.image = image
+        self.showDismiss = showDismiss
+        self.onSave = onSave
+        self.onOpenInFinder = onOpenInFinder
+        self.onDismiss = onDismiss
+    }
+
+    var body: some View {
+        HomeRecapCardView(showDismiss: showDismiss, onDismiss: onDismiss) {
+            VStack(spacing: VSpacing.md) {
+                HomeRecapCardHeader(
+                    icon: .image,
+                    title: title,
+                    subtitle: threadName,
+                    showDismiss: showDismiss,
+                    onDismiss: onDismiss
+                )
+
+                imageArea
+
+                actionButtons
+            }
+        }
+    }
+
+    // MARK: - Image area
+
+    /// Large image preview filling the card width at 288pt tall with rounded
+    /// corners. Shows a placeholder surface when no image is provided.
+    private var imageArea: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(VColor.surfaceActive)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 288)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
+    }
+
+    // MARK: - Action buttons
+
+    private var actionButtons: some View {
+        HStack(spacing: VSpacing.sm) {
+            Button(action: onSave) {
+                Text("Save")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.auxWhite)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+            .background(
+                Capsule()
+                    .fill(VColor.primaryBase)
+            )
+
+            Button(action: onOpenInFinder) {
+                Text("Open in Finder")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+            .background(
+                Capsule()
+                    .strokeBorder(VColor.borderBase, lineWidth: 1)
+            )
+
+            Spacer()
+        }
+    }
+}
