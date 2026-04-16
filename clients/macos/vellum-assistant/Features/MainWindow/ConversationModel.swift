@@ -78,7 +78,7 @@ struct ConversationModel: Identifiable, Hashable {
     /// Whether this conversation should return to the background group on unpin.
     /// Covers heartbeat AND task-run backgrounds for consistent pin->unpin behavior.
     var shouldReturnToBackgroundOnUnpin: Bool {
-        source == "heartbeat" || source == "task"
+        source == "heartbeat" || source == "task" || source == "auto-analysis"
     }
 
     /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
@@ -92,34 +92,20 @@ struct ConversationModel: Identifiable, Hashable {
     }
 
     /// Whether this conversation was produced by the auto-analysis loop.
-    /// Auto-analysis conversations are rendered in the dedicated "Reflections"
-    /// sidebar section and filtered out of the main conversation list.
     var isAutoAnalysisConversation: Bool {
         source == "auto-analysis"
     }
 
-    /// Whether this conversation is automated (heartbeat, schedule, background/task)
-    /// and should never show unread indicators anywhere. Per Apple HIG, badges and
-    /// unread indicators should only reflect content requiring user attention —
-    /// system-generated messages from automated threads do not qualify.
-    ///
-    /// Auto-analysis ("reflection") conversations are intentionally NOT suppressed
-    /// here: the Reflections sidebar section surfaces its own collapsed-state
-    /// unread dot driven by `hasUnseenLatestAssistantMessage`. Reflections are
-    /// instead filtered out of global aggregations via
-    /// `shouldSuppressGlobalUnreadAggregations`.
+    /// Whether this conversation is automated (heartbeat, schedule, background/task,
+    /// auto-analysis) and should never show unread indicators on individual rows.
     var shouldSuppressUnreadIndicator: Bool {
         isScheduleConversation || shouldReturnToBackgroundOnUnpin
     }
 
     /// Whether this conversation should be excluded from *global* unread
     /// aggregations — the dock badge and the Conversations header unread dot.
-    /// A superset of `shouldSuppressUnreadIndicator` that also excludes
-    /// reflections. Reflections are a passive surface users browse on their
-    /// own; they should not drive app-wide attention UI, but the Reflections
-    /// section's own unread affordance still fires.
     var shouldSuppressGlobalUnreadAggregations: Bool {
-        shouldSuppressUnreadIndicator || isAutoAnalysisConversation
+        shouldSuppressUnreadIndicator
     }
 
     var isChannelConversation: Bool {
@@ -142,7 +128,7 @@ struct ConversationModel: Identifiable, Hashable {
         if source == "schedule" || source == "reminder" {
             return ConversationGroup.scheduled.id
         }
-        if source == "heartbeat" || source == "task" {
+        if source == "heartbeat" || source == "task" || source == "auto-analysis" {
             return ConversationGroup.background.id
         }
         if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
