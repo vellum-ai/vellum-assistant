@@ -138,8 +138,8 @@ struct InferenceServiceCard: View {
             )
 
             // Per-call-site overrides badge — only visible when the user has
-            // at least one override configured. Tapping opens the read-only
-            // overrides sheet (PR 22). PR 23 makes this sheet editable.
+            // at least one override configured. Tapping opens the overrides
+            // sheet.
             if store.overridesCount > 0 {
                 overridesBadge
             }

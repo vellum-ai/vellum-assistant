@@ -3,12 +3,7 @@ import VellumAssistantShared
 
 /// Read-only sheet listing every call site that has at least one explicit
 /// `provider`, `model`, or `profile` override set under `llm.callSites.<id>`
-/// in the workspace config. Grouped by `CallSiteDomain` so the rendering
-/// matches the picker UI introduced in PRs 23-24.
-///
-/// PR 22 ships the read-only view + a "N per-task overrides" badge in the
-/// Inference card. PR 23 makes individual rows editable. PR 24 layers in
-/// reset / preset actions on top.
+/// in the workspace config. Grouped by `CallSiteDomain`.
 @MainActor
 struct CallSiteOverridesSheet: View {
     @ObservedObject var store: SettingsStore
