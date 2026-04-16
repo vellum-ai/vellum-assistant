@@ -10,12 +10,11 @@
  * `guardian-init.lock` from elsewhere on the filesystem.
  */
 
-import { homedir } from "node:os";
 import { copyFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { getLogger } from "../../logger.js";
-import { getGatewaySecurityDir } from "../../paths.js";
+import { getGatewaySecurityDir, getLegacyRootDir } from "../../paths.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -24,14 +23,15 @@ const log = getLogger("m0001-guardian-init-lock");
 const FILES = ["guardian-init.lock", "guardian-init-consumed.json"] as const;
 
 export function up(): MigrationResult {
+  const legacyDir = getLegacyRootDir();
   const newDir = getGatewaySecurityDir();
-  const home = process.env.HOME || homedir();
-  const legacyDir = join(home, ".vellum");
 
   // Only the original first-local assistant (instanceDir === $HOME) can
   // have a stranded legacy lock — its new dir resolves to `~/.vellum/protected`.
-  // Any other shape means this isn't that instance; skip.
-  if (join(legacyDir, "protected") !== newDir) {
+  // Any other shape means this isn't that instance; skip. Normalize both
+  // sides so a user-supplied GATEWAY_SECURITY_DIR with trailing slashes
+  // still matches.
+  if (resolve(legacyDir, "protected") !== resolve(newDir)) {
     log.info({ newDir }, "Not the first-local layout — nothing to migrate");
     return "done";
   }
