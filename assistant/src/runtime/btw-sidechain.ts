@@ -1,3 +1,4 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { buildToolDefinitions } from "../daemon/conversation-tool-setup.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
@@ -30,6 +31,15 @@ export interface RunBtwSidechainParams {
   tools?: ToolDefinition[];
   maxTokens?: number;
   modelIntent?: ModelIntent;
+  /**
+   * Unified call-site identifier. When set, the provider layer resolves
+   * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+   * via `resolveCallSiteConfig(callSite, config.llm)`. Defaults to
+   * `'identityIntro'` since this side-chain runner was originally introduced
+   * for the identity intro generation path; callers (greeting, title, etc.)
+   * override it with their own call-site ID.
+   */
+  callSite?: LLMCallSite;
   signal?: AbortSignal;
   timeoutMs?: number;
   onEvent?: (event: ProviderEvent) => void;
@@ -90,6 +100,7 @@ export async function runBtwSidechain(
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
         modelIntent: params.modelIntent ?? "latency-optimized",
+        callSite: params.callSite ?? "identityIntro",
       },
       onEvent: (event) => {
         if (event.type === "text_delta") {
