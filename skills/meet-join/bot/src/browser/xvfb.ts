@@ -82,14 +82,11 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
     return { display, process: null };
   }
 
-  const proc = Bun.spawn(
-    ["Xvfb", display, "-screen", "0", "1280x720x24"],
-    {
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "pipe",
-    },
-  );
+  const proc = Bun.spawn(["Xvfb", display, "-screen", "0", "1280x720x24"], {
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
 
   const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -99,9 +96,7 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
     // If Xvfb died during startup, bail out with a useful error instead of
     // spinning until the timeout.
     if (proc.exitCode !== null) {
-      const stderr = proc.stderr
-        ? await new Response(proc.stderr).text()
-        : "";
+      const stderr = proc.stderr ? await new Response(proc.stderr).text() : "";
       throw new Error(
         `startXvfb: Xvfb exited during startup (code=${proc.exitCode}): ${stderr.trim()}`,
       );

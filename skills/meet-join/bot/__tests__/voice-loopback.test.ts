@@ -141,7 +141,9 @@ function buildSinePcm(
 function chunkBytes(payload: Uint8Array, chunkSize: number): Uint8Array[] {
   const chunks: Uint8Array[] = [];
   for (let off = 0; off < payload.length; off += chunkSize) {
-    chunks.push(payload.subarray(off, Math.min(off + chunkSize, payload.length)));
+    chunks.push(
+      payload.subarray(off, Math.min(off + chunkSize, payload.length)),
+    );
   }
   return chunks;
 }

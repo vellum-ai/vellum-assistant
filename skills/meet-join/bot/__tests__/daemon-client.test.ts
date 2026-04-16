@@ -17,10 +17,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { MeetBotEvent } from "../../contracts/index.js";
 
-import {
-  DaemonClient,
-  type FetchFn,
-} from "../src/control/daemon-client.js";
+import { DaemonClient, type FetchFn } from "../src/control/daemon-client.js";
 
 /** Shape the mock records for every intercepted request. */
 interface RecordedCall {
@@ -197,10 +194,7 @@ describe("DaemonClient", () => {
   });
 
   test("retries on 5xx and succeeds on the next attempt", async () => {
-    const mock = makeMockFetch([
-      { status: 503 },
-      { status: 204 },
-    ]);
+    const mock = makeMockFetch([{ status: 503 }, { status: 204 }]);
     const client = new DaemonClient({
       daemonUrl: "http://daemon.local",
       meetingId: "m-1",

@@ -749,20 +749,26 @@ describe("MeetAudioIngest — default transcriber factory", () => {
   // doesn't undo `mock.module`, so we have to re-point it at the original
   // export ourselves.
   beforeAll(() => {
-    mock.module("../../../../assistant/src/providers/speech-to-text/resolve.js", () => ({
-      resolveStreamingTranscriber: async (
-        options?: Record<string, unknown>,
-      ) => {
-        mockResolveCalls.push(options);
-        return mockResolveResult;
-      },
-    }));
+    mock.module(
+      "../../../../assistant/src/providers/speech-to-text/resolve.js",
+      () => ({
+        resolveStreamingTranscriber: async (
+          options?: Record<string, unknown>,
+        ) => {
+          mockResolveCalls.push(options);
+          return mockResolveResult;
+        },
+      }),
+    );
   });
 
   afterAll(() => {
-    mock.module("../../../../assistant/src/providers/speech-to-text/resolve.js", () => ({
-      resolveStreamingTranscriber: realResolveStreamingTranscriberFn,
-    }));
+    mock.module(
+      "../../../../assistant/src/providers/speech-to-text/resolve.js",
+      () => ({
+        resolveStreamingTranscriber: realResolveStreamingTranscriberFn,
+      }),
+    );
   });
 
   test("requests diarize: preferred from the resolver", async () => {

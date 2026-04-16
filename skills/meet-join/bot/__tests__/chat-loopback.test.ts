@@ -41,7 +41,10 @@ import type { InboundChatEvent } from "../../contracts/index.js";
 import type { Page } from "playwright";
 
 import { sendChat } from "../src/browser/chat-bridge.js";
-import { startChatReader, type ChatReader } from "../src/browser/chat-reader.js";
+import {
+  startChatReader,
+  type ChatReader,
+} from "../src/browser/chat-reader.js";
 import { chatSelectors, selectors } from "../src/browser/dom-selectors.js";
 import {
   createHttpServer,
@@ -242,10 +245,7 @@ function createFakePage(html: string, selfName: string): FakePage {
     fill,
     press,
     click,
-    evaluate: (async (
-      fn: (...args: unknown[]) => unknown,
-      arg?: unknown,
-    ) => {
+    evaluate: (async (fn: (...args: unknown[]) => unknown, arg?: unknown) => {
       return runInPage(fn, arg);
     }) as unknown as Page["evaluate"],
     exposeFunction: (async (name: string, cb: Function) => {
@@ -305,17 +305,12 @@ function createFakePage(html: string, selfName: string): FakePage {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-async function startOnRandomPort(
-  server: HttpServerHandle,
-): Promise<string> {
+async function startOnRandomPort(server: HttpServerHandle): Promise<string> {
   const { port } = await server.start(0);
   return `http://127.0.0.1:${port}`;
 }
 
-async function postSendChat(
-  base: string,
-  text: string,
-): Promise<Response> {
+async function postSendChat(base: string, text: string): Promise<Response> {
   return fetch(`${base}/send_chat`, {
     method: "POST",
     headers: {
@@ -357,142 +352,136 @@ describe("chat loopback: /send_chat → DOM → startChatReader", () => {
     }
   });
 
-  test(
-    "POST /send_chat drives sendChat, the chat reader observes the DOM change, and the bot's self-send is filtered out",
-    async () => {
-      const fake = createFakePage(CHAT_FIXTURE, SELF_NAME);
+  test("POST /send_chat drives sendChat, the chat reader observes the DOM change, and the bot's self-send is filtered out", async () => {
+    const fake = createFakePage(CHAT_FIXTURE, SELF_NAME);
 
-      // 1. Stand up the chat reader first so the in-page MutationObserver
-      //    is live before we POST. This mirrors the production wiring in
-      //    `main.ts` — the reader starts during step 5 of `runBot`, well
-      //    before the HTTP control surface accepts requests.
-      const inboundEvents: InboundChatEvent[] = [];
-      reader = await startChatReader(
-        fake.page,
-        (event) => {
-          inboundEvents.push(event);
-        },
-        { meetingId: "meeting-loopback", selfName: SELF_NAME },
-      );
+    // 1. Stand up the chat reader first so the in-page MutationObserver
+    //    is live before we POST. This mirrors the production wiring in
+    //    `main.ts` — the reader starts during step 5 of `runBot`, well
+    //    before the HTTP control surface accepts requests.
+    const inboundEvents: InboundChatEvent[] = [];
+    reader = await startChatReader(
+      fake.page,
+      (event) => {
+        inboundEvents.push(event);
+      },
+      { meetingId: "meeting-loopback", selfName: SELF_NAME },
+    );
 
-      // Drain the fixture's pre-existing "Alice: Hello everyone..." so the
-      // assertion below only reflects post-send traffic. (That message is
-      // NOT a self-send; it's an inbound event.)
-      await flushMicrotasks();
-      expect(inboundEvents).toHaveLength(1);
-      expect(inboundEvents[0]!.fromName).toBe("Alice");
-      inboundEvents.length = 0;
+    // Drain the fixture's pre-existing "Alice: Hello everyone..." so the
+    // assertion below only reflects post-send traffic. (That message is
+    // NOT a self-send; it's an inbound event.)
+    await flushMicrotasks();
+    expect(inboundEvents).toHaveLength(1);
+    expect(inboundEvents[0]!.fromName).toBe("Alice");
+    inboundEvents.length = 0;
 
-      // 2. Bring up the HTTP server with `onSendChat` wired to the real
-      //    `sendChat` helper, exactly like `main.ts` does.
-      server = createHttpServer({
-        apiToken: API_TOKEN,
-        onLeave: () => {},
-        onSendChat: async (text) => {
-          await sendChat(fake.page, text);
-        },
-        onPlayAudio: () => {},
-      });
-      const base = await startOnRandomPort(server);
+    // 2. Bring up the HTTP server with `onSendChat` wired to the real
+    //    `sendChat` helper, exactly like `main.ts` does.
+    server = createHttpServer({
+      apiToken: API_TOKEN,
+      onLeave: () => {},
+      onSendChat: async (text) => {
+        await sendChat(fake.page, text);
+      },
+      onPlayAudio: () => {},
+    });
+    const base = await startOnRandomPort(server);
 
-      // 3. POST the chat message.
-      const sentText = "Hello from the loopback test.";
-      const res = await postSendChat(base, sentText);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        sent: boolean;
-        timestamp: string;
-      };
-      expect(body.sent).toBe(true);
+    // 3. POST the chat message.
+    const sentText = "Hello from the loopback test.";
+    const res = await postSendChat(base, sentText);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      sent: boolean;
+      timestamp: string;
+    };
+    expect(body.sent).toBe(true);
 
-      // sendChat should have filled the composer, pressed Enter, and the
-      // fake's submit handler should have cleared the field.
-      expect(fake.submitCount()).toBe(1);
-      expect(fake.composerValue()).toBe("");
+    // sendChat should have filled the composer, pressed Enter, and the
+    // fake's submit handler should have cleared the field.
+    expect(fake.submitCount()).toBe(1);
+    expect(fake.composerValue()).toBe("");
 
-      // The submitted message node should now be in the DOM.
-      const messageNodes = fake.document.querySelectorAll(
-        selectors.INGAME_CHAT_MESSAGE_NODE,
-      );
-      expect(messageNodes.length).toBeGreaterThanOrEqual(2);
-      const botNode = Array.from(messageNodes).find(
-        (n) => n.getAttribute("data-message-id") === "bot-out-1",
-      );
-      expect(botNode).toBeDefined();
-      const botText = botNode
-        ?.querySelector(selectors.INGAME_CHAT_MESSAGE_TEXT)
-        ?.textContent?.trim();
-      expect(botText).toBe(sentText);
+    // The submitted message node should now be in the DOM.
+    const messageNodes = fake.document.querySelectorAll(
+      selectors.INGAME_CHAT_MESSAGE_NODE,
+    );
+    expect(messageNodes.length).toBeGreaterThanOrEqual(2);
+    const botNode = Array.from(messageNodes).find(
+      (n) => n.getAttribute("data-message-id") === "bot-out-1",
+    );
+    expect(botNode).toBeDefined();
+    const botText = botNode
+      ?.querySelector(selectors.INGAME_CHAT_MESSAGE_TEXT)
+      ?.textContent?.trim();
+    expect(botText).toBe(sentText);
 
-      // 4. Give the MutationObserver a tick to process the newly-appended
-      //    node and invoke the bridge.
-      await flushMicrotasks();
+    // 4. Give the MutationObserver a tick to process the newly-appended
+    //    node and invoke the bridge.
+    await flushMicrotasks();
 
-      // 5. **The critical assertion**: the bot's own outgoing message
-      //    MUST NOT appear as an InboundChatEvent. `startChatReader`'s
-      //    self-filter matches by display name (selfName === SELF_NAME
-      //    === the message's rendered sender), so the bridge call is
-      //    dropped before `onMessage` fires.
-      expect(inboundEvents).toHaveLength(0);
+    // 5. **The critical assertion**: the bot's own outgoing message
+    //    MUST NOT appear as an InboundChatEvent. `startChatReader`'s
+    //    self-filter matches by display name (selfName === SELF_NAME
+    //    === the message's rendered sender), so the bridge call is
+    //    dropped before `onMessage` fires.
+    expect(inboundEvents).toHaveLength(0);
 
-      // 6. Sanity check: a remote (non-self) message still surfaces after
-      //    the self-send, so the filter didn't over-aggressively mute the
-      //    entire reader.
-      fake.appendRemoteMessage({
-        id: "remote-after-send",
-        sender: "Bob",
-        text: "Got it, thanks.",
-      });
-      await flushMicrotasks();
-      expect(inboundEvents).toHaveLength(1);
-      expect(inboundEvents[0]!.fromName).toBe("Bob");
-      expect(inboundEvents[0]!.text).toBe("Got it, thanks.");
-    },
-  );
+    // 6. Sanity check: a remote (non-self) message still surfaces after
+    //    the self-send, so the filter didn't over-aggressively mute the
+    //    entire reader.
+    fake.appendRemoteMessage({
+      id: "remote-after-send",
+      sender: "Bob",
+      text: "Got it, thanks.",
+    });
+    await flushMicrotasks();
+    expect(inboundEvents).toHaveLength(1);
+    expect(inboundEvents[0]!.fromName).toBe("Bob");
+    expect(inboundEvents[0]!.text).toBe("Got it, thanks.");
+  });
 
-  test(
-    "multiple consecutive sends each round-trip through the chat reader without leaking a self-echo",
-    async () => {
-      // This guards against a subtle class of bug: if the self-filter
-      // bucketed by sender+text+timestamp only (the dedupe key), a
-      // second bot-send with the same text but a different timestamp
-      // might slip through. We send twice with different text and
-      // assert zero inbound events either way.
-      const fake = createFakePage(CHAT_FIXTURE, SELF_NAME);
+  test("multiple consecutive sends each round-trip through the chat reader without leaking a self-echo", async () => {
+    // This guards against a subtle class of bug: if the self-filter
+    // bucketed by sender+text+timestamp only (the dedupe key), a
+    // second bot-send with the same text but a different timestamp
+    // might slip through. We send twice with different text and
+    // assert zero inbound events either way.
+    const fake = createFakePage(CHAT_FIXTURE, SELF_NAME);
 
-      const inboundEvents: InboundChatEvent[] = [];
-      reader = await startChatReader(
-        fake.page,
-        (event) => inboundEvents.push(event),
-        { meetingId: "meeting-loopback-2", selfName: SELF_NAME },
-      );
-      await flushMicrotasks();
-      inboundEvents.length = 0; // drop the fixture's "Alice: Hello..." backfill
+    const inboundEvents: InboundChatEvent[] = [];
+    reader = await startChatReader(
+      fake.page,
+      (event) => inboundEvents.push(event),
+      { meetingId: "meeting-loopback-2", selfName: SELF_NAME },
+    );
+    await flushMicrotasks();
+    inboundEvents.length = 0; // drop the fixture's "Alice: Hello..." backfill
 
-      server = createHttpServer({
-        apiToken: API_TOKEN,
-        onLeave: () => {},
-        onSendChat: async (text) => {
-          await sendChat(fake.page, text);
-        },
-        onPlayAudio: () => {},
-      });
-      const base = await startOnRandomPort(server);
+    server = createHttpServer({
+      apiToken: API_TOKEN,
+      onLeave: () => {},
+      onSendChat: async (text) => {
+        await sendChat(fake.page, text);
+      },
+      onPlayAudio: () => {},
+    });
+    const base = await startOnRandomPort(server);
 
-      // First send.
-      let res = await postSendChat(base, "first send");
-      expect(res.status).toBe(200);
-      await flushMicrotasks();
+    // First send.
+    let res = await postSendChat(base, "first send");
+    expect(res.status).toBe(200);
+    await flushMicrotasks();
 
-      // Second send — distinct text so the bot-side dedupe key is
-      // unambiguously different from the first.
-      res = await postSendChat(base, "second send");
-      expect(res.status).toBe(200);
-      await flushMicrotasks();
+    // Second send — distinct text so the bot-side dedupe key is
+    // unambiguously different from the first.
+    res = await postSendChat(base, "second send");
+    expect(res.status).toBe(200);
+    await flushMicrotasks();
 
-      expect(fake.submitCount()).toBe(2);
-      // Still zero inbound events — both self-sends dropped.
-      expect(inboundEvents).toHaveLength(0);
-    },
-  );
+    expect(fake.submitCount()).toBe(2);
+    // Still zero inbound events — both self-sends dropped.
+    expect(inboundEvents).toHaveLength(0);
+  });
 });

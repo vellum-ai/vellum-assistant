@@ -172,16 +172,13 @@ export class MeetBargeInWatcher {
           { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
           cb,
         ));
-    this.setTimeoutFn =
-      deps.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
+    this.setTimeoutFn = deps.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
     this.clearTimeoutFn =
       deps.clearTimeoutFn ??
-      ((handle) =>
-        clearTimeout(handle as ReturnType<typeof setTimeout>));
+      ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.debounceMs = deps.debounceMs ?? BARGE_IN_DEBOUNCE_MS;
     this.interimConfidenceThreshold =
-      deps.interimConfidenceThreshold ??
-      BARGE_IN_INTERIM_CONFIDENCE_THRESHOLD;
+      deps.interimConfidenceThreshold ?? BARGE_IN_INTERIM_CONFIDENCE_THRESHOLD;
   }
 
   /**
@@ -275,7 +272,9 @@ export class MeetBargeInWatcher {
     }
   }
 
-  private onAssistantEvent(event: { message: { type: string; meetingId?: string } }): void {
+  private onAssistantEvent(event: {
+    message: { type: string; meetingId?: string };
+  }): void {
     const message = event.message;
     // Filter to our own meeting only — the assistant event hub fans every
     // assistant event to every subscriber, so we have to gate on meetingId

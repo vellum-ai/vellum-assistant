@@ -60,7 +60,10 @@ import {
   startSpeakerScraper,
   type SpeakerScraperHandle,
 } from "./browser/speaker-scraper.js";
-import { createBrowserSession, type BrowserSession } from "./browser/session.js";
+import {
+  createBrowserSession,
+  type BrowserSession,
+} from "./browser/session.js";
 import { DaemonClient } from "./control/daemon-client.js";
 import {
   createHttpServer,
@@ -147,9 +150,7 @@ export interface BotDeps {
     onEvent: (event: InboundChatEvent) => void,
     opts: { meetingId: string; selfName: string },
   ) => Promise<ChatReader>;
-  startAudioCapture: (
-    opts: AudioCaptureOptions,
-  ) => Promise<AudioCaptureHandle>;
+  startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   /**
    * Type `text` into the Meet chat composer and submit it. Invoked by the
    * HTTP `/send_chat` endpoint. Separated from the other browser helpers
@@ -170,10 +171,7 @@ export interface BotDeps {
    * Signal handler hooks. The test harness stubs these out so the
    * Bun/Node signal machinery isn't wired up during unit tests.
    */
-  onSignal: (
-    signal: "SIGTERM" | "SIGINT",
-    handler: () => void,
-  ) => () => void;
+  onSignal: (signal: "SIGTERM" | "SIGINT", handler: () => void) => () => void;
   /**
    * Short settle delay between `lifecycle:joining` and `lifecycle:joined`.
    * Exposed as a dep so tests can pass 0 and not hang.
@@ -222,8 +220,7 @@ export function defaultDeps(): BotDeps {
       };
     },
     joinedSettleMs: 2_000,
-    sleep: (ms) =>
-      new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     exit: (code) => process.exit(code),
     logInfo: (msg) => console.log(msg),
     logError: (msg) => console.error(msg),
@@ -414,9 +411,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       await stopSafely("audio capture", subsystems.audioCapture);
       await stopSafely(
         "browser session",
-        subsystems.session
-          ? { stop: () => subsystems.session!.close() }
-          : null,
+        subsystems.session ? { stop: () => subsystems.session!.close() } : null,
       );
 
       publishLifecycle(
@@ -511,13 +506,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
     } catch (err) {
       const msg = errMsg(err);
       deps.logError(`meet-bot: join flow failed: ${msg}`);
-      publishLifecycle(
-        subsystems.daemonClient,
-        meetingId,
-        "error",
-        deps,
-        msg,
-      );
+      publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
       await shutdown("error", msg);
       detachSigterm();
       detachSigint();
@@ -596,13 +585,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
   } catch (err) {
     const msg = errMsg(err);
     deps.logError(`meet-bot: boot failed: ${msg}`);
-    publishLifecycle(
-      subsystems.daemonClient,
-      meetingId,
-      "error",
-      deps,
-      msg,
-    );
+    publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
     await shutdown("error", msg);
     detachSigterm();
     detachSigint();

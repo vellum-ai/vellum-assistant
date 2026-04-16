@@ -30,7 +30,9 @@ async function main(): Promise<void> {
     if (res.status !== 200) {
       process.exit(1);
     }
-    const body = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+    const body = (await res.json().catch(() => null)) as {
+      ok?: unknown;
+    } | null;
     if (!body || body.ok !== true) {
       process.exit(1);
     }

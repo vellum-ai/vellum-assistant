@@ -110,9 +110,7 @@ export interface SpawnedParec {
   kill(signal?: number | NodeJS.Signals): void;
 }
 
-export type SpawnFactory = (
-  argv: readonly string[],
-) => SpawnedParec;
+export type SpawnFactory = (argv: readonly string[]) => SpawnedParec;
 
 /**
  * Minimal slice of `net.Socket` that `startAudioCapture` relies on. Tests

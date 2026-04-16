@@ -74,9 +74,7 @@ export type MeetCancelSpeakInput = z.infer<typeof MeetCancelSpeakInputSchema>;
  */
 function resolveTargetMeetingId(
   explicitId: string | undefined,
-):
-  | { ok: true; meetingId: string }
-  | { ok: false; content: string } {
+): { ok: true; meetingId: string } | { ok: false; content: string } {
   if (explicitId) {
     return { ok: true, meetingId: explicitId };
   }

@@ -25,9 +25,10 @@ interface FakeProcess {
   exitCode: number;
 }
 
-function makeFakeSpawn(
-  processes: FakeProcess[],
-): { spawn: typeof Bun.spawn; calls: SpawnArgs[] } {
+function makeFakeSpawn(processes: FakeProcess[]): {
+  spawn: typeof Bun.spawn;
+  calls: SpawnArgs[];
+} {
   const calls: SpawnArgs[] = [];
   let index = 0;
 

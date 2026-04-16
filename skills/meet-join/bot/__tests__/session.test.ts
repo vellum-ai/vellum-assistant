@@ -8,14 +8,7 @@
  * would fail trying to exec a Linux binary.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CHROMIUM_ARGS } from "../src/browser/session.js";
 
@@ -107,11 +100,11 @@ describe("createBrowserSession", () => {
   });
 
   test("launches Chromium with the expected args, env, and headless flag", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
-    const session = await createBrowserSession("https://meet.google.com/abc-defg-hij");
+    const session = await createBrowserSession(
+      "https://meet.google.com/abc-defg-hij",
+    );
 
     expect(mocks.launchCalls.length).toBe(1);
     const { options } = mocks.launchCalls[0]!;
@@ -136,9 +129,7 @@ describe("createBrowserSession", () => {
   });
 
   test("calls page.goto with the provided URL", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
     const url = "https://meet.google.com/xyz-uvwx-yzz";
     const session = await createBrowserSession(url);
@@ -154,9 +145,7 @@ describe("createBrowserSession", () => {
   });
 
   test("close() tears down page, context, and browser in order", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
     const session = await createBrowserSession("https://meet.google.com/abc");
 
@@ -174,9 +163,7 @@ describe("createBrowserSession", () => {
   });
 
   test("close() tolerates already-closed components", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
     const session = await createBrowserSession("https://meet.google.com/abc");
 
@@ -195,9 +182,7 @@ describe("createBrowserSession", () => {
   });
 
   test("ensures Xvfb is started before launching Chromium", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
     const session = await createBrowserSession("https://meet.google.com/abc");
 
@@ -209,14 +194,11 @@ describe("createBrowserSession", () => {
   });
 
   test("honors a custom xvfbDisplay option", async () => {
-    const { createBrowserSession } = await import(
-      "../src/browser/session.js"
-    );
+    const { createBrowserSession } = await import("../src/browser/session.js");
 
-    const session = await createBrowserSession(
-      "https://meet.google.com/abc",
-      { xvfbDisplay: ":42" },
-    );
+    const session = await createBrowserSession("https://meet.google.com/abc", {
+      xvfbDisplay: ":42",
+    });
 
     expect(mocks.startXvfb.mock.calls[0]?.[0]).toBe(":42");
     expect(mocks.launchCalls[0]?.options.env?.DISPLAY).toBe(":42");
@@ -239,9 +221,8 @@ const runIntegration =
     test("can launch a real browser and navigate to a data URL", async () => {
       // Dynamically import *without* the module mocks above. Bun resets
       // mocks per-test-file, but guard anyway by delaying the import.
-      const { createBrowserSession } = await import(
-        "../src/browser/session.js"
-      );
+      const { createBrowserSession } =
+        await import("../src/browser/session.js");
       const session = await createBrowserSession(
         "data:text/html,<title>meet-bot-integration</title>",
       );

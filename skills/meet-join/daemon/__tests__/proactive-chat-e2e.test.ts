@@ -35,14 +35,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MeetBotEvent } from "../../contracts/index.js";
 
@@ -63,7 +56,9 @@ const persistedMessages: Array<{
 
 function recordPersistedMessage(
   conversationId: string,
-): (msg: import("../../../../assistant/src/providers/types.js").Message) => Promise<void> {
+): (
+  msg: import("../../../../assistant/src/providers/types.js").Message,
+) => Promise<void> {
   return async (msg) => {
     persistedMessages.push({
       conversationId,
@@ -568,10 +563,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
     const conversationId = "conv-proactive-e2e";
     const dispatcher = makeFakeDispatcher();
 
-    const { leave } = await standUpSessionManagerPointedAt(
-      fakeBot,
-      meetingId,
-    );
+    const { leave } = await standUpSessionManagerPointedAt(fakeBot, meetingId);
 
     try {
       const tier2Llm = mock(
@@ -652,10 +644,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
     const conversationId = "conv-proactive-e2e";
     const dispatcher = makeFakeDispatcher();
 
-    const { leave } = await standUpSessionManagerPointedAt(
-      fakeBot,
-      meetingId,
-    );
+    const { leave } = await standUpSessionManagerPointedAt(fakeBot, meetingId);
 
     try {
       const tier2Llm = mock(
@@ -846,10 +835,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
     const meetingId = "m-proactive-disabled";
     const dispatcher = makeFakeDispatcher();
 
-    const { leave } = await standUpSessionManagerPointedAt(
-      fakeBot,
-      meetingId,
-    );
+    const { leave } = await standUpSessionManagerPointedAt(fakeBot, meetingId);
 
     try {
       // `callDetectorLLM` must not be invoked when `enabled: false`.

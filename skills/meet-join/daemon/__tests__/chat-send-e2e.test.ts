@@ -41,14 +41,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";

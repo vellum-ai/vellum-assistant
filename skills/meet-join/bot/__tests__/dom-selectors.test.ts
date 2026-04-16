@@ -195,9 +195,9 @@ describe("chat panel selectors", () => {
     expect(text?.textContent?.trim()).toBe(
       "Hello everyone, welcome to the meeting.",
     );
-    expect((timestamp as HTMLTimeElement | null)?.getAttribute("datetime")).toBe(
-      "2026-04-15T12:34:00Z",
-    );
+    expect(
+      (timestamp as HTMLTimeElement | null)?.getAttribute("datetime"),
+    ).toBe("2026-04-15T12:34:00Z");
   });
 });
 

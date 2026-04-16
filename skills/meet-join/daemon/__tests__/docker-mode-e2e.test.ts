@@ -198,10 +198,7 @@ interface DockerCreateBody {
   ExposedPorts: Record<string, Record<string, never>>;
   HostConfig: {
     Binds: string[];
-    PortBindings: Record<
-      string,
-      Array<{ HostIp: string; HostPort: string }>
-    >;
+    PortBindings: Record<string, Array<{ HostIp: string; HostPort: string }>>;
     ExtraHosts: string[];
     NetworkMode?: string;
     Mounts?: Array<{

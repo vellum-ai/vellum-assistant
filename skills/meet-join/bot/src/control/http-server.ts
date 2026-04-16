@@ -153,7 +153,10 @@ export function createHttpServer(
   app.use("*", async (c, next) => {
     const header = c.req.header("authorization");
     if (!header || !header.startsWith("Bearer ")) {
-      return c.json({ error: "missing or malformed authorization header" }, 401);
+      return c.json(
+        { error: "missing or malformed authorization header" },
+        401,
+      );
     }
     const token = header.slice("Bearer ".length).trim();
     if (token !== apiToken) {

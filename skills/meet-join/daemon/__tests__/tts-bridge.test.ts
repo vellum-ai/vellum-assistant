@@ -312,7 +312,10 @@ describe("MeetTtsBridge.speak", () => {
       },
     );
 
-    const result = await bridge.speak({ text: "hello world", voice: "voice-1" });
+    const result = await bridge.speak({
+      text: "hello world",
+      voice: "voice-1",
+    });
     expect(result.streamId).toBe("stream-abc");
 
     // Wait for the POST to complete.
@@ -441,9 +444,7 @@ describe("MeetTtsBridge.speak", () => {
       if (isProbe) {
         probeSpawnCalls += 1;
         const child = makeFakeFfmpegChild();
-        const err = new Error(
-          "spawn ffmpeg ENOENT",
-        ) as NodeJS.ErrnoException;
+        const err = new Error("spawn ffmpeg ENOENT") as NodeJS.ErrnoException;
         err.code = "ENOENT";
         setImmediate(() => child.emit("error", err));
         return child as unknown as ReturnType<
@@ -564,7 +565,9 @@ describe("MeetTtsBridge abort reason classification", () => {
     await new Promise((r) => setTimeout(r, 30));
 
     // Simulate an ffmpeg runtime error (e.g. SIGKILL, I/O error).
-    const ffmpegErr = new Error("ffmpeg process exited unexpectedly") as NodeJS.ErrnoException;
+    const ffmpegErr = new Error(
+      "ffmpeg process exited unexpectedly",
+    ) as NodeJS.ErrnoException;
     ffmpegErr.code = "EPIPE";
     transcodeChild!.emit("error", ffmpegErr);
 
@@ -579,7 +582,9 @@ describe("MeetTtsBridge abort reason classification", () => {
     expect(caught).not.toBeInstanceOf(MeetTtsCancelledError);
     // The original ffmpeg error should propagate through.
     expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toContain("ffmpeg process exited unexpectedly");
+    expect((caught as Error).message).toContain(
+      "ffmpeg process exited unexpectedly",
+    );
 
     // Active stream map is clean after settlement.
     await new Promise((r) => setTimeout(r, 50));

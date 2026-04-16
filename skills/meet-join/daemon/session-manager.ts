@@ -185,9 +185,7 @@ export class MeetSessionUnreachableError extends Error {
   readonly name = "MeetSessionUnreachableError";
 
   constructor(meetingId: string, cause: string) {
-    super(
-      `Meet bot unreachable for meetingId=${meetingId}: ${cause}`,
-    );
+    super(`Meet bot unreachable for meetingId=${meetingId}: ${cause}`);
   }
 }
 
@@ -372,7 +370,9 @@ export interface MeetStorageWriterLike {
  * tests swap in a fake without spinning up ffmpeg or a real HTTP client.
  */
 export interface MeetTtsBridgeLike {
-  speak(input: SpeakInput): Promise<{ streamId: string; completion: Promise<void> }>;
+  speak(
+    input: SpeakInput,
+  ): Promise<{ streamId: string; completion: Promise<void> }>;
   cancel(streamId: string): Promise<void>;
   cancelAll(): Promise<void>;
   activeStreamCount(): number;
@@ -598,8 +598,7 @@ class MeetSessionManagerImpl {
       chatOpportunityDetectorFactory:
         deps.chatOpportunityDetectorFactory ??
         defaultChatOpportunityDetectorFactory,
-      ttsBridgeFactory:
-        deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
+      ttsBridgeFactory: deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
@@ -926,10 +925,8 @@ class MeetSessionManagerImpl {
               enabled: proactiveChatConfig.enabled,
               detectorKeywords: [...proactiveChatConfig.detectorKeywords],
               tier2DebounceMs: proactiveChatConfig.tier2DebounceMs,
-              escalationCooldownSec:
-                proactiveChatConfig.escalationCooldownSec,
-              tier2MaxTranscriptSec:
-                proactiveChatConfig.tier2MaxTranscriptSec,
+              escalationCooldownSec: proactiveChatConfig.escalationCooldownSec,
+              tier2MaxTranscriptSec: proactiveChatConfig.tier2MaxTranscriptSec,
             },
             callDetectorLLM: defaultCallDetectorLLM,
             onOpportunity: (hint: string) => {

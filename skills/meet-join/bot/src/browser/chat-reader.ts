@@ -225,9 +225,7 @@ async function installMutationObserver(
           : Array.from(node.querySelectorAll(args.messageNodeSelector));
         for (const msg of messages) {
           const domId =
-            msg.getAttribute("data-message-id") ??
-            msg.getAttribute("id") ??
-            "";
+            msg.getAttribute("data-message-id") ?? msg.getAttribute("id") ?? "";
           if (!domId) continue;
           if (seenDomIds.has(domId)) continue;
           seenDomIds.add(domId);
@@ -242,8 +240,7 @@ async function installMutationObserver(
 
           // Sender-side id if Meet exposes one; otherwise fall back to the
           // display name (stable enough for dedupe within a meeting).
-          const fromId =
-            senderEl?.getAttribute("data-sender-id") ?? fromName;
+          const fromId = senderEl?.getAttribute("data-sender-id") ?? fromName;
 
           let timestampMs = Date.now();
           const iso = timeEl?.getAttribute("datetime");
@@ -358,8 +355,7 @@ function installPollingLoop(
             const text = (textEl?.textContent ?? "").trim();
             if (!fromName || !text) continue;
 
-            const fromId =
-              senderEl?.getAttribute("data-sender-id") ?? fromName;
+            const fromId = senderEl?.getAttribute("data-sender-id") ?? fromName;
 
             let timestampMs = Date.now();
             const iso = timeEl?.getAttribute("datetime");
