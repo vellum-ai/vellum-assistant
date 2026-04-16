@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
@@ -132,6 +133,13 @@ export interface RuntimeMessageConversationOptions {
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
+  /**
+   * Optional LLM call-site identifier. Channel ingress and other inbound paths
+   * may pass this so the daemon's per-call provider config picks up the right
+   * profile via `resolveCallSiteConfig`. PRs 7-11 wire individual call-site
+   * literals into specific call paths.
+   */
+  callSite?: LLMCallSite;
 }
 
 export type MessageProcessor = (

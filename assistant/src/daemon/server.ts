@@ -1623,6 +1623,7 @@ export class DaemonServer {
       await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
       });
     } finally {
       if (

@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -204,6 +205,7 @@ export class AgentLoop {
     signal?: AbortSignal,
     requestId?: string,
     onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+    callSite?: LLMCallSite,
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
@@ -262,6 +264,16 @@ export class AgentLoop {
 
         if (this.config.cacheTtl) {
           providerConfig.cacheTtl = this.config.cacheTtl;
+        }
+
+        // Per-call LLM call-site identifier. Surfaces on the per-call
+        // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
+        // can route through `resolveCallSiteConfig`. PRs 7-11 will switch
+        // individual callers from legacy `modelIntent`/hardcoded providers
+        // to call-site routing one at a time; until then the parameter is
+        // optional and absence preserves the legacy code path.
+        if (callSite) {
+          providerConfig.callSite = callSite;
         }
 
         const preLlmResult = await getHookManager().trigger("pre-llm-call", {

@@ -24,6 +24,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -356,6 +357,14 @@ export async function runAgentLoopImpl(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    /**
+     * LLM call-site identifier threaded into the per-call provider config.
+     * When unset, defaults to `'mainAgent'` so this turn routes through the
+     * main-agent profile in the unified `llm` config. Adapter callers
+     * (heartbeat, filing, schedule, etc.) override with their own call-site
+     * id as PRs 7-11 migrate them off the legacy `speed` / `modelIntent` paths.
+     */
+    callSite?: LLMCallSite;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -378,6 +387,12 @@ export async function runAgentLoopImpl(
     requestId: reqId,
   });
   let yieldedForHandoff = false;
+
+  // Resolve the LLM call-site for this turn. Defaults to 'mainAgent' when the
+  // caller (e.g. processMessage from a chat send) doesn't specify one. Adapter
+  // callers like heartbeat/filing/scheduler will override with their own
+  // call-site id once their wrappers in PRs 7-11 start passing it through.
+  const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
@@ -1102,6 +1117,7 @@ export async function runAgentLoopImpl(
       abortController.signal,
       reqId,
       onCheckpoint,
+      turnCallSite,
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1215,6 +1231,7 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        turnCallSite,
       );
     }
 
@@ -1257,6 +1274,7 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        turnCallSite,
       );
 
       if (state.orderingErrorDetected) {
@@ -1440,6 +1458,7 @@ export async function runAgentLoopImpl(
           abortController.signal,
           reqId,
           onCheckpoint,
+          turnCallSite,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -1566,6 +1585,7 @@ export async function runAgentLoopImpl(
               abortController.signal,
               reqId,
               onCheckpoint,
+              turnCallSite,
             );
           } else {
             // User denied compression — emit a graceful assistant explanation
@@ -1689,6 +1709,7 @@ export async function runAgentLoopImpl(
             abortController.signal,
             reqId,
             onCheckpoint,
+            turnCallSite,
           );
         }
         // action === "fail_gracefully" falls through to the final error below
