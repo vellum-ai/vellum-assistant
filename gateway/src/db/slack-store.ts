@@ -1,22 +1,15 @@
-import type { Database, Statement } from "bun:sqlite";
-import { getGatewayDb } from "./connection.js";
+import { and, eq, gt } from "drizzle-orm";
+import { type GatewayDb, getGatewayDb } from "./connection.js";
+import { slackActiveThreads, slackSeenEvents } from "./schema.js";
 
 /**
  * Persistent store for Slack thread tracking and event deduplication.
  * Backed by SQLite so state survives gateway restarts.
  */
 export class SlackStore {
-  private db: Database;
+  private db: GatewayDb;
 
-  // Prepared statements (lazily cached)
-  private _upsertThread: Statement | null = null;
-  private _hasThread: Statement | null = null;
-  private _deleteExpiredThreads: Statement | null = null;
-  private _upsertEvent: Statement | null = null;
-  private _hasEvent: Statement | null = null;
-  private _deleteExpiredEvents: Statement | null = null;
-
-  constructor(db?: Database) {
+  constructor(db?: GatewayDb) {
     this.db = db ?? getGatewayDb();
   }
 
@@ -24,67 +17,74 @@ export class SlackStore {
 
   trackThread(threadTs: string, ttlMs: number): void {
     const now = Date.now();
-    const stmt =
-      this._upsertThread ??
-      (this._upsertThread = this.db.prepare(
-        `INSERT INTO slack_active_threads (thread_ts, tracked_at, expires_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(thread_ts) DO UPDATE SET tracked_at = excluded.tracked_at, expires_at = excluded.expires_at`,
-      ));
-    stmt.run(threadTs, now, now + ttlMs);
+    this.db
+      .insert(slackActiveThreads)
+      .values({ threadTs, trackedAt: now, expiresAt: now + ttlMs })
+      .onConflictDoUpdate({
+        target: slackActiveThreads.threadTs,
+        set: { trackedAt: now, expiresAt: now + ttlMs },
+      })
+      .run();
   }
 
   hasThread(threadTs: string): boolean {
     const now = Date.now();
-    const stmt =
-      this._hasThread ??
-      (this._hasThread = this.db.prepare(
-        `SELECT 1 FROM slack_active_threads WHERE thread_ts = ? AND expires_at > ?`,
-      ));
-    return stmt.get(threadTs, now) !== null;
+    const row = this.db
+      .select({ threadTs: slackActiveThreads.threadTs })
+      .from(slackActiveThreads)
+      .where(
+        and(
+          eq(slackActiveThreads.threadTs, threadTs),
+          gt(slackActiveThreads.expiresAt, now),
+        ),
+      )
+      .get();
+    return row !== undefined;
   }
 
   cleanupExpiredThreads(): number {
     const now = Date.now();
-    const stmt =
-      this._deleteExpiredThreads ??
-      (this._deleteExpiredThreads = this.db.prepare(
-        `DELETE FROM slack_active_threads WHERE expires_at < ?`,
-      ));
-    return stmt.run(now).changes;
+    const raw = (
+      this.db as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    return raw
+      .prepare("DELETE FROM slack_active_threads WHERE expires_at < ?")
+      .run(now).changes;
   }
 
   // -- Event dedup --
 
   markEventSeen(eventId: string, ttlMs: number): void {
     const now = Date.now();
-    const stmt =
-      this._upsertEvent ??
-      (this._upsertEvent = this.db.prepare(
-        `INSERT INTO slack_seen_events (event_id, seen_at, expires_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(event_id) DO NOTHING`,
-      ));
-    stmt.run(eventId, now, now + ttlMs);
+    this.db
+      .insert(slackSeenEvents)
+      .values({ eventId, seenAt: now, expiresAt: now + ttlMs })
+      .onConflictDoNothing()
+      .run();
   }
 
   hasEvent(eventId: string): boolean {
     const now = Date.now();
-    const stmt =
-      this._hasEvent ??
-      (this._hasEvent = this.db.prepare(
-        `SELECT 1 FROM slack_seen_events WHERE event_id = ? AND expires_at > ?`,
-      ));
-    return stmt.get(eventId, now) !== null;
+    const row = this.db
+      .select({ eventId: slackSeenEvents.eventId })
+      .from(slackSeenEvents)
+      .where(
+        and(
+          eq(slackSeenEvents.eventId, eventId),
+          gt(slackSeenEvents.expiresAt, now),
+        ),
+      )
+      .get();
+    return row !== undefined;
   }
 
   cleanupExpiredEvents(): number {
     const now = Date.now();
-    const stmt =
-      this._deleteExpiredEvents ??
-      (this._deleteExpiredEvents = this.db.prepare(
-        `DELETE FROM slack_seen_events WHERE expires_at < ?`,
-      ));
-    return stmt.run(now).changes;
+    const raw = (
+      this.db as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    return raw
+      .prepare("DELETE FROM slack_seen_events WHERE expires_at < ?")
+      .run(now).changes;
   }
 }

@@ -4,11 +4,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import { Database } from "bun:sqlite";
 import { GatewayIpcServer } from "../ipc/server.js";
 import { contactRoutes } from "../ipc/contact-handlers.js";
 import { ContactStore } from "../db/contact-store.js";
-import { getGatewayDb } from "../db/connection.js";
+import {
+  initGatewayDb,
+  getGatewayDb,
+  getGatewaySqlite,
+  resetGatewayDb,
+} from "../db/connection.js";
 
 const testDir = join(
   tmpdir(),
@@ -20,13 +24,16 @@ const socketPath = join(testDir, "gateway.sock");
 const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGatewayDb();
   process.env.VELLUM_WORKSPACE_DIR = testDir;
   process.env.GATEWAY_SECURITY_DIR = protectedDir;
   mkdirSync(protectedDir, { recursive: true });
+  await initGatewayDb();
 });
 
 afterEach(() => {
+  resetGatewayDb();
   if (savedWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -85,7 +92,8 @@ function sendRequest(
   });
 }
 
-function seedTestData(db: Database): void {
+function seedTestData(): void {
+  const db = getGatewaySqlite();
   const now = Date.now();
 
   db.exec("DELETE FROM contact_channels");
@@ -123,9 +131,8 @@ function seedTestData(db: Database): void {
 
 describe("ContactStore", () => {
   test("listContacts returns all contacts", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
     const contacts = store.listContacts();
     expect(contacts).toHaveLength(2);
@@ -133,46 +140,43 @@ describe("ContactStore", () => {
   });
 
   test("getContact returns a single contact", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
     const contact = store.getContact("c1");
-    expect(contact).not.toBeNull();
+    expect(contact).toBeDefined();
     expect(contact!.displayName).toBe("Test Guardian");
     expect(contact!.role).toBe("guardian");
   });
 
-  test("getContact returns null for unknown id", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+  test("getContact returns undefined for unknown id", () => {
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
-    expect(store.getContact("nonexistent")).toBeNull();
+    expect(store.getContact("nonexistent")).toBeUndefined();
   });
 
   test("getContactByChannel finds contact by channel type and external user id", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
     const contact = store.getContactByChannel("telegram", "tg-fake-001");
-    expect(contact).not.toBeNull();
+    expect(contact).toBeDefined();
     expect(contact!.id).toBe("c1");
   });
 
-  test("getContactByChannel returns null for unknown channel", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+  test("getContactByChannel returns undefined for unknown channel", () => {
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
-    expect(store.getContactByChannel("telegram", "nonexistent")).toBeNull();
+    expect(
+      store.getContactByChannel("telegram", "nonexistent"),
+    ).toBeUndefined();
   });
 
   test("getChannelsForContact returns all channels for a contact", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
     const channels = store.getChannelsForContact("c1");
     expect(channels).toHaveLength(2);
@@ -180,17 +184,16 @@ describe("ContactStore", () => {
   });
 
   test("getChannelsForContact returns empty array for unknown contact", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
 
     expect(store.getChannelsForContact("nonexistent")).toHaveLength(0);
   });
 
   test("contact_channels cascade deletes when contact is deleted", () => {
-    const db = getGatewayDb();
-    seedTestData(db);
-    const store = new ContactStore(db);
+    seedTestData();
+    const store = new ContactStore(getGatewayDb());
+    const db = getGatewaySqlite();
 
     expect(store.getChannelsForContact("c1")).toHaveLength(2);
     db.exec("DELETE FROM contacts WHERE id = 'c1'");
@@ -226,8 +229,7 @@ describe("IPC contact routes", () => {
   }
 
   test("list_contacts returns seeded contacts via IPC", async () => {
-    const db = getGatewayDb();
-    seedTestData(db);
+    seedTestData();
 
     await startServerAndConnect();
     const res = await sendRequest(client, "list_contacts");
@@ -238,8 +240,7 @@ describe("IPC contact routes", () => {
   });
 
   test("get_contact returns a specific contact via IPC", async () => {
-    const db = getGatewayDb();
-    seedTestData(db);
+    seedTestData();
 
     await startServerAndConnect();
     const res = await sendRequest(client, "get_contact", { contactId: "c1" });
@@ -251,8 +252,7 @@ describe("IPC contact routes", () => {
   });
 
   test("get_contact returns null for unknown contact", async () => {
-    const db = getGatewayDb();
-    seedTestData(db);
+    seedTestData();
 
     await startServerAndConnect();
     const res = await sendRequest(client, "get_contact", {
@@ -260,12 +260,12 @@ describe("IPC contact routes", () => {
     });
 
     expect(res.error).toBeUndefined();
+    // IPC handlers normalize undefined → null for JSON serialization
     expect(res.result).toBeNull();
   });
 
   test("get_contact_by_channel resolves contact from channel info", async () => {
-    const db = getGatewayDb();
-    seedTestData(db);
+    seedTestData();
 
     await startServerAndConnect();
     const res = await sendRequest(client, "get_contact_by_channel", {
@@ -279,8 +279,7 @@ describe("IPC contact routes", () => {
   });
 
   test("get_channels_for_contact returns channel list", async () => {
-    const db = getGatewayDb();
-    seedTestData(db);
+    seedTestData();
 
     await startServerAndConnect();
     const res = await sendRequest(client, "get_channels_for_contact", {
