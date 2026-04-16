@@ -412,11 +412,19 @@ final class ConversationRestorer {
     /// Cancels any pending refetch and schedules a new one after 250 ms,
     /// reusing the existing page-1 fetch + merge path so that selection,
     /// scroll position, and per-conversation history are preserved.
+    /// If pagination is in flight, defers the refetch until pagination settles
+    /// to avoid misrouting the page-1 response through the append path.
     func scheduleInvalidationRefetch() {
         invalidationRefetchTask?.cancel()
         invalidationRefetchTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
+            // Defer the refetch if a "Load More" pagination request is in flight
+            // so the page-1 response isn't misrouted through appendConversations.
+            if self.delegate?.isLoadingMoreConversations == true {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled else { return }
+            }
             self.fetchConversationListTask?.cancel()
             self.fetchConversationList()
         }
