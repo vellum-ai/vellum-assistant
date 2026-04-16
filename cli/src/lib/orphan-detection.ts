@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
+import { loadAllAssistants } from "./assistant-config.js";
 import { execOutput } from "./step-runner";
 
 export interface RemoteProcess {
@@ -72,20 +73,35 @@ export interface OrphanedProcess {
 export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   const results: OrphanedProcess[] = [];
   const seenPids = new Set<string>();
-  const vellumDir = join(homedir(), ".vellum");
 
-  // Strategy 1: PID file scan
-  const pidFiles: Array<{ file: string; name: string }> = [
-    { file: join(vellumDir, "vellum.pid"), name: "assistant" },
-    { file: join(vellumDir, "gateway.pid"), name: "gateway" },
-    { file: join(vellumDir, "qdrant.pid"), name: "qdrant" },
-  ];
+  // Collect every known local instance's `.vellum/` directory from the
+  // lockfile so orphan detection scans all containers under the current
+  // multi-instance data layout, not just the legacy `~/.vellum/` root.
+  const dirs = new Set<string>();
+  for (const entry of loadAllAssistants()) {
+    if (entry.cloud !== "local" || !entry.resources) continue;
+    dirs.add(join(entry.resources.instanceDir, ".vellum"));
+  }
+  // Preserve the legacy root scan for installs that predate multi-instance
+  // tracking. This catches orphans from a pre-upgrade `~/.vellum/` that
+  // may not have a lockfile entry at all.
+  dirs.add(join(homedir(), ".vellum"));
 
-  for (const { file, name } of pidFiles) {
-    const pid = readPidFile(file);
-    if (pid && isProcessAlive(pid)) {
-      results.push({ name, pid, source: "pid file" });
-      seenPids.add(pid);
+  // Strategy 1: PID file scan — check every known data directory.
+  for (const dir of dirs) {
+    const pidFiles: Array<{ file: string; name: string }> = [
+      { file: join(dir, "vellum.pid"), name: "assistant" },
+      { file: join(dir, "gateway.pid"), name: "gateway" },
+      { file: join(dir, "qdrant.pid"), name: "qdrant" },
+    ];
+
+    for (const { file, name } of pidFiles) {
+      const pid = readPidFile(file);
+      if (!pid || seenPids.has(pid)) continue;
+      if (isProcessAlive(pid)) {
+        results.push({ name, pid, source: "pid file" });
+        seenPids.add(pid);
+      }
     }
   }
 

@@ -8,15 +8,21 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getDeviceIdBaseDir } from "../../util/device-id.js";
 import type { WorkspaceMigration } from "./types.js";
+
+function deviceIdBaseDir(): string {
+  const containerized =
+    process.env.IS_CONTAINERIZED === "true" ||
+    process.env.IS_CONTAINERIZED === "1";
+  return containerized ? "/home/assistant" : homedir();
+}
 
 export const seedDeviceIdMigration: WorkspaceMigration = {
   id: "003-seed-device-id",
   description:
     "Seed device.json deviceId from the most recent lockfile installationId for continuity",
   run(_workspaceDir: string): void {
-    const base = getDeviceIdBaseDir();
+    const base = deviceIdBaseDir();
     const vellumDir = join(base, ".vellum");
     const devicePath = join(vellumDir, "device.json");
 
@@ -109,7 +115,7 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
     // The forward migration seeds deviceId in ~/.vellum/device.json from the
     // lockfile. Reverse by removing device.json entirely — getDeviceId() will
     // generate a fresh one on next startup if needed.
-    const base = getDeviceIdBaseDir();
+    const base = deviceIdBaseDir();
     const devicePath = join(base, ".vellum", "device.json");
     if (existsSync(devicePath)) {
       unlinkSync(devicePath);

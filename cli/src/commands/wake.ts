@@ -183,18 +183,22 @@ export async function wake(): Promise<void> {
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
-  // Set BASE_DATA_DIR so ngrok reads the correct instance config.
+  // Scope BASE_DATA_DIR to the woken instance so ngrok reads the correct
+  // instance config, then restore on any exit path.
   const prevBaseDataDir = process.env.BASE_DATA_DIR;
   process.env.BASE_DATA_DIR = resources.instanceDir;
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
-  if (ngrokChild?.pid) {
-    const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
-    writeFileSync(ngrokPidFile, String(ngrokChild.pid));
-  }
-  if (prevBaseDataDir !== undefined) {
-    process.env.BASE_DATA_DIR = prevBaseDataDir;
-  } else {
-    delete process.env.BASE_DATA_DIR;
+  try {
+    const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort);
+    if (ngrokChild?.pid) {
+      const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
+      writeFileSync(ngrokPidFile, String(ngrokChild.pid));
+    }
+  } finally {
+    if (prevBaseDataDir !== undefined) {
+      process.env.BASE_DATA_DIR = prevBaseDataDir;
+    } else {
+      delete process.env.BASE_DATA_DIR;
+    }
   }
 
   console.log("Wake complete.");

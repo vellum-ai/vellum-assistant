@@ -10,9 +10,6 @@ struct ComingAliveOverlay: View {
 
     @State private var appearance = AvatarAppearanceManager.shared
 
-    // Precomputed transparency flag — avoids expensive bitmap analysis during animation frames.
-    @State private var avatarIsTransparent = false
-
     // Animation state
     @State private var avatarScale: CGFloat = 0.0
     @State private var avatarOpacity: Double = 0.0
@@ -48,14 +45,12 @@ struct ComingAliveOverlay: View {
                 .scaleEffect(glowScale)
                 .allowsHitTesting(false)
 
-            // Avatar image — uses precomputed transparency to keep the view body lightweight.
-            VAvatarImage(image: appearance.fullAvatarImage, size: 200, isTransparent: avatarIsTransparent, showBorder: false)
+            VAvatarImage(image: appearance.fullAvatarImage, size: 200, showBorder: false)
                 .shadow(color: Meadow.avatarGradientStart.opacity(0.3), radius: 12)
                 .scaleEffect(avatarScale)
                 .opacity(avatarOpacity)
         }
         .onAppear {
-            avatarIsTransparent = VAvatarImage.imageHasTransparency(appearance.fullAvatarImage)
             startAnimation()
         }
         .accessibilityHidden(true)

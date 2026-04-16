@@ -23,6 +23,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import type { CesClient } from "../credential-execution/client.js";
 import * as encryptedStore from "../security/encrypted-store.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 import {
@@ -31,6 +32,8 @@ import {
   getSecureKeyAsync,
   getSecureKeyResultAsync,
   listSecureKeysAsync,
+  setCesClient,
+  setCesReconnect,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 
@@ -289,6 +292,110 @@ describe("secure-keys", () => {
       const result = await getSecureKeyResultAsync("missing-key");
       expect(result.value).toBeUndefined();
       expect(result.unreachable).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // CES reconnection reentrancy
+  // -----------------------------------------------------------------------
+  //
+  // The reconnect callback runs while the credential resolver is waiting on
+  // `_reconnectInFlight`. A nested `getSecureKeyAsync()` from inside the
+  // callback — e.g. `resolveManagedProxyContext()` reading the assistant API
+  // key for the handshake — would recursively `await` the same in-flight
+  // promise and deadlock for 45 seconds until `CREDENTIAL_OP_TIMEOUT_MS`
+  // fires. The guard in `attemptCesReconnection` short-circuits that
+  // reentrant case so nested reads resolve immediately (as "unreachable")
+  // and the outer reconnect makes progress.
+  describe("reconnect callback reentrancy", () => {
+    interface ControllableClient extends CesClient {
+      setReady: (ready: boolean) => void;
+    }
+
+    function makeControllableClient(initialReady = true): ControllableClient {
+      let ready = initialReady;
+      return {
+        handshake: async () => ({ accepted: true }),
+        call: async () => ({ found: false, value: undefined }) as never,
+        isReady: () => ready,
+        close: () => {
+          ready = false;
+        },
+        updateAssistantApiKey: async () => ({ updated: true }),
+        setReady: (r: boolean) => {
+          ready = r;
+        },
+      } as ControllableClient;
+    }
+
+    test("nested credential read inside reconnect callback does not deadlock", async () => {
+      // Seed the encrypted store with a value so nested reads have something
+      // to target if they were to accidentally succeed via fallback paths.
+      encryptedStore.setKey("test-key", "encrypted-value");
+
+      // Install a CES client that starts ready so the first read resolves
+      // the backend to CES RPC, then flip it to unready so the NEXT read
+      // triggers the reconnect path.
+      const client = makeControllableClient(true);
+      setCesClient(client);
+
+      // Prime the resolver so `_resolvedBackend` points at CES RPC.
+      await getSecureKeyAsync("test-key");
+      client.setReady(false);
+
+      let nestedReadResolved = false;
+      let reconnectCallbackRan = 0;
+
+      setCesReconnect(async () => {
+        reconnectCallbackRan++;
+        // Yield once so `_reconnectInFlight` (assigned after this IIFE's
+        // first await) is observable to any nested resolver. This matches
+        // production timing, where the callback awaits `pm.stop()` /
+        // `pm.start()` before reading credentials — those awaits complete
+        // the outer assignment, so the subsequent nested read sees a live
+        // `_reconnectInFlight` and is the recursion that caused the 45s
+        // deadlock.
+        await Promise.resolve();
+        await getSecureKeyAsync("test-key");
+        nestedReadResolved = true;
+        return makeControllableClient(true);
+      });
+
+      const start = Date.now();
+      await getSecureKeyAsync("test-key");
+      const elapsed = Date.now() - start;
+
+      expect(reconnectCallbackRan).toBe(1);
+      expect(nestedReadResolved).toBe(true);
+      // Pre-fix, this took 45s (CREDENTIAL_OP_TIMEOUT_MS). Post-fix it's
+      // bounded only by the mock callback's own work.
+      expect(elapsed).toBeLessThan(2000);
+    });
+
+    test("reconnect callback that throws still releases the reentrancy flag", async () => {
+      const client = makeControllableClient(true);
+      setCesClient(client);
+      await getSecureKeyAsync("any-key"); // prime the resolver
+      client.setReady(false);
+
+      setCesReconnect(async () => {
+        throw new Error("boom");
+      });
+
+      await getSecureKeyAsync("any-key");
+
+      // Swap in a reconnect that succeeds and wait past the 3s cooldown
+      // in `attemptCesReconnection`. A stuck reentrancy flag from the
+      // throwing callback would prevent this second attempt from running.
+      let secondCallbackRan = 0;
+      setCesReconnect(async () => {
+        secondCallbackRan++;
+        return makeControllableClient(true);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 3_100));
+
+      await getSecureKeyAsync("any-key");
+      expect(secondCallbackRan).toBe(1);
     });
   });
 });

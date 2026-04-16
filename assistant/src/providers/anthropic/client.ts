@@ -598,9 +598,22 @@ export class AnthropicProvider implements Provider {
       useNativeWebSearch?: boolean;
       streamTimeoutMs?: number;
       baseURL?: string;
+      /**
+       * Authenticate via `Authorization: Bearer <token>` instead of
+       * `x-api-key`. Required for proxies that front the Anthropic Messages
+       * API with their own Bearer scheme (e.g. OpenRouter). When set, the
+       * positional `apiKey` argument is ignored on the wire.
+       */
+      authToken?: string;
     } = {},
   ) {
-    this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
+    this.client = options.authToken
+      ? new Anthropic({
+          apiKey: null,
+          authToken: options.authToken,
+          baseURL: options.baseURL,
+        })
+      : new Anthropic({ apiKey, baseURL: options.baseURL });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
@@ -613,7 +626,10 @@ export class AnthropicProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
-    const cacheTtl: "5m" | "1h" = ((config as Record<string, unknown> | undefined)?.cacheTtl as "5m" | "1h") ?? "1h";
+    const cacheTtl: "5m" | "1h" =
+      ((config as Record<string, unknown> | undefined)?.cacheTtl as
+        | "5m"
+        | "1h") ?? "1h";
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
       const formatted = messages
@@ -723,25 +739,49 @@ export class AnthropicProvider implements Provider {
       // — the API accepts them. No provider-side stripping needed.
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(formatted));
-      const { effort, speed, output_config, cacheTtl: _cacheTtl, ...restConfig } = (config ??
-        {}) as Record<string, unknown> & {
+      const {
+        effort,
+        speed,
+        output_config,
+        cacheTtl: _cacheTtl,
+        max_tokens: callerMaxTokens,
+        ...restConfig
+      } = (config ?? {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
       };
-      // Haiku does not support the effort / output_config parameter.
+      // Haiku does not support the effort / output_config parameter,
+      // extended cache TTL betas, 1M context, or 64K output tokens.
       // Determine the effective model (per-call override or provider default)
-      // and strip effort when the model doesn't support it.
+      // and gate features accordingly.
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
-      const supportsEffort = !effectiveModel.includes("haiku");
+      const isHaiku = effectiveModel.includes("haiku");
+      const supportsEffort = !isHaiku;
       const mergedOutputConfig = {
         ...(output_config ?? {}),
         ...(effort && supportsEffort ? { effort } : {}),
       };
+      // Build cache_control objects: Haiku doesn't support the extended
+      // cache TTL beta, so omit the ttl field for Haiku models.
+      const cacheControl = isHaiku
+        ? { type: "ephemeral" as const }
+        : { type: "ephemeral" as const, ttl: cacheTtl };
+      const tailCacheControl = isHaiku
+        ? { type: "ephemeral" as const }
+        : { type: "ephemeral" as const, ttl: "5m" as const };
+
       let params: Anthropic.MessageStreamParams = {
         model: this.model,
-        max_tokens: 64000,
+        max_tokens: isHaiku
+          ? Math.min(
+              typeof callerMaxTokens === "number" ? callerMaxTokens : 8192,
+              8192,
+            )
+          : typeof callerMaxTokens === "number"
+            ? callerMaxTokens
+            : 64000,
         messages: sentMessages,
         ...restConfig,
         ...(Object.keys(mergedOutputConfig).length > 0
@@ -767,12 +807,12 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: staticBlock,
-              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
+              cache_control: cacheControl,
             },
             {
               type: "text" as const,
               text: dynamicBlock,
-              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
+              cache_control: cacheControl,
             },
           ];
         } else {
@@ -780,7 +820,7 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: systemPrompt,
-              cache_control: { type: "ephemeral" as const, ttl: cacheTtl },
+              cache_control: cacheControl,
             },
           ];
         }
@@ -797,12 +837,7 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? {
-                  cache_control: {
-                    type: "ephemeral" as const,
-                    ttl: cacheTtl,
-                  },
-                }
+              ? { cache_control: cacheControl }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -816,14 +851,7 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === tools.length - 1
-              ? {
-                  cache_control: {
-                    type: "ephemeral" as const,
-                    ttl: cacheTtl,
-                  },
-                }
-              : {}),
+            ...(i === tools.length - 1 ? { cache_control: cacheControl } : {}),
           }));
         }
       }
@@ -847,10 +875,8 @@ export class AnthropicProvider implements Provider {
         if (!hasText) continue;
         const lastBlock = msg.content[msg.content.length - 1];
         if (typeof lastBlock !== "string") {
-          (lastBlock as unknown as Record<string, unknown>).cache_control = {
-            type: "ephemeral",
-            ttl: cacheTtl,
-          };
+          (lastBlock as unknown as Record<string, unknown>).cache_control =
+            cacheControl;
         }
         turnStartIdx = i;
         break;
@@ -866,7 +892,10 @@ export class AnthropicProvider implements Provider {
       if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
-          const NON_CACHEABLE_TYPES = new Set(["thinking", "redacted_thinking"]);
+          const NON_CACHEABLE_TYPES = new Set([
+            "thinking",
+            "redacted_thinking",
+          ]);
           let tailBlock: (typeof lastMsg.content)[number] | undefined;
           for (let j = lastMsg.content.length - 1; j >= 0; j--) {
             const block = lastMsg.content[j];
@@ -879,10 +908,8 @@ export class AnthropicProvider implements Provider {
             }
           }
           if (tailBlock && typeof tailBlock !== "string") {
-            (tailBlock as unknown as Record<string, unknown>).cache_control = {
-              type: "ephemeral",
-              ttl: "5m",
-            };
+            (tailBlock as unknown as Record<string, unknown>).cache_control =
+              tailCacheControl;
             tailBreakpointApplied = true;
           }
         }
@@ -906,7 +933,8 @@ export class AnthropicProvider implements Provider {
         params.system.length === 2 &&
         hasToolCacheBreakpoint
       ) {
-        delete (params.system[0] as unknown as Record<string, unknown>).cache_control;
+        delete (params.system[0] as unknown as Record<string, unknown>)
+          .cache_control;
       }
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
@@ -938,10 +966,10 @@ export class AnthropicProvider implements Provider {
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
       // 1M context window, and fast-mode when applicable.
-      const betas: string[] = [
-        "extended-cache-ttl-2025-04-11",
-        "context-1m-2025-08-07",
-      ];
+      // Haiku doesn't support the extended cache TTL or 1M context betas.
+      const betas: string[] = isHaiku
+        ? []
+        : ["extended-cache-ttl-2025-04-11", "context-1m-2025-08-07"];
       if (useFastMode) {
         betas.push("fast-mode-2026-02-01");
       }
@@ -958,14 +986,18 @@ export class AnthropicProvider implements Provider {
                 Anthropic.Beta.Messages.MessageCreateParamsStreaming,
               { signal: timeoutSignal },
             ) as unknown as UnifiedStream)
-          : (this.client.beta.messages.stream(
-              {
-                ...(params as Record<string, unknown>),
-                betas,
-              } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
-                Anthropic.Beta.Messages.MessageCreateParamsStreaming,
-              { signal: timeoutSignal },
-            ) as unknown as UnifiedStream);
+          : betas.length > 0
+            ? (this.client.beta.messages.stream(
+                {
+                  ...(params as Record<string, unknown>),
+                  betas,
+                } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
+                  Anthropic.Beta.Messages.MessageCreateParamsStreaming,
+                { signal: timeoutSignal },
+              ) as unknown as UnifiedStream)
+            : (this.client.messages.stream(params, {
+                signal: timeoutSignal,
+              }) as unknown as UnifiedStream);
 
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });
@@ -1025,7 +1057,9 @@ export class AnthropicProvider implements Provider {
               type: "server_tool_complete",
               toolUseId: block.tool_use_id,
               isError: !!isError,
-              ...(Array.isArray(block.content) ? { content: block.content } : {}),
+              ...(Array.isArray(block.content)
+                ? { content: block.content }
+                : {}),
             });
           }
           if (event.type === "content_block_stop") {

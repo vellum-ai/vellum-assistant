@@ -6,13 +6,22 @@
     "src/daemon/main.ts",
     "src/messaging/providers/*/types.ts",
     "src/messaging/providers/*/client.ts",
-    "src/memory/graph/inspect.ts"
+    "src/memory/graph/inspect.ts",
+    "../skills/meet-join/**/*.test.ts",
+    "../skills/meet-join/**/__tests__/**/*.ts",
+    "!../skills/meet-join/bot/**",
+    "../skills/meet-join/contracts/**/__tests__/**/*.ts"
   ],
-  "project": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
+  "project": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "scripts/**/*.ts",
+    "../skills/meet-join/**/*.ts",
+    "!../skills/meet-join/bot/**"
+  ],
   "ignoreDependencies": [
     "@vellumai/ces-contracts",
     "@vellumai/credential-storage",
-    "@vellumai/egress-proxy",
-    "@vellumai/meet-contracts"
+    "@vellumai/egress-proxy"
   ]
 }

@@ -184,6 +184,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
+      "credential-health/credential-health-service.ts", // proactive credential health monitoring
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
@@ -217,6 +218,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
+      "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

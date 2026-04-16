@@ -144,6 +144,15 @@ export interface SendMessageOptions {
 
 export interface Provider {
   name: string;
+  /**
+   * Provider key used by the local token estimator to select model-family
+   * specific rules (e.g. Anthropic's `width * height / 750` image sizing).
+   * Wrapper providers that route to another provider's API — e.g. OpenRouter
+   * calling Anthropic's Messages endpoint for `anthropic/*` models — override
+   * this so the estimator matches what the upstream API will actually charge.
+   * Falls back to `name` when unset.
+   */
+  tokenEstimationProvider?: string;
   sendMessage(
     messages: Message[],
     tools?: ToolDefinition[],

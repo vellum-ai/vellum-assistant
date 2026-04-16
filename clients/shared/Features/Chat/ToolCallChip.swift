@@ -155,31 +155,37 @@ public struct ToolCallChip: View {
                         let canOpenImage = !toolCall.inputRawValue.isEmpty
                             && FileManager.default.fileExists(atPath: toolCall.inputRawValue)
                         if canOpenImage {
-                            Image(nsImage: cachedImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .padding(.horizontal, VSpacing.sm)
-                                .onTapGesture(count: 2) {
-                                    NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputRawValue))
-                                }
-                                .pointerCursor()
+                            HStack(spacing: 0) {
+                                Image(nsImage: cachedImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                    .onTapGesture(count: 2) {
+                                        NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputRawValue))
+                                    }
+                                    .pointerCursor()
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, VSpacing.sm)
                         } else {
-                            Image(nsImage: cachedImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .padding(.horizontal, VSpacing.sm)
+                            HStack(spacing: 0) {
+                                Image(nsImage: cachedImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, VSpacing.sm)
                         }
                         #elseif os(iOS)
-                        Image(uiImage: cachedImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .padding(.horizontal, VSpacing.sm)
+                        HStack(spacing: 0) {
+                            Image(uiImage: cachedImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, VSpacing.sm)
                         #endif
                     }
 
@@ -231,11 +237,13 @@ public struct ToolCallChip: View {
                                     VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
                                 } else {
                                     ScrollView {
-                                        Text(result)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
+                                        HStack(spacing: 0) {
+                                            Text(result)
+                                                .font(VFont.bodySmallDefault)
+                                                .foregroundStyle(VColor.contentSecondary)
+                                                .textSelection(.enabled)
+                                            Spacer(minLength: 0)
+                                        }
                                     }
                                     .adaptiveScrollFrame(for: result, maxHeight: 400, lineCount: lineCount)
                                 }

@@ -10,7 +10,6 @@ import {
   readdirSync,
   watch,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
@@ -32,6 +31,7 @@ import { getLogger } from "../util/logger.js";
 import {
   AVATAR_IMAGE_FILENAME,
   getAvatarDir,
+  getProtectedDir,
   getSignalsDir,
   getSoundsDir,
   getWorkspaceDir,
@@ -282,7 +282,10 @@ export class ConfigWatcher {
       });
       attachWatcherErrorHandler(watcher, usersDir);
       this.watchers.push(watcher);
-      log.info({ dir: usersDir }, "Watching users directory for persona changes");
+      log.info(
+        { dir: usersDir },
+        "Watching users directory for persona changes",
+      );
     } catch (err) {
       log.warn(
         { err, dir: usersDir },
@@ -325,9 +328,7 @@ export class ConfigWatcher {
   }
 
   private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
-    const protectedDir = process.env.GATEWAY_SECURITY_DIR
-      ? process.env.GATEWAY_SECURITY_DIR
-      : join(homedir(), ".vellum", "protected");
+    const protectedDir = process.env.GATEWAY_SECURITY_DIR || getProtectedDir();
 
     try {
       if (!existsSync(protectedDir)) {

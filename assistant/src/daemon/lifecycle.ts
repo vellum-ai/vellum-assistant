@@ -300,8 +300,8 @@ export async function runDaemon(): Promise<void> {
     // Pre-populate the feature flag cache from the gateway so all
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
-    // daemon startup (the fetch has a 10s timeout that would otherwise
-    // stall the critical path).
+    // daemon startup (the IPC call has a 3s connect + 5s call timeout
+    // that would otherwise stall the critical path).
     void initFeatureFlagOverrides().catch((err) =>
       log.warn({ err }, "Background feature flag init failed"),
     );
@@ -494,10 +494,10 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
-      // Write a dev-only fallback capability token to `~/.vellum/daemon-token`
-      // so developers can manually pair the chrome extension without the
-      // native messaging helper. Production pairing goes through
-      // `POST /v1/browser-extension-pair` via the native helper.
+      // Write a dev-only fallback capability token to the per-instance
+      // protected directory so developers can manually pair the chrome
+      // extension without the native messaging helper. Production pairing
+      // goes through `POST /v1/browser-extension-pair` via the native helper.
       try {
         writeDaemonTokenFallback(localGuardianPrincipalId);
       } catch (err) {
@@ -628,18 +628,34 @@ export async function runDaemon(): Promise<void> {
       // falling back to the encrypted file store.
       if (cesResult.processManager) {
         const pm = cesResult.processManager;
+
+        // Snapshot the managed-proxy context and assistant ID at CES startup
+        // so the reconnect closure below never calls back into
+        // `resolveManagedProxyContext()`. That function reads the assistant
+        // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
+        // has resolved the backend to CES RPC — routes the read through CES
+        // itself. During a reconnect the old transport is dead and a new
+        // one is being set up by this very closure, so the nested credential
+        // read recursively awaits its own in-flight reconnection and
+        // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
+        // 45-second stall delays every CES restart and causes dependent
+        // credential reads (e.g. Meet's STT provider resolution) to return
+        // `undefined` during the window. API key rotation uses the
+        // `updateAssistantApiKey` RPC on the live client, not a reconnect,
+        // so caching at startup is safe.
+        const startupProxyCtx = await resolveManagedProxyContext();
+        const startupAssistantId = getPlatformAssistantId();
+
         setCesReconnect(async () => {
           try {
             await pm.stop();
             const transport = await pm.start();
             const newClient = createCesClient(transport);
-            const proxyCtx = await resolveManagedProxyContext();
-            const assistantId = getPlatformAssistantId();
             const { accepted, reason } = await newClient.handshake({
-              ...(proxyCtx.assistantApiKey
-                ? { assistantApiKey: proxyCtx.assistantApiKey }
+              ...(startupProxyCtx.assistantApiKey
+                ? { assistantApiKey: startupProxyCtx.assistantApiKey }
                 : {}),
-              ...(assistantId ? { assistantId } : {}),
+              ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
             });
             if (accepted) {
               log.info("CES reconnection handshake accepted");

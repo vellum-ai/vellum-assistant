@@ -188,9 +188,23 @@ jobs:
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
           BRANCH="release/v$VERSION"
+          CHERRY_PICK_BRANCH="cherry-pick/$BRANCH"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Delete existing cherry-pick branch if it exists (must happen before release branch)
+          if git ls-remote --exit-code origin "$CHERRY_PICK_BRANCH" >/dev/null 2>&1; then
+            echo "Deleting existing cherry-pick branch: $CHERRY_PICK_BRANCH"
+            git push origin --delete "$CHERRY_PICK_BRANCH"
+          fi
+
+          # Delete existing release branch if it exists
+          if git ls-remote --exit-code origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Deleting existing release branch: $BRANCH"
+            git push origin --delete "$BRANCH"
+          fi
+
           git checkout -b "$BRANCH"
 
           # Bump all package.json files

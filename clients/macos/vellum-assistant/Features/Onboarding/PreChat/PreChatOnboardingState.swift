@@ -16,7 +16,7 @@ final class PreChatOnboardingState {
     var selectedTasks: Set<String> = []
     var toneValue: Double = 0.5 // 0 = casual, 0.5 = balanced, 1 = professional
     var userName: String = ""
-    var assistantName: String = RandomNameGenerator.generateInstanceName()
+    var assistantName: String = NameExchangeView.assistantNameSuggestions.randomElement() ?? "Pax"
     var skippedAll: Bool = false
 
     var toneLabel: String {
@@ -32,7 +32,11 @@ final class PreChatOnboardingState {
             parts.append("focused on \(taskLabels)")
         }
         if !selectedTools.isEmpty {
-            let toolLabels = selectedTools.sorted().prefix(3).joined(separator: ", ")
+            // Strip internal "other:" prefix so display reads "Trello" not "other:Trello"
+            let toolLabels = Array(Set(selectedTools
+                .map { $0.hasPrefix("other:") ? String($0.dropFirst(6)) : $0 }))
+                .sorted().prefix(3)
+                .joined(separator: ", ")
             parts.append("mostly in \(toolLabels)")
         }
         if parts.isEmpty { return "Let's get to know each other." }
@@ -85,7 +89,8 @@ final class PreChatOnboardingState {
             userName = NameExchangeView.defaultUserName()
         }
 
-        if let name = defaults.string(forKey: Self.assistantNameKey), !name.isEmpty {
+        if let name = defaults.string(forKey: Self.assistantNameKey), !name.isEmpty,
+           !name.hasPrefix("vellum-") {
             assistantName = name
         }
     }

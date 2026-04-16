@@ -94,22 +94,69 @@ describe("multi-local", () => {
   });
 
   describe("allocateLocalResources() produces non-conflicting ports", () => {
-    test("first instance gets home directory and default ports", async () => {
-      // GIVEN no local assistants exist in the lockfile
+    test("first instance (prod) gets XDG multi-instance dir with default ports", async () => {
+      // GIVEN XDG_DATA_HOME points at a scratch directory and no local
+      // assistants exist in the lockfile
+      const prevXdg = process.env.XDG_DATA_HOME;
+      const xdgDataHome = mkdtempSync(join(tmpdir(), "cli-multi-xdg-data-"));
+      process.env.XDG_DATA_HOME = xdgDataHome;
+      try {
+        // WHEN we allocate resources for the first instance
+        const res = await allocateLocalResources("instance-a");
 
-      // WHEN we allocate resources for the first instance
-      const res = await allocateLocalResources("instance-a");
+        // THEN it lands under the XDG multi-instance dir (no "first = home"
+        // special case anymore)
+        expect(res.instanceDir).toBe(
+          join(xdgDataHome, "vellum", "assistants", "instance-a"),
+        );
 
-      // THEN it gets the home directory as its instance root
-      expect(res.instanceDir).toBe(testDir);
+        // AND it gets the default ports since no other instances exist
+        expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
+        expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
+        expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
 
-      // AND it gets the default ports since no other instances exist
-      expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
-      expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
-      expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
+        // AND the PID file is under the instance's .vellum/
+        expect(res.pidFile).toBe(
+          join(res.instanceDir, ".vellum", "vellum.pid"),
+        );
+      } finally {
+        if (prevXdg !== undefined) {
+          process.env.XDG_DATA_HOME = prevXdg;
+        } else {
+          delete process.env.XDG_DATA_HOME;
+        }
+        rmSync(xdgDataHome, { recursive: true, force: true });
+      }
+    });
 
-      // AND the PID file is under ~/.vellum/
-      expect(res.pidFile).toBe(join(testDir, ".vellum", "vellum.pid"));
+    test("first instance (dev) uses env-scoped multi-instance dir", async () => {
+      // GIVEN VELLUM_ENVIRONMENT=dev and XDG_DATA_HOME set to scratch
+      const prevEnv = process.env.VELLUM_ENVIRONMENT;
+      const prevXdg = process.env.XDG_DATA_HOME;
+      const xdgDataHome = mkdtempSync(join(tmpdir(), "cli-multi-xdg-dev-"));
+      process.env.VELLUM_ENVIRONMENT = "dev";
+      process.env.XDG_DATA_HOME = xdgDataHome;
+      try {
+        // WHEN we allocate resources for the first instance
+        const res = await allocateLocalResources("instance-a");
+
+        // THEN it lands under the env-scoped multi-instance dir
+        expect(res.instanceDir).toBe(
+          join(xdgDataHome, "vellum-dev", "assistants", "instance-a"),
+        );
+      } finally {
+        if (prevEnv !== undefined) {
+          process.env.VELLUM_ENVIRONMENT = prevEnv;
+        } else {
+          delete process.env.VELLUM_ENVIRONMENT;
+        }
+        if (prevXdg !== undefined) {
+          process.env.XDG_DATA_HOME = prevXdg;
+        } else {
+          delete process.env.XDG_DATA_HOME;
+        }
+        rmSync(xdgDataHome, { recursive: true, force: true });
+      }
     });
 
     test("second instance gets distinct ports and dir when first instance is saved", async () => {

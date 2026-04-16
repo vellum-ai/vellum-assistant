@@ -307,7 +307,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Turn-starting user message (first) keeps 1h
     const turnStart = sent[0];
     const turnStartLast = turnStart.content[turnStart.content.length - 1];
-    expect(turnStartLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(turnStartLast.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Last message (tool_result) gets 5m advancing tail
     const lastMessage = sent[sent.length - 1];
@@ -398,7 +401,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const user = sent[0];
     expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -442,7 +448,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Workspace block (first): no cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     // User text (last): cache_control with 1h TTL
-    expect(user.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   test("workspace + multi-block single user message: cache on last block only", async () => {
@@ -476,7 +485,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Only last block gets cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     expect(user.content[1].cache_control).toBeUndefined();
-    expect(user.content[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(user.content[2].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1415,7 +1427,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Last user message (turn 3): 1h cache on last block only
     const lastUser = userMsgs[userMsgs.length - 1];
     expect(lastUser.content[0].cache_control).toBeUndefined();
-    expect(lastUser.content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(lastUser.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // No top-level cache_control — breakpoints are set directly on blocks
     expect(
@@ -1444,14 +1459,19 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // First message is the turn-starting user text — gets 1h cache
     expect(sent[0].role).toBe("user");
-    expect(sent[0].content[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(sent[0].content[0].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
 
     // Non-last tool result messages do NOT get cache_control
     const toolResultMsgs = sent.filter(
       (m) =>
         m.role === "user" &&
         Array.isArray(m.content) &&
-        m.content.every((b) => typeof b !== "string" && b.type === "tool_result"),
+        m.content.every(
+          (b) => typeof b !== "string" && b.type === "tool_result",
+        ),
     );
     expect(toolResultMsgs.length).toBeGreaterThan(0);
     for (const tr of toolResultMsgs.slice(0, -1)) {
@@ -1761,5 +1781,168 @@ describe("AnthropicProvider — surrogate sanitization", () => {
       content: Array<{ text?: string }>;
     }>;
     expect(sent[0].content[0].text).toContain(EMOJI);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Haiku model gating
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider — Haiku Model Gating", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    _lastStreamOptions = null;
+    lastConstructorArgs = null;
+    provider = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-haiku-4-5-20251001",
+    );
+  });
+
+  test("max_tokens defaults to 8192 for Haiku", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+
+    expect(lastStreamParams!.max_tokens).toBe(8192);
+  });
+
+  test("caller max_tokens is clamped to 8192 for Haiku", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+      config: { max_tokens: 64000 },
+    });
+
+    expect(lastStreamParams!.max_tokens).toBe(8192);
+  });
+
+  test("caller max_tokens below 8192 is preserved for Haiku", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+      config: { max_tokens: 128 },
+    });
+
+    expect(lastStreamParams!.max_tokens).toBe(128);
+  });
+
+  test("non-Haiku provider respects caller max_tokens without clamping", async () => {
+    const sonnetProvider = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-sonnet-4-6",
+    );
+    await sonnetProvider.sendMessage(
+      [userMsg("Hi")],
+      undefined,
+      "You are helpful.",
+      { config: { max_tokens: 200 } },
+    );
+
+    expect(lastStreamParams!.max_tokens).toBe(200);
+  });
+
+  test("cache_control omits ttl for Haiku", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+
+    const system = lastStreamParams!.system as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).not.toHaveProperty("ttl");
+  });
+
+  test("betas array is empty for Haiku (no extended cache TTL or 1M context)", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+
+    // When betas is empty, the non-beta stream path is used, so no betas
+    // field should appear in lastStreamParams.
+    expect(lastStreamParams!.betas).toBeUndefined();
+  });
+
+  test("effort is stripped for Haiku even when provided in config", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+      config: { effort: "high" },
+    });
+
+    expect(lastStreamParams!.output_config).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenRouter routing Anthropic models through the Messages API
+// ---------------------------------------------------------------------------
+
+describe("OpenRouterProvider — Anthropic dispatch", () => {
+  beforeEach(() => {
+    lastStreamParams = null;
+    _lastStreamOptions = null;
+    lastConstructorArgs = null;
+  });
+
+  test("anthropic/ models are routed to Anthropic Messages API with Bearer auth", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, "You are helpful.");
+
+    expect(lastConstructorArgs).toMatchObject({
+      apiKey: null,
+      authToken: "or-key",
+      baseURL: "https://openrouter.ai/api",
+    });
+    expect(lastStreamParams).toBeTruthy();
+    expect(lastStreamParams!.model).toBe("anthropic/claude-sonnet-4.6");
+  });
+
+  test("custom baseURL has trailing /v1 stripped for Messages API", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "ast-key",
+      "anthropic/claude-opus-4.6",
+      {
+        baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter/v1",
+      },
+    );
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastConstructorArgs).toMatchObject({
+      baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
+    });
+  });
+
+  test("thinking config flows through to Anthropic Messages API natively", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "adaptive" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "adaptive" });
+    // The OpenAI-compat `reasoning` parameter must NOT be sent on the
+    // native Messages API path.
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
+  test("per-request model override routes based on the overridden model", async () => {
+    const { OpenRouterProvider } = await import(
+      "../providers/openrouter/client.js"
+    );
+    // Default model is non-Anthropic, but the request overrides with an
+    // Anthropic model — dispatch must honour the request-level model.
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { model: "anthropic/claude-haiku-4.5" },
+    });
+
+    expect(lastStreamParams).toBeTruthy();
+    expect(lastStreamParams!.model).toBe("anthropic/claude-haiku-4.5");
   });
 });

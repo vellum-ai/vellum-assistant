@@ -109,6 +109,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
+const MAX_EMPTY_RESPONSE_RETRIES = 1;
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -207,6 +208,7 @@ export class AgentLoop {
     const history = [...messages];
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
+    let emptyResponseRetries = 0;
     let lastLlmCallTime = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -398,15 +400,53 @@ export class AgentLoop {
           role: "assistant",
           content: response.content,
         };
-        history.push(assistantMessage);
-
-        await onEvent({ type: "message_complete", message: assistantMessage });
 
         // Check for tool use
         toolUseBlocks = response.content.filter(
           (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
             block.type === "tool_use",
         );
+
+        // Detect empty responses: no user-visible text and no tool calls.
+        // This can happen when the model fails to produce output after
+        // receiving a large tool result. Retry once with a nudge before
+        // the message is persisted.
+        const hasVisibleText = response.content.some(
+          (block) => block.type === "text" && block.text.trim().length > 0,
+        );
+        if (
+          !hasVisibleText &&
+          toolUseBlocks.length === 0 &&
+          toolUseTurns > 0 &&
+          emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
+        ) {
+          emptyResponseRetries++;
+          rlog.warn(
+            { turn: toolUseTurns, retry: emptyResponseRetries },
+            "Model returned empty response after tool results — retrying",
+          );
+          history.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>",
+              },
+            ],
+          });
+          continue;
+        }
+
+        if (!hasVisibleText && toolUseBlocks.length === 0 && toolUseTurns > 0) {
+          rlog.error(
+            { turn: toolUseTurns, retries: emptyResponseRetries },
+            "Model returned empty response after tool results — retries exhausted",
+          );
+        }
+
+        history.push(assistantMessage);
+
+        await onEvent({ type: "message_complete", message: assistantMessage });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           break;

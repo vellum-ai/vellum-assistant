@@ -19,6 +19,7 @@ import {
   insertWatcherEvent,
   resetStuckWatchers,
   setWatcherConversationId,
+  skipWatcherPoll,
   updateEventDisposition,
 } from "./watcher-store.js";
 
@@ -74,6 +75,28 @@ export async function runWatchersOnce(
     if (!provider) {
       failWatcherPoll(watcher.id, `Unknown provider: ${watcher.providerId}`);
       continue;
+    }
+
+    // Pre-poll credential gate: skip if token is irrecoverably broken.
+    // Prevents wasting API calls and burning through circuit breaker
+    // attempts on credentials that need manual reauthorization.
+    try {
+      const { checkCredentialForProvider } =
+        await import("../credential-health/credential-health-service.js");
+      const health = await checkCredentialForProvider(
+        watcher.credentialService,
+      );
+      if (
+        health &&
+        (health.status === "revoked" ||
+          health.status === "missing_token" ||
+          (health.status === "expired" && !health.canAutoRecover))
+      ) {
+        skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
+        continue;
+      }
+    } catch {
+      // Non-fatal: proceed with normal poll if health check fails
     }
 
     try {

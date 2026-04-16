@@ -18,6 +18,8 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     case provisioningFailed(String)
     case assistantInjectionFailed
     case multipleOrganizations
+    /// organizationId is carried so the retire call doesn't re-resolve it.
+    case existingRegistrationConflict(existing: PlatformAssistant, organizationId: String)
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +33,9 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "Failed to inject API key into the assistant"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
+        case .existingRegistrationConflict(let existing, _):
+            let label = existing.name ?? existing.id
+            return "Another local assistant (\(label)) is already registered to your account."
         }
     }
 }
@@ -131,6 +136,16 @@ public final class LocalAssistantBootstrapService {
                 assistantVersion: assistantVersion
             )
         } catch let error as PlatformAPIError {
+            // Gate on the specific code (not just 400) so unrelated bad-request
+            // responses aren't misinterpreted as the single-assistant limit.
+            if case .serverError(400, let body) = error,
+               Self.isSingleLocalAssistantLimitError(body),
+               let existing = try? await firstExistingLocalAssistant(organizationId: organizationId) {
+                throw LocalBootstrapError.existingRegistrationConflict(
+                    existing: existing,
+                    organizationId: organizationId
+                )
+            }
             throw mapPlatformError(error, context: .registration)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
@@ -352,6 +367,27 @@ public final class LocalAssistantBootstrapService {
     private func resolveUserId() async throws -> String? {
         let session = try await authService.getSession()
         return session.data?.user?.id
+    }
+
+    /// Fields are optional so unrelated 400s that don't follow this shape decode as nil and fall through.
+    private struct EnsureRegistrationErrorBody: Decodable {
+        let success: Bool?
+        let code: String?
+        let detail: String?
+    }
+
+    /// Code string must stay in sync with the backend on POST /v1/assistants/self-hosted-local/ensure-registration/.
+    private static func isSingleLocalAssistantLimitError(_ body: String?) -> Bool {
+        guard let data = body?.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(EnsureRegistrationErrorBody.self, from: data) else {
+            return false
+        }
+        return parsed.code == "single_local_assistant_limit"
+    }
+
+    private func firstExistingLocalAssistant(organizationId: String) async throws -> PlatformAssistant? {
+        let assistants = try await authService.listSelfHostedLocalAssistants(organizationId: organizationId)
+        return assistants.first
     }
 
     private enum ErrorContext {

@@ -1411,7 +1411,23 @@ export async function handleSendMessage(
   const mapping = getOrCreateConversation(resolvedConversationKey, {
     conversationType,
   });
+
   const smDeps = deps.sendMessageDeps;
+
+  // Notify all connected clients that the conversation list changed when a
+  // new standard conversation is created so sidebars can refresh.
+  if (mapping.created && mapping.conversationType === "standard") {
+    smDeps.assistantEventHub
+      .publish(
+        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          type: "conversation_list_invalidated",
+          reason: "created",
+        }),
+      )
+      .catch((err) => {
+        log.warn({ err }, "Failed to publish conversation_list_invalidated");
+      });
+  }
 
   // Build transport metadata from the request so the daemon can inject
   // host environment hints (home directory, username) into the LLM context.

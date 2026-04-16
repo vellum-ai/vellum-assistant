@@ -8,7 +8,10 @@ import type {
   PricingUsage,
 } from "../usage/types.js";
 import { getLogger } from "../util/logger.js";
-import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
+import {
+  resolvePricingForUsageWithOverrides,
+  usesAnthropicPricingRules,
+} from "../util/pricing.js";
 import type { ServerMessage, UsageStats } from "./message-protocol.js";
 
 const log = getLogger("conversation-usage");
@@ -142,16 +145,16 @@ export function recordUsage(
     0,
   );
 
-  const isAnthropic = ctx.providerName === "anthropic";
+  const useAnthropicRules = usesAnthropicPricingRules(ctx.providerName, model);
   const pricingUsage: PricingUsage = {
     directInputTokens,
     outputTokens,
     cacheCreationInputTokens: normalizedCacheCreationInputTokens,
     cacheReadInputTokens: normalizedCacheReadInputTokens,
-    anthropicCacheCreation: isAnthropic
+    anthropicCacheCreation: useAnthropicRules
       ? extractAnthropicCacheCreation(rawResponse)
       : null,
-    speed: isAnthropic ? extractAnthropicSpeed(rawResponse) : null,
+    speed: useAnthropicRules ? extractAnthropicSpeed(rawResponse) : null,
   };
   const pricing = resolveStructuredPricing(
     ctx.providerName,

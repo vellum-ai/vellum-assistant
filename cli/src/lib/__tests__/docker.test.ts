@@ -25,22 +25,29 @@ function buildAssistantArgs(): string[] {
 }
 
 describe("serviceDockerRunArgs — assistant", () => {
-  test("mounts the host Docker socket for Meet bot spawning", () => {
+  test("runs privileged so the inner dockerd can manage cgroups/iptables/overlayfs", () => {
     const args = buildAssistantArgs();
-    // The bind-mount is expressed as two adjacent args: "-v" then the spec.
-    const mountIndex = args.indexOf(
-      "/var/run/docker.sock:/var/run/docker.sock",
-    );
+    expect(args).toContain("--privileged");
+  });
+
+  test("mounts a dedicated named volume at /var/lib/docker for the inner dockerd data store", () => {
+    const args = buildAssistantArgs();
+    const spec = `${instanceName}-dockerd-data:/var/lib/docker`;
+    const mountIndex = args.indexOf(spec);
     expect(mountIndex).toBeGreaterThan(0);
     expect(args[mountIndex - 1]).toBe("-v");
   });
 
-  test("passes VELLUM_WORKSPACE_VOLUME_NAME as a hint for the workspace-volume helper", () => {
+  test("does NOT bind-mount the host Docker socket (DinD replaces host-socket access)", () => {
     const args = buildAssistantArgs();
-    const expected = `VELLUM_WORKSPACE_VOLUME_NAME=${instanceName}-workspace`;
-    const envIndex = args.indexOf(expected);
-    expect(envIndex).toBeGreaterThan(0);
-    expect(args[envIndex - 1]).toBe("-e");
+    expect(args).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
+  });
+
+  test("does NOT set VELLUM_WORKSPACE_VOLUME_NAME (legacy Phase 1.8 hint, no longer needed in DinD)", () => {
+    const args = buildAssistantArgs();
+    expect(
+      args.some((a) => a.startsWith("VELLUM_WORKSPACE_VOLUME_NAME=")),
+    ).toBe(false);
   });
 
   test("keeps existing workspace and socket volume mounts intact", () => {

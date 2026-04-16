@@ -19,8 +19,6 @@ import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import { meetJoinTool } from "./meet/meet-join-tool.js";
-import { meetLeaveTool } from "./meet/meet-leave-tool.js";
 import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
@@ -30,6 +28,24 @@ import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { Tool } from "./types.js";
+
+// ── External tool registry ───────────────────────────────────────────
+// Skills register their tools here at initialization time so the tool
+// manifest can include them without importing from `../skills/`.
+const externalTools: Tool[] = [];
+
+/**
+ * Register tools provided by an external skill. Called during skill
+ * initialization.
+ */
+export function registerExternalTools(tools: Tool[]): void {
+  externalTools.push(...tools);
+}
+
+/** Return all externally registered tools. */
+export function getExternalTools(): Tool[] {
+  return [...externalTools];
+}
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects on
@@ -93,16 +109,9 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
-  // Meet tools: `meet_join` / `meet_leave` pair with the `meet-join` skill
-  // (see `skills/meet-join/SKILL.md`). They are registered as first-party
-  // tools rather than skill scripts because they command an in-process
-  // lifecycle resource (MeetSessionManager) — per the exception carve-out
-  // in `assistant/src/tools/AGENTS.md`, that in-process state cannot be
-  // managed over a CLI boundary without reintroducing the same surface
-  // via HTTP. The feature flag check inside each tool keeps the surface
-  // silent when `meet` is disabled.
-  meetJoinTool,
-  meetLeaveTool,
+  // Meet tools are registered via registerExternalTools() during skill
+  // initialization — the assistant never imports directly from skills/.
+  ...getExternalTools(),
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

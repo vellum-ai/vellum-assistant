@@ -282,12 +282,10 @@ final class TranscriptProjectorTests: XCTestCase {
             isThinking: false
         )
 
-        // Streaming with empty text, no active tool calls, but last visible is assistant
-        // so canInlineProcessing should be true (wouldShowThinking && lastVisibleIsAssistant),
-        // and isStreamingWithoutText should be false because canInlineProcessing is true.
-        // This matches the current DerivedState logic.
-        XCTAssertTrue(model.isStreamingWithoutText == false || model.canInlineProcessing,
-                      "Streaming without text should either show inline or be flagged")
+        // Streaming with empty text, no active tool calls, and isThinking=false
+        // should surface the standalone streaming-without-text state.
+        XCTAssertTrue(model.isStreamingWithoutText)
+        XCTAssertFalse(model.canInlineProcessing)
     }
 
     func testStreamingAssistantNoText_CanInlineProcessing() {

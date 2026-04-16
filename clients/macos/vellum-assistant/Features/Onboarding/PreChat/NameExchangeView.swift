@@ -12,6 +12,7 @@ struct NameExchangeView: View {
     @Binding var userName: String
     @Binding var assistantName: String
 
+    var onBack: (() -> Void)?
     var onComplete: () -> Void
     var onSkip: () -> Void
 
@@ -19,9 +20,10 @@ struct NameExchangeView: View {
 
     @State private var showHeader = false
     @State private var showContent = false
+    @State private var hoveredSuggestion: String?
 
     /// Quick-tap suggestion pills for the assistant name.
-    private static let assistantNameSuggestions = ["Pax", "Atlas", "Sage", "Nova", "Kit"]
+    static let assistantNameSuggestions = ["Pax", "Atlas", "Sage", "Nova", "Kit"]
 
     /// Usernames that are clearly not real names and should not be pre-filled.
     private static let usernameBlacklist: Set<String> = ["admin", "user", "root", "guest"]
@@ -31,14 +33,30 @@ struct NameExchangeView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            Text(headerText)
-                .font(VFont.titleLarge)
-                .foregroundStyle(VColor.contentDefault)
-                .multilineTextAlignment(.center)
-                .opacity(showHeader ? 1 : 0)
-                .offset(y: showHeader ? 0 : 8)
-                .padding(.bottom, VSpacing.xxl)
-                .padding(.horizontal, VSpacing.xxl)
+            ZStack(alignment: .leading) {
+                Text(headerText)
+                    .font(VFont.titleLarge)
+                    .foregroundStyle(VColor.contentDefault)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, VSpacing.xxl)
+
+                if let onBack {
+                    Button {
+                        onBack()
+                    } label: {
+                        VIconView(.chevronLeft, size: 16)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel("Back")
+                    .padding(.leading, VSpacing.xxl)
+                }
+            }
+            .opacity(showHeader ? 1 : 0)
+            .offset(y: showHeader ? 0 : 8)
+            .padding(.bottom, VSpacing.xxl)
 
             // Form content
             VStack(spacing: VSpacing.lg) {
@@ -83,24 +101,19 @@ struct NameExchangeView: View {
                     onComplete()
                 }
 
-                Button {
+                VButton(label: "Skip", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
-                } label: {
-                    Text("Skip")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, VSpacing.xxl)
             .padding(.bottom, VSpacing.xxl)
             .opacity(showContent ? 1 : 0)
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showHeader = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showContent = true
             }
         }
@@ -109,24 +122,33 @@ struct NameExchangeView: View {
     // MARK: - Subviews
 
     private func suggestionPill(_ name: String) -> some View {
-        Button {
+        let isActive = assistantName == name
+        return Button {
             assistantName = name
         } label: {
             Text(name)
                 .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(isActive ? VColor.contentInset : VColor.contentSecondary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.pill)
-                        .fill(VColor.surfaceLift)
+                        .fill(isActive ? VColor.primaryBase : (hoveredSuggestion == name ? VColor.surfaceBase : VColor.surfaceLift))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.pill)
-                                .stroke(VColor.borderElement, lineWidth: 1)
+                                .stroke(isActive ? VColor.primaryBase : VColor.borderElement, lineWidth: 1)
                         )
                 )
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredSuggestion = hovering ? name : nil
+            }
+        })
+        .accessibilityLabel(name)
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     // MARK: - Helpers

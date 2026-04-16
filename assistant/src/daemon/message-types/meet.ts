@@ -82,12 +82,52 @@ export interface MeetLeft {
   reason: string;
 }
 
+/**
+ * The assistant successfully posted a chat message into the meeting via
+ * the bot's `/send_chat` endpoint. Emitted once per successful send so
+ * SSE-subscribed clients can render the outbound chat without waiting for
+ * the bot to echo it back through the transcript/chat stream.
+ */
+export interface MeetChatSent {
+  type: "meet.chat_sent";
+  meetingId: string;
+  /** The text that was posted into the meeting's chat. */
+  text: string;
+}
+
 /** The bot hit a non-recoverable error (container crash, join failure, etc.). */
 export interface MeetError {
   type: "meet.error";
   meetingId: string;
   /** Human-readable error detail. */
   detail: string;
+}
+
+/**
+ * The assistant has begun speaking into the meeting via the TTS bridge. Fired
+ * once per {@link MeetSessionManager.speak} invocation immediately before the
+ * synthesis stream starts flowing to the bot's `/play_audio` endpoint. Useful
+ * for clients that want to render a "speaking …" indicator.
+ */
+export interface MeetSpeakingStarted {
+  type: "meet.speaking_started";
+  meetingId: string;
+  /** Opaque stream identifier — matches `meet.speaking_ended.streamId`. */
+  streamId: string;
+}
+
+/**
+ * The assistant has finished (or cancelled) a TTS playback stream. Fired
+ * after the bot-side playback request settles — whether normally, via an
+ * explicit cancel, or due to an upstream error.
+ */
+export interface MeetSpeakingEnded {
+  type: "meet.speaking_ended";
+  meetingId: string;
+  /** Opaque stream identifier — matches `meet.speaking_started.streamId`. */
+  streamId: string;
+  /** Why the stream ended: natural completion, caller-initiated cancel, or an upstream error. */
+  reason: "completed" | "cancelled" | "error";
 }
 
 export type _MeetServerMessages =
@@ -97,4 +137,7 @@ export type _MeetServerMessages =
   | MeetSpeakerChanged
   | MeetTranscriptChunk
   | MeetLeft
-  | MeetError;
+  | MeetChatSent
+  | MeetError
+  | MeetSpeakingStarted
+  | MeetSpeakingEnded;

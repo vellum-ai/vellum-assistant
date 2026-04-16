@@ -1,0 +1,40 @@
+# Build context is the REPO ROOT (see `scripts/build-meet-bot-image.sh` and
+# the comment at the top of `skills/meet-join/bot/Dockerfile` for why). To
+# keep the context small — tens-of-MB repos take noticeable time to send to
+# the Docker daemon — we exclude EVERYTHING and then allow-list only the
+# paths the Dockerfile actually COPYs in.
+#
+# Docker's .dockerignore supports negated patterns with a leading `!`. With
+# a leading `**` that excludes everything, we must un-ignore each directory
+# AND its descendants (`!skills/meet-join/bot/**`, not just
+# `!skills/meet-join/bot/`). See:
+# https://docs.docker.com/build/concepts/context/#dockerignore-files
+**
+
+# Un-ignore the bot package directory AND its contents. We list both
+# `!skills/meet-join/bot` and `!skills/meet-join/bot/**` because BuildKit's
+# COPY <dir> emits a spurious `CopyIgnoredFile` warning when only the
+# descendants are un-ignored — the directory itself stays matched by `**`.
+# We also have to un-ignore the parent directories (`skills`, `skills/meet-join`)
+# so the allow-listed descendants are reachable.
+!skills
+!skills/meet-join
+!skills/meet-join/bot
+!skills/meet-join/bot/**
+
+# Re-ignore local dev artifacts that are never needed in the image.
+skills/meet-join/bot/node_modules
+skills/meet-join/bot/dist
+skills/meet-join/bot/.env*
+skills/meet-join/bot/*.md
+skills/meet-join/bot/__tests__
+
+# Un-ignore the sibling workspace package that the bot depends on via
+# `file:../contracts` in its package.json.
+!skills/meet-join/contracts
+!skills/meet-join/contracts/**
+
+# Re-ignore dev artifacts in the sibling package too.
+skills/meet-join/contracts/node_modules
+skills/meet-join/contracts/dist
+skills/meet-join/contracts/__tests__

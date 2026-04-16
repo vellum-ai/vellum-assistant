@@ -45,7 +45,6 @@ struct InlineVideoEmbedCard: View {
 
             stateContent
         }
-        .frame(maxWidth: .infinity)
         .frame(height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
@@ -116,7 +115,6 @@ struct InlineVideoEmbedCard: View {
 
     private var fallbackPlaceholder: some View {
         VColor.auxBlack.opacity(0.8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Single view for both .initializing and .playing so SwiftUI preserves

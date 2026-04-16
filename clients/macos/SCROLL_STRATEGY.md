@@ -10,8 +10,8 @@
 
 ## Design Philosophy
 
-1. **No auto-follow.** The viewport does NOT track streaming content. The user message stays pinned at the top while the assistant response grows below it.
-2. **Inverted scroll eliminates scroll-to-bottom management.** The ScrollView is flipped 180 degrees — new content naturally appears at the visual bottom without any imperative `scrollTo` calls.
+1. **No auto-follow.** The viewport does NOT track streaming content. The newest non-queued user message stays pinned at the top of the active turn while the assistant response grows below it.
+2. **Inverted scroll handles latest-edge anchoring; a dedicated spacer handles user-at-top pinning.** The ScrollView is flipped 180 degrees so new content naturally appears at the visual bottom, and the latest-turn section adds a computed spacer below the response so landing at the latest edge keeps the user bubble at the top.
 3. **Simple distance-based CTA.** "Scroll to latest" appears when >400pt from bottom. No modes, no hysteresis, no state machine.
 4. **Threads open at bottom.** The inverted ScrollView starts at the visual bottom (latest messages) naturally. No `.defaultScrollAnchor` needed.
 5. **One container for thinking + assistant.** A synthetic placeholder row in the ForEach holds the thinking indicator. When the real assistant message arrives, it replaces the placeholder in the same container — no layout jump.
@@ -53,6 +53,7 @@ The ScrollView gets `.flipped()`, and each row inside also gets `.flipped()`. Th
 An `@Observable @MainActor` class with **no modes, no transitions, no recovery**. Just tracks:
 
 - **Geometry:** `scrollContentHeight`, `scrollContainerHeight`, `lastContentOffsetY`, `viewportHeight`
+- **Latest-turn pinning:** `pinnedLatestTurnAnchorMessageId`
 - **Distance metrics (inverted):**
   - `distanceFromBottom = lastContentOffsetY` (in inverted scroll, offset 0 = visual bottom, so raw offset IS distance from bottom)
   - `distanceFromTop = scrollContentHeight - lastContentOffsetY - scrollContainerHeight` (for pagination — distance from visual top = oldest messages)
@@ -61,7 +62,7 @@ An `@Observable @MainActor` class with **no modes, no transitions, no recovery**
 - **Deep-link anchor:** `anchorSetTime`, `anchorTimeoutTask`
 - **Scroll indicators:** `scrollIndicatorsHidden` (briefly hidden on conversation switch)
 
-**What does NOT exist:** ScrollMode enum, mode transitions, auto-follow, recovery windows, stabilization, deferred bottom pins, circuit breaker, scroll closures (scrollTo/scrollToEdge/cancelScrollAnimation), configureScrollCallbacks, restoreScrollToBottom, ScrollCoordinator, switchRestoreTask, pendingSendScrollMessageId, hasSendScrollFired, isScrollRestored, minHeight wrapper, turnMinHeight, containerHeight.
+**What does NOT exist:** ScrollMode enum, mode transitions, auto-follow, recovery windows, stabilization, deferred bottom pins, circuit breaker, scroll closures (scrollTo/scrollToEdge/cancelScrollAnimation), configureScrollCallbacks, restoreScrollToBottom, ScrollCoordinator, switchRestoreTask, pendingSendScrollMessageId, hasSendScrollFired, isScrollRestored, per-row minHeight wrappers, turnMinHeight, containerHeight.
 
 ### View: `MessageListView`
 
@@ -80,9 +81,28 @@ No `.defaultScrollAnchor`. No `.onScrollPhaseChange`. No `.environment(\.suppres
 
 ### Content: `MessageListContentView`
 
-ForEach iterates `displayedItems.reversed()` (oldest-first becomes newest-first in the data, which maps to coordinate-top in the inverted ScrollView = visual bottom). Each row and standalone section gets `.flipped()` to undo the ScrollView flip.
+Older history still renders through the existing `displayedItems.reversed()` path, with each direct child `.flipped()` to undo the ScrollView flip.
 
-Both normal message cells and the thinking placeholder share the same ForEach — one container, no swap.
+When `pinnedLatestTurnAnchorMessageId` is set, the newest turn is carved out into a dedicated `PinnedLatestTurnSection`:
+
+- latest-edge sentinel
+- computed spacer
+- response cluster (assistant rows, placeholder, latest-edge indicators, orphan subagents, queued marker content)
+- anchor user row
+
+The section is flipped as a single unit, so the visual order becomes:
+
+- anchor user row
+- assistant response cluster
+- spacer
+
+`LatestTurnSpacerCalculator` computes:
+
+```swift
+max(0, viewportHeight - anchorHeight - responseHeight)
+```
+
+The response cluster is measured after the single anchor-to-response gap is applied, so the formula stays exact without reviving `turnMinHeight` or any height estimates.
 
 ---
 
@@ -95,6 +115,9 @@ With inverted scroll, new content naturally appears at the visual bottom. No imp
 
 ### Step 2: Content appears at bottom
 The inverted ScrollView adds new content at coordinate top (visual bottom) naturally. The viewport stays put — no scroll management required.
+
+### Step 3: Latest-turn spacer keeps the user at top
+On a genuine user send, `pinnedLatestTurnAnchorMessageId` is updated to that newest non-queued user message. The dedicated latest-turn section then measures the anchor row and response cluster and fills the remaining viewport with a spacer below the response. As assistant content grows, the spacer shrinks to zero.
 
 ---
 
@@ -234,7 +257,7 @@ These were removed for a reason. Do not re-introduce:
 | `MessageListView.swift` | ScrollView setup — `.flipped()`, position binding, indicators, overlay |
 | `MessageListView+ScrollHandling.swift` | Geometry handler — updates state, triggers pagination using `distanceFromTop` |
 | `MessageListView+Lifecycle.swift` | Send detection, conversation switch, anchor resolution |
-| `MessageListContentView.swift` | ForEach rendering with `.reversed()` + per-row `.flipped()`, thinking placeholder |
+| `MessageListContentView.swift` | History rendering, pinned latest-turn section, spacer math, thinking placeholder |
 | `MessageListHelperViews.swift` | ScrollToLatestOverlayView — CTA button |
 | `TranscriptProjector.swift` | Thinking placeholder row injection |
 | `TranscriptRenderModel.swift` | `isThinkingPlaceholder` flag on row model |

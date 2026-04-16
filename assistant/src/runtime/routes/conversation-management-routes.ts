@@ -10,6 +10,8 @@
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
+ * POST   /v1/conversations/:id/archive    — archive a conversation
+ * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
@@ -19,12 +21,14 @@
 import { z } from "zod";
 
 import {
+  archiveConversation,
   batchSetDisplayOrders,
   countConversationsByScheduleJobId,
   deleteConversation,
   getConversation,
   getConversationHostAccess,
   PRIVATE_CONVERSATION_FORK_ERROR,
+  unarchiveConversation,
   updateConversationHostAccess,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
@@ -526,6 +530,62 @@ export function conversationManagementRouteDefinitions(
         }
         log.info({ conversationId: resolvedId }, "Deleted conversation");
         return new Response(null, { status: 204 });
+      },
+    },
+    {
+      endpoint: "conversations/:id/archive",
+      method: "POST",
+      policyKey: "conversations",
+      summary: "Archive a conversation",
+      description:
+        "Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but preserved for search and recall.",
+      tags: ["conversations"],
+      handler: ({ params }) => {
+        const resolvedId = resolveConversationId(params.id);
+        if (!resolvedId) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        const archived = archiveConversation(resolvedId);
+        if (!archived) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        return Response.json({ ok: true, conversationId: resolvedId });
+      },
+    },
+    {
+      endpoint: "conversations/:id/unarchive",
+      method: "POST",
+      policyKey: "conversations",
+      summary: "Unarchive a conversation",
+      description:
+        "Restore an archived conversation back to the default sidebar.",
+      tags: ["conversations"],
+      handler: ({ params }) => {
+        const resolvedId = resolveConversationId(params.id);
+        if (!resolvedId) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        const unarchived = unarchiveConversation(resolvedId);
+        if (!unarchived) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+        return Response.json({ ok: true, conversationId: resolvedId });
       },
     },
     {

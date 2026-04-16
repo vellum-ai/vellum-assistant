@@ -498,7 +498,7 @@
           },
           "max_senders": {
             "type": "number",
-            "description": "Maximum senders to return (default 50)"
+            "description": "Maximum senders to return (default 50, max 75)"
           },
           "page_token": {
             "type": "string",
@@ -552,6 +552,36 @@
         }
       },
       "executor": "tools/gmail-outreach-scan.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_preferences",
+      "description": "Manage Gmail cleanup preferences (blocklist and safelist). The blocklist contains senders to auto-archive in future cleanups. The safelist contains senders the user wants to keep (excluded from cleanup tables).",
+      "category": "gmail",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "add_blocklist", "add_safelist", "remove_blocklist", "remove_safelist"],
+            "description": "Preference action: list all preferences, or add/remove emails from blocklist or safelist"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to add or remove (required for add/remove actions)"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/gmail-preferences-tool.ts",
       "execution_target": "host"
     }
   ]

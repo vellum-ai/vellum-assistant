@@ -53,6 +53,30 @@ function isIdempotent(options?: RequestInit): boolean {
   return IDEMPOTENT_METHODS.has(method);
 }
 
+/** Sleep that wakes immediately when the abort signal fires. */
+async function signalAwareSleep(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    return;
+  }
+  const s = signal; // narrow for closures
+  s.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      s.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(s.reason ?? new Error("aborted"));
+    }
+    s.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 interface GmailRequestOptions extends RequestInit {
   /** Override method-based retry eligibility. When true, retries on 429/5xx even for POST requests. */
   retryable?: boolean;
@@ -117,11 +141,13 @@ async function request<T>(
   path: string,
   options?: GmailRequestOptions,
   query?: Record<string, string | string[]>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const canRetry = options?.retryable ?? isIdempotent(options);
   const method = (options?.method ?? "GET").toUpperCase();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    signal?.throwIfAborted();
     let resp: OAuthConnectionResponse;
     try {
       resp = await connection.request({
@@ -133,6 +159,7 @@ async function request<T>(
           ...extractNonAuthHeaders(options),
         },
         body: extractBody(options),
+        signal,
       });
     } catch (err) {
       // Retry thrown errors that indicate a retryable status (e.g. platform
@@ -144,7 +171,7 @@ async function request<T>(
         /\b(429|5\d{2})\b/.test(err.message)
       ) {
         const delayMs = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await signalAwareSleep(delayMs, signal);
         continue;
       }
       throw err;
@@ -157,7 +184,7 @@ async function request<T>(
         const delayMs = retryAfter
           ? parseInt(retryAfter, 10) * 1000
           : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await signalAwareSleep(delayMs, signal);
         continue;
       }
       const bodyStr =
@@ -213,6 +240,7 @@ export async function getMessage(
   format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
   fields?: string,
+  signal?: AbortSignal,
 ): Promise<GmailMessage> {
   const params = new URLSearchParams({ format });
   if (format === "metadata" && metadataHeaders) {
@@ -224,6 +252,7 @@ export async function getMessage(
     `/messages/${messageId}`,
     undefined,
     paramsToQuery(params),
+    signal,
   );
 }
 
@@ -267,6 +296,7 @@ async function executeBatchCall(
   format: GmailMessageFormat,
   metadataHeaders: string[] | undefined,
   fields?: string,
+  signal?: AbortSignal,
 ): Promise<{
   messages: Array<{ index: number; msg: GmailMessage }>;
   failedIds: Array<{ index: number; id: string }>;
@@ -292,9 +322,13 @@ async function executeBatchCall(
 
   const doBatchFetch = async (token: string) => {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS * 2);
+      const combinedSignal = signal
+        ? AbortSignal.any([signal, timeoutSignal])
+        : timeoutSignal;
       const resp = await fetch(GMAIL_BATCH_URL, {
         method: "POST",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 2),
+        signal: combinedSignal,
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": `multipart/mixed; boundary=${boundary}`,
@@ -308,7 +342,7 @@ async function executeBatchCall(
           const delayMs = retryAfter
             ? parseInt(retryAfter, 10) * 1000
             : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-          await new Promise((r) => setTimeout(r, delayMs));
+          await signalAwareSleep(delayMs, signal);
           continue;
         }
         const errBody = await resp.text().catch(() => "");
@@ -386,13 +420,15 @@ async function fetchMessagesIndividually(
   format: GmailMessageFormat,
   metadataHeaders?: string[],
   fields?: string,
+  signal?: AbortSignal,
 ): Promise<GmailMessage[]> {
   const results: GmailMessage[] = [];
   for (let i = 0; i < messageIds.length; i += INDIVIDUAL_CONCURRENCY) {
+    signal?.throwIfAborted();
     const wave = messageIds.slice(i, i + INDIVIDUAL_CONCURRENCY);
     const waveResults = await Promise.all(
       wave.map((id) =>
-        getMessage(connection, id, format, metadataHeaders, fields),
+        getMessage(connection, id, format, metadataHeaders, fields, signal),
       ),
     );
     results.push(...waveResults);
@@ -414,6 +450,7 @@ export async function batchGetMessages(
   format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
   fields?: string,
+  signal?: AbortSignal,
 ): Promise<GmailMessage[]> {
   if (messageIds.length === 0) return [];
 
@@ -426,6 +463,7 @@ export async function batchGetMessages(
         format,
         metadataHeaders,
         fields,
+        signal,
       ),
     ];
   }
@@ -447,6 +485,7 @@ export async function batchGetMessages(
       format,
       metadataHeaders,
       fields,
+      signal,
     );
   }
 
@@ -473,6 +512,7 @@ export async function batchGetMessages(
           format,
           metadataHeaders,
           fields,
+          signal,
         ),
       ),
     );
@@ -490,7 +530,7 @@ export async function batchGetMessages(
       if (failedIds.length > 0) {
         const retried = await Promise.all(
           failedIds.map(({ id }) =>
-            getMessage(connection, id, format, metadataHeaders, fields),
+            getMessage(connection, id, format, metadataHeaders, fields, signal),
           ),
         );
         for (let r = 0; r < failedIds.length; r++) {

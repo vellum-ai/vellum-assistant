@@ -59,6 +59,7 @@ import {
   migrateContactsUserFileColumn,
   migrateConversationForkLineage,
   migrateConversationHostAccess,
+  migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
@@ -368,6 +369,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersLogoUrl,
     migrateOAuthProvidersTokenExchangeBodyFormat,
     migrateNormalizeUserFileByPrincipal,
+    migrateConversationsArchivedAt,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -5,7 +5,7 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. Override values from the gateway HTTP API (or local file fallback)
+ *   1. Override values from the gateway IPC socket (or local file fallback)
  *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
  *      cached locally; only used in local mode — containerized mode gets
  *      remote values via the gateway)
@@ -17,13 +17,11 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
+import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
+import { getProtectedDir } from "../util/platform.js";
 import type { AssistantConfig } from "./schema.js";
-
-const log = getLogger("feature-flags");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,7 +111,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Override loading — reads from gateway HTTP API or local file
+// Override loading — reads from gateway IPC socket or local file
 // ---------------------------------------------------------------------------
 
 /**
@@ -121,6 +119,14 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
  * first access, invalidated by `clearFeatureFlagOverridesCache()`.
  */
 let cachedOverrides: Record<string, boolean> | null = null;
+
+/**
+ * True when `cachedOverrides` was populated by the gateway IPC fetch (or
+ * preseeded by a test). False/unset when the cache was populated by the sync
+ * file fallback in `loadOverrides()`, which must not prevent a subsequent
+ * authoritative gateway fetch from running.
+ */
+let cachedOverridesFromGateway = false;
 
 /**
  * File format for the local feature-flags.json override file, matching the
@@ -135,14 +141,15 @@ interface FeatureFlagFileData {
  * Resolve the path to the feature flag overrides file.
  *
  * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
- * Local:  `~/.vellum/` + gateway security subdir + `feature-flags.json`
+ * Local:  `<protectedDir>/feature-flags.json` — resolved via `getProtectedDir()`
+ *         so it honors `BASE_DATA_DIR` for per-instance setups.
  */
 function getFeatureFlagOverridesPath(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
   if (securityDir) {
     return join(securityDir, "feature-flags.json");
   }
-  return join(homedir(), ".vellum", "protected", "feature-flags.json");
+  return join(getProtectedDir(), "feature-flags.json");
 }
 
 /**
@@ -175,71 +182,16 @@ function loadOverridesFromFile(): Record<string, boolean> {
 }
 
 /**
- * Fetch override values from the gateway via async HTTP.
+ * Fetch override values from the gateway via IPC (Unix domain socket).
  *
  * Returns the gateway's merged feature flag map (persisted > remote >
- * registry), or an empty record on any failure (network, auth, parse).
+ * registry), or an empty record on any failure (socket not found,
+ * timeout, parse error). No auth needed — the IPC socket is
+ * access-controlled by file-system permissions on the shared volume.
  */
 async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
   try {
-    // Lazy-import to avoid circular dependency and keep this module
-    // importable from bootstrap code when not in containerized mode.
-    const { getGatewayInternalBaseUrl } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("./env.js") as typeof import("./env.js");
-
-    const url = `${getGatewayInternalBaseUrl()}/v1/feature-flags`;
-    // Build request headers. Auth is best-effort: the gateway
-    // auto-authenticates loopback peers (127.0.0.0/8, ::1) so a valid
-    // JWT is only needed for non-local connections. If the signing key
-    // isn't available (e.g. CLI subprocess without ACTOR_TOKEN_SIGNING_KEY
-    // and no key file on disk), we still proceed — the loopback bypass
-    // will authenticate the request.
-    const headers: Record<string, string> = { Accept: "application/json" };
-    try {
-      const {
-        mintEdgeRelayToken,
-        isSigningKeyInitialized,
-        initAuthSigningKey,
-        resolveSigningKey,
-      } =
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("../runtime/auth/token-service.js") as typeof import("../runtime/auth/token-service.js");
-
-      if (!isSigningKeyInitialized()) {
-        initAuthSigningKey(resolveSigningKey());
-      }
-      headers["Authorization"] = `Bearer ${mintEdgeRelayToken()}`;
-    } catch (authErr) {
-      // Signing key unavailable — proceed without auth header.
-      // The gateway auto-authenticates loopback peers, so this is
-      // fine for CLI subprocesses running in the same pod/machine.
-      log.warn(
-        { err: authErr },
-        "fetchOverridesFromGateway: signing key unavailable, proceeding without auth",
-      );
-    }
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) return {};
-
-    const parsed = (await response.json()) as {
-      flags?: Array<{ key: string; enabled: boolean }>;
-    };
-    if (!Array.isArray(parsed.flags)) return {};
-
-    const result: Record<string, boolean> = {};
-    for (const entry of parsed.flags) {
-      if (typeof entry.key === "string" && typeof entry.enabled === "boolean") {
-        result[entry.key] = entry.enabled;
-      }
-    }
-    return result;
+    return await ipcGetFeatureFlags();
   } catch {
     return {};
   }
@@ -260,20 +212,21 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * No-ops when the cache is already populated — callers that want to
  * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
  * tests preseed flag state via `_setOverridesForTesting()` without the
- * gateway fetch clobbering their setup or polluting fetch mocks.
+ * gateway IPC call clobbering their setup.
  */
 export async function initFeatureFlagOverrides(): Promise<void> {
-  if (cachedOverrides != null) return;
+  if (cachedOverridesFromGateway) return;
 
   const gatewayOverrides = await fetchOverridesFromGateway();
   if (Object.keys(gatewayOverrides).length > 0) {
     cachedOverrides = gatewayOverrides;
+    cachedOverridesFromGateway = true;
     return;
   }
 
-  // Gateway returned empty or failed. Leave the cache unset so
-  // loadOverrides() falls through to file on the next sync read,
-  // regardless of containerized vs local mode.
+  // Gateway returned empty or failed. If the cache was populated from the
+  // file fallback, leave it in place for the next sync read. Otherwise leave
+  // unset so `loadOverrides()` falls through to file on first sync read.
 }
 
 /**
@@ -286,9 +239,6 @@ export async function initFeatureFlagOverrides(): Promise<void> {
 function loadOverrides(): Record<string, boolean> {
   if (cachedOverrides != null) return cachedOverrides;
 
-  // Cache not yet populated (initFeatureFlagOverrides wasn't called or
-  // hasn't finished). Fall back to the local file so the resolver still
-  // works, just without gateway data.
   cachedOverrides = loadOverridesFromFile();
   return cachedOverrides;
 }
@@ -354,6 +304,7 @@ function loadRemoteValues(): Record<string, boolean> {
  */
 export function clearFeatureFlagOverridesCache(): void {
   cachedOverrides = null;
+  cachedOverridesFromGateway = false;
   cachedRemoteValues = null;
 }
 
@@ -375,6 +326,7 @@ export function _setOverridesForTesting(
   overrides: Record<string, boolean>,
 ): void {
   cachedOverrides = { ...overrides };
+  cachedOverridesFromGateway = true;
   cachedRemoteValues = {};
 }
 
@@ -386,7 +338,7 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from gateway HTTP API (or local file fallback)
+ *   1. Override from gateway IPC socket (or local file fallback)
  *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
  *      cached locally)
  *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)

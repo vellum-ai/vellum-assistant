@@ -45,6 +45,9 @@ import {
 } from "../migrations/vbundle-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
+/** Credentials with this prefix are platform-identity keys and must not be imported. */
+const PLATFORM_CREDENTIAL_PREFIX = "vellum:";
+
 const log = getLogger("migration-routes");
 
 /**
@@ -483,6 +486,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
           succeeded: number;
           failed: number;
           failedAccounts: string[];
+          skippedPlatform: number;
         }
       | undefined;
 
@@ -491,9 +495,22 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
         validation.entries,
         validation.manifest!,
       );
-      if (bundleCredentials.length > 0) {
+
+      // Filter out platform-identity credentials (vellum:*) — these are
+      // environment-specific and must not overwrite the target's own identity.
+      const userCredentials = bundleCredentials.filter(
+        (c) => !c.account.startsWith(PLATFORM_CREDENTIAL_PREFIX),
+      );
+      const skippedPlatform = bundleCredentials.length - userCredentials.length;
+      if (skippedPlatform > 0) {
+        log.info(
+          `Skipped ${skippedPlatform} platform credential(s) from import`,
+        );
+      }
+
+      if (userCredentials.length > 0) {
         try {
-          const credResults = await bulkSetSecureKeysAsync(bundleCredentials);
+          const credResults = await bulkSetSecureKeysAsync(userCredentials);
           const failedResults = credResults.filter((r) => !r.ok);
           if (failedResults.length > 0) {
             log.warn(
@@ -502,15 +519,16 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
             );
           }
           log.info(
-            { total: bundleCredentials.length, failed: failedResults.length },
+            { total: userCredentials.length, failed: failedResults.length },
             "Credential import complete",
           );
-          const succeeded = bundleCredentials.length - failedResults.length;
+          const succeeded = userCredentials.length - failedResults.length;
           credentialsImported = {
-            total: bundleCredentials.length,
+            total: userCredentials.length,
             succeeded,
             failed: failedResults.length,
             failedAccounts: failedResults.map((f) => f.account),
+            skippedPlatform,
           };
           if (failedResults.length > 0) {
             result.report.warnings.push(
@@ -522,7 +540,24 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
           result.report.warnings.push(
             `Credential import failed: ${err instanceof Error ? err.message : String(err)}`,
           );
+          credentialsImported = {
+            total: userCredentials.length,
+            succeeded: 0,
+            failed: userCredentials.length,
+            failedAccounts: userCredentials.map((c) => c.account),
+            skippedPlatform,
+          };
         }
+      } else if (skippedPlatform > 0) {
+        // All credentials in the bundle were platform credentials — report
+        // the skip count even though nothing was sent to CES.
+        credentialsImported = {
+          total: userCredentials.length,
+          succeeded: 0,
+          failed: 0,
+          failedAccounts: [],
+          skippedPlatform,
+        };
       }
     }
 

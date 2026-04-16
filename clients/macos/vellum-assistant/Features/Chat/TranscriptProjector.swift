@@ -172,9 +172,9 @@ enum TranscriptProjector {
         }
 
         // When thinking indicator should show but no assistant message exists yet,
-        // append a synthetic placeholder row so the thinking indicator renders
-        // inside the ForEach's minHeight wrapper — same container that will later
-        // hold the real assistant message. Eliminates layout jump on transition.
+        // append a synthetic placeholder row so the latest-turn response cluster
+        // keeps stable row identity until the real assistant message arrives.
+        // This avoids a visible container jump on the thinking -> response swap.
         if shouldShowThinkingIndicator {
             let placeholderMessage = ChatMessage(
                 id: Self.thinkingPlaceholderId,

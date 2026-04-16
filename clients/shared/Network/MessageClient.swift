@@ -8,6 +8,9 @@ public enum AttachmentUploadResult: Sendable {
     case success(id: String)
     case transientFailure
     case terminalAuthFailure
+    /// The server does not understand multipart uploads (400/415).
+    /// The caller should retry with JSON+base64.
+    case multipartNotSupported
 }
 
 /// Result of sending a message.
@@ -27,6 +30,7 @@ public enum MessageSendResult: Sendable {
 /// Focused client for uploading attachments and sending user messages.
 public protocol MessageClientProtocol {
     func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String?) async -> AttachmentUploadResult
+    func uploadAttachmentMultipart(filename: String, mimeType: String, data: Data) async -> AttachmentUploadResult
     func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?, onboarding: PreChatOnboardingContext?) async -> MessageSendResult
 }
 
@@ -98,6 +102,56 @@ public struct MessageClient: MessageClientProtocol {
             }
         } catch {
             log.error("[send-pipeline] attachment upload error: \(error.localizedDescription)")
+            return .transientFailure
+        }
+    }
+
+    /// Uploads an attachment using `multipart/form-data` instead of JSON+base64.
+    ///
+    /// Sends the raw binary data directly, avoiding the 33% base64 overhead.
+    /// Used for managed (cloud/container) connections where file-backed uploads
+    /// are not available.
+    ///
+    /// - Parameters:
+    ///   - filename: The original filename of the attachment.
+    ///   - mimeType: The MIME type of the attachment.
+    ///   - data: The raw binary data of the attachment.
+    /// - Returns: An ``AttachmentUploadResult`` indicating success, transient failure, or auth failure.
+    public func uploadAttachmentMultipart(filename: String, mimeType: String, data: Data) async -> AttachmentUploadResult {
+        log.info("[send-pipeline] multipart upload — filename=\(filename, privacy: .public), mimeType=\(mimeType, privacy: .public), bytes=\(data.count, privacy: .public)")
+
+        let parts: [MultipartPart] = [
+            .text(name: "filename", value: filename),
+            .text(name: "mimeType", value: mimeType),
+            .file(name: "file", filename: filename, mimeType: mimeType, data: data),
+        ]
+
+        do {
+            let response = try await GatewayHTTPClient.postMultipart(
+                path: "assistants/{assistantId}/attachments",
+                parts: parts,
+                timeout: 60
+            )
+
+            if response.isSuccess {
+                let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+                if let id = json?["id"] as? String {
+                    log.info("[send-pipeline] multipart upload success — id=\(id, privacy: .public)")
+                    return .success(id: id)
+                }
+                log.error("[send-pipeline] multipart upload response missing id")
+                return .transientFailure
+            } else if response.statusCode == 401 {
+                return .terminalAuthFailure
+            } else if response.statusCode == 400 || response.statusCode == 415 {
+                log.info("[send-pipeline] multipart upload not supported (HTTP \(response.statusCode)) — will retry with JSON+base64")
+                return .multipartNotSupported
+            } else {
+                log.error("[send-pipeline] multipart upload failed (HTTP \(response.statusCode))")
+                return .transientFailure
+            }
+        } catch {
+            log.error("[send-pipeline] multipart upload error: \(error.localizedDescription)")
             return .transientFailure
         }
     }

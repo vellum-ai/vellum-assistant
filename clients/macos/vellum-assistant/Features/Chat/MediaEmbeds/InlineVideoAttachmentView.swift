@@ -90,7 +90,7 @@ struct InlineVideoAttachmentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surfaceOverlay)
                 .overlay(
@@ -108,7 +108,8 @@ struct InlineVideoAttachmentView: View {
             } else {
                 placeholderView
             }
-
+        }
+        .overlay(alignment: .topTrailing) {
             if failure == nil && !isLoading && isHovering {
                 Button(action: saveVideo) {
                     if isSaving {
@@ -146,6 +147,8 @@ struct InlineVideoAttachmentView: View {
 
     private var placeholderView: some View {
         ZStack {
+            Color.clear
+
             if let thumbnailImage {
                 Image(nsImage: thumbnailImage)
                     .resizable()
@@ -165,7 +168,6 @@ struct InlineVideoAttachmentView: View {
                     .lineLimit(1)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             prepareAndPlay()
@@ -176,46 +178,52 @@ struct InlineVideoAttachmentView: View {
     }
 
     private var loadingView: some View {
-        VStack(spacing: VSpacing.sm) {
-            ProgressView()
-                .controlSize(.regular)
+        ZStack {
+            Color.clear
 
-            Text("Loading video...")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+            VStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.regular)
+
+                Text("Loading video...")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func failedView(_ failure: VideoPlaybackFailure) -> some View {
-        VStack(spacing: VSpacing.xs) {
-            if case .port_missing = failure {
-                VIconView(.refreshCw, size: 20)
-                    .foregroundStyle(VColor.contentSecondary)
-            } else {
-                VIconView(.triangleAlert, size: 20)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+        ZStack {
+            Color.clear
 
-            Text(failure.userMessage)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+            VStack(spacing: VSpacing.xs) {
+                if case .port_missing = failure {
+                    VIconView(.refreshCw, size: 20)
+                        .foregroundStyle(VColor.contentSecondary)
+                } else {
+                    VIconView(.triangleAlert, size: 20)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
 
-            if case .port_missing = failure {
-                Text("Tap to retry")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else if case .invalid_media = failure {
-                Text("Tap to open externally")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else {
-                Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
+                Text(failure.userMessage)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                if case .port_missing = failure {
+                    Text("Tap to retry")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if case .invalid_media = failure {
+                    Text("Tap to open externally")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             handleFailedTileTap(failure)

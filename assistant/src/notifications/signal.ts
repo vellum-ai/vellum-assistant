@@ -97,6 +97,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "voice.response_ready",
     description: "Voice response ready for playback",
   },
+  {
+    id: "credential.health_alert",
+    description:
+      "OAuth credential health issue detected (expired, revoked, missing scopes)",
+  },
 ] as const;
 
 export type NotificationSourceEventName =

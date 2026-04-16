@@ -1,0 +1,246 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { JSDOM } from "jsdom";
+
+import {
+  GOOGLE_MEET_SELECTOR_VERSION,
+  chatSelectors,
+  controlSelectors,
+  INGAME_ACTIVE_SPEAKER_INDICATOR,
+  participantSelectors,
+  prejoinSelectors,
+  selectors,
+} from "../src/browser/dom-selectors.js";
+
+/**
+ * Verifies every selector exported from `dom-selectors.ts` resolves against
+ * the committed fixtures. When Meet's DOM drifts and a human developer
+ * recaptures the fixture HTML, this suite is what tells us whether our
+ * selectors still match — see README § "Refreshing Meet DOM fixtures".
+ */
+
+const FIXTURE_DIR = join(import.meta.dir, "fixtures");
+
+function loadFixture(name: string): Document {
+  const html = readFileSync(join(FIXTURE_DIR, name), "utf8");
+  return new JSDOM(html).window.document;
+}
+
+describe("GOOGLE_MEET_SELECTOR_VERSION", () => {
+  test("is a non-empty ISO-date-shaped string", () => {
+    expect(typeof GOOGLE_MEET_SELECTOR_VERSION).toBe("string");
+    expect(GOOGLE_MEET_SELECTOR_VERSION.length).toBeGreaterThan(0);
+    // YYYY-MM-DD shape — doesn't validate the calendar, just the format.
+    expect(GOOGLE_MEET_SELECTOR_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("prejoin selectors", () => {
+  const doc = loadFixture("meet-dom-prejoin.html");
+
+  test("NAME_INPUT resolves the name textbox", () => {
+    const nodes = doc.querySelectorAll(prejoinSelectors.NAME_INPUT);
+    expect(nodes.length).toBe(1);
+    const input = nodes[0] as HTMLInputElement;
+    expect(input.tagName).toBe("INPUT");
+    expect(input.getAttribute("aria-label")).toBe("Your name");
+  });
+
+  test("MEDIA_PROMPT_ACCEPT_BUTTON resolves the media-permission accept button", () => {
+    const nodes = doc.querySelectorAll(
+      prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
+    );
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("BUTTON");
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe(
+      "Use microphone and camera",
+    );
+  });
+
+  test("ASK_TO_JOIN_BUTTON resolves the ask-to-join button", () => {
+    const nodes = doc.querySelectorAll(prejoinSelectors.ASK_TO_JOIN_BUTTON);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Ask to join");
+  });
+
+  test("JOIN_NOW_BUTTON resolves the join-now button", () => {
+    const nodes = doc.querySelectorAll(prejoinSelectors.JOIN_NOW_BUTTON);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Join now");
+  });
+});
+
+describe("in-meeting selectors", () => {
+  const doc = loadFixture("meet-dom-ingame.html");
+
+  test("CAMERA_TOGGLE resolves exactly one toolbar button", () => {
+    const nodes = doc.querySelectorAll(controlSelectors.CAMERA_TOGGLE);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
+      "Turn off camera",
+    );
+  });
+
+  test("MIC_TOGGLE resolves exactly one toolbar button", () => {
+    const nodes = doc.querySelectorAll(controlSelectors.MIC_TOGGLE);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
+      "Turn off microphone",
+    );
+  });
+
+  test("LEAVE_BUTTON resolves the red hang-up button", () => {
+    const nodes = doc.querySelectorAll(controlSelectors.LEAVE_BUTTON);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Leave call");
+  });
+
+  test("participant panel toggle resolves", () => {
+    const nodes = doc.querySelectorAll(participantSelectors.PANEL_BUTTON);
+    expect(nodes.length).toBe(1);
+  });
+
+  test("chat panel toggle resolves", () => {
+    const nodes = doc.querySelectorAll(chatSelectors.PANEL_BUTTON);
+    expect(nodes.length).toBe(1);
+  });
+
+  test("INGAME_ACTIVE_SPEAKER_INDICATOR only matches the speaking tile", () => {
+    const nodes = doc.querySelectorAll(INGAME_ACTIVE_SPEAKER_INDICATOR);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).getAttribute("data-participant-id")).toBe(
+      "p-alice",
+    );
+  });
+
+  test("participant LIST resolves the side-panel list container", () => {
+    const nodes = doc.querySelectorAll(participantSelectors.LIST);
+    expect(nodes.length).toBe(1);
+  });
+
+  test("participant NODE resolves every participant row", () => {
+    const list = doc.querySelector(participantSelectors.LIST);
+    expect(list).not.toBeNull();
+    const nodes = list?.querySelectorAll(participantSelectors.NODE) ?? [];
+    expect(nodes.length).toBe(3);
+  });
+
+  test("participant NAME subselector resolves within each participant row", () => {
+    const list = doc.querySelector(participantSelectors.LIST);
+    const rows = list?.querySelectorAll(participantSelectors.NODE) ?? [];
+    const names = Array.from(rows).map(
+      (row) =>
+        row.querySelector(participantSelectors.NAME)?.textContent?.trim() ??
+        null,
+    );
+    expect(names).toEqual(["Alice", "Bob", "You"]);
+  });
+
+  test("presenter and speaking indicators only match the flagged row", () => {
+    const presenters = doc.querySelectorAll(
+      participantSelectors.PRESENTER_INDICATOR,
+    );
+    const speakers = doc.querySelectorAll(
+      participantSelectors.SPEAKING_INDICATOR,
+    );
+    // Alice is the only presenter + speaker in the fixture; she appears in
+    // both the grid tile and the participant-panel row for the speaking
+    // indicator (data-active-speaker is a distinct attribute used by the
+    // tile selector, so the panel-side speaking selector only matches the
+    // participant row).
+    expect(presenters.length).toBe(1);
+    expect(speakers.length).toBe(1);
+    expect(
+      (presenters[0] as HTMLElement).getAttribute("data-participant-id"),
+    ).toBe("p-alice");
+    expect(
+      (speakers[0] as HTMLElement).getAttribute("data-participant-id"),
+    ).toBe("p-alice");
+  });
+});
+
+describe("chat panel selectors", () => {
+  const doc = loadFixture("meet-dom-chat.html");
+
+  test("INPUT resolves the composer textarea", () => {
+    const nodes = doc.querySelectorAll(chatSelectors.INPUT);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
+  });
+
+  test("SEND_BUTTON resolves the send button", () => {
+    const nodes = doc.querySelectorAll(chatSelectors.SEND_BUTTON);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("BUTTON");
+    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Send");
+  });
+
+  test("MESSAGE_NODE resolves each rendered message", () => {
+    const nodes = doc.querySelectorAll(chatSelectors.MESSAGE_NODE);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).getAttribute("data-message-id")).toBe(
+      "msg-001",
+    );
+  });
+
+  test("MESSAGE_SENDER/TEXT/TIMESTAMP subselectors extract message fields", () => {
+    const message = doc.querySelector(chatSelectors.MESSAGE_NODE);
+    expect(message).not.toBeNull();
+    const sender = message?.querySelector(chatSelectors.MESSAGE_SENDER);
+    const text = message?.querySelector(chatSelectors.MESSAGE_TEXT);
+    const timestamp = message?.querySelector(chatSelectors.MESSAGE_TIMESTAMP);
+
+    expect(sender?.textContent?.trim()).toBe("Alice");
+    expect(text?.textContent?.trim()).toBe(
+      "Hello everyone, welcome to the meeting.",
+    );
+    expect(
+      (timestamp as HTMLTimeElement | null)?.getAttribute("datetime"),
+    ).toBe("2026-04-15T12:34:00Z");
+  });
+});
+
+describe("flat selectors aggregate", () => {
+  test("exposes each named constant from the individual groups", () => {
+    const cases: Array<[keyof typeof selectors, string]> = [
+      ["PREJOIN_NAME_INPUT", prejoinSelectors.NAME_INPUT],
+      [
+        "PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON",
+        prejoinSelectors.MEDIA_PROMPT_ACCEPT_BUTTON,
+      ],
+      ["PREJOIN_ASK_TO_JOIN_BUTTON", prejoinSelectors.ASK_TO_JOIN_BUTTON],
+      ["PREJOIN_JOIN_NOW_BUTTON", prejoinSelectors.JOIN_NOW_BUTTON],
+      ["INGAME_CHAT_PANEL_BUTTON", chatSelectors.PANEL_BUTTON],
+      ["INGAME_CHAT_INPUT", chatSelectors.INPUT],
+      ["INGAME_CHAT_SEND_BUTTON", chatSelectors.SEND_BUTTON],
+      ["INGAME_CHAT_MESSAGE_NODE", chatSelectors.MESSAGE_NODE],
+      ["INGAME_CHAT_MESSAGE_SENDER", chatSelectors.MESSAGE_SENDER],
+      ["INGAME_CHAT_MESSAGE_TEXT", chatSelectors.MESSAGE_TEXT],
+      ["INGAME_CHAT_MESSAGE_TIMESTAMP", chatSelectors.MESSAGE_TIMESTAMP],
+      ["INGAME_PARTICIPANTS_PANEL_BUTTON", participantSelectors.PANEL_BUTTON],
+      ["INGAME_PARTICIPANT_LIST", participantSelectors.LIST],
+      ["INGAME_PARTICIPANT_NODE", participantSelectors.NODE],
+      ["INGAME_PARTICIPANT_NAME", participantSelectors.NAME],
+      [
+        "INGAME_PARTICIPANT_PRESENTER_INDICATOR",
+        participantSelectors.PRESENTER_INDICATOR,
+      ],
+      [
+        "INGAME_PARTICIPANT_SPEAKING_INDICATOR",
+        participantSelectors.SPEAKING_INDICATOR,
+      ],
+      ["INGAME_ACTIVE_SPEAKER_INDICATOR", INGAME_ACTIVE_SPEAKER_INDICATOR],
+      ["INGAME_CAMERA_TOGGLE", controlSelectors.CAMERA_TOGGLE],
+      ["INGAME_MIC_TOGGLE", controlSelectors.MIC_TOGGLE],
+      ["INGAME_LEAVE_BUTTON", controlSelectors.LEAVE_BUTTON],
+    ];
+
+    for (const [key, expected] of cases) {
+      // Compare as plain strings — `selectors[key]` is typed with narrow
+      // literal types via `as const`, so widen both sides to `string` before
+      // asserting equality.
+      expect(String(selectors[key])).toBe(expected);
+    }
+  });
+});

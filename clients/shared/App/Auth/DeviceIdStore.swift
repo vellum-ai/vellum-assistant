@@ -27,9 +27,8 @@ public enum DeviceIdStore {
 
         if let cached { return cached }
 
-        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let vellumDir = home.appendingPathComponent(".vellum", isDirectory: true)
-        let deviceFile = vellumDir.appendingPathComponent("device.json")
+        let deviceFile = VellumPaths.current.deviceIdFile
+        let vellumDir = deviceFile.deletingLastPathComponent()
 
         // 1. Try to read existing file (daemon or a previous run may have created it).
         if let data = try? Data(contentsOf: deviceFile),
@@ -94,14 +93,8 @@ public enum DeviceIdStore {
     /// mirroring the daemon's `003-seed-device-id` migration so the same
     /// legacy ID is preserved regardless of whether macOS or daemon starts first.
     private static func installationIdFromLockfile() -> String? {
-        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-        let candidates = [
-            home.appendingPathComponent(".vellum.lock.json"),
-            home.appendingPathComponent(".vellum.lockfile.json"),
-        ]
-
         var lockJSON: [String: Any]?
-        for candidate in candidates {
+        for candidate in VellumPaths.current.lockfileCandidates {
             guard let data = try? Data(contentsOf: candidate),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue

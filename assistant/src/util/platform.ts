@@ -45,13 +45,24 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Compute the root ~/.vellum directory path.
+ * The daemon's per-instance root data directory. Resolution order:
  *
- * This is a simple inline computation — not a shared function — so each
- * helper is self-contained and the module has no hidden coupling to
- * env-var indirection.
+ *   1. `BASE_DATA_DIR` env var — set by the CLI when spawning the daemon
+ *      for a specific assistant (see `cli/src/lib/local.ts`). Points at the
+ *      per-assistant instanceDir; we append `.vellum` to get the daemon's
+ *      root so root-level state (PID, credentials, runtime-port, workspace)
+ *      is isolated per instance.
+ *   2. Fallback: `join(homedir(), ".vellum")`. Used when the daemon runs
+ *      outside the CLI-spawn lifecycle (containerized deployments, manual
+ *      test invocations).
+ *
+ * Docker mode relocates the workspace via `VELLUM_WORKSPACE_DIR` rather
+ * than `BASE_DATA_DIR`, so honoring `BASE_DATA_DIR` here does not affect
+ * containerized deployments.
  */
 function vellumRoot(): string {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+  if (baseDataDir) return join(baseDataDir, ".vellum");
   return join(homedir(), ".vellum");
 }
 
@@ -143,15 +154,47 @@ export function getTCPHost(): string {
   return "127.0.0.1";
 }
 
+// Kept in sync with `cli/src/lib/environments/seeds.ts` and
+// `clients/chrome-extension/native-host/src/lockfile.ts`. Drift between
+// these three sites is caught at test time by
+// `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
+// list into a `packages/environments` package so all three sites import
+// from one place.
+const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
+  "production",
+  "staging",
+  "test",
+  "dev",
+  "local",
+]);
+
 /**
- * Returns the XDG-compliant path for the platform API token
- * (~/.config/vellum/platform-token). This is the canonical location
- * shared by the CLI and desktop app.
+ * Returns the env-scoped XDG config subdirectory name for Vellum
+ * (`vellum` in production, `vellum-<env>` otherwise). Mirrors the Swift
+ * side's `VellumPaths.configDir` and the CLI's
+ * `environments/paths.ts:getConfigDir` so the daemon resolves to the
+ * same on-disk location as every other writer of these files.
+ *
+ * Unknown environment names fall back to production to preserve the
+ * legacy path for any unrecognized value.
  */
-function getXdgPlatformTokenPath(): string {
+export function getXdgVellumConfigDirName(): string {
+  const raw = process.env.VELLUM_ENVIRONMENT?.trim();
+  if (!raw || raw === "production") return "vellum";
+  if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
+  return `vellum-${raw}`;
+}
+
+/**
+ * Returns the XDG-compliant path for the platform API token. Resolves to
+ * `$XDG_CONFIG_HOME/vellum/platform-token` in production and
+ * `$XDG_CONFIG_HOME/vellum-<env>/platform-token` otherwise, matching the
+ * Swift client and CLI.
+ */
+export function getXdgPlatformTokenPath(): string {
   const configHome =
     process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  return join(configHome, "vellum", "platform-token");
+  return join(configHome, getXdgVellumConfigDirName(), "platform-token");
 }
 
 /**

@@ -175,6 +175,7 @@ export interface ConversationRow {
   isAutoTitle: number;
   scheduleJobId: string | null;
   lastMessageAt: number | null;
+  archivedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -202,6 +203,7 @@ export const parseConversation = createRowMapper<
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
+  archivedAt: "archivedAt",
 });
 
 export interface MessageRow {
@@ -1216,6 +1218,31 @@ export function updateConversationHostAccess(
     })
     .where(eq(conversations.id, id))
     .run();
+}
+
+export function archiveConversation(id: string): boolean {
+  const conv = getConversation(id);
+  if (!conv) return false;
+  const now = Date.now();
+  rawRun(
+    "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
+    now,
+    now,
+    id,
+  );
+  return true;
+}
+
+export function unarchiveConversation(id: string): boolean {
+  const conv = getConversation(id);
+  if (!conv) return false;
+  const now = Date.now();
+  rawRun(
+    "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
+    now,
+    id,
+  );
+  return true;
 }
 
 /**

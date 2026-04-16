@@ -1,6 +1,7 @@
 import SwiftUI
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class MessageListScrollStateTests: XCTestCase {
@@ -17,6 +18,83 @@ final class MessageListScrollStateTests: XCTestCase {
         super.tearDown()
     }
 
+    private func message(
+        id: UUID = UUID(),
+        role: ChatRole,
+        text: String? = nil,
+        status: ChatMessageStatus = .sent
+    ) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            role: role,
+            text: text ?? (role == .user ? "User" : "Assistant"),
+            status: status
+        )
+    }
+
+    private func makeMessageListView(
+        messages: [ChatMessage],
+        paginatedVisibleMessages: [ChatMessage]? = nil,
+        isSending: Bool,
+        assistantActivityPhase: String = "",
+        conversationId: UUID = UUID()
+    ) -> MessageListView {
+        var anchorMessageId: UUID?
+        var highlightedMessageId: UUID?
+        return MessageListView(
+            messages: messages,
+            messagesRevision: 0,
+            isSending: isSending,
+            isThinking: false,
+            isCompacting: false,
+            assistantActivityPhase: assistantActivityPhase,
+            assistantActivityAnchor: "",
+            assistantActivityReason: nil,
+            assistantStatusText: nil,
+            selectedModel: "test-model",
+            configuredProviders: [],
+            providerCatalog: [],
+            activeSubagents: [],
+            dismissedDocumentSurfaceIds: [],
+            onConfirmationAllow: nil,
+            onConfirmationDeny: nil,
+            onAlwaysAllow: nil,
+            onTemporaryAllow: nil,
+            onSurfaceAction: nil,
+            onGuardianAction: nil,
+            onDismissDocumentWidget: nil,
+            onForkFromMessage: nil,
+            showInspectButton: false,
+            isTTSEnabled: false,
+            onInspectMessage: nil,
+            mediaEmbedSettings: nil,
+            onAbortSubagent: nil,
+            onSubagentTap: nil,
+            onRehydrateMessage: nil,
+            onSurfaceRefetch: nil,
+            onRetryFailedMessage: nil,
+            onRetryConversationError: nil,
+            subagentDetailStore: SubagentDetailStore(),
+            activePendingRequestId: nil,
+            paginatedVisibleMessages: paginatedVisibleMessages ?? messages,
+            displayedMessageCount: .max,
+            hasMoreMessages: false,
+            isLoadingMoreMessages: false,
+            loadPreviousMessagePage: nil,
+            conversationId: conversationId,
+            anchorMessageId: Binding(
+                get: { anchorMessageId },
+                set: { anchorMessageId = $0 }
+            ),
+            highlightedMessageId: Binding(
+                get: { highlightedMessageId },
+                set: { highlightedMessageId = $0 }
+            ),
+            isInteractionEnabled: true,
+            containerWidth: 0
+        )
+    }
+
     // MARK: - Initial State
 
     func testInitialState() {
@@ -24,6 +102,7 @@ final class MessageListScrollStateTests: XCTestCase {
                        "Should not show scroll-to-latest initially")
         XCTAssertFalse(state.scrollIndicatorsHidden,
                        "Scroll indicators should be visible initially")
+        XCTAssertNil(state.pinnedLatestTurnAnchorMessageId)
         XCTAssertNil(state.lastMessageId)
         XCTAssertNil(state.currentConversationId)
         XCTAssertEqual(state.scrollContentHeight, 0)
@@ -174,6 +253,7 @@ final class MessageListScrollStateTests: XCTestCase {
         state.scrollContainerHeight = 800
         state.lastContentOffsetY = 2000  // distanceFromBottom = 2000
         state.lastMessageId = UUID()
+        state.pinnedLatestTurnAnchorMessageId = UUID()
         state.currentConversationId = UUID()
         state.wasPaginationTriggerInRange = true
         state.lastPaginationCompletedAt = Date()
@@ -184,6 +264,7 @@ final class MessageListScrollStateTests: XCTestCase {
         state.reset(for: newId)
 
         XCTAssertEqual(state.currentConversationId, newId)
+        XCTAssertNil(state.pinnedLatestTurnAnchorMessageId)
         XCTAssertNil(state.lastMessageId)
         XCTAssertEqual(state.scrollContentHeight, 0)
         XCTAssertEqual(state.scrollContainerHeight, 0)
@@ -372,13 +453,147 @@ final class MessageListScrollStateTests: XCTestCase {
         state.scrollContentHeight = 5000
         state.scrollContainerHeight = 800
         state.lastContentOffsetY = 2000  // distanceFromBottom = 2000
+        state.pinnedLatestTurnAnchorMessageId = UUID()
         state.updateScrollToLatest()
         XCTAssertTrue(state.showScrollToLatest)
 
         state.cancelAll()
 
+        XCTAssertNil(state.pinnedLatestTurnAnchorMessageId)
         XCTAssertFalse(state.showScrollToLatest)
         XCTAssertFalse(state.scrollIndicatorsHidden)
         XCTAssertEqual(state.scrollContentHeight, 0)
+    }
+
+    // MARK: - Latest-turn spacer
+
+    func testLatestTurnSpacerLeavesRemainingViewportForShortResponse() {
+        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: 600,
+            anchorHeight: 120,
+            responseHeight: 180
+        )
+
+        XCTAssertEqual(spacerHeight, 300)
+    }
+
+    func testLatestTurnSpacerShrinksAsResponseGrows() {
+        let shortResponseSpacer = LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: 600,
+            anchorHeight: 120,
+            responseHeight: 100
+        )
+        let tallResponseSpacer = LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: 600,
+            anchorHeight: 120,
+            responseHeight: 240
+        )
+
+        XCTAssertGreaterThan(shortResponseSpacer, tallResponseSpacer)
+        XCTAssertEqual(shortResponseSpacer, 380)
+        XCTAssertEqual(tallResponseSpacer, 240)
+    }
+
+    func testLatestTurnSpacerClampsToZeroForTallResponse() {
+        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: 500,
+            anchorHeight: 150,
+            responseHeight: 480
+        )
+
+        XCTAssertEqual(spacerHeight, 0)
+    }
+
+    func testLatestTurnSpacerUsesFullRemainingViewportForEmptyResponse() {
+        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: 480,
+            anchorHeight: 140,
+            responseHeight: 0
+        )
+
+        XCTAssertEqual(spacerHeight, 340)
+    }
+
+    // MARK: - Latest-turn pinning lifecycle
+
+    func testPinnedLatestTurnAnchorSetOnRealUserSend() {
+        let user = message(role: .user)
+        let view = makeMessageListView(messages: [user], isSending: true)
+        view.scrollState.currentConversationId = view.conversationId
+
+        view.handleSendingChanged()
+
+        XCTAssertEqual(view.scrollState.pinnedLatestTurnAnchorMessageId, user.id)
+    }
+
+    func testPinnedLatestTurnAnchorNotSetOnConfirmationResume() {
+        let user = message(role: .user)
+        let view = makeMessageListView(messages: [user], isSending: true)
+        view.scrollState.currentConversationId = view.conversationId
+        view.scrollState.lastActivityPhaseWhenIdle = "awaiting_confirmation"
+
+        view.handleSendingChanged()
+
+        XCTAssertNil(view.scrollState.pinnedLatestTurnAnchorMessageId)
+    }
+
+    func testPinnedLatestTurnAnchorPreservedWhenSendingEnds() {
+        let user = message(role: .user)
+        let view = makeMessageListView(messages: [user], isSending: false)
+        view.scrollState.currentConversationId = view.conversationId
+        view.scrollState.pinnedLatestTurnAnchorMessageId = user.id
+
+        view.handleSendingChanged()
+
+        XCTAssertEqual(view.scrollState.pinnedLatestTurnAnchorMessageId, user.id)
+    }
+
+    func testPinnedLatestTurnAnchorReplacedOnNextSend() {
+        let firstUser = message(role: .user)
+        let assistant = message(role: .assistant)
+        let secondUser = message(role: .user)
+        let view = makeMessageListView(
+            messages: [firstUser, assistant, secondUser],
+            isSending: true
+        )
+        view.scrollState.currentConversationId = view.conversationId
+        view.scrollState.pinnedLatestTurnAnchorMessageId = firstUser.id
+
+        view.handleSendingChanged()
+
+        XCTAssertEqual(view.scrollState.pinnedLatestTurnAnchorMessageId, secondUser.id)
+    }
+
+    func testPinnedLatestTurnAnchorClearedOnConversationSwitch() {
+        let user = message(role: .user)
+        let conversationId = UUID()
+        let view = makeMessageListView(
+            messages: [user],
+            isSending: false,
+            conversationId: conversationId
+        )
+        view.scrollState.pinnedLatestTurnAnchorMessageId = user.id
+        view.scrollState.currentConversationId = UUID()
+
+        view.handleConversationSwitched()
+
+        XCTAssertNil(view.scrollState.pinnedLatestTurnAnchorMessageId)
+        XCTAssertEqual(view.scrollState.currentConversationId, conversationId)
+    }
+
+    func testPinnedLatestTurnAnchorIgnoresQueuedFollowUpMessages() {
+        let sentUser = message(role: .user)
+        let assistant = message(role: .assistant)
+        let queuedFollowUp = message(role: .user, status: .queued(position: 1))
+        let view = makeMessageListView(
+            messages: [sentUser, assistant, queuedFollowUp],
+            isSending: true
+        )
+        view.scrollState.currentConversationId = view.conversationId
+        view.scrollState.lastMessageId = assistant.id
+
+        view.handleMessagesCountChanged()
+
+        XCTAssertNil(view.scrollState.pinnedLatestTurnAnchorMessageId)
     }
 }

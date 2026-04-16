@@ -373,6 +373,16 @@ public final class AuthService {
         return try response.decode(PaginatedPlatformAssistantsResponse.self).results
     }
 
+    /// List self-hosted local assistant registrations for the caller.
+    public func listSelfHostedLocalAssistants(organizationId: String) async throws -> [PlatformAssistant] {
+        let response = try await performPlatformRequest(
+            path: "v1/assistants/?hosting=local",
+            method: "GET",
+            organizationId: organizationId
+        )
+        return try response.decode(PaginatedPlatformAssistantsResponse.self).results
+    }
+
     /// Create or retrieve a managed assistant via the idempotent hatch endpoint.
     /// Returns `.reusedExisting` on 200 (assistant already exists) or `.createdNew` on 201.
     public func hatchAssistant(

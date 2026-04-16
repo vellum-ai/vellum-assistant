@@ -214,7 +214,7 @@ final class MessageSendCoordinator {
                 delegate.pendingUserMessageDisplayText = rawText
                 delegate.pendingUserMessageAutomated = hidden
                 delegate.pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
+                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
                 }
                 messageManager.isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
@@ -300,7 +300,7 @@ final class MessageSendCoordinator {
         delegate.flushCoalescedPublish()
 
         let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
+            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
         }
 
         // Track the user text for this turn so assistantTextDelta can tag the
@@ -707,7 +707,12 @@ final class MessageSendCoordinator {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments, automated: queued.automated)
+            let attachments = queued.messageAttachments
+            let multipartCount = attachments?.filter({ $0.rawData != nil }).count ?? 0
+            if multipartCount > 0 {
+                log.info("Offline flush: \(multipartCount) attachment(s) have rawData for multipart upload")
+            }
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated)
         }
     }
 

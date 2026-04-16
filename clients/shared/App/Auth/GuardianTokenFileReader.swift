@@ -4,7 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GuardianTokenFileReader")
 
 /// Reads guardian tokens persisted by the CLI at
-/// `$XDG_CONFIG_HOME/vellum/assistants/<assistantId>/guardian-token.json`.
+/// `$XDG_CONFIG_HOME/vellum{-env}/assistants/<assistantId>/guardian-token.json`.
 ///
 /// During non-local hatches (Docker, GCP, AWS, etc.) the CLI bootstraps the
 /// guardian token via `POST /v1/guardian/init` and writes the result to disk.
@@ -119,17 +119,14 @@ public enum GuardianTokenFileReader {
 
     // MARK: - Path Resolution
 
-    /// Resolves `$XDG_CONFIG_HOME/vellum/assistants/<id>/guardian-token.json`,
+    /// Resolves `$XDG_CONFIG_HOME/vellum{-env}/assistants/<id>/guardian-token.json`,
     /// matching the CLI's `getGuardianTokenPath()`.
     private static func guardianTokenPath(for assistantId: String) -> String {
-        let configHome: String
-        if let xdg = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !xdg.isEmpty {
-            configHome = xdg
-        } else {
-            configHome = NSHomeDirectory() + "/.config"
-        }
-        return "\(configHome)/vellum/assistants/\(assistantId)/guardian-token.json"
+        return VellumPaths.current.configDir
+            .appendingPathComponent("assistants")
+            .appendingPathComponent(assistantId)
+            .appendingPathComponent("guardian-token.json")
+            .path
     }
 
     // MARK: - Error Descriptions

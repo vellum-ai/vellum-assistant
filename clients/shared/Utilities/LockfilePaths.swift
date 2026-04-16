@@ -1,25 +1,16 @@
 import Foundation
 
 public enum LockfilePaths {
-    private static var homeDir: URL {
-        URL(fileURLWithPath: NSHomeDirectory())
-    }
-
     public static var primary: URL {
-        homeDir.appendingPathComponent(".vellum.lock.json")
-    }
-
-    public static var legacy: URL {
-        homeDir.appendingPathComponent(".vellum.lockfile.json")
+        VellumPaths.current.lockfileCandidates[0]
     }
 
     public static var primaryPath: String { primary.path }
 
-    /// Read and parse the lockfile, trying the primary path first,
-    /// then falling back to the legacy path.
-    /// Returns nil if neither file exists or both are malformed.
+    /// Read and parse the lockfile, iterating `VellumPaths.current.lockfileCandidates`
+    /// in priority order. Returns nil if no candidate exists or all are malformed.
     public static func read() -> [String: Any]? {
-        for url in [primary, legacy] {
+        for url in VellumPaths.current.lockfileCandidates {
             guard let data = try? Data(contentsOf: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue

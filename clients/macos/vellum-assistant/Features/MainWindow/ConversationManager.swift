@@ -12,6 +12,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conve
 @MainActor
 protocol ConversationClientProtocol {
     func deleteConversation(_ conversationId: String) async
+    func archiveConversation(_ conversationId: String) async
+    func unarchiveConversation(_ conversationId: String) async
 }
 
 /// Gateway-backed conversation mutation client.
@@ -25,6 +27,24 @@ struct ConversationClient: ConversationClientProtocol {
         )
         if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
             log.error("Delete conversation \(conversationId) failed (HTTP \(statusCode))")
+        }
+    }
+
+    func archiveConversation(_ conversationId: String) async {
+        let response = try? await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/conversations/\(conversationId)/archive", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Archive conversation \(conversationId) failed (HTTP \(statusCode))")
+        }
+    }
+
+    func unarchiveConversation(_ conversationId: String) async {
+        let response = try? await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/conversations/\(conversationId)/unarchive", timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Unarchive conversation \(conversationId) failed (HTTP \(statusCode))")
         }
     }
 }
@@ -701,6 +721,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             selectionStore.chatViewModels[id]?.stopGenerating()
             listStore.markArchived(conversationId)
             selectionStore.removeChatViewModel(for: id)
+            Task { await conversationClient.archiveConversation(conversationId) }
         } else if selectionStore.chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && selectionStore.chatViewModels[id]?.isBootstrapping != true {
             selectionStore.chatViewModels[id]?.stopGenerating()
@@ -747,6 +768,9 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if !newlyArchivedServerIds.isEmpty {
             listStore.markArchived(newlyArchivedServerIds)
+            for cid in newlyArchivedServerIds {
+                Task { await conversationClient.archiveConversation(cid) }
+            }
         }
 
         for id in ids {
@@ -794,6 +818,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.getOrCreateViewModel(for: id)
         if let conversationId = listStore.conversations[index].conversationId {
             listStore.unmarkArchived(conversationId)
+            Task { await conversationClient.unarchiveConversation(conversationId) }
         }
         log.info("Unarchived conversation \(id)")
     }
@@ -1041,6 +1066,9 @@ final class ConversationManager: ConversationRestorerDelegate {
 
         if !newlyArchivedServerIds.isEmpty {
             listStore.markArchived(newlyArchivedServerIds)
+            for cid in newlyArchivedServerIds {
+                Task { await conversationClient.archiveConversation(cid) }
+            }
         }
 
         for id in idsToArchive {
@@ -1392,6 +1420,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         // Persist archive state now that we have a server ID.
         if listStore.conversations[index].isArchived {
             listStore.markArchived(conversationId)
+            Task { await conversationClient.archiveConversation(conversationId) }
             // The conversation was archived while waiting for a server ID.
             // Now that backfill is complete, release the ViewModel we were
             // keeping alive solely for the correlation ID callback.

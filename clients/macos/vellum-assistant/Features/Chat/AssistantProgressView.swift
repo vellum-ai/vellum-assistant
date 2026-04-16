@@ -34,6 +34,12 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
+    /// When the post-tool-completion thinking phase started (typically the last
+    /// tool's `completedAt`). Nil until all tools complete and the card remains active.
+    @State private var thinkingAfterToolsStartDate: Date?
+    /// When the thinking phase ended (card transitioned to `.complete`).
+    /// Nil while thinking is still in progress.
+    @State private var thinkingAfterToolsEndDate: Date?
 
     // MARK: - Init
 
@@ -86,12 +92,40 @@ struct AssistantProgressView: View {
         } else {
             nil
         }
+        // Seed thinking timestamps for view recycling.
+        // If we have a persisted thinking duration (from a previous render that survived
+        // through completion), reconstruct the dates. Otherwise, seed from model state.
+        let cardKeyForInit = toolCalls.first?.id
+        let persistedThinkingDuration = cardKeyForInit.flatMap {
+            progressUIState.wrappedValue.thinkingDuration(for: $0)
+        }
+        let initialThinkingStart: Date?
+        let initialThinkingEnd: Date?
+        if let duration = persistedThinkingDuration, let latestEnd = model.latestCompletedAt {
+            // Reconstruct from persisted duration
+            initialThinkingStart = latestEnd
+            initialThinkingEnd = latestEnd.addingTimeInterval(duration)
+        } else if model.allComplete && model.hasTools {
+            let phase = model.phase
+            if phase == .toolsCompleteThinking || phase == .processing {
+                initialThinkingStart = model.latestCompletedAt ?? Date()
+                initialThinkingEnd = nil
+            } else {
+                initialThinkingStart = nil
+                initialThinkingEnd = nil
+            }
+        } else {
+            initialThinkingStart = nil
+            initialThinkingEnd = nil
+        }
         // Seed from user override via ProgressCardUIState if one exists, otherwise use model's auto-expand.
         let cardKey = toolCalls.first?.id
         let resolved = progressUIState.wrappedValue.resolveCardExpanded(cardKey: cardKey, model: model)
         _isExpanded = State(initialValue: resolved)
         _startDate = State(initialValue: initialStartDate)
         _processingStartDate = State(initialValue: initialProcessingStartDate)
+        _thinkingAfterToolsStartDate = State(initialValue: initialThinkingStart)
+        _thinkingAfterToolsEndDate = State(initialValue: initialThinkingEnd)
     }
 
     /// Stable key for this progress card in `progressUIState.cardExpansionOverrides`.
@@ -254,6 +288,31 @@ struct AssistantProgressView: View {
                 processingStartDate = Date()
                 if model.earliestStartedAt == nil {
                     startDate = Date()
+                }
+            }
+            // Reset thinking anchor when tools resume. Also reset on streamingCode
+            // when tools are still incomplete — phase resolution returns streamingCode
+            // before toolRunning whenever a code preview lingers, so in multi-wave runs
+            // the card can skip toolRunning and keep a stale anchor from the previous wave.
+            if newPhase == .toolRunning
+                || (newPhase == .streamingCode && !model.allComplete && model.hasTools) {
+                thinkingAfterToolsStartDate = nil
+                thinkingAfterToolsEndDate = nil
+            }
+            // Track thinking phase start: all tools complete, card still active.
+            if (newPhase == .toolsCompleteThinking || newPhase == .processing)
+                && model.allComplete && model.hasTools
+                && thinkingAfterToolsStartDate == nil {
+                thinkingAfterToolsStartDate = model.latestCompletedAt ?? Date()
+            }
+            // Track thinking phase end: card transitioned to complete.
+            if newPhase == .complete, let thinkingStart = thinkingAfterToolsStartDate, thinkingAfterToolsEndDate == nil {
+                let now = Date()
+                thinkingAfterToolsEndDate = now
+                // Persist duration so it survives view recycling.
+                if let key = cardKey {
+                    let duration = now.timeIntervalSince(thinkingStart)
+                    progressUIState.setThinkingDuration(for: key, duration: duration)
                 }
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
@@ -461,13 +520,17 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
-        if let start = model.earliestStartedAt, let end = model.latestCompletedAt {
-            let seconds = end.timeIntervalSince(start)
-            Text(seconds < 60
-                ? String(format: "%.1fs", seconds)
-                : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
+        if let start = model.earliestStartedAt {
+            // Use thinkingAfterToolsEndDate as the effective end time when present,
+            // so the parent total includes thinking time and matches the sum of
+            // sub-activity durations (tool steps + thinking row).
+            let effectiveEnd = thinkingAfterToolsEndDate ?? model.latestCompletedAt
+            if let end = effectiveEnd {
+                let seconds = end.timeIntervalSince(start)
+                Text(formatStepDuration(seconds))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
         }
     }
 
@@ -509,6 +572,15 @@ struct AssistantProgressView: View {
                     )
                     .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 }
+            }
+
+            // Synthetic "Thinking" row for the post-tool-completion thinking phase.
+            if let thinkingStart = thinkingAfterToolsStartDate, model.allComplete, model.hasTools {
+                ThinkingStepRow(
+                    startDate: thinkingStart,
+                    completedAt: thinkingAfterToolsEndDate,
+                    isActive: model.isActive
+                )
             }
         }
     }
@@ -696,7 +768,7 @@ private struct StepDetailRow: View {
                         }
 
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
-                            Text(formatDuration(end.timeIntervalSince(start)))
+                            Text(formatStepDuration(end.timeIntervalSince(start)))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
@@ -930,12 +1002,77 @@ private struct StepDetailRow: View {
         return attributed
     }
 
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        seconds < 60
-            ? String(format: "%.1fs", seconds)
-            : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
+}
+
+// MARK: - Format Duration (shared)
+
+/// Formats a time interval as a human-readable duration string.
+/// Shared between StepDetailRow and ThinkingStepRow.
+private func formatStepDuration(_ seconds: TimeInterval) -> String {
+    seconds < 60
+        ? String(format: "%.1fs", seconds)
+        : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
+}
+
+// MARK: - Thinking Step Row
+
+/// Synthetic sub-activity row shown when all tool calls in a progress card have
+/// completed but the assistant is still working (thinking/processing phase).
+/// Explains the time gap between the last tool completion and the card's total
+/// elapsed time.
+private struct ThinkingStepRow: View {
+    /// When thinking started (typically `latestCompletedAt` of the tool group).
+    let startDate: Date
+    /// When thinking ended. Nil while still active.
+    let completedAt: Date?
+    /// Whether the thinking phase is still in progress.
+    let isActive: Bool
+
+    /// Minimum thinking duration (in seconds) required to show this row.
+    /// Prevents visual noise for fast completions where the model responds
+    /// almost immediately after the last tool finishes.
+    private static let minimumDisplayDuration: TimeInterval = 2.0
+
+    /// Whether the row should be rendered at all. Suppressed for very short
+    /// thinking phases that would just add clutter.
+    var shouldDisplay: Bool {
+        if isActive { return true }
+        guard let end = completedAt else { return false }
+        return end.timeIntervalSince(startDate) >= Self.minimumDisplayDuration
     }
 
+    var body: some View {
+        if shouldDisplay {
+            HStack(spacing: VSpacing.sm) {
+                if isActive {
+                    VBusyIndicator(size: 6)
+                        .frame(width: 16)
+                } else {
+                    VIconView(.circleCheck, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                        .frame(width: 16)
+                }
+
+                Text("Thinking")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+
+                Spacer()
+
+                HStack(spacing: VSpacing.xs) {
+                    if isActive {
+                        ElapsedTimeLabel(startDate: startDate)
+                    } else if let end = completedAt {
+                        Text(formatStepDuration(end.timeIntervalSince(startDate)))
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+            }
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
+        }
+    }
 }
 
 // MARK: - Processing Dots Label (Isolated TimelineView)

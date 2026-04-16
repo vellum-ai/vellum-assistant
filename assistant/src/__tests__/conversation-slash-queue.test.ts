@@ -209,6 +209,24 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
+// Avoid real workspace-git initialization on /tmp — on CI runners,
+// `git add -A` under /tmp hits permission errors on systemd-private dirs,
+// which blocks `runAgentLoopImpl` for long enough to trip the test's
+// `waitForPendingRun` 2s timeout before `AgentLoop.run` is invoked.
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../memory/app-git-service.js", () => ({
+  commitAppTurnChanges: async () => {},
+}));
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
@@ -235,6 +253,12 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 
+type ConversationWithWorkspaceDeps = Conversation & {
+  getWorkspaceGitService?: (_workspaceDir: string) => {
+    ensureInitialized: () => Promise<void>;
+  };
+};
+
 function makeConversation(): Conversation {
   const provider = {
     name: "mock",
@@ -247,7 +271,7 @@ function makeConversation(): Conversation {
       };
     },
   };
-  return new Conversation(
+  const conversation = new Conversation(
     "conv-1",
     provider,
     "system prompt",
@@ -255,6 +279,13 @@ function makeConversation(): Conversation {
     () => {},
     "/tmp",
   );
+  // Bypass real workspace git init: with "/tmp" as the workspace dir, a real
+  // ensureInitialized() walks all of /tmp and can exceed the 2s waitForPendingRun
+  // budget on CI where parallel tests churn /tmp subdirectories.
+  (conversation as ConversationWithWorkspaceDeps).getWorkspaceGitService = () => ({
+    ensureInitialized: async () => {},
+  });
+  return conversation;
 }
 
 async function waitForPendingRun(
