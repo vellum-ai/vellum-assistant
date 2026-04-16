@@ -572,24 +572,35 @@ public struct ToolConfirmationBubble: View {
             Menu("Always allow") {
                 Section(alwaysAllowPatternLabel) {
                     ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
+                        let subtitle = option.label.count > 50
+                            ? String(option.label.prefix(50)) + "\u{2026}"
+                            : option.label
                         if scopes.isEmpty {
-                            Button(option.description) {
+                            Button {
                                 markCommandExplanationSeen()
-    
+
                                 onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
+                            } label: {
+                                Text(option.description)
+                                Text(subtitle)
                             }
+                            .help(option.label)
                         } else {
-                            Menu(option.description) {
+                            Menu {
                                 Section("Scope") {
                                     ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
                                         Button(scopeOption.label) {
                                             markCommandExplanationSeen()
-                
+
                                             onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
                                         }
                                     }
                                 }
+                            } label: {
+                                Text(option.description)
+                                Text(subtitle)
                             }
+                            .help(option.label)
                         }
                     }
                 }
