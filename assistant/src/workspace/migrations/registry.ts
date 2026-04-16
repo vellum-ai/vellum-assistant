@@ -35,7 +35,6 @@ import { removeCallsVoiceTranscriptionProviderMigration } from "./034-remove-cal
 import { seedSlackChannelPersonaMigration } from "./035-seed-slack-channel-persona.js";
 import { updatePkbIndexBarMigration } from "./036-update-pkb-index-bar.js";
 import { createMeetsDirMigration } from "./037-create-meets-dir.js";
-import { extractMeetConfigMigration } from "./038-extract-meet-config.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -82,5 +81,4 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedSlackChannelPersonaMigration,
   updatePkbIndexBarMigration,
   createMeetsDirMigration,
-  extractMeetConfigMigration,
 ];
