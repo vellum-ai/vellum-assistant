@@ -62,24 +62,27 @@ struct ZoomableImageView: View {
 
     // MARK: - Image Layer
 
+    /// Resolves the best available image representation.
+    /// Prefers `CGImage` for precise display-scale rendering with high-quality
+    /// interpolation; falls back to `NSImage` when no bitmap representation exists.
     @ViewBuilder
-    private func imageLayer(fittedSize: CGSize) -> some View {
+    private var imageContent: some View {
         if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             Image(decorative: cgImage, scale: displayScale)
                 .resizable()
                 .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fittedSize.width, height: fittedSize.height)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .shadow(color: VColor.auxBlack.opacity(0.4), radius: 24, y: 8)
         } else {
             Image(nsImage: image)
                 .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: fittedSize.width, height: fittedSize.height)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .shadow(color: VColor.auxBlack.opacity(0.4), radius: 24, y: 8)
         }
+    }
+
+    private func imageLayer(fittedSize: CGSize) -> some View {
+        imageContent
+            .aspectRatio(contentMode: .fit)
+            .frame(width: fittedSize.width, height: fittedSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .shadow(color: VColor.auxBlack.opacity(0.4), radius: 24, y: 8)
     }
 
     // MARK: - Sizing

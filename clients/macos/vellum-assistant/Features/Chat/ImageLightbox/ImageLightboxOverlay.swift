@@ -9,8 +9,6 @@ import VellumAssistantShared
 /// and a close button in the top-right corner.
 struct ImageLightboxOverlay: View {
     @ObservedObject var windowState: MainWindowState
-    @State private var showControls = true
-    @State private var controlsHideTask: Task<Void, Never>?
     @State private var escapeMonitor: Any?
 
     private var lightbox: ImageLightboxState? { windowState.imageLightbox }
@@ -51,6 +49,7 @@ struct ImageLightboxOverlay: View {
                 }
                 .padding(.bottom, VSpacing.xl)
             }
+            .environment(\.colorScheme, .dark)
             .onAppear { installEscapeMonitor() }
             .onDisappear { removeEscapeMonitor() }
             .transition(.opacity.animation(VAnimation.standard))
@@ -84,7 +83,7 @@ struct ImageLightboxOverlay: View {
                 .background(VColor.auxWhite.opacity(0.2))
 
             // Copy
-            toolbarButton(icon: .copy, label: "Copy") {
+            VButton(label: "Copy", icon: VIcon.copy.rawValue, style: .ghost, size: .compact) {
                 let image = lightbox.displayImage
                 if let base64 = lightbox.base64Data {
                     ImageActions.copyToClipboard(image, base64Data: base64)
@@ -98,7 +97,7 @@ struct ImageLightboxOverlay: View {
             }
 
             // Save As
-            toolbarButton(icon: .arrowDownToLine, label: "Save") {
+            VButton(label: "Save", icon: VIcon.arrowDownToLine.rawValue, style: .ghost, size: .compact) {
                 let image = lightbox.displayImage
                 ImageActions.saveImageAs(
                     image,
@@ -107,8 +106,8 @@ struct ImageLightboxOverlay: View {
                 )
             }
 
-            // Open in Preview (fallback)
-            toolbarButton(icon: .eye, label: "Preview") {
+            // Open in Preview
+            VButton(label: "Preview", icon: VIcon.eye.rawValue, style: .ghost, size: .compact) {
                 let image = lightbox.displayImage
                 ImageActions.openInPreview(
                     image,
@@ -124,22 +123,6 @@ struct ImageLightboxOverlay: View {
                 .fill(.ultraThinMaterial)
                 .shadow(color: VColor.auxBlack.opacity(0.3), radius: 12, y: 4)
         )
-    }
-
-    private func toolbarButton(icon: VIcon, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                VIconView(icon, size: 13)
-                Text(label)
-                    .font(VFont.labelDefault)
-            }
-            .foregroundStyle(VColor.auxWhite.opacity(0.8))
-            .padding(.horizontal, VSpacing.xs)
-            .padding(.vertical, VSpacing.xxs)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     // MARK: - Actions
