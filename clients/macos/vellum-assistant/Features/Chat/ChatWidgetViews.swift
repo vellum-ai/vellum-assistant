@@ -108,19 +108,23 @@ struct CodePreviewView: View {
         Group {
             if isLong {
                 ScrollView {
-                    Text(displayCode)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(VSpacing.sm)
+                    HStack(spacing: 0) {
+                        Text(displayCode)
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(VSpacing.sm)
                 }
                 .frame(height: 120)
             } else {
-                Text(displayCode)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(VSpacing.sm)
+                HStack(spacing: 0) {
+                    Text(displayCode)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(VSpacing.sm)
             }
         }
         .background(VColor.surfaceOverlay.opacity(0.6))
