@@ -439,7 +439,9 @@ export class SubagentManager {
           ].join("\n")
         : objective;
       const messageId = await conversation.persistUserMessage(message, []);
-      await conversation.runAgentLoop(message, messageId, onEvent);
+      await conversation.runAgentLoop(message, messageId, onEvent, {
+        callSite: "subagentSpawn",
+      });
 
       // Agent loop completed successfully.
       // Copy usage stats from the conversation before sending status (which includes usage).
@@ -634,7 +636,9 @@ export class SubagentManager {
       const conversation = managed.conversation;
       const messageId = await conversation.persistUserMessage(trimmed, []);
       conversation
-        .runAgentLoop(trimmed, messageId, onEvent)
+        .runAgentLoop(trimmed, messageId, onEvent, {
+          callSite: "subagentSpawn",
+        })
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
         });
