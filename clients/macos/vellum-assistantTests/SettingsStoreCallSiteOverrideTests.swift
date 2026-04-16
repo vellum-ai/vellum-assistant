@@ -311,7 +311,11 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
         let sites = lastCallSitesPatch()
         XCTAssertNotNil(sites)
-        XCTAssertEqual(sites?.count, updates.count)
+        // Batch PATCH must include every catalog entry: the three caller-
+        // provided entries plus null-clears for every other catalog ID, so
+        // the daemon's view stays aligned with the local cache (which
+        // resets all omitted entries to nil).
+        XCTAssertEqual(sites?.count, CallSiteCatalog.all.count)
 
         let memory = sites?["memoryRetrieval"] as? [String: Any]
         XCTAssertEqual(memory?["provider"] as? String, "openai")
@@ -327,6 +331,112 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         XCTAssertTrue(watch?["provider"] is NSNull)
         XCTAssertTrue(watch?["model"] is NSNull)
         XCTAssertTrue(watch?["profile"] is NSNull)
+    }
+
+    /// Regression for Devin's review on PR #26128 (`SettingsStore.swift:3174`):
+    /// `Dictionary(uniqueKeysWithValues:)` traps at runtime when the input
+    /// contains duplicate keys. `setCallSiteOverrides` accepts external
+    /// input, so it must be tolerant of duplicates — last-write-wins is the
+    /// chosen contract.
+    func testSetCallSiteOverridesToleratesDuplicateIdsLastWriteWins() {
+        let duplicates: [CallSiteOverride] = [
+            CallSiteOverride(
+                id: "memoryRetrieval",
+                displayName: "Memory · Retrieval (first)",
+                domain: .memory,
+                provider: "openai",
+                model: "gpt-4.1"
+            ),
+            CallSiteOverride(
+                id: "memoryRetrieval",
+                displayName: "Memory · Retrieval (second)",
+                domain: .memory,
+                provider: "anthropic",
+                model: "claude-haiku-4"
+            ),
+        ]
+
+        // Must not crash.
+        _ = store.setCallSiteOverrides(duplicates)
+        waitForPatchCount(1)
+
+        // Last-write-wins in the local cache.
+        let memory = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
+        XCTAssertEqual(memory?.provider, "anthropic")
+        XCTAssertEqual(memory?.model, "claude-haiku-4")
+        XCTAssertNil(memory?.profile)
+
+        // And in the PATCH payload.
+        let sites = lastCallSitesPatch()
+        let memoryEntry = sites?["memoryRetrieval"] as? [String: Any]
+        XCTAssertEqual(memoryEntry?["provider"] as? String, "anthropic")
+        XCTAssertEqual(memoryEntry?["model"] as? String, "claude-haiku-4")
+        XCTAssertTrue(memoryEntry?["profile"] is NSNull)
+    }
+
+    /// Regression for Codex P1 + Devin on PR #26128: prior to the fix,
+    /// `setCallSiteOverrides` cleared local cache entries omitted from the
+    /// input but only PATCHed entries that were present. Result: omitted
+    /// entries appeared cleared in the UI but the daemon retained their
+    /// previous values, and on the next config sync the stale persisted
+    /// values would "reappear." The fix aligns remote with local by
+    /// emitting NSNull clears for every catalog entry not in the input
+    /// batch.
+    func testSetCallSiteOverridesBatchClearsOmittedCatalogEntriesOnRemote() {
+        // Pre-populate two unrelated entries via single-entry writes.
+        _ = store.setCallSiteOverride("memoryRetrieval", provider: "openai", model: "gpt-4.1")
+        _ = store.setCallSiteOverride("commitMessage", provider: "anthropic")
+        waitForPatchCount(2)
+
+        // Now batch-update a SINGLE entry that is neither of the above.
+        let updates: [CallSiteOverride] = [
+            CallSiteOverride(
+                id: "watchSummary",
+                displayName: "Watch summary",
+                domain: .voice,
+                provider: "openai"
+            ),
+        ]
+        _ = store.setCallSiteOverrides(updates)
+        waitForPatchCount(3)
+
+        let sites = lastCallSitesPatch()
+        XCTAssertNotNil(sites)
+
+        // The PATCH must include the new entry verbatim.
+        let watch = sites?["watchSummary"] as? [String: Any]
+        XCTAssertEqual(watch?["provider"] as? String, "openai")
+        XCTAssertTrue(watch?["model"] is NSNull)
+        XCTAssertTrue(watch?["profile"] is NSNull)
+
+        // And it must include null-clears for the two pre-populated entries
+        // so the daemon's view matches the (now-cleared) local cache.
+        let memory = sites?["memoryRetrieval"] as? [String: Any]
+        XCTAssertNotNil(memory, "PATCH must include null-clear for memoryRetrieval")
+        XCTAssertTrue(memory?["provider"] is NSNull)
+        XCTAssertTrue(memory?["model"] is NSNull)
+        XCTAssertTrue(memory?["profile"] is NSNull)
+
+        let commit = sites?["commitMessage"] as? [String: Any]
+        XCTAssertNotNil(commit, "PATCH must include null-clear for commitMessage")
+        XCTAssertTrue(commit?["provider"] is NSNull)
+        XCTAssertTrue(commit?["model"] is NSNull)
+        XCTAssertTrue(commit?["profile"] is NSNull)
+
+        // Stronger invariant: the set of IDs PATCHed must equal the full
+        // catalog. Anything less re-creates the divergence bug.
+        XCTAssertEqual(
+            Set(sites?.keys.map { String($0) } ?? []),
+            CallSiteCatalog.validIds,
+            "Batch PATCH must cover every catalog entry to keep remote/local aligned"
+        )
+
+        // Local cache also reflects the cleared state for the omitted entries.
+        let cachedMemory = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
+        XCTAssertFalse(cachedMemory?.hasOverride ?? true)
+        let cachedCommit = store.callSiteOverrides.first(where: { $0.id == "commitMessage" })
+        XCTAssertFalse(cachedCommit?.hasOverride ?? true)
+        XCTAssertEqual(store.overridesCount, 1)
     }
 
     func testSetCallSiteOverridesUpdatesLocalCacheInCatalogOrder() {
@@ -375,9 +485,15 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         waitForPatchCount(1)
 
         let sites = lastCallSitesPatch()
-        XCTAssertEqual(sites?.count, 1, "Unknown call-site IDs must be filtered out of the patch")
+        // The PATCH covers every catalog entry (valid input + null-clears
+        // for everything else). Unknown IDs from the input must NOT appear.
+        XCTAssertEqual(sites?.count, CallSiteCatalog.all.count)
         XCTAssertNotNil(sites?["memoryRetrieval"])
-        XCTAssertNil(sites?["totallyMadeUpId"])
+        XCTAssertNil(sites?["totallyMadeUpId"], "Unknown call-site IDs must be filtered out of the patch")
+
+        // The valid input is written verbatim.
+        let memory = sites?["memoryRetrieval"] as? [String: Any]
+        XCTAssertEqual(memory?["provider"] as? String, "anthropic")
     }
 
     // MARK: - overridesCount derivation

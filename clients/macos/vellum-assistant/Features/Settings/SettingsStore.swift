@@ -3171,7 +3171,13 @@ public final class SettingsStore: ObservableObject {
     func setCallSiteOverrides(_ overrides: [CallSiteOverride]) -> Task<Bool, Never> {
         let validOverrides = overrides.filter { CallSiteCatalog.validIds.contains($0.id) }
         // Preserve catalog order in the local cache so SwiftUI lists stay stable.
-        let overrideById = Dictionary(uniqueKeysWithValues: validOverrides.map { ($0.id, $0) })
+        // Use `uniquingKeysWith:` (last-write-wins) instead of
+        // `uniqueKeysWithValues:` to tolerate duplicate IDs from external
+        // input — the latter traps at runtime on collisions.
+        let overrideById = Dictionary(
+            validOverrides.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
         callSiteOverrides = CallSiteCatalog.all.map { entry in
             var merged = entry
             if let provided = overrideById[entry.id] {
@@ -3201,6 +3207,20 @@ public final class SettingsStore: ObservableObject {
             if let model = entry.model { rawEntry["model"] = model }
             if let profile = entry.profile { rawEntry["profile"] = profile }
             callSitesPayload[entry.id] = rawEntry
+        }
+        // Align remote with local: any catalog entry NOT in `validOverrides`
+        // is locally cleared above (provider/model/profile -> nil), so the
+        // PATCH must explicitly clear those entries on the daemon as well.
+        // Without this, omitted entries would appear cleared in the UI but
+        // the daemon would retain their previous values, and the stale
+        // values would "reappear" on the next config sync.
+        let nullClear: [String: Any] = [
+            "provider": NSNull(),
+            "model": NSNull(),
+            "profile": NSNull(),
+        ]
+        for entry in CallSiteCatalog.all where callSitesPayload[entry.id] == nil {
+            callSitesPayload[entry.id] = nullClear
         }
         let payload: [String: Any] = ["llm": ["callSites": callSitesPayload]]
         let task = Task {
