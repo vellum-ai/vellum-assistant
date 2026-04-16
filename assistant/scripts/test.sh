@@ -98,21 +98,7 @@ while IFS= read -r test_file; do
 
   test_files+=("${test_file}")
 done < <(
-  {
-    find src -type f -name '*.test.ts'
-    # Also scan skills that have been consolidated from assistant/src/ but whose
-    # tests still exercise daemon internals and must keep running under the
-    # assistant's CI job. Exclude subpackages that have their own package.json
-    # + test runner (bot/, contracts/) — they are covered by pr-skills.yaml or
-    # their own workspace commands.
-    if [[ -d ../skills/meet-join ]]; then
-      find ../skills/meet-join \
-        -path ../skills/meet-join/bot -prune -o \
-        -path ../skills/meet-join/contracts -prune -o \
-        -path ../skills/meet-join/node_modules -prune -o \
-        -type f -name '*.test.ts' -print
-    fi
-  } | sort
+  find src -type f -name '*.test.ts' | sort
 )
 
 if [[ ${#test_files[@]} -eq 0 ]]; then
