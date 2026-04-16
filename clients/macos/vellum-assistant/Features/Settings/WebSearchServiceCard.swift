@@ -27,7 +27,6 @@ struct WebSearchServiceCard: View {
     @State private var perplexityHasKey = false
     /// Whether the Brave provider has a stored API key (fetched per-component).
     @State private var braveHasKey = false
-    @FocusState private var isApiKeyFocused: Bool
 
     private var isPerplexity: Bool {
         draftProvider == "perplexity"
@@ -223,8 +222,7 @@ struct WebSearchServiceCard: View {
             hasKey: isPerplexity ? perplexityHasKey : braveHasKey,
             text: isPerplexity ? $perplexityKeyText : $braveKeyText,
             errorMessage: isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError,
-            maxWidth: 400,
-            isFocused: $isApiKeyFocused
+            maxWidth: 400
         )
     }
 
@@ -256,8 +254,6 @@ struct WebSearchServiceCard: View {
                 })
                 braveKeyText = ""
             }
-
-            isApiKeyFocused = false
         }
 
         // Update initial provider to reflect persisted state

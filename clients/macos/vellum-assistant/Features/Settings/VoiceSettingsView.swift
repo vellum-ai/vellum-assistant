@@ -28,7 +28,6 @@ struct VoiceSettingsView: View {
     @State private var ttsSaving: Bool = false
     /// Error message from key save.
     @State private var ttsSaveError: String? = nil
-    @FocusState private var isTTSApiKeyFocused: Bool
 
     @State private var isRecordingCustomKey: Bool = false
     @State private var recordingMonitors: [Any] = []
@@ -50,7 +49,6 @@ struct VoiceSettingsView: View {
     @State private var sttSaving: Bool = false
     /// Error message from key validation / save.
     @State private var sttSaveError: String? = nil
-    @FocusState private var isSTTApiKeyFocused: Bool
 
     /// The shared TTS provider registry loaded from the bundled catalog.
     private let ttsRegistry = loadTTSProviderRegistry()
@@ -470,8 +468,7 @@ struct VoiceSettingsView: View {
             label: "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
             hasKey: ttsProviderHasKey,
             text: $ttsApiKeyText,
-            errorMessage: ttsSaveError,
-            isFocused: $isTTSApiKeyFocused
+            errorMessage: ttsSaveError
         )
         .disabled(ttsSaving)
     }
@@ -546,7 +543,6 @@ struct VoiceSettingsView: View {
         }
 
         ttsSaving = false
-        isTTSApiKeyFocused = false
 
         // Update baseline for change detection
         initialTTSProvider = draftTTSProvider
@@ -650,8 +646,7 @@ struct VoiceSettingsView: View {
         APIKeyTextField(
             label: "\(selectedSTTProvider?.displayName ?? "Provider") API Key",
             hasKey: sttProviderHasKey,
-            text: $sttApiKeyText,
-            isFocused: $isSTTApiKeyFocused
+            text: $sttApiKeyText
         )
         .disabled(sttSaving)
     }
@@ -743,7 +738,6 @@ struct VoiceSettingsView: View {
             }
 
             sttSaving = false
-            isSTTApiKeyFocused = false
         }
     }
 }

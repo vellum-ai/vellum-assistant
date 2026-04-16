@@ -20,7 +20,6 @@ struct EmbeddingServiceCard: View {
     @State private var providerHasKey = false
     /// Server-masked display string for the current provider's key.
     @State private var providerMaskedKey: String = ""
-    @FocusState private var isApiKeyFocused: Bool
 
     // MARK: - Fallback Provider List
 
@@ -187,8 +186,7 @@ struct EmbeddingServiceCard: View {
             hasKey: !providerMaskedKey.isEmpty,
             text: $apiKeyText,
             maskedPlaceholder: providerMaskedKey.isEmpty ? "••••••••••••••••" : providerMaskedKey,
-            errorMessage: store.embeddingKeySaveError,
-            isFocused: $isApiKeyFocused
+            errorMessage: store.embeddingKeySaveError
         )
         .id("embedding-api-key-\(draftProvider)-\(providerMaskedKey)")
     }
@@ -248,8 +246,6 @@ struct EmbeddingServiceCard: View {
             })
             apiKeyText = ""
         }
-
-        isApiKeyFocused = false
 
         // Persist provider and/or model if changed
         if draftProvider != initialProvider || draftModel != initialModel {
