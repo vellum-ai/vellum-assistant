@@ -47,43 +47,7 @@ struct HomePermissionCard: View {
             }
             actionButtons
         }
-        .padding(VSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .fill(glassFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .strokeBorder(glassStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
-        .shadow(color: VColor.auxBlack.opacity(0.08), radius: 16, x: 0, y: 6)
-    }
-
-    // MARK: - Glass Recipe
-
-    /// Synthetic glassmorphism — adaptive across light/dark, context-independent.
-    /// Matches HomeAuthCard recipe for visual consistency across recap cards.
-    private var glassFill: LinearGradient {
-        LinearGradient(
-            colors: [
-                VColor.contentEmphasized.opacity(0.06),
-                VColor.contentEmphasized.opacity(0.02),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    private var glassStroke: LinearGradient {
-        LinearGradient(
-            colors: [
-                VColor.contentEmphasized.opacity(0.18),
-                VColor.contentEmphasized.opacity(0.06),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        .recapCardGlass()
     }
 
     // MARK: - Header

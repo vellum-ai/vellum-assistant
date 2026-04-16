@@ -33,13 +33,7 @@ struct HomeReplyCard: View {
             composerBar
                 .padding(.top, VSpacing.md)
         }
-        .padding(VSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .fill(VColor.surfaceLift.opacity(0.1))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
-        .vShadow(VShadow.md)
+        .recapCardGlass()
     }
 
     // MARK: - Header
