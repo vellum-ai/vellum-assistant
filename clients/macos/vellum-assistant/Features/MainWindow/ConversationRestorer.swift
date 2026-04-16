@@ -419,10 +419,13 @@ final class ConversationRestorer {
         invalidationRefetchTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
-            // Defer the refetch if a "Load More" pagination request is in flight
-            // so the page-1 response isn't misrouted through appendConversations.
-            if self.delegate?.isLoadingMoreConversations == true {
-                try? await Task.sleep(nanoseconds: 500_000_000)
+            // Wait for any in-flight "Load More" pagination to finish so the
+            // page-1 response isn't misrouted through appendConversations.
+            // Poll every 250ms, giving up after ~5s to avoid stalling forever.
+            var paginationWaitAttempts = 0
+            while self.delegate?.isLoadingMoreConversations == true, paginationWaitAttempts < 20 {
+                paginationWaitAttempts += 1
+                try? await Task.sleep(nanoseconds: 250_000_000)
                 guard let self, !Task.isCancelled else { return }
             }
             self.fetchConversationListTask?.cancel()
