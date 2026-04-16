@@ -601,11 +601,22 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 #### SQLite Tables
 
+**Assistant DB** (`assistant.db` — current owner, migrating to gateway):
+
 | Table                       | Purpose                                                               |
 | --------------------------- | --------------------------------------------------------------------- |
 | `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts                 |
 | `contacts`                  | Contact records with role, relationship, and per-contact metadata     |
 | `contact_channels`          | Channel bindings per contact with access policy (allow/deny/escalate) |
+
+**Gateway DB** (`gateway.sqlite` — future owner of auth/authz):
+
+| Table              | Purpose                                                                |
+| ------------------ | ---------------------------------------------------------------------- |
+| `contacts`         | Contact auth/authz: id, display_name, role, principal_id               |
+| `contact_channels` | Channel bindings with policy, status, external IDs, verification state |
+
+The gateway declares `contacts` and `contact_channels` tables and exposes them via IPC (`list_contacts`, `get_contact`, `get_contact_by_channel`, `get_channels_for_contact`). Endpoint cutover and data migration are in progress — the gateway will become the canonical owner once dual-writing is enabled.
 
 #### Key Modules
 
@@ -616,6 +627,8 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 | `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
 | `assistant/src/daemon/handlers/config-inbox.ts`  | Handlers for invite and member contracts                                  |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
+| `gateway/src/db/contact-store.ts`                | Gateway-side read-only ContactStore (prepared-statement queries)          |
+| `gateway/src/ipc/contact-handlers.ts`            | IPC route handlers for contact reads                                      |
 
 ### Telegram Credential Flow
 
