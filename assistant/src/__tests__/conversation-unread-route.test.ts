@@ -40,7 +40,7 @@ describe("POST /v1/conversations/unread", () => {
   let port: number;
 
   beforeEach(() => {
-    mockMarkConversationUnread.mockReset();
+    mockMarkConversationUnread.mockClear();
   });
 
   afterAll(async () => {
