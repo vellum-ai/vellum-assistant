@@ -39,7 +39,7 @@ import type {
   TtsSynthesisRequest,
   TtsSynthesisResult,
 } from "../../../../assistant/src/tts/types.js";
-import { MeetTtsBridge } from "../tts-bridge.js";
+import { MeetTtsBridge, MeetTtsError } from "../tts-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Fake bot HTTP server
@@ -180,17 +180,41 @@ function makeFakeFfmpegChild(options?: {
   return emitter;
 }
 
+/**
+ * Build a fake child that satisfies the `ffmpeg -version` probe — emits
+ * an `exit` event on the next tick so {@link MeetTtsBridge.ensureFfmpegAvailable}
+ * resolves `{ available: true }`.
+ */
+function makeFakeProbeChild(): FakeFfmpegChild {
+  const child = makeFakeFfmpegChild();
+  setImmediate(() => child.emit("exit", 0, null));
+  return child;
+}
+
 function makeSpawnMock(options?: { passThroughStdin?: boolean }): {
-  spawn: ReturnType<typeof mock>;
+  spawn: typeof import("node:child_process").spawn;
   lastChild: () => FakeFfmpegChild | null;
 } {
   let child: FakeFfmpegChild | null = null;
-  const spawn = mock(() => {
+  const spawn = mock((..._args: unknown[]) => {
+    // The ffmpeg -version probe is a separate spawn from the transcode
+    // pipeline. Recognize it by its single `-version` argument and
+    // respond with a synthetic "exit 0" so the probe succeeds by default.
+    const maybeArgs = _args[1];
+    const isProbe =
+      Array.isArray(maybeArgs) &&
+      maybeArgs.length === 1 &&
+      maybeArgs[0] === "-version";
+    if (isProbe) {
+      return makeFakeProbeChild() as unknown as ReturnType<
+        typeof import("node:child_process").spawn
+      >;
+    }
     child = makeFakeFfmpegChild(options);
     return child as unknown as ReturnType<
       typeof import("node:child_process").spawn
     >;
-  });
+  }) as unknown as typeof import("node:child_process").spawn;
   return {
     spawn,
     lastChild: () => child,
@@ -382,6 +406,91 @@ describe("MeetTtsBridge.speak", () => {
     await bridge.cancel("never-existed");
     expect(fakeBot.deletes).toHaveLength(0);
     expect(fakeBot.posts).toHaveLength(0);
+  });
+
+  test("rejects with MEET_TTS_FFMPEG_UNAVAILABLE when ffmpeg probe hits ENOENT", async () => {
+    // Model a machine without ffmpeg installed: the first spawn call
+    // (`ffmpeg -version`, the probe) emits an async `error` event with
+    // code `ENOENT` — the exact shape Node produces when the binary is
+    // missing from PATH. The bridge must translate that into a typed
+    // MeetTtsError with code MEET_TTS_FFMPEG_UNAVAILABLE rather than
+    // letting it cascade into an opaque downstream failure.
+    const provider = makeCannedProvider({ chunks: [new Uint8Array([1, 2])] });
+    let probeSpawnCalls = 0;
+    let transcodeSpawnCalls = 0;
+    const spawn = mock((..._args: unknown[]) => {
+      const maybeArgs = _args[1];
+      const isProbe =
+        Array.isArray(maybeArgs) &&
+        maybeArgs.length === 1 &&
+        maybeArgs[0] === "-version";
+      if (isProbe) {
+        probeSpawnCalls += 1;
+        const child = makeFakeFfmpegChild();
+        const err = new Error(
+          "spawn ffmpeg ENOENT",
+        ) as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        setImmediate(() => child.emit("error", err));
+        return child as unknown as ReturnType<
+          typeof import("node:child_process").spawn
+        >;
+      }
+      transcodeSpawnCalls += 1;
+      const child = makeFakeFfmpegChild();
+      return child as unknown as ReturnType<
+        typeof import("node:child_process").spawn
+      >;
+    }) as unknown as typeof import("node:child_process").spawn;
+
+    const bridge = new MeetTtsBridge(
+      {
+        meetingId: MEETING_ID,
+        botBaseUrl: fakeBot.url,
+        botApiToken: TOKEN,
+      },
+      {
+        providerFactory: () => provider,
+        spawn,
+        newStreamId: () => "stream-noffmpeg",
+      },
+    );
+
+    // The speak() promise should reject with a MeetTtsError carrying the
+    // MEET_TTS_FFMPEG_UNAVAILABLE code. Callers (meet_speak tool, etc.)
+    // can inspect `.code` to distinguish missing-binary from transient
+    // bot/network failures.
+    await expect(bridge.speak({ text: "hi" })).rejects.toMatchObject({
+      name: "MeetTtsError",
+      code: "MEET_TTS_FFMPEG_UNAVAILABLE",
+    });
+
+    // The bridge must not have spawned the transcode pipeline at all —
+    // the probe short-circuit catches ENOENT before any stream state is
+    // allocated.
+    expect(probeSpawnCalls).toBe(1);
+    expect(transcodeSpawnCalls).toBe(0);
+    expect(fakeBot.posts).toHaveLength(0);
+    expect(bridge.activeStreamCount()).toBe(0);
+
+    // Second speak() call reuses the cached probe result — no extra
+    // spawn, same typed error. This proves the probe is memoized.
+    await expect(bridge.speak({ text: "hi again" })).rejects.toMatchObject({
+      name: "MeetTtsError",
+      code: "MEET_TTS_FFMPEG_UNAVAILABLE",
+    });
+    expect(probeSpawnCalls).toBe(1);
+    expect(transcodeSpawnCalls).toBe(0);
+
+    // Sanity: the thrown error really is a MeetTtsError (instanceof check)
+    // so downstream error handling that branches on `err instanceof
+    // MeetTtsError` works.
+    const caught = await bridge
+      .speak({ text: "once more" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(MeetTtsError);
+    expect((caught as MeetTtsError).code).toBe("MEET_TTS_FFMPEG_UNAVAILABLE");
   });
 });
 

@@ -144,6 +144,7 @@ export interface MeetTtsBridgeDeps {
 
 export type MeetTtsErrorCode =
   | "MEET_TTS_PROVIDER_UNAVAILABLE"
+  | "MEET_TTS_FFMPEG_UNAVAILABLE"
   | "MEET_TTS_BOT_REJECTED"
   | "MEET_TTS_BOT_UNREACHABLE";
 
@@ -169,6 +170,11 @@ interface ActiveStream {
   settled: Promise<void>;
 }
 
+/** Cached result of the one-shot `ffmpeg -version` probe. */
+type FfmpegProbeResult =
+  | { available: true }
+  | { available: false; reason: string };
+
 /**
  * Constructor input identifying which bot this bridge talks to.
  */
@@ -187,6 +193,15 @@ export class MeetTtsBridge {
   private readonly botApiToken: string;
   private readonly deps: Required<MeetTtsBridgeDeps>;
   private readonly streams = new Map<string, ActiveStream>();
+  /**
+   * Memoized `ffmpeg -version` probe. Cached after the first `speak` call so
+   * subsequent speaks re-use the result without re-spawning ffmpeg. Resolves
+   * with `{ available: true }` when ffmpeg is on PATH and exits (regardless
+   * of exit code — even `-version` writing banner then exiting counts as
+   * "ffmpeg is runnable"), and `{ available: false, reason }` when spawn
+   * fails with ENOENT or a similar "binary missing" error.
+   */
+  private ffmpegProbe: Promise<FfmpegProbeResult> | null = null;
 
   constructor(args: MeetTtsBridgeArgs, deps: MeetTtsBridgeDeps) {
     if (!args.meetingId) {
@@ -227,6 +242,18 @@ export class MeetTtsBridge {
       );
     }
 
+    // Pre-flight: verify ffmpeg is on PATH before we allocate any streams.
+    // The probe result is memoized on the bridge instance, so this only
+    // spawns ffmpeg once per bridge lifetime on the happy path. If ffmpeg
+    // was uninstalled between bridges, each new bridge re-probes.
+    const probe = await this.ensureFfmpegAvailable();
+    if (!probe.available) {
+      throw new MeetTtsError(
+        "MEET_TTS_FFMPEG_UNAVAILABLE",
+        `ffmpeg transcoder unavailable: ${probe.reason}`,
+      );
+    }
+
     let provider: TtsProvider;
     try {
       provider = await this.deps.providerFactory();
@@ -254,13 +281,30 @@ export class MeetTtsBridge {
     const ffmpeg = this.deps.spawn("ffmpeg", [...FFMPEG_TRANSCODE_ARGS], {
       stdio: ["pipe", "pipe", "pipe"],
     });
-    // Surface ffmpeg errors at debug; a real spawn failure propagates as
-    // an exit with a non-zero code which we catch below.
+    // Spawn-time failures (e.g. ffmpeg binary missing since the probe) arrive
+    // here as an async `error` event — Node does NOT surface them as a
+    // non-zero exit code. We need to (a) abort the outbound POST so the
+    // fetch call doesn't hang forever on the broken stdout stream, and
+    // (b) stamp the probe cache as unavailable so subsequent speaks reject
+    // immediately with the correct error code.
     ffmpeg.on("error", (err) => {
-      log.warn(
-        { err, meetingId: this.meetingId, streamId },
-        "ffmpeg transcode spawn/runtime error",
-      );
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr?.code === "ENOENT") {
+        log.warn(
+          { err, meetingId: this.meetingId, streamId },
+          "ffmpeg binary missing — invalidating probe cache",
+        );
+        this.ffmpegProbe = Promise.resolve({
+          available: false,
+          reason: "ffmpeg binary not found on PATH (ENOENT)",
+        });
+      } else {
+        log.warn(
+          { err, meetingId: this.meetingId, streamId },
+          "ffmpeg transcode spawn/runtime error",
+        );
+      }
+      abort.abort(err);
     });
     ffmpeg.stderr?.on("data", (chunk: Buffer) => {
       log.debug(
@@ -452,5 +496,58 @@ export class MeetTtsBridge {
     }
     // Drain any body the bot returned so the connection can be reused.
     await response.arrayBuffer().catch(() => {});
+  }
+
+  /**
+   * One-shot, memoized `ffmpeg -version` probe. Spawns ffmpeg with
+   * `-version` and waits for either an `exit` event (any exit code means
+   * "ffmpeg ran") or an `error` event (ENOENT means the binary is missing).
+   *
+   * The probe deliberately does not treat a non-zero exit code as
+   * unavailable — a user with a corrupted ffmpeg build would still hit the
+   * downstream transcode failure with a more specific error. We only
+   * surface the pre-flight "missing binary" case here so `meet_speak`
+   * callers can distinguish a missing dependency from a transient bot
+   * failure.
+   */
+  private ensureFfmpegAvailable(): Promise<FfmpegProbeResult> {
+    if (this.ffmpegProbe) return this.ffmpegProbe;
+    this.ffmpegProbe = new Promise<FfmpegProbeResult>((resolve) => {
+      let settled = false;
+      const settle = (result: FfmpegProbeResult): void => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      let child: ReturnType<SpawnFn>;
+      try {
+        child = this.deps.spawn("ffmpeg", ["-version"], {
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+      } catch (err) {
+        // Synchronous spawn failure — very unusual, but treat the same as
+        // an async ENOENT.
+        settle({
+          available: false,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+
+      child.on("error", (err) => {
+        const nodeErr = err as NodeJS.ErrnoException;
+        const reason =
+          nodeErr?.code === "ENOENT"
+            ? "ffmpeg binary not found on PATH (ENOENT)"
+            : `ffmpeg probe failed: ${err instanceof Error ? err.message : String(err)}`;
+        settle({ available: false, reason });
+      });
+      child.on("exit", () => {
+        // Any exit — zero or non-zero — means ffmpeg was runnable.
+        settle({ available: true });
+      });
+    });
+    return this.ffmpegProbe;
   }
 }

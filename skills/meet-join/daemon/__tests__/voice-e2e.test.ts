@@ -205,14 +205,29 @@ function makeFakeFfmpegChild(): FakeFfmpegChild {
 }
 
 function makeSpawnMock(): {
-  spawn: ReturnType<typeof mock>;
+  spawn: typeof import("node:child_process").spawn;
 } {
-  const spawn = mock(() => {
+  const spawn = mock((..._args: unknown[]) => {
+    // The ffmpeg -version probe is a separate spawn from the transcode
+    // pipeline. Respond with a synthetic exit so the probe cache reports
+    // "ffmpeg is available" without running the real binary.
+    const maybeArgs = _args[1];
+    const isProbe =
+      Array.isArray(maybeArgs) &&
+      maybeArgs.length === 1 &&
+      maybeArgs[0] === "-version";
+    if (isProbe) {
+      const child = makeFakeFfmpegChild();
+      setImmediate(() => child.emit("exit", 0, null));
+      return child as unknown as ReturnType<
+        typeof import("node:child_process").spawn
+      >;
+    }
     const child = makeFakeFfmpegChild();
     return child as unknown as ReturnType<
       typeof import("node:child_process").spawn
     >;
-  });
+  }) as unknown as typeof import("node:child_process").spawn;
   return { spawn };
 }
 
