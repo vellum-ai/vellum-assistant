@@ -562,6 +562,7 @@ class IOSConversationStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
             self.conversationListOffset = 0
+            self.hasMoreConversations = false
             self.conversationListGeneration += 1
             self.sendPageOneConversationList(daemon: daemon)
         }
