@@ -831,6 +831,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { paginationState.isShowAllMode }
         set {
             paginationState.isShowAllMode = newValue
+            // The sliding-window anchor is only consulted in show-all mode.
+            // Clear it when leaving show-all so a subsequent re-entry starts
+            // pinned to the newest slice instead of a stale older offset.
+            if !newValue { paginationState.windowOldestIndex = nil }
             paginationState.recomputeVisibleMessages(from: messageManager.messages)
         }
     }
@@ -901,6 +905,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public func resetMessagePagination() {
         paginationState.resetMessagePagination()
+    }
+
+    /// Reset the sliding window to the newest slice so new and streaming
+    /// messages are visible again. Invoked from the "Scroll to latest" CTAs
+    /// on both platforms before the scroll proxy is instructed to jump to
+    /// the latest anchor.
+    public func snapWindowToLatest() {
+        paginationState.snapWindowToLatest()
     }
 
     // MARK: - On-Demand Content Rehydration
@@ -2121,6 +2133,21 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             flushPartialOutputBuffer()
             var mergedMessages = chatMessages + self.messages
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            // Shift the sliding-window anchor by the visible prepend count so
+            // the user continues to see the same logical slice (with newly
+            // loaded older messages now above it) rather than drifting onto
+            // newer content. The anchor indexes into `displayedMessages`, so
+            // the shift must use the visibility-filtered count — a raw
+            // `chatMessages.count` would over-shift whenever the page
+            // contains subagent notifications or other filtered entries.
+            // A `nil` anchor means "pin to the newest slice" and stays that
+            // way through pagination.
+            if let anchor = paginationState.windowOldestIndex {
+                let visiblePrepended = ChatVisibleMessageFilter
+                    .visibleMessages(from: chatMessages)
+                    .count
+                paginationState.windowOldestIndex = anchor + visiblePrepended
+            }
             self.messages = mergedMessages
             // Expand the display window by the number of messages prepended so
             // the user sees them immediately. Enter show-all mode when no more
