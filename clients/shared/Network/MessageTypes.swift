@@ -2090,6 +2090,14 @@ extension ImageGenModelSetRequest {
 /// Backed by generated `ModelInfo`.
 public typealias ModelInfoMessage = ModelInfo
 
+// MARK: - Equatable conformance for generated types
+// Added here (not in GeneratedAPITypes.swift) because generated files must not
+// be edited manually. All stored properties are already Equatable, so Swift
+// auto-synthesizes the conformance.
+
+extension CatalogModel: Equatable {}
+extension ModelInfo: Equatable {}
+
 // MARK: - Vercel API Config Messages
 
 /// Response from Vercel API config operations.
