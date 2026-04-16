@@ -22,7 +22,6 @@ import { registerConversationsCommand } from "./commands/conversations.js";
 import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
-import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
 import { registerKeysCommand } from "./commands/keys.js";
@@ -59,8 +58,7 @@ export async function buildCliProgram(): Promise<Command> {
 Examples:
   $ assistant auth info          Show platform identity and auth status
   $ assistant config list        List all configuration values
-  $ assistant keys list          List stored API keys
-  $ assistant doctor             Run diagnostic checks`,
+  $ assistant keys list          List stored API keys`,
   );
 
   registerDefaultAction(program);
@@ -76,7 +74,6 @@ Examples:
   registerAuditCommand(program);
   registerAuthCommand(program);
   registerAvatarCommand(program);
-  registerDoctorCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
