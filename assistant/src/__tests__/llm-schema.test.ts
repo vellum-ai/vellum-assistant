@@ -60,6 +60,42 @@ describe("LLMSchema", () => {
     expect(parsed.pricingOverrides).toEqual([]);
   });
 
+  test("empty `llm: {}` parses with all schema defaults applied", () => {
+    // Critical regression guard: every leaf of LLMConfigBase has a
+    // schema-level default, so `LLMSchema.parse({})` must return a
+    // fully-populated object. This is what lets the loader's leaf-deletion
+    // recovery path repair partially invalid `llm` blocks instead of falling
+    // through to `cloneDefaultConfig()` and discarding unrelated valid
+    // settings.
+    const parsed = LLMSchema.parse({});
+    expect(parsed.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+      maxTokens: 64000,
+      effort: "max",
+      speed: "standard",
+      temperature: null,
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        enabled: true,
+        maxInputTokens: 200000,
+        targetBudgetRatio: 0.3,
+        compactThreshold: 0.8,
+        summaryBudgetRatio: 0.05,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0.05,
+          maxAttempts: 3,
+          interactiveLatestTurnCompression: "summarize",
+          nonInteractiveLatestTurnCompression: "truncate",
+        },
+      },
+    });
+    expect(parsed.profiles).toEqual({});
+    expect(parsed.callSites).toEqual({});
+    expect(parsed.pricingOverrides).toEqual([]);
+  });
+
   test("invalid provider rejected", () => {
     const result = LLMSchema.safeParse({
       default: { ...fullDefault, provider: "bogus-provider" },
