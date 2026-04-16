@@ -20,7 +20,7 @@ public final class ChatPaginationState {
     /// Upper bound on the number of items passed to the ForEach.
     /// When the conversation has more messages than this, the view
     /// only renders a sliding suffix of this many items.
-    public static let maxPaginatedWindowSize = 200
+    public static let maxPaginatedWindowSize = 400
 
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
