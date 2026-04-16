@@ -181,21 +181,14 @@ struct EmbeddingServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let currentMask = providerMaskedKey
-        let placeholder: String = {
-            if !currentMask.isEmpty {
-                return currentMask
-            }
-            return "Enter your API key"
-        }()
-        return VTextField(
-            "API Key",
-            placeholder: placeholder,
+        APIKeyTextField(
+            label: "API Key",
+            hasKey: !providerMaskedKey.isEmpty,
             text: $apiKeyText,
-            isSecure: true,
+            maskedPlaceholder: providerMaskedKey.isEmpty ? "••••••••••••••••" : providerMaskedKey,
             errorMessage: store.embeddingKeySaveError
         )
-        .id("embedding-api-key-\(draftProvider)-\(placeholder)")
+        .id("embedding-api-key-\(draftProvider)-\(providerMaskedKey)")
     }
 
     // MARK: - Model Field

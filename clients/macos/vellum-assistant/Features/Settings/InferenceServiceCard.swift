@@ -330,20 +330,11 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let placeholder: String = {
-            if providerHasKey {
-                return "••••••••••••••••"
-            }
-            if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
-                return providerPlaceholder
-            }
-            return "Enter your API key"
-        }()
-        return VTextField(
-            "\(providerDisplayName) API Key",
-            placeholder: placeholder,
+        APIKeyTextField(
+            label: "\(providerDisplayName) API Key",
+            hasKey: providerHasKey,
             text: $apiKeyText,
-            isSecure: true,
+            emptyPlaceholder: store.dynamicProviderApiKeyPlaceholder(effectiveProvider) ?? "Enter your API key",
             errorMessage: store.apiKeySaveError
         )
         .disabled(store.apiKeySaving)
