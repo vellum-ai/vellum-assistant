@@ -2157,18 +2157,35 @@ public final class SettingsStore: ObservableObject {
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
     func loadServiceModes(config: [String: Any]) {
-        guard let services = config["services"] as? [String: Any] else { return }
-        if let inference = services["inference"] as? [String: Any] {
-            if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            // Only apply local config provider/model as a fallback when the daemon
-            // hasn't yet reported an authoritative value. Once the daemon responds
-            // via applyModelInfoResponse, its values take precedence over local
-            // config which may be stale (especially for remote assistants).
-            if lastDaemonProvider == nil,
-               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-            if lastDaemonProvider == nil,
-               let model = inference["model"] as? String { self.selectedModel = model }
+        // Resolve inference provider/model with `llm.default.*` as the
+        // canonical source (PR 4 backfills it from `services.inference`).
+        // Fall back to `services.inference.{provider,model}` for unmigrated
+        // configs — defensive, since the migration should have run for
+        // existing users but skips early-return cases (missing config,
+        // malformed JSON, etc.).
+        let services = config["services"] as? [String: Any]
+        let llmDefault = (config["llm"] as? [String: Any])?["default"] as? [String: Any]
+        let inference = services?["inference"] as? [String: Any]
+
+        // Inference mode remains under `services.inference.mode` — it is an
+        // inference-delivery setting (managed vs. your-own), not part of the
+        // LLM model config.
+        if let inference, let mode = inference["mode"] as? String {
+            self.inferenceMode = mode
         }
+        // Only apply local config provider/model as a fallback when the daemon
+        // hasn't yet reported an authoritative value. Once the daemon responds
+        // via applyModelInfoResponse, its values take precedence over local
+        // config which may be stale (especially for remote assistants).
+        if lastDaemonProvider == nil {
+            if let provider = (llmDefault?["provider"] as? String) ?? (inference?["provider"] as? String) {
+                self.selectedInferenceProvider = provider
+            }
+            if let model = (llmDefault?["model"] as? String) ?? (inference?["model"] as? String) {
+                self.selectedModel = model
+            }
+        }
+        guard let services else { return }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {
                 self.imageGenMode = mode
@@ -2930,6 +2947,9 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    // TODO PR 19: remove. Superseded by setLLMDefaultProvider — kept for any
+    // legacy callers / tests that still write to `services.inference.provider`
+    // directly while the unification rollout is in progress.
     @discardableResult
     func setInferenceProvider(_ provider: String) -> Task<Bool, Never> {
         selectedInferenceProvider = provider
@@ -2939,6 +2959,63 @@ public final class SettingsStore: ObservableObject {
             ])
             if !success {
                 log.error("Failed to patch config for inference provider")
+            }
+            return success
+        }
+        scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    /// Persists the selected default LLM provider to the daemon config under
+    /// the unified `llm.default.provider` key. This is the canonical write
+    /// path now that the workspace migration consolidates LLM call-site
+    /// settings under `llm.*` (see PR 4 of the unify-llm-callsites plan).
+    @discardableResult
+    func setLLMDefaultProvider(_ provider: String) -> Task<Bool, Never> {
+        selectedInferenceProvider = provider
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "llm": ["default": ["provider": provider]]
+            ])
+            if !success {
+                log.error("Failed to patch config for llm.default.provider")
+            }
+            return success
+        }
+        scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    /// Persists the default LLM provider+model pair under `llm.default`.
+    /// Both keys are written together so the daemon's read-modify-write cycle
+    /// observes a consistent pair.
+    @discardableResult
+    func setLLMDefaultModel(
+        _ model: String,
+        provider: String,
+        force: Bool = false
+    ) -> Task<Bool, Never> {
+        if !force {
+            let modelUnchanged = model == lastDaemonModel
+            let providerUnchanged = provider == lastDaemonProvider
+            if modelUnchanged && providerUnchanged {
+                return Task { true }
+            }
+        }
+        lastDaemonModel = model
+        lastDaemonProvider = provider
+        selectedModel = model
+        selectedInferenceProvider = provider
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "llm": ["default": ["provider": provider, "model": model]]
+            ])
+            if !success {
+                log.error("Failed to patch config for llm.default.{provider,model}")
+                if lastDaemonModel == model {
+                    lastDaemonModel = nil
+                    lastDaemonProvider = nil
+                }
             }
             return success
         }
@@ -3464,6 +3541,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Actions
 
+    // TODO PR 19: remove. Superseded by setLLMDefaultModel — kept for any
+    // legacy callers (e.g. routes through the daemon's set-model HTTP endpoint
+    // which still enriches state via applyModelInfoResponse) while the
+    // unification rollout is in progress.
     func setModel(_ model: String, provider: String? = nil, force: Bool = false) {
         // Skip if neither model nor provider changed (unless forced,
         // e.g. after an inference-mode switch that requires re-persisting

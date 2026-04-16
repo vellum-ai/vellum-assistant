@@ -398,7 +398,7 @@ struct InferenceServiceCard: View {
         // match initialProvider (ensures config stays consistent).
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
         let providerChanged = persistProvider != initialProvider || modeChanged
-        let pendingProvider = providerChanged ? store.setInferenceProvider(persistProvider) : nil
+        let pendingProvider = providerChanged ? store.setLLMDefaultProvider(persistProvider) : nil
         if providerChanged {
             initialProvider = persistProvider
         }
@@ -431,7 +431,11 @@ struct InferenceServiceCard: View {
         Task {
             if let pendingMode { _ = await pendingMode.value }
             if let pendingProvider { _ = await pendingProvider.value }
-            store.setModel(capturedModel, provider: saveProvider, force: forceSend)
+            _ = await store.setLLMDefaultModel(
+                capturedModel,
+                provider: saveProvider,
+                force: forceSend
+            ).value
         }
         initialModel = draftModel
     }
