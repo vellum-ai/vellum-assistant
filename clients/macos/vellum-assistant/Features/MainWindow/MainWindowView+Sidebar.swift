@@ -322,9 +322,14 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let groupEntries = conversationManager.sidebarGroupEntries
-            let systemEntries = groupEntries.filter { $0.group.isSystemGroup }
-            let customEntries = groupEntries.filter { !$0.group.isSystemGroup }
+            // Read the pre-partitioned system/custom arrays from the store
+            // rather than re-filtering `sidebarGroupEntries` on every layout
+            // pass. Inline `.filter` allocations produce new array identities
+            // each render and force `ForEachState.update` to re-diff every
+            // entry via `KeyPath._projectReadOnly`, which is the stall
+            // reported in Sentry (LUM-919).
+            let systemEntries = conversationManager.systemSidebarGroupEntries
+            let customEntries = conversationManager.customSidebarGroupEntries
 
             ForEach(systemEntries) { entry in
                 makeSectionView(group: entry.group, conversations: entry.conversations)
@@ -346,7 +351,7 @@ extension MainWindowView {
             // so we treat them as fitting — in the rare case they have >5 subgroups
             // they already have their own "Show more", and the extra fetch is benign.
             let maxCollapsed = 5
-            let allSectionsFit = groupEntries.allSatisfy { entry in
+            let allSectionsFit = conversationManager.sidebarGroupEntries.allSatisfy { entry in
                 entry.group.id == ConversationGroup.pinned.id
                     || entry.group.id == ConversationGroup.scheduled.id
                     || entry.group.id == ConversationGroup.background.id
