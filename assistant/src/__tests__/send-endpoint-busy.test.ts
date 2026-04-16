@@ -322,6 +322,10 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     eventHub = new AssistantEventHub();
   });
 
+  afterEach(async () => {
+    await server?.stop();
+  });
+
   async function startServer(
     conversationFactory: () => Conversation,
     options?: { approvalConversationGenerator?: ApprovalConversationGenerator },
