@@ -219,7 +219,7 @@ final class MessageSendCoordinator {
                 messageManager.isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
                 userMsg.isHidden = hidden
-                messageManager.messages.append(userMsg)
+                messageManager.batchUpdateMessages { $0.append(userMsg) }
                 messageManager.pendingSkillInvocation = nil
                 messageManager.inputText = ""
                 messageManager.suggestion = nil
@@ -265,7 +265,7 @@ final class MessageSendCoordinator {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
             var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
             userMessage.isHidden = hidden
-            messageManager.messages.append(userMessage)
+            messageManager.batchUpdateMessages { $0.append(userMessage) }
             if willBeQueued {
                 delegate.pendingMessageIds.append(userMessage.id)
                 queuedMessageId = userMessage.id

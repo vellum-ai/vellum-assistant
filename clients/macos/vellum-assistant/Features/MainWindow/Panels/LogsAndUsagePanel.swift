@@ -18,7 +18,7 @@ enum LogsAndUsageTab: String {
 @MainActor
 struct LogsAndUsagePanel: View {
     @ObservedObject var traceStore: TraceStore
-    @ObservedObject var connectionManager: GatewayConnectionManager
+    var connectionManager: GatewayConnectionManager
     let activeSessionId: String?
     let usageDashboardStore: UsageDashboardStore
     var onClose: () -> Void
@@ -108,7 +108,7 @@ struct LogsAndUsagePanel: View {
 @MainActor
 struct LogsTabContent: View {
     @ObservedObject var traceStore: TraceStore
-    @ObservedObject var connectionManager: GatewayConnectionManager
+    var connectionManager: GatewayConnectionManager
     let activeSessionId: String?
 
     @State private var loadingConversationId: String?

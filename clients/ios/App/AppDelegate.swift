@@ -33,15 +33,14 @@ final class ClientProvider: ObservableObject {
     /// has been replaced.
     @Published var clientGeneration: UInt = 0
     /// Mirrors the daemon client's `isConnected` state so views can observe a
-    /// single source of truth. Automatically synced via Combine when the
-    /// underlying client is a `GatewayConnectionManager`.
+    /// single source of truth. Automatically synced via observation tracking when
+    /// the underlying client changes.
     @Published var isConnected: Bool = false
 
-    /// Cancellable subscription for the Combine bridge. Stored so we can
-    /// cancel it before creating a new one in `rebuildClient()` — prevents
-    /// old GatewayConnectionManager subscriptions from accumulating and writing stale
-    /// state to `isConnected`.
-    private var isConnectedSubscription: AnyCancellable?
+    /// Task for the observation bridge. Stored so we can cancel it before
+    /// creating a new one in `rebuildClient()` — prevents old observation
+    /// loops from writing stale state to `isConnected`.
+    private var isConnectedObservationTask: Task<Void, Never>?
 
     /// Task running the SSE subscribe loop that ingests trace events.
     private var traceSubscriptionTask: Task<Void, Never>?
@@ -87,17 +86,14 @@ final class ClientProvider: ObservableObject {
     }
 
     private func bindCombineBridge() {
-        isConnectedSubscription?.cancel()
-        isConnectedSubscription = nil
-        if let daemon = client as? GatewayConnectionManager {
-            // Bridge GatewayConnectionManager's @Published isConnected to our own.
-            // Both types are @MainActor so the publisher already emits on the
-            // main actor — no receive(on:) needed. Using sink with [weak self]
-            // to avoid a retain cycle (assign(to:on:) holds a strong ref).
-            isConnectedSubscription = daemon.$isConnected
-                .sink { [weak self] value in
-                    self?.isConnected = value
-                }
+        isConnectedObservationTask?.cancel()
+        isConnectedObservationTask = nil
+        let daemon = client
+        isConnectedObservationTask = Task { @MainActor [weak self] in
+            for await connected in observationStream({ daemon.isConnected }) {
+                guard let self, !Task.isCancelled else { break }
+                self.isConnected = connected
+            }
         }
     }
 

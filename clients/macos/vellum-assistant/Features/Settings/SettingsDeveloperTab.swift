@@ -1283,7 +1283,7 @@ struct SettingsDeveloperTab: View {
 // MARK: - Daemon Status Rows (Developer Tab)
 
 private struct DeveloperStatusRows: View {
-    @ObservedObject var connectionManager: GatewayConnectionManager
+    var connectionManager: GatewayConnectionManager
 
     var body: some View {
         statusRow(
