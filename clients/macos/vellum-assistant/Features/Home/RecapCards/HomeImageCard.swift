@@ -80,12 +80,9 @@ struct HomeImageCard: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(height: 32)
+                    .background(Capsule().fill(VColor.primaryBase))
             }
             .buttonStyle(.plain)
-            .background(
-                Capsule()
-                    .fill(VColor.primaryBase)
-            )
 
             Button(action: onOpenInFinder) {
                 Text("Open in Finder")
@@ -94,12 +91,12 @@ struct HomeImageCard: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(height: 32)
+                    .background(
+                        Capsule()
+                            .strokeBorder(VColor.borderBase, lineWidth: 1)
+                    )
             }
             .buttonStyle(.plain)
-            .background(
-                Capsule()
-                    .strokeBorder(VColor.borderBase, lineWidth: 1)
-            )
 
             Spacer()
         }
