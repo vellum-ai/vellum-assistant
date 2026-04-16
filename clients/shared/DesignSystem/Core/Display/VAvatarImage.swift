@@ -18,7 +18,7 @@ public struct VAvatarImage: View {
     private let isTransparent: Bool
 
     /// Alpha byte value at or above which a pixel is considered opaque.
-    /// ceil(0.95 * 255) = 243, matching the original `< 0.95` float threshold.
+    /// Derived from `ceil(0.95 * 255) = 243`.
     private static let alphaOpaqueThreshold: UInt8 = 243
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
@@ -58,11 +58,10 @@ public struct VAvatarImage: View {
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
     ///
-    /// Uses `CGContext` bitmap rendering for direct pixel access instead of
-    /// `NSImage.tiffRepresentation`, which triggers the full TIFF encoding
-    /// pipeline on the main thread (~2000ms for large images).
-    ///
-    /// Reference: https://developer.apple.com/documentation/appkit/nsimage/cgimage(forproposedRect:context:hints:)
+    /// Converts the image to a `CGImage`, then draws it into a known-layout
+    /// 32-bit BGRA `CGContext` to read alpha bytes at predictable offsets.
+    /// Samples 8 points (corners + edge midpoints) and returns `true` if
+    /// any sample falls below ``alphaOpaqueThreshold``.
     private static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
         guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
