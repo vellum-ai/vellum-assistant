@@ -1881,6 +1881,19 @@ export class RuntimeHttpServer {
               metadata: body.metadata as Record<string, unknown> | undefined,
               observedAt: body.observedAt as number | undefined,
             });
+            assistantEventHub
+              .publish(
+                buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                  type: "conversation_list_invalidated",
+                  reason: "seen_changed",
+                }),
+              )
+              .catch((err) => {
+                log.warn(
+                  { err },
+                  "Failed to publish conversation_list_invalidated (seen_changed)",
+                );
+              });
             return Response.json({ ok: true });
           } catch (err) {
             log.error(
@@ -1913,6 +1926,19 @@ export class RuntimeHttpServer {
             );
           try {
             markConversationUnread(conversationId);
+            assistantEventHub
+              .publish(
+                buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                  type: "conversation_list_invalidated",
+                  reason: "seen_changed",
+                }),
+              )
+              .catch((err) => {
+                log.warn(
+                  { err },
+                  "Failed to publish conversation_list_invalidated (seen_changed)",
+                );
+              });
             return Response.json({ ok: true });
           } catch (err) {
             if (err instanceof UserError) {
