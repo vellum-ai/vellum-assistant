@@ -397,6 +397,7 @@ struct ChatView: View {
                 hasMoreMessages: viewModel.hasMoreMessages,
                 isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
                 loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
+                onSnapWindowToLatest: { viewModel.snapWindowToLatest() },
                 // -- Scroll state inputs --
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,

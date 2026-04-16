@@ -64,6 +64,9 @@ struct MessageListView: View {
     var isLoadingMoreMessages: Bool = false
     /// Callback to load the next older page of messages.
     var loadPreviousMessagePage: (() async -> Bool)?
+    /// Callback invoked by the "Scroll to latest" CTA to reset the sliding
+    /// pagination window to the newest slice before the scroll executes.
+    var onSnapWindowToLatest: (() -> Void)?
 
     var conversationId: UUID?
     /// When set, scroll to this message ID and clear the binding.
@@ -158,7 +161,15 @@ struct MessageListView: View {
             .overlay(alignment: .bottom) {
                 // Inverted scroll: SwiftUI's .top edge maps to the visual bottom
                 // (latest messages), so we scroll to .top to reach them.
-                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: { scrollPosition = ScrollPosition(edge: .top) })
+                ScrollToLatestOverlayView(scrollState: scrollState, onScrollToBottom: {
+                    // Reset the sliding window to the latest slice before
+                    // scrolling so the CTA always lands on the actual newest
+                    // messages — not the newest message that happened to be
+                    // in the previously anchored window. No-op when the
+                    // window is already pinned to latest.
+                    onSnapWindowToLatest?()
+                    scrollPosition = ScrollPosition(edge: .top)
+                })
             }
             .onAppear {
                 handleAppear()

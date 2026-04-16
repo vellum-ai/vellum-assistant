@@ -27,14 +27,32 @@ private struct ScrollViewportHeightKey: PreferenceKey {
     }
 }
 
+/// Where a pending anchor target sits relative to the currently rendered
+/// paginated window. Used by the fork/deep-link resolution machinery to
+/// decide whether the ForEach already contains the target, or whether the
+/// sliding window must shift (older/newer) first.
+enum PendingChatAnchorWindowPosition: Equatable {
+    /// Target is inside `paginatedVisibleMessages`; the view can scroll to it.
+    case inWindow
+    /// Target is in `displayedMessages` but above the current window — the
+    /// caller should page older (either grow the non-show-all suffix or
+    /// shift the sliding window older) and re-resolve.
+    case olderThanWindow
+    /// Target is in `displayedMessages` but below the current window — the
+    /// caller should snap the window to the latest slice and re-resolve.
+    /// Only reachable in show-all mode with a concrete `windowOldestIndex`.
+    case newerThanWindow
+}
+
 struct PendingChatAnchorResolution: Equatable {
     let localMessageId: UUID
-    let requiresExpandedWindow: Bool
+    let windowPosition: PendingChatAnchorWindowPosition
 }
 
 enum PendingChatAnchorSearchStep: Equatable {
-    case scroll(localMessageId: UUID, requiresExpandedWindow: Bool)
+    case scroll(localMessageId: UUID)
     case loadOlderPage
+    case snapToLatest
     case consume
 }
 
@@ -53,47 +71,76 @@ func makeOnForkFromMessageAction(
     }
 }
 
+/// Locate `daemonMessageId` within the currently loaded messages and report
+/// where it sits relative to the rendered paginated window. `paginatedVisibleMessages`
+/// is always a contiguous slice of `displayedMessages`; the window's position
+/// inside the full array is inferred from the slice's first/last ids.
 func resolvePendingChatAnchor(
     daemonMessageId: String,
     displayedMessages: [ChatMessage],
-    displayedMessageCount: Int,
-    isShowAllMode: Bool
+    paginatedVisibleMessages: [ChatMessage]
 ) -> PendingChatAnchorResolution? {
     guard let messageIndex = displayedMessages.firstIndex(where: { $0.daemonMessageId == daemonMessageId }) else {
         return nil
     }
+    let localMessageId = displayedMessages[messageIndex].id
 
-    let visibleCount = isShowAllMode
-        ? displayedMessages.count
-        : min(displayedMessageCount, displayedMessages.count)
-    let visibleStartIndex = max(0, displayedMessages.count - visibleCount)
+    // Window = full array → target is in the window.
+    if paginatedVisibleMessages.count == displayedMessages.count {
+        return PendingChatAnchorResolution(
+            localMessageId: localMessageId,
+            windowPosition: .inWindow
+        )
+    }
 
+    // Locate the window inside `displayedMessages`. Fall back to the suffix
+    // position (the default slice shape) if the first id can't be matched,
+    // which preserves the old non-show-all behavior.
+    let windowStart: Int = {
+        if let firstId = paginatedVisibleMessages.first?.id,
+           let start = displayedMessages.firstIndex(where: { $0.id == firstId }) {
+            return start
+        }
+        return max(0, displayedMessages.count - paginatedVisibleMessages.count)
+    }()
+    let windowEnd = windowStart + paginatedVisibleMessages.count
+
+    let position: PendingChatAnchorWindowPosition
+    if messageIndex < windowStart {
+        position = .olderThanWindow
+    } else if messageIndex >= windowEnd {
+        position = .newerThanWindow
+    } else {
+        position = .inWindow
+    }
     return PendingChatAnchorResolution(
-        localMessageId: displayedMessages[messageIndex].id,
-        requiresExpandedWindow: !isShowAllMode && messageIndex < visibleStartIndex
+        localMessageId: localMessageId,
+        windowPosition: position
     )
 }
 
 func nextPendingChatAnchorSearchStep(
     daemonMessageId: String,
     displayedMessages: [ChatMessage],
-    displayedMessageCount: Int,
-    isShowAllMode: Bool,
+    paginatedVisibleMessages: [ChatMessage],
     hasMoreMessages: Bool
 ) -> PendingChatAnchorSearchStep {
     guard let resolution = resolvePendingChatAnchor(
         daemonMessageId: daemonMessageId,
         displayedMessages: displayedMessages,
-        displayedMessageCount: displayedMessageCount,
-        isShowAllMode: isShowAllMode
+        paginatedVisibleMessages: paginatedVisibleMessages
     ) else {
         return hasMoreMessages ? .loadOlderPage : .consume
     }
 
-    return .scroll(
-        localMessageId: resolution.localMessageId,
-        requiresExpandedWindow: resolution.requiresExpandedWindow
-    )
+    switch resolution.windowPosition {
+    case .inWindow:
+        return .scroll(localMessageId: resolution.localMessageId)
+    case .olderThanWindow:
+        return .loadOlderPage
+    case .newerThanWindow:
+        return .snapToLatest
+    }
 }
 
 struct ChatContentView: View {
@@ -123,13 +170,12 @@ struct ChatContentView: View {
     /// Task for the staged scroll-to-bottom retry on conversation switch.
     @State private var scrollRestoreTask: Task<Void, Never>?
 
-    /// The slice of messages shown in the view, honoring the pagination window.
+    /// Bounded slice of messages rendered by the ForEach. Delegates to the
+    /// shared pagination state on the view model so the ForEach item count
+    /// stays under `ChatPaginationState.maxPaginatedWindowSize` regardless
+    /// of conversation length.
     private var visibleMessages: [ChatMessage] {
-        let all = viewModel.displayedMessages
-        // In show-all mode, return all messages so new incoming messages stay visible
-        // and previously loaded history doesn't vanish.
-        guard !viewModel.isShowAllMode && viewModel.displayedMessageCount < all.count else { return all }
-        return Array(all.suffix(viewModel.displayedMessageCount))
+        viewModel.paginatedVisibleMessages
     }
 
     private var hasPendingAnchor: Bool {
@@ -351,6 +397,10 @@ struct ChatContentView: View {
                 // content fits on screen.
                 if !isNearBottom && lastAnchorMinY > scrollViewportHeight + 20 {
                     Button(action: {
+                        // Snap the pagination window to the newest slice so
+                        // the scroll lands on the current tail, not the tail
+                        // of a paginated-back window.
+                        viewModel.snapWindowToLatest()
                         isNearBottom = true
                         withAnimation(VAnimation.standard) {
                             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -819,19 +869,10 @@ struct ChatContentView: View {
                 switch nextPendingChatAnchorSearchStep(
                     daemonMessageId: pendingAnchorDaemonMessageId,
                     displayedMessages: viewModel.displayedMessages,
-                    displayedMessageCount: viewModel.displayedMessageCount,
-                    isShowAllMode: viewModel.isShowAllMode,
+                    paginatedVisibleMessages: viewModel.paginatedVisibleMessages,
                     hasMoreMessages: viewModel.hasMoreMessages
                 ) {
-                case let .scroll(localMessageId, requiresExpandedWindow):
-                    if requiresExpandedWindow {
-                        viewModel.isShowAllMode = true
-                        viewModel.displayedMessageCount = viewModel.displayedMessages.count
-                        try? await Task.sleep(nanoseconds: 50_000_000)
-                        guard !Task.isCancelled else { return }
-                        continue
-                    }
-
+                case let .scroll(localMessageId):
                     withAnimation(.easeOut(duration: 0.3)) {
                         proxy.scrollTo(localMessageId, anchor: .center)
                     }
@@ -853,6 +894,16 @@ struct ChatContentView: View {
                     if viewModel.isLoadingMoreMessages {
                         return
                     }
+
+                case .snapToLatest:
+                    // Target lives below the current window (only possible in
+                    // show-all mode after the user paginated back). Reset the
+                    // window so the target becomes part of the rendered slice,
+                    // then re-resolve on the next loop iteration.
+                    viewModel.snapWindowToLatest()
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard !Task.isCancelled else { return }
+                    continue
 
                 case .consume:
                     onPendingAnchorHandled?(pendingAnchorRequestId)
