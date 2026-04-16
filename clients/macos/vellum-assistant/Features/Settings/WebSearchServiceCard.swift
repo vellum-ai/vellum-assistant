@@ -217,9 +217,11 @@ struct WebSearchServiceCard: View {
     // MARK: - API Key Section
 
     private var apiKeySection: some View {
-        VTextField(
+        let hasKey = isPerplexity ? perplexityHasKey : braveHasKey
+        let placeholder = hasKey ? "••••••••••••••••" : "Enter your API key"
+        return VTextField(
             "API Key",
-            placeholder: "Enter your API key",
+            placeholder: placeholder,
             text: isPerplexity ? $perplexityKeyText : $braveKeyText,
             isSecure: true,
             errorMessage: isPerplexity ? store.perplexityKeySaveError : store.braveKeySaveError,
