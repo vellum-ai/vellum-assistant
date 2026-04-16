@@ -282,7 +282,7 @@ async function identifyDuplicateGroups(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
       },
     },
@@ -459,7 +459,7 @@ async function consolidateChunk(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "consolidate_diff" },
       },
     },
