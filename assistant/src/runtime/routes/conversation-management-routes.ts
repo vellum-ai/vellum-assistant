@@ -752,6 +752,19 @@ export function conversationManagementRouteDefinitions(
             groupId: u.groupId,
           })),
         );
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "reordered",
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated (reordered)",
+            );
+          });
         return Response.json({ ok: true });
       },
     },
