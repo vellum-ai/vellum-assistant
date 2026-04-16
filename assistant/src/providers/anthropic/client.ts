@@ -747,7 +747,11 @@ export class AnthropicProvider implements Provider {
         max_tokens: callerMaxTokens,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
-        effort?: Anthropic.OutputConfig["effort"];
+        // "xhigh" is an intermediate tier between "high" and "max" supported
+        // by newer Anthropic models (e.g. Opus 4.7). The SDK's OutputConfig
+        // type doesn't yet include it, so we widen to the internal effort
+        // union and cast when building mergedOutputConfig.
+        effort?: "low" | "medium" | "high" | "xhigh" | "max";
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
       };
@@ -761,7 +765,9 @@ export class AnthropicProvider implements Provider {
       const supportsEffort = !isHaiku;
       const mergedOutputConfig = {
         ...(output_config ?? {}),
-        ...(effort && supportsEffort ? { effort } : {}),
+        ...(effort && supportsEffort
+          ? { effort: effort as Anthropic.OutputConfig["effort"] }
+          : {}),
       };
       // Build cache_control objects: Haiku doesn't support the extended
       // cache TTL beta, so omit the ttl field for Haiku models.

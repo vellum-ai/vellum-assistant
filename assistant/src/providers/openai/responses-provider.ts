@@ -22,11 +22,13 @@ export interface OpenAIResponsesProviderOptions {
   streamTimeoutMs?: number;
 }
 
-/** Map our internal effort values to the Responses API reasoning.effort parameter. */
+/** Map our internal effort values to the Responses API reasoning.effort parameter.
+ *  The Responses API caps at "high", so "xhigh" and "max" both collapse to "high". */
 const EFFORT_TO_REASONING_EFFORT: Record<string, "low" | "medium" | "high"> = {
   low: "low",
   medium: "medium",
   high: "high",
+  xhigh: "high",
   max: "high",
 };
 

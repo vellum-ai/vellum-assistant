@@ -1345,6 +1345,13 @@ describe("OpenAIProvider reasoning_effort", () => {
     expect(lastCreateParams!.reasoning_effort).toBe("high");
   });
 
+  test('effort: "xhigh" maps to reasoning_effort: "high"', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "xhigh" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+  });
+
   test("no effort config means no reasoning_effort in params", async () => {
     await provider.sendMessage([userMsg("hi")], undefined, "system", {
       config: {},

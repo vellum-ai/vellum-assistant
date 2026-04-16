@@ -499,6 +499,19 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
   });
 
+  test('effort: "xhigh" maps to reasoning: { effort: "high" }', async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { effort: "xhigh" } },
+    );
+
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
+  });
+
   test("no effort config means no reasoning in params", async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
