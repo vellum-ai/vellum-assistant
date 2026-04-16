@@ -91,16 +91,35 @@ struct HomeGallerySection: View {
                 )
 
                 VCard {
-                    HomePermissionCard(
-                        title: "Permission Required",
-                        threadName: "Project Setup",
-                        toolActionTitle: "Run shell command",
-                        toolActionDescription: "npm install --save-dev typescript",
-                        showDismiss: false,
-                        onAuthorise: {},
-                        onDeny: {},
-                        onDismiss: nil
-                    )
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("With content")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomePermissionCard(
+                            title: "Need your permission here my man",
+                            threadName: "Thread Name",
+                            toolActionTitle: "Looking at the most recent files in your Downloads Folder",
+                            toolActionDescription: "Allow running a command on your computer looking at the most recent files in your Downloads folder?",
+                            onAuthorise: {},
+                            onDeny: {},
+                            onDismiss: {}
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Without content")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomePermissionCard(
+                            title: "Need your permission to continue",
+                            threadName: "Thread Name",
+                            onAuthorise: {},
+                            onDeny: {},
+                            onDismiss: {}
+                        )
+                    }
                 }
             }
 
