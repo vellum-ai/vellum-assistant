@@ -147,22 +147,29 @@ jobs:
           TRIGGERED_DIGEST=$(docker buildx imagetools inspect "${TRIGGERED_IMAGE}:${IMMUTABLE_TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "Triggered service digest (${WF_NAME}): ${TRIGGERED_DIGEST}"
 
-          # Look up the head_sha of the most recent CI run whose
-          # push-dev-manifest job succeeded. We can't filter by overall
-          # run status=success because the :dev tag is pushed by the
-          # push-dev-manifest job, which can succeed even when unrelated
-          # jobs in the same run fail.
-          get_latest_dev_pusher_sha() {
+          # Look up the most recent CI run whose push-dev-manifest job
+          # succeeded and return its head_sha and immutable image tag.
+          # We can't filter by overall run status=success because the
+          # :dev tag is pushed by push-dev-manifest, which can succeed
+          # even when unrelated jobs in the same run fail.
+          # Outputs two lines: head_sha, then the immutable tag.
+          get_latest_dev_pusher_info() {
             local wf_file="$1"
             local run_ids
-            run_ids=$(gh api "repos/${REPO}/actions/workflows/${wf_file}/runs?branch=main&per_page=5" \
+            run_ids=$(gh api "repos/${REPO}/actions/workflows/${wf_file}/runs?branch=main&per_page=20" \
               --jq '.workflow_runs[].id')
             for rid in $run_ids; do
               local manifest_ok
               manifest_ok=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
                 --jq '[.jobs[] | select(.name | startswith("Push Dev Manifest")) | .conclusion] | first')
               if [ "$manifest_ok" = "success" ]; then
-                gh api "repos/${REPO}/actions/runs/${rid}" --jq '.head_sha'
+                local info
+                info=$(gh api "repos/${REPO}/actions/runs/${rid}" --jq '[.head_sha, (.run_number | tostring)] | join(" ")')
+                local sha run_num
+                sha="${info%% *}"
+                run_num="${info##* }"
+                echo "${sha}"
+                echo "dev.${run_num}.${sha:0:7}"
                 return
               fi
             done
@@ -170,28 +177,36 @@ jobs:
             exit 1
           }
 
+          # Resolve SHA and digest for a non-triggered service using its
+          # immutable tag (not the floating :dev tag) so the two are
+          # guaranteed to come from the same CI run.
+          resolve_service() {
+            local wf_file="$1" image="$2"
+            local info sha tag
+            info=$(get_latest_dev_pusher_info "$wf_file")
+            sha=$(echo "$info" | sed -n '1p')
+            tag=$(echo "$info" | sed -n '2p')
+            local digest
+            digest=$(docker buildx imagetools inspect "${image}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+            echo "${sha} ${digest}"
+          }
+
           case "$WF_NAME" in
             *Assistant*)
               ASSISTANT_SHA="$TRIGGERED_SHA"
               ASSISTANT_DIGEST="$TRIGGERED_DIGEST"
-              GATEWAY_SHA=$(get_latest_dev_pusher_sha "ci-main-gateway.yaml")
-              GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
-              CE_SHA=$(get_latest_dev_pusher_sha "ci-main-credential-executor.yaml")
-              CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              read GATEWAY_SHA GATEWAY_DIGEST <<< "$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE")"
+              read CE_SHA CE_DIGEST <<< "$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE")"
               ;;
             *Gateway*)
-              ASSISTANT_SHA=$(get_latest_dev_pusher_sha "ci-main-assistant.yaml")
-              ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE")"
               GATEWAY_SHA="$TRIGGERED_SHA"
               GATEWAY_DIGEST="$TRIGGERED_DIGEST"
-              CE_SHA=$(get_latest_dev_pusher_sha "ci-main-credential-executor.yaml")
-              CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              read CE_SHA CE_DIGEST <<< "$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE")"
               ;;
             *Credential*)
-              ASSISTANT_SHA=$(get_latest_dev_pusher_sha "ci-main-assistant.yaml")
-              ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
-              GATEWAY_SHA=$(get_latest_dev_pusher_sha "ci-main-gateway.yaml")
-              GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE")"
+              read GATEWAY_SHA GATEWAY_DIGEST <<< "$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE")"
               CE_SHA="$TRIGGERED_SHA"
               CE_DIGEST="$TRIGGERED_DIGEST"
               ;;
