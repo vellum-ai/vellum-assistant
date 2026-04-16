@@ -52,6 +52,7 @@ import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
   registerDefaultWakeResolver,
+  wakeAgentForOpportunity,
   type WakeTarget,
 } from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -63,6 +64,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
+import { DaemonIpcServer } from "../ipc/daemon-ipc-server.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
@@ -300,6 +302,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
+  private daemonIpc = new DaemonIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.
   // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
@@ -811,8 +814,7 @@ export class DaemonServer {
     // DB, exposing only the narrow surface the wake helper needs.
     registerDefaultWakeResolver(async (conversationId) => {
       try {
-        const conversation =
-          await this.getOrCreateConversation(conversationId);
+        const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
         log.warn(
@@ -822,6 +824,28 @@ export class DaemonServer {
         return null;
       }
     });
+
+    // Start the daemon IPC server and register methods. CLI commands
+    // (e.g. `assistant conversations wake`) connect to this socket to
+    // invoke daemon-side operations that require in-process state.
+    this.daemonIpc.registerMethod("wake_conversation", async (params) => {
+      const conversationId = params?.conversationId as string | undefined;
+      const hint = params?.hint as string | undefined;
+      const source = (params?.source as string) ?? "cli";
+      if (!conversationId || typeof conversationId !== "string") {
+        throw new Error("Missing required param: conversationId");
+      }
+      if (!hint || typeof hint !== "string") {
+        throw new Error("Missing required param: hint");
+      }
+      const result = await wakeAgentForOpportunity({
+        conversationId,
+        hint,
+        source,
+      });
+      return result;
+    });
+    this.daemonIpc.start();
 
     // Wire the launchConversation helper to daemon-side state so
     // handleSurfaceAction can spawn conversations through it.
@@ -876,6 +900,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
+    this.daemonIpc.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;

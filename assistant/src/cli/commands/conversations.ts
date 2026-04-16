@@ -10,6 +10,7 @@ import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
+import { daemonIpcCall } from "../../ipc/daemon-ipc-client.js";
 import {
   clearAll as clearAllConversations,
   countConversationsByScheduleJobId,
@@ -388,4 +389,79 @@ Examples:
           `cancelled ${result.cancelledJobCount} jobs.`,
       );
     });
+
+  conversations
+    .command("wake <conversationId>")
+    .description(
+      "Wake the agent on an existing conversation with an internal hint",
+    )
+    .requiredOption(
+      "--hint <text>",
+      "Hint message visible to the LLM (not persisted to transcript)",
+    )
+    .option(
+      "--source <label>",
+      "Source label for logging (e.g. github-notification)",
+      "cli",
+    )
+    .option("--json", "Output result as JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  conversationId   Conversation ID (or unique prefix) to wake.
+
+Wake the assistant's agent loop on an existing conversation without a user
+message. The hint is injected as a non-persisted internal message visible
+only to the LLM — it never appears in the transcript or SSE feed. If the
+agent produces output (text or tool calls), it is persisted and emitted to
+connected clients. Otherwise the wake is a silent no-op.
+
+Requires the assistant daemon to be running. Communicates via IPC socket.
+
+Examples:
+  $ assistant conversations wake abc123 --hint "PR #25933 received a review requesting changes"
+  $ assistant conversations wake abc123 --hint "CI failed on commit abc" --source github-ci
+  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json`,
+    )
+    .action(
+      async (
+        conversationId: string,
+        opts: { hint: string; source: string; json?: boolean },
+      ) => {
+        const result = await daemonIpcCall<{
+          invoked: boolean;
+          producedToolCalls: boolean;
+        }>("wake_conversation", {
+          conversationId,
+          hint: opts.hint,
+          source: opts.source,
+        });
+
+        if (!result.ok) {
+          if (opts.json) {
+            log.info(JSON.stringify({ ok: false, error: result.error }));
+          } else {
+            log.error(`Error: ${result.error}`);
+          }
+          process.exit(1);
+        }
+
+        const wake = result.result!;
+        if (opts.json) {
+          log.info(JSON.stringify({ ok: true, ...wake }));
+        } else if (wake.invoked) {
+          log.info(
+            wake.producedToolCalls
+              ? `Wake produced output on conversation ${conversationId}`
+              : `Wake invoked on ${conversationId} (no output produced)`,
+          );
+        } else {
+          log.error(
+            `Could not wake conversation ${conversationId} — conversation not found`,
+          );
+          process.exit(1);
+        }
+      },
+    );
 }
