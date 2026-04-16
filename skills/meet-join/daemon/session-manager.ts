@@ -113,6 +113,7 @@ import {
   MeetTtsBridge,
   type MeetTtsBridgeArgs,
   type MeetTtsBridgeDeps,
+  MeetTtsCancelledError,
   type SpeakInput,
 } from "./tts-bridge.js";
 
@@ -1356,14 +1357,26 @@ class MeetSessionManagerImpl {
         );
       })
       .catch((err) => {
-        const reason: "cancelled" | "error" =
-          err instanceof Error && err.message === "cancel"
-            ? "cancelled"
-            : "error";
-        log.warn(
-          { err, meetingId, streamId, reason },
-          "MeetTtsBridge speak completion rejected",
-        );
+        const isCancel =
+          err instanceof MeetTtsCancelledError ||
+          (err !== null &&
+            typeof err === "object" &&
+            (err as { code?: unknown }).code === "MEET_TTS_CANCELLED");
+        const reason: "cancelled" | "error" = isCancel ? "cancelled" : "error";
+        // Cancels are expected during barge-in / caller cancel / leave —
+        // log at debug so they don't spam warn logs; genuine errors stay
+        // at warn.
+        if (isCancel) {
+          log.debug(
+            { meetingId, streamId, reason },
+            "MeetTtsBridge speak cancelled",
+          );
+        } else {
+          log.warn(
+            { err, meetingId, streamId, reason },
+            "MeetTtsBridge speak completion rejected",
+          );
+        }
         void publishMeetEvent(
           DAEMON_INTERNAL_ASSISTANT_ID,
           meetingId,

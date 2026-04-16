@@ -65,7 +65,7 @@ import type {
   MeetEventSubscriber,
   MeetEventUnsubscribe,
 } from "../event-publisher.js";
-import { MeetTtsBridge } from "../tts-bridge.js";
+import { MeetTtsBridge, MeetTtsCancelledError } from "../tts-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Fake bot HTTP server (real Bun.serve)
@@ -434,10 +434,12 @@ function wrapSessionManager(
           }),
         )
         .catch((err) => {
-          const reason: "cancelled" | "error" =
-            err instanceof Error && err.message === "cancel"
-              ? "cancelled"
-              : "error";
+          const isCancel =
+            err instanceof MeetTtsCancelledError ||
+            (err !== null &&
+              typeof err === "object" &&
+              (err as { code?: unknown }).code === "MEET_TTS_CANCELLED");
+          const reason: "cancelled" | "error" = isCancel ? "cancelled" : "error";
           void publishToHub({
             type: "meet.speaking_ended",
             meetingId,
@@ -676,16 +678,17 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       expect(fakeBot.deletes[0]!.url).toBe("/play_audio/stream-barge");
       expect(fakeBot.deletes[0]!.authorization).toBe(`Bearer ${TOKEN}`);
 
-      // Lifecycle event for the cancelled stream still flows back through
-      // the real assistant-event-hub. (The reason field is determined by
-      // the session-manager's classification of the completion promise;
-      // we only assert that the event reaches the hub for this stream.)
-      await captured.waitFor(
+      // Lifecycle event for the cancelled stream flows back through the
+      // real assistant-event-hub with reason="cancelled" — locking in the
+      // contract that caller-initiated cancels (and barge-in cancels) are
+      // observable as such, distinct from natural "completed" finishes.
+      const ended = (await captured.waitFor(
         (m) =>
           m.type === "meet.speaking_ended" &&
           (m as { streamId: string }).streamId === "stream-barge",
         1500,
-      );
+      )) as { reason: string; streamId: string };
+      expect(ended.reason).toBe("cancelled");
     } finally {
       captured.dispose();
       watcher.stop();

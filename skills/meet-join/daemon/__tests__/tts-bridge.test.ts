@@ -39,7 +39,7 @@ import type {
   TtsSynthesisRequest,
   TtsSynthesisResult,
 } from "../../../../assistant/src/tts/types.js";
-import { MeetTtsBridge } from "../tts-bridge.js";
+import { MeetTtsBridge, MeetTtsCancelledError } from "../tts-bridge.js";
 
 // ---------------------------------------------------------------------------
 // Fake bot HTTP server
@@ -349,7 +349,17 @@ describe("MeetTtsBridge.speak", () => {
     await bridge.cancel(streamId);
 
     // The completion promise should have settled by now (cancel awaits).
-    await completion.catch(() => {});
+    // On cancel, `completion` rejects with a typed sentinel so the session
+    // manager's classifier can publish `reason: "cancelled"` — asserting
+    // the shape here locks in the contract.
+    let caught: unknown;
+    try {
+      await completion;
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(MeetTtsCancelledError);
+    expect((caught as MeetTtsCancelledError).code).toBe("MEET_TTS_CANCELLED");
 
     // The bot may or may not have recorded the partial POST (depending on
     // timing — we only require that the DELETE arrived). In practice Bun
