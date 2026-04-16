@@ -444,7 +444,8 @@ Examples:
           } else {
             log.error(`Error: ${result.error}`);
           }
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
 
         const wake = result.result!;
@@ -460,7 +461,7 @@ Examples:
           log.error(
             `Could not wake conversation ${conversationId} — conversation not found`,
           );
-          process.exit(1);
+          process.exitCode = 1;
         }
       },
     );
