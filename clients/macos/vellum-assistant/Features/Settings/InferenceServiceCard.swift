@@ -34,6 +34,19 @@ struct InferenceServiceCard: View {
     @State private var isSyncingProviderFromStore = false
     /// Whether the current provider has a stored API key (fetched per-component).
     @State private var providerHasKey = false
+    /// Whether to show the per-call-site override confirmation dialog. Fires
+    /// when the user is about to switch the global provider AND has at least
+    /// one override pinned to the OLD provider — we ask whether to keep those
+    /// pins or reset them to follow the new default.
+    @State private var showOverrideConfirmation = false
+    /// Snapshot of the overrides pinned to the OLD provider at the moment the
+    /// confirmation dialog is shown. Used both to render the dialog message
+    /// (count + provider name) and to drive the "Reset" action.
+    @State private var pendingOverrideClears: [CallSiteOverride] = []
+    /// The provider name displayed in the confirmation dialog message.
+    /// Captured at confirmation time so the message stays accurate even if
+    /// `initialProvider` is mutated during the deferred save.
+    @State private var pendingOverrideOldProviderName: String = ""
 
     // MARK: - Provider Helpers
 
@@ -285,6 +298,28 @@ struct InferenceServiceCard: View {
                     + " You'll need to review and save them below."
             )
         }
+        .confirmationDialog(
+            "Keep per-task overrides?",
+            isPresented: $showOverrideConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Keep overrides") {
+                performSaveCore(clearingOverrides: [])
+            }
+            Button("Reset to follow default") {
+                performSaveCore(clearingOverrides: pendingOverrideClears)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingOverrideClears = []
+                pendingOverrideOldProviderName = ""
+            }
+        } message: {
+            Text(
+                "\(pendingOverrideClears.count) task(s) are pinned to "
+                    + "\(pendingOverrideOldProviderName). Keep them as-is, or "
+                    + "update them to follow the new default?"
+            )
+        }
     }
 
     // MARK: - Managed Login Prompt
@@ -383,7 +418,54 @@ struct InferenceServiceCard: View {
     }
 
     private func performSave() {
+        // Detect mode change before persisting so downstream logic can
+        // force-persist provider/model even when IDs happen to match.
+        let modeChanged = draftMode != store.inferenceMode
+        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        let providerChanged = persistProvider != initialProvider || modeChanged
+
+        // If the provider is changing AND the user has any per-call-site
+        // overrides pinned to the OLD provider, ask whether to keep those
+        // pins or reset them to follow the new default. Overrides that
+        // pin a different provider entirely (e.g. commitMessage pinned
+        // to OpenAI while default switches Anthropic -> Gemini) are not
+        // affected and don't trigger the prompt.
+        if providerChanged {
+            let overridesPinnedToOldProvider = store.callSiteOverrides.filter {
+                $0.provider == initialProvider
+            }
+            if !overridesPinnedToOldProvider.isEmpty {
+                pendingOverrideClears = overridesPinnedToOldProvider
+                pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
+                showOverrideConfirmation = true
+                return
+            }
+        }
+
+        performSaveCore(clearingOverrides: [])
+    }
+
+    /// Persists the staged inference settings (mode, provider, API key, model).
+    /// Runs the actual save work — `performSave()` decides whether to call
+    /// this directly or to first prompt the user about per-call-site overrides
+    /// pinned to the old provider.
+    ///
+    /// `clearingOverrides` is the set of overrides to clear before the save
+    /// (e.g. when the user picks "Reset to follow default" from the override
+    /// confirmation dialog). Pass an empty array to leave all overrides intact.
+    private func performSaveCore(clearingOverrides overridesToClear: [CallSiteOverride]) {
         store.apiKeySaveError = nil
+
+        // Clear any overrides the user opted to reset before persisting the
+        // new defaults. Done first so the daemon sees the cleared overrides
+        // when it processes the subsequent provider/model patches.
+        for override in overridesToClear {
+            _ = store.clearCallSiteOverride(override.id)
+        }
+        // Reset stash regardless of which path we came from so a future
+        // confirmation dialog renders fresh state.
+        pendingOverrideClears = []
+        pendingOverrideOldProviderName = ""
 
         // Detect mode change before persisting so downstream logic can
         // force-persist provider/model even when IDs happen to match.
