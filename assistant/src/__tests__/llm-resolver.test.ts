@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { z } from "zod";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
@@ -151,6 +152,45 @@ describe("resolveCallSiteConfig", () => {
     // Profile fields must not appear because mainAgent didn't reference them.
     expect(resolved.speed).toBe("standard");
     expect(resolved.effort).toBe("max");
+  });
+
+  test("returns isolated nested objects (not aliased to llm.default)", () => {
+    // Resolve a call site that has no override touching `thinking` or
+    // `contextWindow` — the bug being guarded against would have those
+    // nested objects aliased directly to `llm.default`. We resolve once,
+    // mutate the returned config's nested objects, then resolve again and
+    // verify the second call sees the original `llm.default` values
+    // (i.e. the source was never corrupted).
+    const llm = LLMSchema.parse({ default: fullDefault });
+
+    const first = resolveCallSiteConfig("mainAgent", llm);
+    expect(first.thinking.enabled).toBe(true);
+    expect(first.contextWindow.overflowRecovery.maxAttempts).toBe(3);
+
+    // Mutate the result. If nested objects were aliased into `llm.default`,
+    // these writes would silently corrupt the source config.
+    first.thinking.enabled = false;
+    first.contextWindow.overflowRecovery.maxAttempts = 999;
+
+    // Defensive: the source `fullDefault` literal should be untouched.
+    expect(fullDefault.thinking.enabled).toBe(true);
+    expect(fullDefault.contextWindow.overflowRecovery.maxAttempts).toBe(3);
+
+    // The real test: resolving the same call site again must see the
+    // original `llm.default` values, not the mutations applied to `first`.
+    const second = resolveCallSiteConfig("mainAgent", llm);
+    expect(second.thinking.enabled).toBe(true);
+    expect(second.contextWindow.overflowRecovery.maxAttempts).toBe(3);
+
+    // Sanity: the two resolutions must return distinct nested object
+    // references — otherwise the mutation on `first` would have been
+    // visible on `second` and the previous assertions would have failed,
+    // but assert it explicitly so the isolation contract is documented.
+    expect(second.thinking).not.toBe(first.thinking);
+    expect(second.contextWindow).not.toBe(first.contextWindow);
+    expect(second.contextWindow.overflowRecovery).not.toBe(
+      first.contextWindow.overflowRecovery,
+    );
   });
 
   test("defensive throw on unknown profile reference (bypassing superRefine)", () => {
