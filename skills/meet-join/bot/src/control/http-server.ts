@@ -3,11 +3,12 @@
  *
  * Exposes a small Hono app that the assistant daemon talks to:
  *
- *   - `GET  /health`     — liveness/health probe (also used by Docker HEALTHCHECK).
- *   - `GET  /status`     — full lifecycle snapshot.
- *   - `POST /leave`      — ask the bot to leave the meeting.
- *   - `POST /send_chat`  — post a chat message into the Meet chat panel.
- *   - `POST /play_audio` — play an out-of-band audio stream (Phase 3; stub 501).
+ *   - `GET  /health`                  — liveness/health probe (also used by Docker HEALTHCHECK).
+ *   - `GET  /status`                  — full lifecycle snapshot.
+ *   - `POST /leave`                   — ask the bot to leave the meeting.
+ *   - `POST /send_chat`               — post a chat message into the Meet chat panel.
+ *   - `POST /play_audio`              — stream raw PCM into pacat (Phase 3).
+ *   - `DELETE /play_audio/:streamId`  — cancel an in-flight playback (barge-in).
  *
  * Every mutating route validates its body against the corresponding Zod
  * schema from `@vellumai/meet-contracts` so command shapes stay in sync with
@@ -24,7 +25,13 @@ import {
   SendChatCommandSchema,
 } from "@vellumai/meet-contracts";
 import { Hono, type Context } from "hono";
+import { randomUUID } from "node:crypto";
 
+import {
+  startAudioPlayback,
+  type AudioPlaybackHandle,
+  type StartAudioPlaybackOptions,
+} from "../media/audio-playback.js";
 import { BotState } from "./state.js";
 
 /**
@@ -55,10 +62,10 @@ export interface HttpServerCallbacks {
    */
   onSendChat: (text: string) => Promise<void> | void;
   /**
-   * Called when `POST /play_audio` is received. Currently a stub — the HTTP
-   * route returns 501. The real PCM stream is delivered out of band
-   * (chunked transfer in Phase 3); this callback will eventually be handed
-   * just the metadata.
+   * Called when a `POST /play_audio` stream starts. The real PCM payload
+   * is consumed by the route directly and streamed into pacat; this
+   * callback exists for lifecycle observation (logging, metrics, joining
+   * the stream to an in-memory barge-in registry).
    */
   onPlayAudio: (streamId: string) => Promise<void> | void;
 }
@@ -66,6 +73,18 @@ export interface HttpServerCallbacks {
 export interface CreateHttpServerOptions extends HttpServerCallbacks {
   /** Bearer token required on every request. */
   apiToken: string;
+  /**
+   * Override for the audio-playback factory. In production we call
+   * `startAudioPlayback` from `../media/audio-playback.js`; tests inject a
+   * handle whose `write` captures bytes into a buffer.
+   */
+  startPlayback?: (opts?: StartAudioPlaybackOptions) => AudioPlaybackHandle;
+  /**
+   * Override for pacat spawn. Forwarded into the default `startPlayback`
+   * when tests want the singleton behavior but still need to stub out the
+   * child process.
+   */
+  playbackSpawnOptions?: StartAudioPlaybackOptions;
 }
 
 export interface HttpServerHandle {
@@ -77,11 +96,38 @@ export interface HttpServerHandle {
   stop: () => Promise<void>;
 }
 
+/**
+ * Trailing silence pushed at the end of a clean stream (or when a stream
+ * is cancelled) so the null-sink doesn't leave the last PCM sample held in
+ * Chrome's resampler, which surfaces as a "pop" to other participants.
+ */
+const TRAILING_SILENCE_MS = 50;
+
+/**
+ * In-flight playback registry — keyed by the stream's uuid so `DELETE
+ * /play_audio/:streamId` can target a specific stream. The value is just
+ * the `AbortController` the POST handler is racing against.
+ */
+interface ActiveStream {
+  controller: AbortController;
+  handle: AudioPlaybackHandle;
+}
+
 /** Build (but do not start) the HTTP server. */
 export function createHttpServer(
   options: CreateHttpServerOptions,
 ): HttpServerHandle {
-  const { apiToken, onLeave, onSendChat, onPlayAudio } = options;
+  const {
+    apiToken,
+    onLeave,
+    onSendChat,
+    onPlayAudio,
+    startPlayback,
+    playbackSpawnOptions,
+  } = options;
+  const playbackFactory = startPlayback ?? startAudioPlayback;
+
+  const activeStreams = new Map<string, ActiveStream>();
 
   const app = new Hono();
 
@@ -178,15 +224,184 @@ export function createHttpServer(
   });
 
   // -------------------------------------------------------------------------
-  // POST /play_audio — pure stub until Phase 3 lands.
+  // POST /play_audio — stream raw PCM body into pacat.
+  //
+  // The body is `application/octet-stream`: s16le mono 48kHz PCM, framed
+  // however the daemon likes (chunks don't need to be sample-aligned; pacat
+  // buffers internally). We allocate a stream id per request (either from
+  // `?stream_id=` or a fresh uuid) so a later `DELETE /play_audio/:id` can
+  // cancel this specific pipeline for barge-in.
+  //
+  // Status codes:
+  //   - 200 `{ streamId, bytes }` — body fully forwarded.
+  //   - 400                       — wrong content-type.
+  //   - 499                       — cancelled mid-stream (client-closed OR
+  //                                 `DELETE /play_audio/:id` fired).
+  //   - 500 `{ error }`           — pacat failed to start / write errored.
   // -------------------------------------------------------------------------
 
   app.post("/play_audio", async (c) => {
-    // We don't validate the body here — the stream metadata shape may still
-    // change when the Phase 3 audio channel lands. The callback is invoked
-    // with a placeholder so its signature can stabilize in tests.
-    void Promise.resolve(onPlayAudio("")).catch(() => {});
-    return c.json({ error: "not implemented" }, 501);
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("application/octet-stream")) {
+      return c.json(
+        {
+          error:
+            "invalid content-type; expected application/octet-stream (raw PCM)",
+        },
+        400,
+      );
+    }
+
+    const providedId = c.req.query("stream_id");
+    const streamId =
+      providedId && providedId.length > 0 ? providedId : randomUUID();
+
+    // If a stream id was reused, cancel whatever's in flight first. This
+    // matches the barge-in semantics we want in Phase 3: a fresh POST with
+    // the same id supersedes the old one.
+    const existing = activeStreams.get(streamId);
+    if (existing) {
+      existing.controller.abort();
+    }
+
+    let handle: AudioPlaybackHandle;
+    try {
+      handle = playbackFactory(playbackSpawnOptions);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: `failed to start playback: ${message}` }, 500);
+    }
+
+    const controller = new AbortController();
+    activeStreams.set(streamId, { controller, handle });
+
+    // Observability hook — invoked fire-and-forget so slow callbacks don't
+    // stall the audio pipeline.
+    void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
+
+    const body = c.req.raw.body;
+    if (!body) {
+      activeStreams.delete(streamId);
+      // No body is treated as an empty stream — flush trailing silence for
+      // symmetry and return success.
+      try {
+        await handle.flushSilence(TRAILING_SILENCE_MS);
+      } catch {
+        // Best-effort; silence is cosmetic.
+      }
+      return c.json({ streamId, bytes: 0 }, 200);
+    }
+
+    let bytes = 0;
+    let cancelled = false;
+    let writeError: Error | null = null;
+
+    const reader = body.getReader();
+    const abortPromise = new Promise<void>((resolve) => {
+      if (controller.signal.aborted) {
+        cancelled = true;
+        resolve();
+        return;
+      }
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          cancelled = true;
+          try {
+            // Best-effort — releases the reader so the `read()` loop sees
+            // EOF on the next iteration.
+            reader.cancel().catch(() => {});
+          } catch {
+            // ignore
+          }
+          resolve();
+        },
+        { once: true },
+      );
+    });
+
+    try {
+      while (true) {
+        const readP = reader.read();
+        const next = await Promise.race([
+          readP.then((r) => ({ kind: "read" as const, value: r })),
+          abortPromise.then(() => ({ kind: "abort" as const })),
+        ]);
+
+        if (next.kind === "abort") {
+          break;
+        }
+        const { value, done } = next.value;
+        if (done) break;
+        if (!value || value.length === 0) continue;
+
+        try {
+          await handle.write(value);
+          bytes += value.length;
+        } catch (err) {
+          writeError = err instanceof Error ? err : new Error(String(err));
+          break;
+        }
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // Lock may already be released after `cancel()`; fine.
+      }
+      activeStreams.delete(streamId);
+      // Always flush trailing silence so we don't "pop" — even on cancel,
+      // which intentionally stops PCM mid-frame.
+      try {
+        await handle.flushSilence(TRAILING_SILENCE_MS);
+      } catch {
+        // Best-effort.
+      }
+    }
+
+    if (writeError) {
+      return c.json(
+        { error: `playback write failed: ${writeError.message}`, bytes },
+        500,
+      );
+    }
+    if (cancelled) {
+      // 499 — Nginx's convention for "client closed request"; used here as
+      // the signal that playback was interrupted (either by the HTTP peer
+      // dropping or by DELETE /play_audio/:id). Hono's typed status codes
+      // don't include 499 (it's non-standard), so we build the Response by
+      // hand.
+      return new Response(
+        JSON.stringify({ streamId, bytes, cancelled: true }),
+        {
+          status: 499,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+    return c.json({ streamId, bytes }, 200);
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /play_audio/:streamId — cancel a specific in-flight playback.
+  //
+  // Used by barge-in (PR 3): when the daemon detects the user talking over
+  // the bot, it nukes the active stream so pacat stops writing into
+  // `bot_out`. Returns 404 if no such stream exists (which is a normal
+  // race — the stream might have just completed).
+  // -------------------------------------------------------------------------
+
+  app.delete("/play_audio/:streamId", async (c) => {
+    const streamId = c.req.param("streamId");
+    const stream = activeStreams.get(streamId);
+    if (!stream) {
+      return c.json({ error: "no such stream", streamId }, 404);
+    }
+    stream.controller.abort();
+    // Don't wait for the POST handler to finish — the DELETE is an
+    // interrupt, not a join point. The POST side is responsible for
+    // flushing silence and clearing its registry entry.
+    return c.json({ cancelled: true, streamId }, 200);
   });
 
   // -------------------------------------------------------------------------
