@@ -710,17 +710,6 @@ Stores use `[weak self]` in all `Task` closures and background subscriptions. Pl
 
 ## iOS Feature Flows
 
-### Intelligence Tab (M6)
-
-The Intelligence tab is the iOS hub for skills and contacts management, gated on daemon connectivity.
-
-| View | File | Purpose |
-|------|------|---------|
-| `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
-| `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
-| `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
-| `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |
-
 ### Things Tab (M8-M9)
 
 The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
