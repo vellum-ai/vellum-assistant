@@ -159,6 +159,25 @@ export class MeetTtsError extends Error {
   }
 }
 
+/**
+ * Thrown from {@link MeetTtsBridge} when an in-flight speak is cancelled
+ * via {@link MeetTtsBridge.cancel} or {@link MeetTtsBridge.cancelAll}.
+ *
+ * The session manager's `speak()` classifier keys on this class (via
+ * `err instanceof MeetTtsCancelledError` or `err.code === "MEET_TTS_CANCELLED"`)
+ * so `meet.speaking_ended` can publish `reason: "cancelled"` for caller-
+ * initiated and barge-in cancels, distinct from `reason: "completed"` for
+ * natural finishes and `reason: "error"` for genuine upstream failures.
+ */
+export class MeetTtsCancelledError extends Error {
+  readonly code = "MEET_TTS_CANCELLED" as const;
+
+  constructor(message = "cancelled") {
+    super(message);
+    this.name = "MeetTtsCancelledError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -374,7 +393,7 @@ export class MeetTtsBridge {
       );
       return;
     }
-    active.abort.abort(new Error("cancel"));
+    active.abort.abort(new MeetTtsCancelledError());
     // Best-effort DELETE — swallow failures. The outbound POST is already
     // aborted, so the bot's stdin-side of /play_audio will observe EOF
     // regardless; the DELETE is the explicit signal to flush.
@@ -434,8 +453,11 @@ export class MeetTtsBridge {
       });
     } catch (err) {
       if (abort.signal.aborted) {
-        // Caller-initiated cancel: swallow.
-        return;
+        // Caller-initiated cancel (explicit cancel / cancelAll / barge-in).
+        // Surface via a typed sentinel so the session manager's classifier
+        // can publish `meet.speaking_ended { reason: "cancelled" }` instead
+        // of misclassifying the cancel as a natural completion.
+        throw new MeetTtsCancelledError();
       }
       throw new MeetTtsError(
         "MEET_TTS_BOT_UNREACHABLE",
@@ -452,5 +474,13 @@ export class MeetTtsBridge {
     }
     // Drain any body the bot returned so the connection can be reused.
     await response.arrayBuffer().catch(() => {});
+    // Check abort after a "successful" drain: some fetch implementations
+    // resolve the response before propagating a late abort. If the caller
+    // cancelled mid-stream, surface that as a cancel so speaking_ended
+    // reports reason=cancelled even on races where the bot saw EOF and
+    // replied 200 before the abort propagated.
+    if (abort.signal.aborted) {
+      throw new MeetTtsCancelledError();
+    }
   }
 }
