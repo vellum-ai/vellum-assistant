@@ -334,7 +334,10 @@ struct InferenceServiceCard: View {
             label: "\(providerDisplayName) API Key",
             hasKey: providerHasKey,
             text: $apiKeyText,
-            emptyPlaceholder: store.dynamicProviderApiKeyPlaceholder(effectiveProvider) ?? "Enter your API key",
+            emptyPlaceholder: {
+                if let p = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !p.isEmpty { return p }
+                return "Enter your API key"
+            }(),
             errorMessage: store.apiKeySaveError
         )
         .disabled(store.apiKeySaving)
