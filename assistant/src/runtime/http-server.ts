@@ -1871,15 +1871,18 @@ export class RuntimeHttpServer {
           try {
             // Snapshot current state to detect whether the seen cursor
             // actually advances (avoids emitting on no-op signals).
+            // Only consider a conversation "unseen" when a latest assistant
+            // message exists and the seen cursor is behind it — matching
+            // the hasUnseenLatestAssistantMessage logic in buildAssistantAttention.
             const priorState = getAttentionStateByConversationIds([
               conversationId,
             ]).get(conversationId);
             const wasUnseen =
-              priorState == null ||
-              priorState.latestAssistantMessageAt == null ||
-              priorState.lastSeenAssistantMessageAt == null ||
-              priorState.lastSeenAssistantMessageAt <
-                priorState.latestAssistantMessageAt;
+              priorState != null &&
+              priorState.latestAssistantMessageAt != null &&
+              (priorState.lastSeenAssistantMessageAt == null ||
+                priorState.lastSeenAssistantMessageAt <
+                  priorState.latestAssistantMessageAt);
 
             recordConversationSeenSignal({
               conversationId,
