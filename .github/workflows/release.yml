@@ -480,8 +480,10 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+      - name: Configure Docker for registries
+        run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+          gcloud auth configure-docker us-central1-docker.pkg.dev
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
