@@ -182,6 +182,9 @@ jobs:
         working-directory: assistant
         run: bun install --frozen-lockfile
 
+      - name: Disable local git hooks
+        run: git config --unset core.hooksPath || true
+
       - name: Create release branch and bump versions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
