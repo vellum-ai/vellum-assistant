@@ -275,6 +275,14 @@ final class ConversationRestorer {
                 existing.displayOrder = session.displayOrder.map { Int($0) }
                 existing.hostAccess = session.hostAccess ?? false
                 existing.forkParent = session.forkParent
+                // Refresh mutable fields from the server so invalidation refetches
+                // pick up renames, source changes, and interaction timestamps.
+                if existing.title == "New Conversation" || existing.title == nil {
+                    existing.title = session.title
+                }
+                existing.lastInteractedAt = Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0)
+                existing.source = session.source
+                existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
                 delegate.conversations[existingIdx] = existing
                 // Attention merge must go through mergeAssistantAttention so that
                 // pendingAttentionOverrides are reconciled (e.g. a notification
@@ -409,6 +417,7 @@ final class ConversationRestorer {
         invalidationRefetchTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
+            self.fetchConversationListTask?.cancel()
             self.fetchConversationList()
         }
     }

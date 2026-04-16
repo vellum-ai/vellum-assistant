@@ -758,9 +758,40 @@ struct ConversationRestorerTests {
         #expect(vmAfter?.isHistoryLoaded == true)
         #expect(vmAfter?.messages.count == 1)
 
-        // AND the title was updated from the server
+        // AND user-set titles are preserved (not overwritten by the server)
         let conversationAfter = delegate.conversations.first(where: { $0.id == localIdA })
-        #expect(conversationAfter?.title == "Chat A (updated)")
+        #expect(conversationAfter?.title == "Chat A")
+
+        // AND mutable metadata (lastInteractedAt) was refreshed from the server
+        let expectedDate = Date(timeIntervalSince1970: TimeInterval(5000) / 1000.0)
+        #expect(conversationAfter?.lastInteractedAt == expectedDate)
+    }
+
+    /// Verifies that a default-titled conversation gets its title updated
+    /// from the server during an invalidation refetch.
+    @Test @MainActor
+    func refreshUpdatesDefaultTitleFromServer() {
+        let dc = GatewayConnectionManager()
+        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        // GIVEN a conversation with the default title
+        let conversation = ConversationModel(title: "New Conversation", conversationId: "s1")
+        delegate.conversations = [conversation]
+        let vm = delegate.makeViewModel()
+        vm.conversationId = "s1"
+        delegate.viewModels[conversation.id] = vm
+
+        // WHEN a conversation list response arrives with an updated title
+        let refreshResponse = makeConversationListResponse(conversations: [
+            (id: "s1", title: "Renamed Chat", updatedAt: 5000),
+        ])
+        restorer.handleConversationListResponse(refreshResponse)
+
+        // THEN the title is updated from the server
+        let updated = delegate.conversations.first(where: { $0.id == conversation.id })
+        #expect(updated?.title == "Renamed Chat")
     }
 
     /// Verifies that scheduleInvalidationRefetch uses trailing-edge debounce:
