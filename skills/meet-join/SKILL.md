@@ -90,3 +90,27 @@ Key points:
 - **There is a 30-second cooldown between proactive escalations**, enforced by the system regardless of detector signal. The assistant does not need to track this itself, but should know that rapid follow-ups to the same opportunity are not possible by design — one well-chosen message is better than trying to layer on corrections.
 - **Prefer brevity** — aim for under 200 characters when responding to an opportunity hint.
 - **Prefer concrete information over pleasantries.** If there is no specific fact, link, or clarification to contribute, stay silent.
+
+## Participating by voice
+
+The `meet_speak` tool synthesizes text to speech and plays it through the bot's microphone in the meeting:
+
+```
+meet_speak(text: "Yes, the meeting is scheduled to end in 30 seconds.")
+```
+
+When a single meeting is active, `meetingId` can be omitted. The `voice` parameter is optional — when omitted, the configured TTS voice is used.
+
+Voice is appropriate when:
+
+- A participant directly addressed the assistant by name and a spoken answer is clearly what they want (not a chat reply).
+- The user gave explicit permission for the assistant to chime in verbally.
+- A safety or time-critical update warrants interrupting audibly (e.g. "the meeting is ending in 30 seconds per your calendar").
+
+Avoid voice for:
+
+- Unsolicited commentary or observations.
+- Long responses — keep voice turns under roughly 20 seconds. If the answer is longer, use `meet_send_chat` instead.
+- Anything where participants have not signalled they want voice output from the assistant. When in doubt, prefer chat or silence.
+
+Barge-in is automatic: if a human speaks while the assistant is talking, the assistant's audio is cancelled mid-utterance. Treat being interrupted as normal — do not retry the cancelled utterance or apologize for it.
