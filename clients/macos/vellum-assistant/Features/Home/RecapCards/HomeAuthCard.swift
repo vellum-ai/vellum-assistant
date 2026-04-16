@@ -51,18 +51,18 @@ struct HomeAuthCard: View {
         .if(isSimple) { view in
             view
                 .background(Capsule().fill(VColor.auxWhite.opacity(0.1)))
-                .overlay(Capsule().strokeBorder(VColor.borderElement.opacity(0.3), lineWidth: 1))
+                .background(.ultraThinMaterial, in: Capsule())
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
             view
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .fill(VColor.auxWhite.opacity(0.1))
+                        .fill(VColor.auxWhite.opacity(0.05))
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.borderElement.opacity(0.3), lineWidth: 1)
+                .background(
+                    .ultraThinMaterial,
+                    in: RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
