@@ -224,6 +224,9 @@ public final class ChatAttachmentManager {
         /// Original file size in bytes. Set for file-backed attachments where
         /// base64 encoding is skipped.
         let originalFileSize: Int?
+        /// Raw binary data for multipart upload in managed mode.
+        /// Nil for file-backed (local) attachments.
+        let rawData: Data?
     }
 
     /// Reads, compresses, and thumbnails an attachment from a file URL.
@@ -303,7 +306,8 @@ public final class ChatAttachmentManager {
                     thumbnailData: nil,
                     dataLength: 0,
                     filePath: uploadPath,
-                    originalFileSize: fileSize
+                    originalFileSize: fileSize,
+                    rawData: nil
                 ))
             }
 
@@ -346,6 +350,11 @@ public final class ChatAttachmentManager {
 
             let base64 = finalData.base64EncodedString()
 
+            // In managed mode, store the raw bytes for multipart upload.
+            // The base64 string is still populated for the JSON+base64 fallback
+            // path and the offline queue.
+            let rawBytes: Data? = useFileBackedUpload ? nil : finalData
+
             return .success(ProcessedAttachmentData(
                 id: attachmentId,
                 filename: filename,
@@ -354,7 +363,8 @@ public final class ChatAttachmentManager {
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
                 filePath: url.path,
-                originalFileSize: nil
+                originalFileSize: nil,
+                rawData: rawBytes
             ))
         }.value
         Task { await loadSemaphore.signal() }
@@ -379,7 +389,8 @@ public final class ChatAttachmentManager {
                 dataLength: processed.dataLength,
                 sizeBytes: processed.originalFileSize,
                 thumbnailImage: thumbnailImage,
-                filePath: processed.filePath
+                filePath: processed.filePath,
+                rawData: processed.rawData
             ))
         }
     }
@@ -392,6 +403,9 @@ public final class ChatAttachmentManager {
         log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
         let acquired = await loadSemaphore.wait()
         guard acquired else { return .failure(.message("Attachment load cancelled.")) }
+        // Resolve connection mode so managed connections store raw bytes
+        // for multipart upload alongside the base64 fallback data.
+        let isManagedConnection = (try? GatewayHTTPClient.isConnectionManaged()) == true
         let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             // Validate that ImageIO can decode the data.
             guard Self.loadCGImage(from: imageData) != nil else {
@@ -449,7 +463,8 @@ public final class ChatAttachmentManager {
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
                 filePath: nil,
-                originalFileSize: nil
+                originalFileSize: nil,
+                rawData: isManagedConnection ? finalData : nil
             ))
         }.value
         Task { await loadSemaphore.signal() }
@@ -472,7 +487,8 @@ public final class ChatAttachmentManager {
                 data: processed.base64,
                 thumbnailData: processed.thumbnailData,
                 dataLength: processed.dataLength,
-                thumbnailImage: thumbnailImage
+                thumbnailImage: thumbnailImage,
+                rawData: processed.rawData
             ))
         }
     }

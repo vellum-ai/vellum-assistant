@@ -1488,12 +1488,17 @@ public struct ChatAttachment: Identifiable {
     /// (e.g. recordings) where the file lives on the same Mac as the client.
     public let filePath: String?
 
+    /// Raw binary data for multipart upload in managed mode. Nil for file-backed
+    /// (local) attachments. When set, ``data`` also contains the base64 encoding
+    /// of the same bytes as a fallback for JSON+base64 upload and the offline queue.
+    public var rawData: Data?
+
     /// Whether this attachment's binary data was omitted to keep the payload small.
     /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
     public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
 
     #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?, filePath: String? = nil, sourceType: String? = nil, rawData: Data? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -1504,9 +1509,10 @@ public struct ChatAttachment: Identifiable {
         self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
         self.filePath = filePath
+        self.rawData = rawData
     }
     #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?, filePath: String? = nil, sourceType: String? = nil, rawData: Data? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -1517,6 +1523,7 @@ public struct ChatAttachment: Identifiable {
         self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
         self.filePath = filePath
+        self.rawData = rawData
     }
     #else
     #error("Unsupported platform")
@@ -1864,6 +1871,7 @@ public struct ChatMessage: Identifiable, Equatable {
         for i in attachments.indices {
             attachments[i].data = ""
             attachments[i].dataLength = 0
+            attachments[i].rawData = nil
         }
         for i in inlineSurfaces.indices {
             if inlineSurfaces[i].completionState != nil {

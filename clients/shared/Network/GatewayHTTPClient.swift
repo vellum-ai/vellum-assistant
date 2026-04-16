@@ -3,6 +3,12 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GatewayHTTPClient")
 
+/// Represents a single part in a multipart/form-data request.
+public enum MultipartPart {
+    case text(name: String, value: String)
+    case file(name: String, filename: String, mimeType: String, data: Data)
+}
+
 /// Authenticated HTTP client for gateway and platform proxy requests.
 ///
 /// Consolidates URL construction, auth headers, org-id injection, and
@@ -120,6 +126,50 @@ public enum GatewayHTTPClient {
                     request.setValue(value, forHTTPHeaderField: key)
                 }
             }
+        }
+    }
+
+    /// Performs an authenticated POST request with a `multipart/form-data` body.
+    ///
+    /// Constructs the multipart body from an array of ``MultipartPart`` values
+    /// (text fields and binary file parts), generates a UUID-based boundary,
+    /// and uses the standard `buildRequest()` pipeline for auth headers and URL
+    /// resolution.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - parts: The multipart form-data parts to include in the request body.
+    ///   - timeout: Request timeout in seconds. Defaults to 60.
+    /// - Returns: A `Response` with the raw data and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func postMultipart(path: String, parts: [MultipartPart], timeout: TimeInterval = 60) async throws -> Response {
+        let boundary = UUID().uuidString
+        var body = Data()
+
+        for part in parts {
+            switch part {
+            case .text(let name, let value):
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+                body.append("\(value)\r\n".data(using: .utf8)!)
+            case .file(let name, let filename, let mimeType, let data):
+                let sanitizedFilename = filename
+                    .replacingOccurrences(of: "\"", with: "_")
+                    .replacingOccurrences(of: "\r", with: "_")
+                    .replacingOccurrences(of: "\n", with: "_")
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(sanitizedFilename)\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+                body.append(data)
+                body.append("\r\n".data(using: .utf8)!)
+            }
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
         }
     }
 

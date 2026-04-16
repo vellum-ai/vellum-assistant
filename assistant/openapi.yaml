@@ -948,7 +948,10 @@ paths:
     post:
       operationId: attachments_post
       summary: Upload attachment
-      description: Upload an attachment as base64 data or file path reference.
+      description:
+        Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data
+        (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query
+        params).
       tags:
         - attachments
       responses:

@@ -163,20 +163,43 @@ public final class EventStreamClient {
 
             // Upload attachments
             var attachmentIds: [String] = []
+            let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) == true
             if let attachments, !attachments.isEmpty {
                 for attachment in attachments {
-                    let result = await messageClient.uploadAttachment(
-                        filename: attachment.filename,
-                        mimeType: attachment.mimeType,
-                        data: attachment.data,
-                        filePath: attachment.filePath
-                    )
+                    var result: AttachmentUploadResult
+                    if isManaged, let rawData = attachment.rawData {
+                        // Try multipart first for managed connections
+                        log.info("[send-pipeline] multipart upload — filename=\(attachment.filename, privacy: .public)")
+                        result = await messageClient.uploadAttachmentMultipart(
+                            filename: attachment.filename,
+                            mimeType: attachment.mimeType,
+                            data: rawData
+                        )
+                        // If server doesn't support multipart yet (400/415), retry with JSON+base64
+                        if case .multipartNotSupported = result {
+                            log.info("[send-pipeline] multipart failed, retrying with JSON+base64 — filename=\(attachment.filename, privacy: .public)")
+                            result = await messageClient.uploadAttachment(
+                                filename: attachment.filename,
+                                mimeType: attachment.mimeType,
+                                data: attachment.data,
+                                filePath: attachment.filePath
+                            )
+                        }
+                    } else {
+                        // Local: file-backed or JSON+base64
+                        result = await messageClient.uploadAttachment(
+                            filename: attachment.filename,
+                            mimeType: attachment.mimeType,
+                            data: attachment.data,
+                            filePath: attachment.filePath
+                        )
+                    }
                     switch result {
                     case .success(let id):
                         attachmentIds.append(id)
                     case .terminalAuthFailure:
                         return
-                    case .transientFailure:
+                    case .transientFailure, .multipartNotSupported:
                         log.error("Failed to upload attachment: \(attachment.filename, privacy: .public)")
                         let failedCount = attachments.count - attachmentIds.count
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
