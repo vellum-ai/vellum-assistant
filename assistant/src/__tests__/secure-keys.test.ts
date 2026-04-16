@@ -23,9 +23,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import type { CesClient } from "../credential-execution/client.js";
 import * as encryptedStore from "../security/encrypted-store.js";
 import { _setStorePath } from "../security/encrypted-store.js";
-import type { CesClient } from "../credential-execution/client.js";
 import {
   _resetBackend,
   deleteSecureKeyAsync,

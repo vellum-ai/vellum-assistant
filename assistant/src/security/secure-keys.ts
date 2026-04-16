@@ -17,12 +17,12 @@
  * sidecar and credential data.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type {
   SecureKeyBackend,
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
-
-import { AsyncLocalStorage } from "node:async_hooks";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
