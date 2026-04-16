@@ -19,6 +19,7 @@ import {
   insertWatcherEvent,
   resetStuckWatchers,
   setWatcherConversationId,
+  skipWatcherPoll,
   updateEventDisposition,
 } from "./watcher-store.js";
 
@@ -80,9 +81,8 @@ export async function runWatchersOnce(
     // Prevents wasting API calls and burning through circuit breaker
     // attempts on credentials that need manual reauthorization.
     try {
-      const { checkCredentialForProvider } = await import(
-        "../credential-health/credential-health-service.js"
-      );
+      const { checkCredentialForProvider } =
+        await import("../credential-health/credential-health-service.js");
       const health = await checkCredentialForProvider(
         watcher.credentialService,
       );
@@ -92,10 +92,7 @@ export async function runWatchersOnce(
           health.status === "missing_token" ||
           (health.status === "expired" && !health.canAutoRecover))
       ) {
-        failWatcherPoll(
-          watcher.id,
-          `Credential unhealthy: ${health.details}`,
-        );
+        skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
         continue;
       }
     } catch {
