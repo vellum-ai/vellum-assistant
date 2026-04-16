@@ -72,7 +72,6 @@ public struct InlineDynamicPagePreview: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

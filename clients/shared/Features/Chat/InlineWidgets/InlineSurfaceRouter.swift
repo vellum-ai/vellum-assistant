@@ -6,43 +6,6 @@ private let log = Logger(
     category: "InlineSurfaceRouter"
 )
 
-/// Caps proposed width at a maximum value using the Layout protocol (O(1)).
-/// Drop-in replacement for `.frame(maxWidth:, alignment: .leading)` that
-/// avoids `_FlexFrameLayout` and its O(n × depth) alignment cascade.
-private struct WidthCapLayout: Layout {
-    let cap: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let available = proposal.replacingUnspecifiedDimensions().width
-        let width = min(cap, available)
-        guard let child = subviews.first else { return CGSize(width: width, height: 0) }
-        let childSize = child.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
-        return CGSize(width: width, height: childSize.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let child = subviews.first else { return }
-        child.place(
-            at: bounds.origin,
-            anchor: .topLeading,
-            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
-        )
-    }
-}
-
-extension View {
-    /// Caps width at `cap` without creating `_FlexFrameLayout`.
-    /// When `cap` is nil, no constraint is applied.
-    @ViewBuilder
-    fileprivate func widthCap(_ cap: CGFloat?) -> some View {
-        if let cap {
-            WidthCapLayout(cap: cap) { self }
-        } else {
-            self
-        }
-    }
-}
-
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
 public struct InlineSurfaceRouter: View {
     public let surface: InlineSurfaceData

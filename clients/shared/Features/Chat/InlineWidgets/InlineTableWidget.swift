@@ -389,7 +389,7 @@ public struct InlineTableWidget: View {
                         endResize(for: columnIndex)
                     }
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: resizeHandleWidth)
             }
             .contentShape(Rectangle())
         #else

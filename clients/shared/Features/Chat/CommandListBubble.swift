@@ -75,7 +75,7 @@ public struct CommandListBubble: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .frame(maxWidth: 400)
+        .widthCap(400)
     }
 
     private static func parseEntry(from rawLine: Substring) -> CommandEntry? {

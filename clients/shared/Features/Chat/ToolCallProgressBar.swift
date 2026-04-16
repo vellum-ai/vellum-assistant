@@ -41,7 +41,6 @@ public struct ToolCallProgressBar: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, VSpacing.md)
 
             // Expanded details (shown when a step is clicked)
@@ -192,17 +191,21 @@ public struct ToolCallProgressBar: View {
                         .foregroundStyle(VColor.contentTertiary)
 
                     #if os(macOS)
-                    Image(nsImage: cachedImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    HStack(spacing: 0) {
+                        Image(nsImage: cachedImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        Spacer(minLength: 0)
+                    }
                     #elseif os(iOS)
-                    Image(uiImage: cachedImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    HStack(spacing: 0) {
+                        Image(uiImage: cachedImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        Spacer(minLength: 0)
+                    }
                     #endif
                 }
             }
@@ -248,11 +251,13 @@ public struct ToolCallProgressBar: View {
                         }
                     } else {
                         ScrollView {
-                            Text(result)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                            HStack(spacing: 0) {
+                                Text(result)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundStyle(VColor.contentSecondary)
+                                    .textSelection(.enabled)
+                                Spacer(minLength: 0)
+                            }
                         }
                         .adaptiveScrollFrame(for: result, maxHeight: 200, lineThreshold: 12, lineCount: cachedResultLineCount)
                     }

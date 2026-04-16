@@ -103,6 +103,6 @@ public struct ModelListBubble: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
-        .frame(maxWidth: 480)
+        .widthCap(480)
     }
 }

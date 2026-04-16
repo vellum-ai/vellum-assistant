@@ -25,7 +25,6 @@ struct InlineAppCreatedCard: View {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity)
                     .frame(height: 140)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
