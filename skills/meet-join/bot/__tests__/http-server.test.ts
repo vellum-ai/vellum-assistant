@@ -329,11 +329,28 @@ describe("http-server", () => {
   });
 
   // -------------------------------------------------------------------------
-  // POST /play_audio (501 stub until Phase 3)
+  // POST /play_audio
+  //
+  // Happy-path / ordering / cancellation coverage lives in
+  // audio-playback.test.ts. These cases just sanity-check auth and
+  // content-type validation at the HTTP boundary.
   // -------------------------------------------------------------------------
 
   describe("POST /play_audio", () => {
-    test("returns 501 Not Implemented", async () => {
+    test("requires auth", async () => {
+      const instance = makeServer();
+      server = instance.server;
+      const base = await startOnRandomPort(server);
+
+      const res = await fetch(`${base}/play_audio`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: new Uint8Array([0, 0, 0, 0]),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test("rejects non-octet-stream content-type with 400", async () => {
       const instance = makeServer();
       server = instance.server;
       const base = await startOnRandomPort(server);
@@ -346,20 +363,7 @@ describe("http-server", () => {
         },
         body: JSON.stringify({ type: "play_audio", streamId: "s-1" }),
       });
-      expect(res.status).toBe(501);
-    });
-
-    test("requires auth", async () => {
-      const instance = makeServer();
-      server = instance.server;
-      const base = await startOnRandomPort(server);
-
-      const res = await fetch(`${base}/play_audio`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "play_audio", streamId: "s-1" }),
-      });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(400);
     });
   });
 
