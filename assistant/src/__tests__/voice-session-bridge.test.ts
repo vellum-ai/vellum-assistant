@@ -221,6 +221,45 @@ describe("voice-session-bridge", () => {
     expect(abortCalled).toBe(true);
   });
 
+  test("startVoiceTurn passes callSite: 'callAgent' to runAgentLoop", async () => {
+    const conversation = createConversation("voice bridge callSite test");
+    const events: ServerMessage[] = [
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+
+    let capturedOptions: Record<string, unknown> | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      runAgentLoop: async (
+        _content: string,
+        _messageId: string,
+        onEvent: (msg: ServerMessage) => void,
+        options?: Record<string, unknown>,
+      ) => {
+        capturedOptions = options;
+        for (const event of events) {
+          onEvent(event);
+        }
+      },
+    } as unknown as Conversation;
+
+    injectDeps(() => session);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "Hello",
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedOptions).toBeDefined();
+    expect(capturedOptions?.callSite).toBe("callAgent");
+  });
+
   test("external AbortSignal triggers turn abort", async () => {
     const conversation = createConversation("voice bridge signal test");
     let abortCalled = false;
