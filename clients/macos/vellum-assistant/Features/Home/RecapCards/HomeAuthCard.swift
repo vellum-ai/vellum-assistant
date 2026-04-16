@@ -34,7 +34,7 @@ struct HomeAuthCard: View {
 
     var body: some View {
         HomeRecapCardView {
-            VStack(spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 headerRow
                 if let attachment {
                     HomeLinkFileRow(
