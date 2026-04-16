@@ -103,6 +103,33 @@ export interface MeetError {
   detail: string;
 }
 
+/**
+ * The assistant has begun speaking into the meeting via the TTS bridge. Fired
+ * once per {@link MeetSessionManager.speak} invocation immediately before the
+ * synthesis stream starts flowing to the bot's `/play_audio` endpoint. Useful
+ * for clients that want to render a "speaking …" indicator.
+ */
+export interface MeetSpeakingStarted {
+  type: "meet.speaking_started";
+  meetingId: string;
+  /** Opaque stream identifier — matches `meet.speaking_ended.streamId`. */
+  streamId: string;
+}
+
+/**
+ * The assistant has finished (or cancelled) a TTS playback stream. Fired
+ * after the bot-side playback request settles — whether normally, via an
+ * explicit cancel, or due to an upstream error.
+ */
+export interface MeetSpeakingEnded {
+  type: "meet.speaking_ended";
+  meetingId: string;
+  /** Opaque stream identifier — matches `meet.speaking_started.streamId`. */
+  streamId: string;
+  /** Why the stream ended: natural completion, caller-initiated cancel, or an upstream error. */
+  reason: "completed" | "cancelled" | "error";
+}
+
 export type _MeetServerMessages =
   | MeetJoining
   | MeetJoined
@@ -111,4 +138,6 @@ export type _MeetServerMessages =
   | MeetTranscriptChunk
   | MeetLeft
   | MeetChatSent
-  | MeetError;
+  | MeetError
+  | MeetSpeakingStarted
+  | MeetSpeakingEnded;

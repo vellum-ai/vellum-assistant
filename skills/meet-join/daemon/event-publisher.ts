@@ -55,7 +55,9 @@ export type MeetEventKind =
   | "meet.transcript_chunk"
   | "meet.left"
   | "meet.chat_sent"
-  | "meet.error";
+  | "meet.error"
+  | "meet.speaking_started"
+  | "meet.speaking_ended";
 
 // ---------------------------------------------------------------------------
 // publishMeetEvent
