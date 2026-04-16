@@ -9,6 +9,7 @@ import VellumAssistantShared
 /// the version label 7 times.
 struct DeveloperSettingsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
+    @Bindable var authManager: AuthManager
     @ObservedObject var conversationStore: IOSConversationStore
 
     var body: some View {
@@ -17,6 +18,7 @@ struct DeveloperSettingsSection: View {
         // (keeps counts and the Clear button's enabled state live).
         DeveloperSettingsSectionContent(
             clientProvider: clientProvider,
+            authManager: authManager,
             traceStore: clientProvider.traceStore,
             conversationStore: conversationStore
         )
@@ -25,6 +27,7 @@ struct DeveloperSettingsSection: View {
 
 private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
+    @Bindable var authManager: AuthManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var conversationStore: IOSConversationStore
     @State private var showDebugPanel = false
@@ -44,8 +47,9 @@ private struct DeveloperSettingsSectionContent: View {
     @State private var assistantLoadError: String?
     @State private var showResetConfirmation = false
 
-    init(clientProvider: ClientProvider, traceStore: TraceStore, conversationStore: IOSConversationStore) {
+    init(clientProvider: ClientProvider, authManager: AuthManager, traceStore: TraceStore, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
+        self.authManager = authManager
         self.traceStore = traceStore
         self.conversationStore = conversationStore
         _usageDashboardStore = State(initialValue: UsageDashboardStore())
@@ -285,11 +289,11 @@ private struct DeveloperSettingsSectionContent: View {
         ActorTokenManager.deleteAllCredentials()
         _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
 
+        // Invalidate auth state so LoginView doesn't see a stale
+        // .authenticated value if the user cancels the OIDC flow.
+        authManager.state = .unauthenticated
+
         // Rebuild the client so it picks up the cleared state.
-        // Note: AuthManager.state is not reset here because this view
-        // doesn't hold a reference to it. ContentView re-runs
-        // authManager.checkSession() on appear, which will find no
-        // session token and transition to .unauthenticated.
         clientProvider.rebuildClient()
 
         // Return to onboarding by resetting the completion flag.
