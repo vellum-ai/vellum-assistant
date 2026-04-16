@@ -1,3 +1,5 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
+
 export interface TextContent {
   type: "text";
   text: string;
@@ -131,6 +133,15 @@ export type ProviderEvent =
 export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
+  /**
+   * Opt-in routing through the unified LLM call-site resolver. When set,
+   * `RetryProvider` resolves provider/model/maxTokens/effort/speed/temperature/
+   * thinking/contextWindow via `resolveCallSiteConfig(callSite, config.llm)`
+   * instead of consulting `modelIntent`. Both fields may coexist; `callSite`
+   * wins when present, and the legacy `modelIntent` path is preserved for
+   * unmigrated callers.
+   */
+  callSite?: LLMCallSite;
   effort?: "low" | "medium" | "high" | "max";
   speed?: "standard" | "fast";
   [key: string]: unknown;
