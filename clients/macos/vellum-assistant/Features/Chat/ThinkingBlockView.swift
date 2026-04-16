@@ -49,11 +49,21 @@ struct ThinkingBlockView: View {
                     .padding(.horizontal, VSpacing.sm)
 
                 // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                //
+                // `maxContentWidth` is the budget for the measured text run.
+                // `MarkdownSegmentView` falls back to `VSpacing.chatBubbleMaxWidth`
+                // when nil, and `SelectableRunView` applies that as a definite
+                // `.frame(width:)`. The `.padding(VSpacing.sm)` below then adds
+                // 8pt on each side, so passing `nil` makes the outer card 776pt
+                // wide — 16pt wider than the 760pt chat column, visibly mis-
+                // aligned with the adjacent progress card. Subtracting the
+                // padding from the budget keeps the padded card at exactly
+                // `chatBubbleMaxWidth`.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
                     typographyGeneration: typographyGeneration,
-                    maxContentWidth: nil,
+                    maxContentWidth: VSpacing.chatBubbleMaxWidth - 2 * VSpacing.sm,
                     textColor: VColor.contentSecondary,
                     secondaryTextColor: VColor.contentTertiary,
                     mutedTextColor: VColor.contentTertiary,
