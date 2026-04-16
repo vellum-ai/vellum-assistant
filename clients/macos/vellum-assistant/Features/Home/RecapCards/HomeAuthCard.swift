@@ -50,14 +50,19 @@ struct HomeAuthCard: View {
         .padding(VSpacing.sm)
         .if(isSimple) { view in
             view
-                .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
+                .background(Capsule().fill(VColor.auxWhite.opacity(0.1)))
+                .overlay(Capsule().strokeBorder(VColor.borderElement.opacity(0.3), lineWidth: 1))
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
             view
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .fill(VColor.surfaceLift.opacity(0.1))
+                        .fill(VColor.auxWhite.opacity(0.1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                        .strokeBorder(VColor.borderElement.opacity(0.3), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
@@ -81,7 +86,7 @@ struct HomeAuthCard: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.auxWhite)
+                .fill(VColor.surfaceLift)
                 .frame(width: 38, height: 38)
             VIconView(.file, size: 18)
                 .foregroundStyle(VColor.contentDisabled)
