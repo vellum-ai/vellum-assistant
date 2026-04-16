@@ -1,5 +1,14 @@
 #if os(macOS)
+import ObjectiveC
 import SwiftUI
+
+// MARK: - Associated-object key for transparency cache
+
+/// Key used by `objc_setAssociatedObject` to attach a cached transparency
+/// result directly to an `NSImage` instance. This avoids repeated CGContext
+/// allocations when the same image is passed to multiple `VAvatarImage` inits
+/// (e.g. during SwiftUI body re-evaluation).
+private var transparencyCacheKey: UInt8 = 0
 
 /// Reusable avatar image that adapts its clip shape based on image transparency.
 /// Images with transparent backgrounds render unclipped so the full artwork
@@ -19,7 +28,12 @@ public struct VAvatarImage: View {
 
     /// Alpha byte value at or above which a pixel is considered opaque.
     /// Derived from `ceil(0.95 * 255) = 243`.
-    private static let alphaOpaqueThreshold: UInt8 = 243
+    static let alphaOpaqueThreshold: UInt8 = 243
+
+    /// Maximum dimension for the sampling CGContext. Images larger than this
+    /// are downsampled before pixel inspection — we only need 8 sample points,
+    /// so full-resolution rendering is unnecessary.
+    static let maxSamplingDimension = 64
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
@@ -58,11 +72,26 @@ public struct VAvatarImage: View {
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
     ///
-    /// Converts the image to a `CGImage`, then draws it into a known-layout
-    /// 32-bit BGRA `CGContext` to read alpha bytes at predictable offsets.
-    /// Samples 8 points (corners + edge midpoints) and returns `true` if
-    /// any sample falls below ``alphaOpaqueThreshold``.
-    private static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+    /// Results are cached on the `NSImage` instance via `objc_setAssociatedObject`,
+    /// so repeated calls with the same image (e.g. during SwiftUI body re-evaluation)
+    /// return immediately without allocating a CGContext.
+    ///
+    /// For images larger than ``maxSamplingDimension``, the CGContext is created at
+    /// a downsampled resolution — only 8 sample points are needed, so full-resolution
+    /// rendering is unnecessary.
+    static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+        // Return cached result if available.
+        if let cached = objc_getAssociatedObject(nsImage, &transparencyCacheKey) as? Bool {
+            return cached
+        }
+
+        let result = computeTransparency(nsImage)
+        objc_setAssociatedObject(nsImage, &transparencyCacheKey, result, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return result
+    }
+
+    /// Core transparency detection logic, separated from caching for testability.
+    private static func computeTransparency(_ nsImage: NSImage) -> Bool {
         guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
         }
@@ -76,9 +105,22 @@ public struct VAvatarImage: View {
             break
         }
 
-        let width = cgImage.width
-        let height = cgImage.height
-        guard width > 0, height > 0 else { return false }
+        let sourceWidth = cgImage.width
+        let sourceHeight = cgImage.height
+        guard sourceWidth > 0, sourceHeight > 0 else { return false }
+
+        // Downsample large images — we only need 8 sample points.
+        let maxDim = maxSamplingDimension
+        let width: Int
+        let height: Int
+        if sourceWidth > maxDim || sourceHeight > maxDim {
+            let scale = Double(maxDim) / Double(max(sourceWidth, sourceHeight))
+            width = max(1, Int(Double(sourceWidth) * scale))
+            height = max(1, Int(Double(sourceHeight) * scale))
+        } else {
+            width = sourceWidth
+            height = sourceHeight
+        }
 
         // Draw into a known-layout 32-bit BGRA context so we can read alpha
         // bytes at predictable offsets regardless of the source pixel format.
