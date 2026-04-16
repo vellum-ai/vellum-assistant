@@ -8,7 +8,6 @@ struct HomeImageCard: View {
     let title: String
     let threadName: String?
     let image: NSImage?
-    let showDismiss: Bool
     let onSave: () -> Void
     let onOpenInFinder: () -> Void
     let onDismiss: (() -> Void)?
@@ -17,7 +16,6 @@ struct HomeImageCard: View {
         title: String,
         threadName: String? = nil,
         image: NSImage? = nil,
-        showDismiss: Bool = false,
         onSave: @escaping () -> Void,
         onOpenInFinder: @escaping () -> Void,
         onDismiss: (() -> Void)? = nil
@@ -25,7 +23,6 @@ struct HomeImageCard: View {
         self.title = title
         self.threadName = threadName
         self.image = image
-        self.showDismiss = showDismiss
         self.onSave = onSave
         self.onOpenInFinder = onOpenInFinder
         self.onDismiss = onDismiss
@@ -37,7 +34,7 @@ struct HomeImageCard: View {
                 icon: .image,
                 title: title,
                 subtitle: threadName,
-                showDismiss: showDismiss,
+                showDismiss: true,
                 onDismiss: onDismiss
             )
 
@@ -46,7 +43,7 @@ struct HomeImageCard: View {
             actionButtons
         }
         .recapCardGlass()
-        .recapCardMaxWidth()
+        .recapCardMaxWidth(fill: true)
     }
 
     // MARK: - Image area

@@ -83,17 +83,23 @@ extension View {
         )
     }
 
-    /// Hug content but cap at `RecapCard.maxWidth` (528pt).
-    /// - When intrinsic content width is less than the cap, the view sizes
-    ///   to its content (compact cards stay compact).
-    /// - When intrinsic content would exceed the cap (e.g., a very long title
-    ///   or a child requesting `.frame(maxWidth: .infinity)`), the view caps
-    ///   at 528pt and content wraps/clips inside.
+    /// Apply the standard recap card width behavior.
     ///
-    /// The combination of `.frame(maxWidth:)` and `.fixedSize(horizontal:)`
-    /// is the canonical SwiftUI idiom for "intrinsic-or-bounded" sizing.
-    func recapCardMaxWidth() -> some View {
-        frame(maxWidth: RecapCard.maxWidth, alignment: .leading)
-            .fixedSize(horizontal: true, vertical: false)
+    /// - Parameter fill: When `true`, the card always fills the available
+    ///   width up to `RecapCard.maxWidth` (528pt) — useful for detailed
+    ///   cards (HomeReplyCard, HomeEmailPreviewCard, HomeImageCard,
+    ///   HomeFileCard) that should appear as fixed-width surfaces.
+    ///   When `false` (default), the card hugs its intrinsic content
+    ///   width up to the cap — useful for compact cards (HomeAuthCard
+    ///   simple, HomeAssistantCard) that should stay compact for short
+    ///   content but never overflow.
+    @ViewBuilder
+    func recapCardMaxWidth(fill: Bool = false) -> some View {
+        if fill {
+            frame(maxWidth: RecapCard.maxWidth, alignment: .leading)
+        } else {
+            frame(maxWidth: RecapCard.maxWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        }
     }
 }

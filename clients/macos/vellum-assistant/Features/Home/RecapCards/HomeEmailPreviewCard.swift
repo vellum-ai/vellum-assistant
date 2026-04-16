@@ -10,7 +10,6 @@ struct HomeEmailPreviewCard: View {
     let toAddress: String
     let subject: String
     let bodyText: String
-    let showDismiss: Bool
     let onSend: () -> Void
     let onRework: () -> Void
     let onDismiss: (() -> Void)?
@@ -21,7 +20,6 @@ struct HomeEmailPreviewCard: View {
         toAddress: String,
         subject: String,
         bodyText: String,
-        showDismiss: Bool = false,
         onSend: @escaping () -> Void,
         onRework: @escaping () -> Void,
         onDismiss: (() -> Void)? = nil
@@ -31,7 +29,6 @@ struct HomeEmailPreviewCard: View {
         self.toAddress = toAddress
         self.subject = subject
         self.bodyText = bodyText
-        self.showDismiss = showDismiss
         self.onSend = onSend
         self.onRework = onRework
         self.onDismiss = onDismiss
@@ -43,7 +40,7 @@ struct HomeEmailPreviewCard: View {
                 icon: .mail,
                 title: title,
                 subtitle: threadName,
-                showDismiss: showDismiss,
+                showDismiss: true,
                 onDismiss: onDismiss
             )
 
@@ -52,7 +49,7 @@ struct HomeEmailPreviewCard: View {
             actionButtons
         }
         .recapCardGlass()
-        .recapCardMaxWidth()
+        .recapCardMaxWidth(fill: true)
     }
 
     // MARK: - Email Content Area

@@ -7,7 +7,6 @@ import VellumAssistantShared
 struct HomeReplyCard: View {
     let title: String
     let threadName: String?
-    let showDismiss: Bool
     let onDismiss: (() -> Void)?
     let onSend: (String) -> Void
 
@@ -16,13 +15,11 @@ struct HomeReplyCard: View {
     init(
         title: String,
         threadName: String? = nil,
-        showDismiss: Bool = false,
         onDismiss: (() -> Void)? = nil,
         onSend: @escaping (String) -> Void
     ) {
         self.title = title
         self.threadName = threadName
-        self.showDismiss = showDismiss
         self.onDismiss = onDismiss
         self.onSend = onSend
     }
@@ -34,7 +31,7 @@ struct HomeReplyCard: View {
                 .padding(.top, VSpacing.md)
         }
         .recapCardGlass()
-        .recapCardMaxWidth()
+        .recapCardMaxWidth(fill: true)
     }
 
     // MARK: - Header
@@ -45,7 +42,7 @@ struct HomeReplyCard: View {
             title: title,
             subtitle: threadName,
             titleLineLimit: nil,
-            showDismiss: showDismiss,
+            showDismiss: true,
             onDismiss: onDismiss
         )
     }

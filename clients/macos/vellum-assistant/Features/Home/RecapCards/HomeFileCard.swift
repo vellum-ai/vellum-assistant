@@ -9,7 +9,6 @@ struct HomeFileCard: View {
     let threadName: String?
     let fileName: String
     let fileSize: String
-    let showDismiss: Bool
     let onDismiss: (() -> Void)?
 
     init(
@@ -17,14 +16,12 @@ struct HomeFileCard: View {
         threadName: String? = nil,
         fileName: String,
         fileSize: String,
-        showDismiss: Bool = false,
         onDismiss: (() -> Void)? = nil
     ) {
         self.title = title
         self.threadName = threadName
         self.fileName = fileName
         self.fileSize = fileSize
-        self.showDismiss = showDismiss
         self.onDismiss = onDismiss
     }
 
@@ -34,7 +31,7 @@ struct HomeFileCard: View {
                 icon: .file,
                 title: title,
                 subtitle: threadName,
-                showDismiss: showDismiss,
+                showDismiss: true,
                 onDismiss: onDismiss
             )
 
@@ -45,6 +42,6 @@ struct HomeFileCard: View {
             )
         }
         .recapCardGlass()
-        .recapCardMaxWidth()
+        .recapCardMaxWidth(fill: true)
     }
 }

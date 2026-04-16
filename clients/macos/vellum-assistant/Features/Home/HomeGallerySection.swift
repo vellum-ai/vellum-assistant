@@ -162,6 +162,7 @@ struct HomeGallerySection: View {
                     HomeReplyCard(
                         title: "What time should I schedule the meeting?",
                         threadName: "Calendar Management",
+                        onDismiss: {},
                         onSend: { _ in }
                     )
                 }
@@ -187,7 +188,8 @@ struct HomeGallerySection: View {
                         subject: "Project Update - Q4 Milestones",
                         bodyText: "Hi team, I wanted to share a quick update on our Q4 milestones...",
                         onSend: {},
-                        onRework: {}
+                        onRework: {},
+                        onDismiss: {}
                     )
                 }
             }
@@ -210,7 +212,8 @@ struct HomeGallerySection: View {
                         threadName: "Data Analysis",
                         image: nil,
                         onSave: {},
-                        onOpenInFinder: {}
+                        onOpenInFinder: {},
+                        onDismiss: {}
                     )
                 }
             }
@@ -232,7 +235,8 @@ struct HomeGallerySection: View {
                         title: "File saved",
                         threadName: "Document Processing",
                         fileName: "quarterly-report.pdf",
-                        fileSize: "1.2 MB"
+                        fileSize: "1.2 MB",
+                        onDismiss: {}
                     )
                 }
             }
