@@ -245,6 +245,7 @@ ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
+CES_SRC_DIR="$SCRIPT_DIR/../../credential-executor"
 
 # Chrome extension allowlist IDs injected into compiled binaries as a fallback
 # for packaged runs where repo-relative `meta/browser-extension/...` paths are
@@ -355,6 +356,7 @@ build_binaries() {
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
         (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     fi
@@ -407,6 +409,10 @@ build_binaries() {
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
+    pids+=($!)
+
+    SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
+        "$SCRIPT_DIR/ces-bin" "credential-executor" &
     pids+=($!)
 
     if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
@@ -552,7 +558,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -597,7 +603,7 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
         fi
     fi
 fi
@@ -803,6 +809,32 @@ if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     fi
 fi
 
+# Auto-build credential-executor (CES) binary if missing or stale.
+# The compiled binary is bundled alongside the daemon in Contents/MacOS/ so
+# the packaged app can locate it without requiring a separate install.
+CES_BIN_NEEDS_BUILD=false
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CES_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$CES_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/ces-bin/credential-executor" -print -quit 2>/dev/null)" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    elif [ "$CES_SRC_DIR/package.json" -nt "$SCRIPT_DIR/ces-bin/credential-executor" ] || \
+         [ "$CES_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$CES_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
+        "$SCRIPT_DIR/ces-bin" "credential-executor"
+fi
+
+# Also rebuild if CES binary changed or newly added
+if [ -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+    if [ ! -f "$MACOS_DIR/credential-executor" ] || [ "$SCRIPT_DIR/ces-bin/credential-executor" -nt "$MACOS_DIR/credential-executor" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Auto-build Chrome native messaging helper binary if missing or stale
 # and bun is available. This is the binary Chrome spawns via
 # chrome.runtime.connectNative("com.vellum.daemon") — see
@@ -890,6 +922,18 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-gateway"
     else
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled credential-executor (CES) binary (if available).
+    # The daemon locates this via `dirname(process.execPath)` — see
+    # getLocalBinarySearchPaths() in assistant/src/credential-execution/executable-discovery.ts.
+    CES_BIN="$SCRIPT_DIR/ces-bin/credential-executor"
+    if [ -f "$CES_BIN" ]; then
+        echo "Bundling credential-executor binary..."
+        cp "$CES_BIN" "$MACOS_DIR/credential-executor"
+        chmod +x "$MACOS_DIR/credential-executor"
+    else
+        echo "No credential-executor binary at $CES_BIN — skipping (dev mode)"
     fi
 
     # Copy bundled Chrome native messaging helper binary (if available).
@@ -1388,6 +1432,13 @@ if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
     echo "Chrome native messaging helper binary signed"
 fi
 
+# Sign credential-executor (CES) binary
+if [ -f "$MACOS_DIR/credential-executor" ]; then
+    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${CES_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
+    echo "credential-executor binary signed"
+fi
+
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
@@ -1400,6 +1451,7 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
         ! -name "vellum-chrome-native-host" \
+        ! -name "credential-executor" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 

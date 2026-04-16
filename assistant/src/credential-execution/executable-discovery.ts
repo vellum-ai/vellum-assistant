@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
@@ -65,9 +65,19 @@ function getManagedBootstrapSocketPath(): string {
  * `getDataDir()` (under `~/.vellum/workspace/data`) was previously included
  * but is inside the sandbox write boundary, so a sandboxed tool could plant
  * a malicious binary there. Removed to close the sandbox-escape vector.
+ *
+ * Search order:
+ * 1. Alongside the running executable (packaged macOS app:
+ *    `<App>.app/Contents/MacOS/credential-executor`). When running from
+ *    source via `bun run`, `process.execPath` points at the bun binary
+ *    itself, so this path won't exist and the search falls through.
+ * 2. `<binDir>/credential-executor` — user-installed override (dev flow).
  */
 function getLocalBinarySearchPaths(): string[] {
-  return [join(getBinDir(), "credential-executor")];
+  return [
+    join(dirname(process.execPath), "credential-executor"),
+    join(getBinDir(), "credential-executor"),
+  ];
 }
 
 // ---------------------------------------------------------------------------
