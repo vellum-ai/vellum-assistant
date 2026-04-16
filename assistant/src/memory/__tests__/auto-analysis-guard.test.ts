@@ -28,8 +28,8 @@ describe("auto-analysis constants", () => {
     expect(AUTO_ANALYSIS_SOURCE).toBe("auto-analysis");
   });
 
-  test("AUTO_ANALYSIS_GROUP_ID is 'system:reflections' so rolling analysis conversations stay out of system:all", () => {
-    expect(AUTO_ANALYSIS_GROUP_ID).toBe("system:reflections");
+  test("AUTO_ANALYSIS_GROUP_ID is 'system:background' so reflections render as a background sub-group", () => {
+    expect(AUTO_ANALYSIS_GROUP_ID).toBe("system:background");
   });
 });
 

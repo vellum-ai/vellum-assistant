@@ -248,16 +248,12 @@ describe("analyzeConversation", () => {
     // Verifies the rolling-analysis lookup was consulted against the source ID.
     expect(mockFindAnalysisConversationFor).toHaveBeenCalledWith("conv-1");
 
-    // Created exactly one new conversation row, with the expected shape.
-    // The dedicated `system:reflections` group keeps rolling analysis
-    // conversations out of the default `system:all` group used by clients
-    // that do not filter on `source`.
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     expect(mockCreateConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Analysis: Source",
         source: "auto-analysis",
-        groupId: "system:reflections",
+        groupId: "system:background",
         forkParentConversationId: "conv-1",
       }),
     );

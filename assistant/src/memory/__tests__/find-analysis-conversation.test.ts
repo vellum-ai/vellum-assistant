@@ -147,8 +147,6 @@ describe("findAnalysisConversationFor", () => {
   test("finds rolling analysis conversation regardless of group_id (backward-compat across the dedicated-group migration)", () => {
     const parent = createConversation("parent");
 
-    // Conversations created BEFORE the dedicated `system:reflections` group
-    // landed will have the default `system:all` group_id.
     const legacyAnalysis = createConversation({
       title: "legacy rolling analysis",
       source: "auto-analysis",
@@ -160,12 +158,10 @@ describe("findAnalysisConversationFor", () => {
       id: legacyAnalysis.id,
     });
 
-    // Conversations created AFTER use the dedicated group. The lookup must
-    // still find them — the source filter alone is the contract.
     const newAnalysis = createConversation({
       title: "new rolling analysis",
       source: "auto-analysis",
-      groupId: "system:reflections",
+      groupId: "system:background",
       forkParentConversationId: parent.id,
     });
     setUpdatedAt(newAnalysis.id, 2_000);

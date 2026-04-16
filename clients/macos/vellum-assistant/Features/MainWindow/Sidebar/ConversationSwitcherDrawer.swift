@@ -20,45 +20,29 @@ struct ConversationSwitcherDrawer: View {
     @State private var expandedSubGroups: Set<String> = []
 
     /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
-    /// Auto-analysis conversations are stripped from every entry here — they render
-    /// separately in the dedicated "Reflections" section at the bottom of the drawer.
     private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
         let raw = conversationManager.groupedConversations
         var entries: [(group: ConversationGroup, conversations: [ConversationModel])] = []
         var extraForAll: [ConversationModel] = []
         for entry in raw {
             guard let group = entry.group else { continue }
-            // system:reflections renders separately as the drawer's Reflections
-            // section; skip it here so the daemon-seeded group never appears as
-            // a regular drawer row.
-            if group.id == ReflectionsSidebarSectionId.id { continue }
-            let filtered = entry.conversations.filter { !$0.isAutoAnalysisConversation }
             if !group.isSystemGroup && !customGroupsEnabled {
-                extraForAll.append(contentsOf: filtered)
+                extraForAll.append(contentsOf: entry.conversations)
             } else {
-                entries.append((group: group, conversations: filtered))
+                entries.append((group: group, conversations: entry.conversations))
             }
         }
-        // Merge extra conversations into the system:all entry
         if !extraForAll.isEmpty {
             if let allIndex = entries.firstIndex(where: { $0.group.id == ConversationGroup.all.id }) {
                 let existing = entries[allIndex]
                 entries[allIndex] = (group: existing.group, conversations: existing.conversations + extraForAll)
             } else {
-                // system:all absent from entries — create one so conversations aren't dropped
                 entries.append((group: ConversationGroup.all, conversations: extraForAll))
             }
         }
         return entries
     }
 
-    /// Auto-analysis conversations collected across every visible group, sorted
-    /// by recency. Rendered in a dedicated "Reflections" drawer section when
-    /// non-empty; hidden otherwise so the drawer matches its pre-feature shape.
-    private var drawerReflections: [ConversationModel] {
-        let all = conversationManager.groupedConversations.flatMap { $0.conversations }
-        return ReflectionsSidebarPresentation(conversations: all).reflections
-    }
     /// Measured content height for size-to-fit behavior.
     @State private var contentHeight: CGFloat = 0
 
@@ -140,25 +124,6 @@ struct ConversationSwitcherDrawer: View {
                             isExpanded: isExpanded
                         )
                     }
-
-                    // Reflections section — only rendered when auto-analysis
-                    // conversations exist. Treated as a synthetic section with
-                    // the same drawer section affordances (title row, count,
-                    // expand/collapse, show more) as a regular group.
-                    let reflections = drawerReflections
-                    if !reflections.isEmpty {
-                        if !nonEmptyEntries.isEmpty {
-                            VMenuDivider()
-                        }
-                        let sectionId = ReflectionsSidebarSectionId.id
-                        sectionContent(
-                            sectionId: sectionId,
-                            group: ConversationGroup.reflectionsSection,
-                            title: "Reflections",
-                            conversations: reflections,
-                            isExpanded: expandedSections.contains(sectionId)
-                        )
-                    }
                 }
                 .background(GeometryReader { contentGeo in
                     Color.clear.preference(
@@ -220,7 +185,10 @@ struct ConversationSwitcherDrawer: View {
         if isScheduled || isBackground {
             let grouper: (ConversationModel) -> String? = isScheduled ? { $0.scheduleJobId } : { $0.source }
             let labelProvider: ((String, [ConversationModel]) -> String)? = isBackground
-                ? { key, _ in key.prefix(1).uppercased() + key.dropFirst() }
+                ? { key, _ in
+                    if key == "auto-analysis" { return "Reflections" }
+                    return String(key.prefix(1).uppercased() + key.dropFirst())
+                }
                 : nil
             let subGroups = buildDrawerSubGroups(conversations: conversations, grouper: grouper, labelProvider: labelProvider)
             let displayed = isExpanded ? subGroups : Array(subGroups.prefix(maxPerSection))

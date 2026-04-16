@@ -328,10 +328,6 @@ final class ConversationListStore {
         var extraForAll: [ConversationModel] = []
         for entry in raw {
             guard let group = entry.group else { continue }
-            // system:reflections renders separately via SidebarReflectionsSection;
-            // skip it here so the daemon-seeded group never shows up as a regular
-            // sidebar row (which would duplicate the dedicated section header).
-            if group.id == ReflectionsSidebarSectionId.id { continue }
             if !group.isSystemGroup && !customGroupsEnabled {
                 extraForAll.append(contentsOf: entry.conversations)
             } else {
