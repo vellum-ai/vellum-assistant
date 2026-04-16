@@ -409,7 +409,7 @@ Examples:
       "after",
       `
 Arguments:
-  conversationId   Conversation ID (or unique prefix) to wake.
+  conversationId   Conversation ID to wake.
 
 Wake the assistant's agent loop on an existing conversation without a user
 message. The hint is injected as a non-persisted internal message visible
@@ -417,7 +417,7 @@ only to the LLM — it never appears in the transcript or SSE feed. If the
 agent produces output (text or tool calls), it is persisted and emitted to
 connected clients. Otherwise the wake is a silent no-op.
 
-Requires the assistant daemon to be running. Communicates via IPC socket.
+Requires the assistant to be running. Communicates via IPC socket.
 
 Examples:
   $ assistant conversations wake abc123 --hint "PR #25933 received a review requesting changes"
