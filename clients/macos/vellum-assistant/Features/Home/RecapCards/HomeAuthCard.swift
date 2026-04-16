@@ -109,11 +109,14 @@ struct HomeAuthCard: View {
 
     // MARK: - Action Buttons
 
+    @ViewBuilder
     private var actionButtons: some View {
         HStack(spacing: VSpacing.xs) {
             authoriseButton
             denyButton
-            dismissButton
+            if onDismiss != nil {
+                dismissButton
+            }
         }
     }
 

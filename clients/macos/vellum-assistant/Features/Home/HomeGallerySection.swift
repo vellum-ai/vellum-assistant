@@ -56,7 +56,8 @@ struct HomeGallerySection: View {
                         HomeAuthCard(
                             title: "Authorise $42.00 payment",
                             onAuthorise: {},
-                            onDeny: {}
+                            onDeny: {},
+                            onDismiss: {}
                         )
 
                         Divider().background(VColor.borderBase)
