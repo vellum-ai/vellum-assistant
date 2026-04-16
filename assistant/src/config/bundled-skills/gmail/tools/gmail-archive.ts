@@ -99,9 +99,9 @@ export async function run(
     }
 
     const resolved = getSenderMessageIds(scanId, senderIds);
-    if (resolved && resolved.length > 0) {
+    if (resolved !== null && resolved.length > 0) {
       messageIds = resolved;
-    } else {
+    } else if (resolved === null) {
       // Scan expired or sender IDs unresolved — fall back to query-based archiving
       const emails: string[] = [];
       const undecodable: string[] = [];
@@ -127,7 +127,7 @@ export async function run(
         const allMessageIds: string[] = [];
 
         for (const email of emails) {
-          const fallbackQuery = `from:${email} in:inbox`;
+          const fallbackQuery = `from:"${email.replace(/"/g, "")}" in:inbox`;
           let pageToken: string | undefined;
           while (allMessageIds.length < MAX_MESSAGES) {
             const listResp = await listMessages(
@@ -168,6 +168,10 @@ export async function run(
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
+    } else {
+      return err(
+        "The provided sender IDs do not match the scan results. Please re-run the scan.",
+      );
     }
 
     // Record archived sender emails for future sessions

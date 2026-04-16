@@ -10,18 +10,17 @@ const mockBatchModifyMessages =
       opts: Record<string, unknown>,
     ) => Promise<void>
   >();
-const mockListMessages =
-  mock<
-    (
-      conn: unknown,
-      query: string,
-      limit: number,
-      pageToken?: string,
-    ) => Promise<{
-      messages?: { id: string }[];
-      nextPageToken?: string | null;
-    }>
-  >();
+const mockListMessages = mock<
+  (
+    conn: unknown,
+    query: string,
+    limit: number,
+    pageToken?: string,
+  ) => Promise<{
+    messages?: { id: string }[];
+    nextPageToken?: string | null;
+  }>
+>();
 const mockModifyMessage =
   mock<
     (
@@ -45,13 +44,15 @@ mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: mockResolveOAuthConnection,
 }));
 
-mock.module("../config/bundled-skills/gmail/tools/scan-result-store.js", () => ({
-  getSenderMessageIds: () => mockScanStoreReturn,
-}));
-
-const { run } = await import(
-  "../config/bundled-skills/gmail/tools/gmail-archive.js"
+mock.module(
+  "../config/bundled-skills/gmail/tools/scan-result-store.js",
+  () => ({
+    getSenderMessageIds: () => mockScanStoreReturn,
+  }),
 );
+
+const { run } =
+  await import("../config/bundled-skills/gmail/tools/gmail-archive.js");
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -93,18 +94,12 @@ describe("gmail_archive sender ID fallback", () => {
     expect(result.content).toContain("Archived 3 message(s)");
     expect(result.content).toContain("query fallback");
     expect(mockListMessages.mock.calls[0][1]).toBe(
-      "from:spam@example.com in:inbox",
+      'from:"spam@example.com" in:inbox',
     );
   });
 
-  test("falls back when scan returns empty array", async () => {
+  test("returns error when scan returns empty array (sender IDs don't match)", async () => {
     mockScanStoreReturn = []; // scan valid but no IDs resolved
-    mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
-    mockListMessages.mockResolvedValueOnce({
-      messages: [{ id: "m1" }],
-      nextPageToken: null,
-    });
-    mockBatchModifyMessages.mockResolvedValueOnce(undefined);
 
     const senderId = encodeSenderId("cold@outreach.io");
     const result = await run(
@@ -112,9 +107,8 @@ describe("gmail_archive sender ID fallback", () => {
       makeContext(),
     );
 
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Archived 1 message(s)");
-    expect(result.content).toContain("query fallback");
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("do not match the scan results");
   });
 
   test("handles multiple sender IDs in fallback", async () => {
