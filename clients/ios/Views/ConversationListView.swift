@@ -592,6 +592,9 @@ struct ConversationListView: View {
                 }
             }
         }
+        .refreshable {
+            await store.refreshConversations()
+        }
         .searchable(text: $searchText, prompt: "Search chats")
         .navigationTitle("Chats")
         .toolbar {
