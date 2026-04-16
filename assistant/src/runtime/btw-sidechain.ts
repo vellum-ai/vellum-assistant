@@ -1,3 +1,4 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { buildToolDefinitions } from "../daemon/conversation-tool-setup.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
@@ -29,6 +30,13 @@ export interface RunBtwSidechainParams {
   systemPrompt?: string;
   tools?: ToolDefinition[];
   maxTokens?: number;
+  /**
+   * Opt-in routing through the unified LLM call-site resolver. When set, the
+   * provider resolves provider/model/maxTokens/etc. via
+   * `resolveCallSiteConfig(callSite, config.llm)` instead of `modelIntent`.
+   * `callSite` wins when both are passed.
+   */
+  callSite?: LLMCallSite;
   modelIntent?: ModelIntent;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -89,7 +97,9 @@ export async function runBtwSidechain(
       config: {
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
-        modelIntent: params.modelIntent ?? "latency-optimized",
+        ...(params.callSite !== undefined
+          ? { callSite: params.callSite }
+          : { modelIntent: params.modelIntent ?? "latency-optimized" }),
       },
       onEvent: (event) => {
         if (event.type === "text_delta") {

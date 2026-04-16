@@ -263,9 +263,19 @@ export class ProviderCommitMessageGenerator {
           {
             signal: ac.signal,
             config: {
+              // `callSite` lets the provider resolve `max_tokens` and
+              // `temperature` from `llm.callSites.commitMessage` (populated by
+              // the workspace migration from the legacy
+              // `workspaceGit.commitMessageLLM.{maxTokens,temperature}` keys).
+              // Operational fields (`enabled`, `timeoutMs`, `breaker`,
+              // `maxFilesInPrompt`, `maxDiffBytes`, `minRemainingTurnBudgetMs`)
+              // remain on `workspaceGit.commitMessageLLM` and are read above.
+              callSite: "commitMessage",
+              // `fastModel` overrides the resolver's `model` because commit
+              // message generation enforces its own provider-specific fast
+              // model selection (see `PROVIDER_DEFAULT_FAST_MODELS` and
+              // `providerFastModelOverrides`).
               model: fastModel,
-              max_tokens: llmConfig.maxTokens,
-              temperature: llmConfig.temperature,
             },
           },
         );
