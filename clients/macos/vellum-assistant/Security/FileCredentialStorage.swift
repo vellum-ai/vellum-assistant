@@ -14,10 +14,9 @@ private let log = Logger(
 /// `~/.vellum/protected/credentials/` with 0600 permissions.
 struct FileCredentialStorage: CredentialStorage {
 
-    private static let credentialsDir: URL = {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".vellum/protected/credentials")
-    }()
+    private static var credentialsDir: URL {
+        VellumPaths.current.credentialsDir
+    }
 
     /// Returns the file URL for a given credential account name.
     /// The account name is sanitized to a safe filename by replacing

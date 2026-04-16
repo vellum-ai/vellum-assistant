@@ -17,6 +17,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
 | Credential Execution Service (CES) | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
+| Environment and data layout | [Environment and Data Layout](#environment-and-data-layout) (this file) |
+| Multi-local instance isolation | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file) |
 | Docker volume architecture | [Docker Volume Architecture](#docker-volume-architecture) (this file) |
 
 ## Cross-Cutting Invariants
@@ -34,49 +36,99 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - **Permission controls v2** removes deterministic tool-by-tool approval friction for assistant-owned actions. Under `permission-controls-v2`, the only built-in deterministic approval surface is conversation-scoped host computer access for `host_*` / host-target tools. All other assistant-owned tool usage relies on model-mediated consent, not temporary approvals, wildcard scopes, per-tool persistence, or network/side-effect approval cards. Cross-principal identity checks (for example unknown actors) still fail closed deterministically.
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and an overflow policy resolver gates latest-turn compression behind user approval for interactive sessions. Non-interactive sessions auto-compress; denied compression produces a graceful assistant explanation message (not a `conversation_error`). Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
 
+## Environment and Data Layout
+
+Environments are **namespaces**, not containers. `VELLUM_ENVIRONMENT` selects a path prefix (`vellum` for `production`, `vellum-<env>` for the non-production seeds `dev`, `staging`, `test`, `local`). It does not own data. Data directories are always per-assistant, and the lockfile's `resources.instanceDir` field is the source of truth for any given assistant's on-disk location.
+
+### Per-assistant data directories
+
+Every local assistant's daemon root is `<resources.instanceDir>/.vellum/`. The daemon receives `instanceDir` via the `BASE_DATA_DIR` environment variable set by the CLI on every spawn (`cli/src/lib/local.ts`), and the gateway reads the same variable in `gateway/src/paths.ts:getRootDir`. `assistant/src/util/platform.ts:vellumRoot` returns `join(BASE_DATA_DIR, ".vellum")` when the variable is set, and falls back to `join(homedir(), ".vellum")` otherwise. All root-level state (PID file, `.env`, `runtime-port`, `protected/` with its encrypted keys, trust rules, credentials, capability token, approved-devices list, etc.) and the workspace directory (`getWorkspaceDir()` = `vellumRoot()/workspace` when `VELLUM_WORKSPACE_DIR` is unset) derive from this helper.
+
+Allocation of `instanceDir` for new hatches:
+
+| Environment | `instanceDir` path |
+|---|---|
+| `production` | `$XDG_DATA_HOME/vellum/assistants/<name>/` |
+| non-production (`vellum-<env>`) | `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` |
+
+There is no "first local" special case — every new hatch goes through the same allocator (`cli/src/lib/assistant-config.ts:allocateLocalResources`) and lands under the XDG multi-instance tree. `~/.vellum/` is never an allocation target; it is only reached via existing lockfile entries whose `instanceDir = homedir()` was recorded before this change.
+
+### Lockfile
+
+| Environment | Canonical path | Read fallback |
+|---|---|---|
+| `production` | `~/.vellum.lock.json` | `~/.vellum.lockfile.json` (legacy rename) |
+| non-production | `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json` | (none — new path) |
+
+The CLI routes all lockfile reads/writes through `cli/src/lib/environments/paths.ts:getLockfilePath` / `getLockfilePaths` so non-production environments land in the env-scoped XDG config tree. The parent directory is created on first write.
+
+### Config directory (XDG-shared auth state)
+
+| Environment | Config dir |
+|---|---|
+| `production` | `$XDG_CONFIG_HOME/vellum/` |
+| non-production | `$XDG_CONFIG_HOME/vellum-<env>/` |
+
+Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Swift client (`clients/shared/Utilities/VellumPaths.swift:configDir`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
+
+### Backwards compatibility
+
+Backwards compatibility lives entirely in the read path — no on-disk migration is performed.
+
+- Existing production lockfile entries with `instanceDir = homedir()` continue to work: the daemon receives `BASE_DATA_DIR = homedir()` and resolves to `~/.vellum/` exactly as before.
+- Production writes still go to the legacy `~/.vellum.lock.json` filename; the rename-era `~/.vellum.lockfile.json` is accepted as a read fallback.
+- Unknown values of `VELLUM_ENVIRONMENT` (anything outside the seed table) resolve to `vellum` rather than a fabricated `vellum-<garbage>` directory, so misconfiguration degrades gracefully to the production path.
+
+### Mixed local/remote and targeting
+
+The lockfile can contain both local and remote entries side-by-side. Remote entries (`cloud: "gcp"`, `"aws"`, `"vellum"`, `"custom"`) carry connection metadata (`runtimeUrl`, `bearerToken`, etc.) but no `resources` block. `wake` and `sleep` only operate on local entries. `retire` works on both and dispatches per-cloud teardown for remote entries. CLI commands resolve which instance to target via `resolveTargetAssistant()` in the order: explicit name argument → `activeAssistant` field (set by `vellum use`) → sole local assistant.
+
 ## Multi-Local Instance Isolation
 
 Multiple local assistant instances can run side-by-side on the same machine, each fully isolated. This enables development, testing, or running multiple assistants concurrently without conflicts.
 
-### Instance Directory Layout
+### Instance directory layout
 
-Each named instance gets its own directory tree under `~/.vellum/instances/<name>/`:
+Each named instance gets its own directory tree. The exact location depends on environment and whether the lockfile entry predates the env-aware allocator (see [Environment and Data Layout](#environment-and-data-layout) for allocation rules). For a production install of two new assistants `alice` and `bob`:
 
 ```
-~/.vellum.lock.json                    # Global lockfile (all entries + activeAssistant)
-~/.vellum/
-├── instances/
-│   ├── alice/                     # Instance root (= BASE_DATA_DIR for this daemon)
-│   │   └── .vellum/              # Runtime dir (getRootDir() resolves here)
-│   │       ├── vellum.pid        # Daemon PID
-│   │       ├── gateway.pid       # Gateway PID
-│   │       ├── outbound-proxy.pid
-│   │       ├── session-token
-│   │       └── workspace/
-│   │           ├── config.json
-│   │           ├── data/
-│   │           │   ├── db/assistant.db
-│   │           │   ├── qdrant/
-│   │           │   └── logs/
-│   │           └── skills/
-│   └── bob/
-│       └── .vellum/
-│           └── ...               # Same structure as alice
+~/.vellum.lock.json                                       # Global lockfile
+~/.local/share/vellum/assistants/
+├── alice/                                                # instanceDir for alice (= BASE_DATA_DIR)
+│   └── .vellum/                                          # Daemon root (vellumRoot())
+│       ├── vellum.pid                                    # Daemon PID (duplicated by the CLI on spawn)
+│       ├── gateway.pid
+│       ├── ngrok.pid
+│       ├── runtime-port
+│       ├── .env
+│       ├── protected/                                    # keys.enc, trust.json, credentials/, ...
+│       └── workspace/
+│           ├── config.json
+│           ├── data/
+│           │   ├── db/assistant.db
+│           │   ├── qdrant/
+│           │   └── logs/
+│           └── skills/
+└── bob/
+    └── .vellum/
+        └── ...                                           # Same structure as alice
 ```
+
+An existing production lockfile entry created before env-aware allocation may still have `instanceDir = ~` and all of its state under `~/.vellum/`. That path is preserved via the lockfile read path — no data is moved. Non-production (`vellum-<env>`) hatches use the same layout under `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/`.
 
 All instances are created with explicit names via `vellum hatch --name <name>`.
 
-### Isolation Model
+### Isolation model
 
 Each instance gets its own:
-- **`BASE_DATA_DIR`**: Set to the instance directory (e.g. `~/.vellum/instances/alice/`). The daemon appends `.vellum` to this to derive `getRootDir()`, so all runtime files land under the instance.
+- **`BASE_DATA_DIR`**: Set to `resources.instanceDir`. The daemon (and gateway) append `.vellum` to this to derive the root directory, so all runtime files land under the instance.
 - **Daemon port** (`RUNTIME_HTTP_PORT`): Allocated by scanning from base port 7821.
 - **Gateway port** (`GATEWAY_PORT`): Allocated by scanning from base port 7830.
 - **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning from base port 6333.
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
 
-### Port Allocation
+### Port allocation
 
 Ports are allocated sequentially by `allocateLocalResources()` in `cli/src/lib/assistant-config.ts`:
 
@@ -86,9 +138,9 @@ Ports are allocated sequentially by `allocateLocalResources()` in `cli/src/lib/a
 
 Availability is checked via TCP connect probe. Each scan range spans up to 100 ports. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` can restart instances on the same ports.
 
-### Lockfile Schema
+### Lockfile schema
 
-The global lockfile (`~/.vellum.lock.json`) tracks all instances:
+The production lockfile (`~/.vellum.lock.json`) tracks all instances:
 
 ```jsonc
 {
@@ -98,12 +150,12 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
       "runtimeUrl": "http://localhost:7821",
       "cloud": "local",
       "hatchedAt": "2026-03-04T...",
-      "resources": {                    // Present for local multi-instance entries
-        "instanceDir": "~/.vellum/instances/alice",
+      "resources": {                    // Present for local entries
+        "instanceDir": "~/.local/share/vellum/assistants/alice",
         "daemonPort": 7821,
         "gatewayPort": 7830,
         "qdrantPort": 6333,
-        "pidFile": "~/.vellum/instances/alice/.vellum/vellum.pid"
+        "pidFile": "~/.local/share/vellum/assistants/alice/.vellum/vellum.pid"
       }
     },
     {
@@ -119,21 +171,8 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
 
 - `resources` (`LocalInstanceResources`): Present on all local entries. Contains per-instance ports and paths.
 - `activeAssistant`: Determines which instance CLI commands target by default.
-- Remote assistants (`cloud: "gcp"`, `"aws"`, etc.) are unaffected and have no `resources` field.
-
-### Active Assistant Targeting
-
-CLI commands resolve which instance to target via `resolveTargetAssistant()`:
-
-1. **Explicit name argument** — `vellum sleep alice`
-2. **Active assistant** — set via `vellum use <name>`, stored as `activeAssistant` in lockfile
-3. **Sole local assistant** — when exactly one local instance exists
-
-`wake` and `sleep` guard against targeting remote assistants (they exit with an error for non-`local` entries).
-
-### Mixed Local/Remote
-
-The lockfile can contain both local and remote entries. Remote entries (cloud providers) carry connection metadata (`runtimeUrl`, `bearerToken`, etc.) but no `resources`. `wake` and `sleep` only operate on local instances (they error for remote entries). `retire` works on both local and remote instances, using cloud-specific teardown for GCP/AWS/custom entries.
+- Remote assistants (`cloud: "gcp"`, `"aws"`, `"vellum"`, etc.) are unaffected and have no `resources` field.
+- Non-production environments use `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json` with the same schema.
 
 ## Docker Volume Architecture
 

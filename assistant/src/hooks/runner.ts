@@ -49,6 +49,13 @@ export async function runHookScript(
         // @deprecated — usage of VELLUM_ROOT_DIR by hook scripts is deprecated.
         // Removing this requires an LLM-based migration or declarative migration
         // file to update existing user-authored hooks to use VELLUM_WORKSPACE_DIR.
+        //
+        // VELLUM_ROOT_DIR is kept at the legacy `~/.vellum` value even when
+        // vellumRoot() resolves per-instance via BASE_DATA_DIR. User hook
+        // scripts written against this env var expected the legacy path;
+        // changing it would be a silent contract break. Hooks that need the
+        // per-instance root should read BASE_DATA_DIR themselves or use the
+        // new env vars the environment-layout plan adds.
         VELLUM_ROOT_DIR: join(homedir(), ".vellum"),
         VELLUM_WORKSPACE_DIR: getWorkspaceDir(),
         VELLUM_HOOK_SETTINGS: JSON.stringify(

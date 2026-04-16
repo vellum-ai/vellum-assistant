@@ -231,6 +231,25 @@ describe("Permission Checker", () => {
         });
         expect(risk).toBe(RiskLevel.High);
       });
+
+      test("file_read of legacy signing key is high risk even when BASE_DATA_DIR relocates getProtectedDir()", async () => {
+        const savedBaseDataDir = process.env.BASE_DATA_DIR;
+        process.env.BASE_DATA_DIR = "/tmp/fake-instance-signing-key-test";
+        try {
+          const risk = await classifyRisk("file_read", {
+            path: join(
+              homedir(),
+              ".vellum",
+              "protected",
+              "actor-token-signing-key",
+            ),
+          });
+          expect(risk).toBe(RiskLevel.High);
+        } finally {
+          if (savedBaseDataDir === undefined) delete process.env.BASE_DATA_DIR;
+          else process.env.BASE_DATA_DIR = savedBaseDataDir;
+        }
+      });
     });
 
     // file_write is always low (sandboxed)

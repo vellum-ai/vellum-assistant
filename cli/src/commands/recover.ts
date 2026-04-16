@@ -51,16 +51,20 @@ export async function recover(): Promise<void> {
     );
   }
 
-  // 3. Check ~/.vellum doesn't already exist
-  const vellumDir = join(homedir(), ".vellum");
-  if (existsSync(vellumDir)) {
+  // 3. Check that the recovering entry's own target directory is free.
+  const target = join(entry.resources.instanceDir, ".vellum");
+  if (existsSync(target)) {
     console.error(
-      "Error: ~/.vellum already exists. Retire the current assistant first.",
+      `Error: ${target} already exists (owned by ${entry.assistantId}). ` +
+        `Retire the current assistant first.`,
     );
     process.exit(1);
   }
 
   // 4. Extract archive
+  // TODO: extraction target is hardcoded to homedir(); multi-instance entries
+  //       whose instanceDir differs from homedir will extract to the wrong
+  //       location. Tracked separately from the collision-check regression.
   await exec("tar", ["xzf", archivePath, "-C", homedir()]);
 
   // 5. Restore lockfile entry

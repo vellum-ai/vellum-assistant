@@ -1,15 +1,20 @@
 /**
  * Lockfile reader for the Chrome native messaging helper.
  *
- * Reads `~/.vellum.lock.json` (preferred) with fallback to
- * `~/.vellum.lockfile.json` (legacy), parses the `assistants[]` array and
- * `activeAssistant` field, and returns a normalized assistant summary shape
- * that downstream consumers (e.g. the `list_assistants` frame handler and
- * the assistant-scoped `request_token` path) can use without coupling to
- * the full lockfile schema.
+ * Resolves the environment-aware lockfile path(s), parses the
+ * `assistants[]` array and `activeAssistant` field, and returns a
+ * normalized assistant summary shape that downstream consumers (e.g. the
+ * `list_assistants` frame handler and the assistant-scoped `request_token`
+ * path) can use without coupling to the full lockfile schema.
  *
- * The lockfile filenames and priority order are kept in sync with
- * `cli/src/lib/constants.ts` (`LOCKFILE_NAMES`).
+ * Production path: `~/.vellum.lock.json` (preferred) with fallback to
+ * `~/.vellum.lockfile.json` (legacy). Non-production environments store
+ * the lockfile at `$XDG_CONFIG_HOME/vellum-<env>/lockfile.json`.
+ *
+ * The path resolution mirrors `getLockfilePaths()` in
+ * `cli/src/lib/environments/paths.ts`. Native host is a standalone binary
+ * with its own build, so the logic is replicated inline rather than
+ * imported.
  */
 
 import { readFileSync } from "node:fs";
@@ -17,16 +22,31 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Lockfile candidate filenames, checked in priority order.
+ * Production lockfile filenames, checked in priority order.
  * `.vellum.lock.json` is the current name; `.vellum.lockfile.json` is the
  * legacy name kept for backwards compatibility with older installs.
- *
- * Mirrors `LOCKFILE_NAMES` in `cli/src/lib/constants.ts`.
  */
-const LOCKFILE_NAMES = [
+const PRODUCTION_LOCKFILE_NAMES = [
   ".vellum.lock.json",
   ".vellum.lockfile.json",
 ] as const;
+
+/**
+ * Non-production environment names that map to `$XDG_CONFIG_HOME/vellum-<env>/`.
+ * Anything not in this set (including typos like `foo`) falls back to the
+ * production path. Mirrors `SEEDS` in `cli/src/lib/environments/seeds.ts`
+ * and `KNOWN_ENVIRONMENTS` in `assistant/src/util/platform.ts`. Drift
+ * between these three sites is caught at test time by
+ * `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
+ * list into a `packages/environments` package so all three sites import
+ * from one place.
+ */
+const NON_PRODUCTION_ENVIRONMENTS: ReadonlySet<string> = new Set([
+  "dev",
+  "staging",
+  "test",
+  "local",
+]);
 
 /** Normalized summary of a single assistant from the lockfile. */
 export interface AssistantSummary {
@@ -68,12 +88,35 @@ interface RawAssistantEntry {
 }
 
 /**
- * Resolve the directory containing the lockfile. Respects
- * `VELLUM_LOCKFILE_DIR` for testing, falling back to the user's home
- * directory.
+ * Resolve the candidate lockfile paths, in priority order, based on the
+ * current `VELLUM_ENVIRONMENT`.
+ *
+ * - Production (unset/empty/unknown env name): returns
+ *   `[<dir>/.vellum.lock.json, <dir>/.vellum.lockfile.json]` where `<dir>`
+ *   is `VELLUM_LOCKFILE_DIR` if set, else the user's home directory.
+ * - Non-production (`dev`/`staging`/`test`/`local`): returns a single
+ *   `[<dir>/lockfile.json]` where `<dir>` is `VELLUM_LOCKFILE_DIR` if set,
+ *   else `$XDG_CONFIG_HOME/vellum-<env>` (falling back to
+ *   `~/.config/vellum-<env>` when `XDG_CONFIG_HOME` is unset).
+ *
+ * Mirrors `getLockfilePaths()` in `cli/src/lib/environments/paths.ts`.
+ * Unknown env names fall back to production silently — browser users
+ * don't see warnings.
  */
-function getLockfileDir(): string {
-  return process.env.VELLUM_LOCKFILE_DIR?.trim() || homedir();
+function getLockfileCandidates(): string[] {
+  const lockfileDirOverride = process.env.VELLUM_LOCKFILE_DIR?.trim();
+  const rawEnv = process.env.VELLUM_ENVIRONMENT?.trim() || "production";
+  const isNonProd = NON_PRODUCTION_ENVIRONMENTS.has(rawEnv);
+
+  if (!isNonProd) {
+    const dir = lockfileDirOverride || homedir();
+    return PRODUCTION_LOCKFILE_NAMES.map((name) => join(dir, name));
+  }
+
+  const xdgConfigHome =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  const dir = lockfileDirOverride || join(xdgConfigHome, `vellum-${rawEnv}`);
+  return [join(dir, "lockfile.json")];
 }
 
 /**
@@ -81,9 +124,7 @@ function getLockfileDir(): string {
  * and contains valid JSON. Returns `null` if no valid lockfile is found.
  */
 function readRawLockfile(): RawLockfile | null {
-  const base = getLockfileDir();
-  for (const name of LOCKFILE_NAMES) {
-    const filePath = join(base, name);
+  for (const filePath of getLockfileCandidates()) {
     try {
       const raw = readFileSync(filePath, "utf8");
       const parsed: unknown = JSON.parse(raw);

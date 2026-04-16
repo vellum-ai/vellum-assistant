@@ -6,7 +6,6 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Minimatch } from "minimatch";
@@ -14,6 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
+import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
 import * as trustClient from "./trust-client.js";
 import type {
@@ -135,12 +135,12 @@ function getTrustPath(): string {
  * Resolve the gateway security directory.
  *
  * Docker: `GATEWAY_SECURITY_DIR` env var.
- * Local:  falls back to `~/.vellum/` + `protected/`.
+ * Local:  the per-instance protected directory resolved by `getProtectedDir()`.
  */
 function getGatewaySecurityDir(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
   if (securityDir) return securityDir;
-  return join(homedir(), ".vellum", "protected");
+  return getProtectedDir();
 }
 
 /**
