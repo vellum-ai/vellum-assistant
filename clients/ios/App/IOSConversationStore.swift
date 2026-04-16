@@ -291,6 +291,25 @@ class IOSConversationStore: ObservableObject {
         return conversations.firstIndex(where: { viewModels[$0.id]?.conversationId == conversationId })
     }
 
+    /// Write the daemon-assigned conversation ID back onto the local IOSConversation
+    /// so subsequent conversation-list refetches can match server rows against it
+    /// directly instead of falling back to a viewModels lookup.
+    ///
+    /// Also persists the now-cacheable conversation — saveConnectedCache filters on
+    /// conversationId != nil, so a newly promoted local conversation is only written
+    /// to the connected cache once the daemon has acknowledged it.
+    private func backfillConversationId(_ conversationId: String, for localId: UUID) {
+        guard let index = conversations.firstIndex(where: { $0.id == localId }) else { return }
+
+        // No-op if the local entry already holds the same ID, and refuse to
+        // overwrite a different ID (which would indicate a bug elsewhere).
+        guard conversations[index].conversationId == nil
+            || conversations[index].conversationId == conversationId else { return }
+
+        conversations[index].conversationId = conversationId
+        saveConnectedCache()
+    }
+
     private func mergeConversationMetadata(from restored: IOSConversation, into conversation: inout IOSConversation) {
         conversation.conversationId = restored.conversationId ?? conversation.conversationId
         conversation.scheduleJobId = restored.scheduleJobId ?? conversation.scheduleJobId
@@ -1006,6 +1025,13 @@ class IOSConversationStore: ObservableObject {
         // daemon conversation instead of bootstrapping a new one.
         if let conversation = conversations.first(where: { $0.id == conversationLocalId }) {
             vm.conversationId = conversation.conversationId
+        }
+
+        // Backfill the local IOSConversation.conversationId when the daemon assigns
+        // one, so the conversation-list dedup in handleConversationListResponse can
+        // match server rows against local rows without relying on viewModels lookup.
+        vm.onConversationCreated = { [weak self] conversationId in
+            self?.backfillConversationId(conversationId, for: conversationLocalId)
         }
 
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
