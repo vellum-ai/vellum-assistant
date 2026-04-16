@@ -9,6 +9,10 @@
 import { meetJoinTool } from "../../../skills/meet-join/tools/meet-join-tool.js";
 import { meetLeaveTool } from "../../../skills/meet-join/tools/meet-leave-tool.js";
 import { meetSendChatTool } from "../../../skills/meet-join/tools/meet-send-chat-tool.js";
+import {
+  meetCancelSpeakTool,
+  meetSpeakTool,
+} from "../../../skills/meet-join/tools/meet-speak-tool.js";
 import { getConfig } from "../config/loader.js";
 import {
   isCesSecureInstallEnabled,
@@ -94,7 +98,8 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
-  // Meet tools: `meet_join` / `meet_leave` pair with the `meet-join` skill
+  // Meet tools: `meet_join` / `meet_leave` / `meet_send_chat` /
+  // `meet_speak` / `meet_cancel_speak` pair with the `meet-join` skill
   // (see `skills/meet-join/SKILL.md`). They are registered as first-party
   // tools rather than skill scripts because they command an in-process
   // lifecycle resource (MeetSessionManager) — per the exception carve-out
@@ -105,6 +110,8 @@ export const explicitTools: Tool[] = [
   meetJoinTool,
   meetLeaveTool,
   meetSendChatTool,
+  meetSpeakTool,
+  meetCancelSpeakTool,
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────
