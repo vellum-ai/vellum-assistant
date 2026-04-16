@@ -520,4 +520,17 @@ struct GalleryOverview: View {
     }
 }
 
+/// Register an external gallery overview factory for a category.
+/// Used by platform-specific targets to inject gallery sections for
+/// categories whose components live outside the shared module.
+public func registerGalleryOverview(for categoryKey: String, factory: @escaping () -> AnyView) {
+    ComponentGalleryView.externalOverviewFactories[categoryKey] = factory
+}
+
+/// Register an external gallery component page factory for a category.
+/// Used by platform-specific targets to inject component detail pages.
+public func registerGalleryComponentPage(for categoryKey: String, factory: @escaping (String) -> AnyView) {
+    ComponentGalleryView.externalComponentPageFactories[categoryKey] = factory
+}
+
 #endif

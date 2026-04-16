@@ -7,10 +7,10 @@ struct HomeGallerySection: View {
 
     /// Register this gallery section with the shared gallery router.
     static func registerInGallery() {
-        ComponentGalleryView.externalOverviewFactories["home"] = {
+        registerGalleryOverview(for: "home") {
             AnyView(HomeGallerySection())
         }
-        ComponentGalleryView.externalComponentPageFactories["home"] = { componentID in
+        registerGalleryComponentPage(for: "home") { componentID in
             AnyView(HomeGallerySection.componentPage(componentID))
         }
     }
