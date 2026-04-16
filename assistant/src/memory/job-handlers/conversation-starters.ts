@@ -330,7 +330,7 @@ Bad → Good (incomplete phrase → complete):
       systemPrompt,
       {
         config: {
-          modelIntent: "quality-optimized",
+          callSite: "conversationStarters" as const,
           max_tokens: 2048,
           tool_choice: {
             type: "tool" as const,
