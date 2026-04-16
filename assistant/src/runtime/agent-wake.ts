@@ -37,7 +37,6 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
-import { addMessage } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -87,6 +86,31 @@ export interface WakeTarget {
    * of spawning a parallel agent loop.
    */
   markProcessing(on: boolean): void;
+  /**
+   * Persist a single tail message produced by the wake (assistant
+   * outputs and intervening tool_result user messages). The daemon
+   * adapter is responsible for building channel/interface metadata and
+   * syncing the persisted message to the disk view so wake-produced
+   * messages match the canonical user-turn persistence path. Kept as a
+   * hook so `runtime/agent-wake.ts` stays decoupled from daemon
+   * internals (trust context, turn channel/interface contexts,
+   * disk-view layout).
+   */
+  persistTailMessage(message: Message): Promise<void>;
+  /**
+   * Drain any messages that arrived (and were queued) while the wake
+   * was running. Optional because not every wake target has a queue —
+   * unit-test stubs typically omit it.
+   *
+   * The wake invokes this in its `finally` block AFTER
+   * `markProcessing(false)`. Order matters: if drain ran while
+   * processing was still true, `enqueueMessage`'s gate
+   * (`if (!ctx.processing) return ...`) would still see processing=true
+   * and the drain itself would be a no-op against any racy late sends.
+   * Running drain after processing is released matches the canonical
+   * user-turn finally path in `conversation-agent-loop.ts`.
+   */
+  drainQueue?(): Promise<void>;
 }
 
 export interface WakeOptions {
@@ -342,6 +366,24 @@ export async function wakeAgentForOpportunity(
           "agent-wake: markProcessing(false) threw; continuing",
         );
       }
+      // Drain any messages queued during the wake. Order matters:
+      // `enqueueMessage()` only queues when `processing === true`, so
+      // late sends arriving while the wake was running landed on the
+      // queue. The canonical user-turn finally calls drain after
+      // resetting `processing = false`; mirror that here so a queued
+      // message is picked up rather than stranded until the next user
+      // send. Wrapped in try/catch so a drain failure can't propagate
+      // out of the wake.
+      if (target.drainQueue) {
+        try {
+          await target.drainQueue();
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: drainQueue threw; continuing",
+          );
+        }
+      }
     }
 
     const durationMs = nowFn() - startedAt;
@@ -401,14 +443,13 @@ export async function wakeAgentForOpportunity(
     // messages from the loop's own tool execution). If we only persisted
     // the first assistant message, a rehydration from DB would have a
     // `tool_use` with no matching `tool_result`, which the provider
-    // would reject on the next turn.
+    // would reject on the next turn. Persistence is delegated to the
+    // target so the daemon adapter can build channel/interface metadata
+    // (`provenanceFromTrustContext` + turn channel/interface contexts)
+    // and sync to the disk view, matching the canonical user-turn path.
     for (const msg of tailMessages) {
       try {
-        await addMessage(
-          conversationId,
-          msg.role,
-          JSON.stringify(msg.content),
-        );
+        await target.persistTailMessage(msg);
       } catch (err) {
         log.warn(
           { conversationId, source, err, role: msg.role },

@@ -41,7 +41,10 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
+import {
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
@@ -1798,6 +1801,29 @@ function translateAgentEventToServerMessage(
  * surface expected by `wakeAgentForOpportunity()`. Kept here so the
  * runtime-level wake helper stays decoupled from the heavyweight
  * conversation class (see `registerDefaultWakeResolver` above).
+ *
+ * Routing notes:
+ *   - `emitAgentEvent` dispatches via `broadcastToAllClients` rather
+ *     than `sendToClient`. Several signal-injected paths reset
+ *     `sendToClient` to a no-op in their `finally` blocks (see the
+ *     `updateClient(() => {}, true)` calls in `persistAndProcessMessage`
+ *     / `processMessage`), so a wake fired on such a conversation would
+ *     find a silent sink. `broadcastToAllClients` is wired to
+ *     `this.broadcast(msg)` at construction time and always reaches the
+ *     hub, regardless of which sender the most-recent user turn left
+ *     behind.
+ *   - `persistTailMessage` mirrors the canonical user-turn handlers
+ *     (`handleMessageComplete` / the tool-result block in
+ *     `conversation-agent-loop-handlers.ts`): builds channel/interface
+ *     metadata via `provenanceFromTrustContext` plus the live turn
+ *     channel/interface contexts, persists with metadata, and syncs the
+ *     resulting row to the disk view so wake-produced messages appear
+ *     in the on-disk transcript and carry provenance tags.
+ *   - `drainQueue` delegates to the conversation so any user messages
+ *     queued while the wake was running are processed. The wake helper
+ *     calls this in its finally AFTER `markProcessing(false)`; the
+ *     order matters because `enqueueMessage` only queues when
+ *     `processing === true`.
  */
 function conversationToWakeTarget(conversation: Conversation): WakeTarget {
   return {
@@ -1812,11 +1838,69 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
         event,
         conversation.conversationId,
       );
-      if (frame) conversation.sendToClient(frame);
+      if (!frame) return;
+      // Prefer `broadcastToAllClients` (wired to the hub at construction
+      // time and always live) over `sendToClient` (which several
+      // signal-injected paths reset to `() => {}` in their finally
+      // blocks). Fall back to `sendToClient` when the broadcaster is
+      // missing (e.g. in tests that construct a Conversation directly).
+      if (conversation.broadcastToAllClients) {
+        conversation.broadcastToAllClients(frame);
+      } else {
+        conversation.sendToClient(frame);
+      }
     },
     isProcessing: () => conversation.isProcessing(),
     markProcessing: (on) => {
       conversation.processing = on;
     },
+    persistTailMessage: async (message) => {
+      // Build metadata that mirrors the canonical handlers in
+      // `conversation-agent-loop-handlers.ts`. If the live turn channel
+      // / interface contexts are missing (a wake can fire on a
+      // conversation that has never run a user turn), fall back to the
+      // conversation's origin channel/interface defaults (`"vellum"`)
+      // so persisted rows still carry valid channel/interface ids.
+      const turnChannelCtx = conversation.getTurnChannelContext();
+      const turnInterfaceCtx = conversation.getTurnInterfaceContext();
+      const metadata: Record<string, unknown> = {
+        ...provenanceFromTrustContext(conversation.trustContext),
+        userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
+        assistantMessageChannel:
+          turnChannelCtx?.assistantMessageChannel ?? "vellum",
+        userMessageInterface:
+          turnInterfaceCtx?.userMessageInterface ?? "vellum",
+        assistantMessageInterface:
+          turnInterfaceCtx?.assistantMessageInterface ?? "vellum",
+      };
+      const persisted = await addMessage(
+        conversation.conversationId,
+        message.role,
+        JSON.stringify(message.content),
+        metadata,
+      );
+      // Sync the persisted row to the disk view so wake-produced
+      // messages appear in the on-disk transcript and tools that read
+      // from disk (e.g. `messages.jsonl`-based diagnostics) see them.
+      // Mirrors the `syncMessageToDisk(...)` calls in the canonical
+      // handlers — best-effort because a sync failure must not strand
+      // the in-memory tail.
+      try {
+        const convRow = getConversation(conversation.conversationId);
+        if (convRow) {
+          syncMessageToDisk(
+            conversation.conversationId,
+            persisted.id,
+            convRow.createdAt,
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, conversationId: conversation.conversationId },
+          "wake adapter: syncMessageToDisk failed (non-fatal)",
+        );
+      }
+    },
+    drainQueue: () => conversation.drainQueue(),
   };
 }

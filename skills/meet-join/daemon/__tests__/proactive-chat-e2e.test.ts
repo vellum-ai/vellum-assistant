@@ -22,7 +22,8 @@
  *      pattern.
  *
  * What it does NOT touch: Docker, real Meet, real LLM provider, real
- * conversation DB (we mock `addMessage` via `mock.module`).
+ * conversation DB (each test's `WakeTarget.persistTailMessage` records
+ * to an in-memory array instead).
  *
  * Wiring choice: **Option B** from the plan — detector + wake + session
  * manager wired directly, bypassing `MeetSessionManager.join()`'s heavy
@@ -48,29 +49,30 @@ import type { MeetBotEvent } from "@vellumai/meet-contracts";
 import type { AgentEvent } from "../../../../assistant/src/agent/loop.js";
 import type { Message } from "../../../../assistant/src/providers/types.js";
 
-// `agent-wake.ts` persists the assistant message via `addMessage` from
-// `memory/conversation-crud.js`. The real implementation requires a live
-// SQLite database and a pre-existing conversation record — overkill for
-// this integration test. Stub it via `mock.module` so we can observe
-// persistence calls without booting the DB.
+// `agent-wake.ts` delegates persistence to `WakeTarget.persistTailMessage`
+// (see Gap 2 in the round-2 fixes). The daemon adapter is responsible for
+// building channel/interface metadata and calling `addMessage` —
+// out-of-scope for this integration test. We supply a `persistTailMessage`
+// implementation in each test's `WakeTarget` that records the call so we
+// can assert wake-tail persistence happened, without booting a real DB.
 const persistedMessages: Array<{
   conversationId: string;
   role: string;
   content: string;
 }> = [];
 
-mock.module("../../../../assistant/src/memory/conversation-crud.js", () => ({
-  addMessage: async (
-    conversationId: string,
-    role: string,
-    content: string,
-  ) => {
-    persistedMessages.push({ conversationId, role, content });
-    return { id: `msg-${persistedMessages.length}` };
-  },
-}));
+function recordPersistedMessage(
+  conversationId: string,
+): (msg: import("../../../../assistant/src/providers/types.js").Message) => Promise<void> {
+  return async (msg) => {
+    persistedMessages.push({
+      conversationId,
+      role: msg.role,
+      content: JSON.stringify(msg.content),
+    });
+  };
+}
 
-// Imports after the mock module override so `agent-wake.ts` picks up the stub.
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
@@ -473,6 +475,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         emitAgentEvent: () => {},
         isProcessing: () => false,
         markProcessing: () => {},
+        persistTailMessage: recordPersistedMessage(conversationId),
       };
 
       // Opportunity callback → real agent wake. We await the wake
@@ -587,6 +590,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         emitAgentEvent: () => {},
         isProcessing: () => false,
         markProcessing: () => {},
+        persistTailMessage: recordPersistedMessage(conversationId),
       };
 
       const wakeSpy = mock(async () => {
@@ -671,6 +675,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         emitAgentEvent: () => {},
         isProcessing: () => false,
         markProcessing: () => {},
+        persistTailMessage: recordPersistedMessage(conversationId),
       };
 
       const wakePromises: Array<
@@ -765,6 +770,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         emitAgentEvent: () => {},
         isProcessing: () => false,
         markProcessing: () => {},
+        persistTailMessage: recordPersistedMessage(conversationId),
       };
 
       const wakePromises: Array<Promise<void>> = [];
