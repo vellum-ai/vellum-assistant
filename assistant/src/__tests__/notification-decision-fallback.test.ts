@@ -11,16 +11,6 @@ mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram", "slack"],
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    notifications: {
-      decisionModelIntent: "latency-optimized",
-    },
-  }),
-}));
-
 mock.module("../notifications/decisions-store.js", () => ({
   createDecision: () => {},
 }));

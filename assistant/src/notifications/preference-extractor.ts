@@ -11,7 +11,6 @@
  * - "Weeknights after 10pm: only critical notifications"
  */
 
-import { getConfig } from "../config/loader.js";
 import {
   createTimeout,
   extractToolUse,
@@ -140,14 +139,11 @@ const EXTRACTION_TOOL = {
 export async function extractPreferences(
   message: string,
 ): Promise<ExtractionResult> {
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("preferenceExtraction");
   if (!provider) {
     log.debug("No provider available for preference extraction");
     return { detected: false, preferences: [] };
   }
-
-  const config = getConfig();
-  const modelIntent = config.notifications.decisionModelIntent;
 
   const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
 
@@ -158,7 +154,7 @@ export async function extractPreferences(
       SYSTEM_PROMPT,
       {
         config: {
-          modelIntent,
+          callSite: "preferenceExtraction",
           max_tokens: 1024,
           tool_choice: {
             type: "tool" as const,

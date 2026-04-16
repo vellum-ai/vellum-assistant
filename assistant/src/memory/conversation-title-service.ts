@@ -133,7 +133,7 @@ export async function generateAndPersistConversationTitle(
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    modelIntent: "quality-optimized",
+    callSite: "conversationTitle",
     signal,
     timeoutMs: 10_000,
   });
@@ -236,7 +236,7 @@ export async function regenerateConversationTitle(
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    modelIntent: "quality-optimized",
+    callSite: "conversationTitle",
     signal,
     timeoutMs: 10_000,
   });

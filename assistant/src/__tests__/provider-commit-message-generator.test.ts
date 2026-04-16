@@ -221,7 +221,7 @@ describe("ProviderCommitMessageGenerator", () => {
   });
 
   // 6. LLM success
-  test('LLM success → returns LLM message, source "llm", fast model passed', async () => {
+  test('LLM success → returns LLM message, source "llm", fast model + callSite passed', async () => {
     const commitMsg = "feat: add new feature";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
@@ -232,10 +232,16 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.message).toBe(commitMsg);
     expect(result.reason).toBeUndefined();
 
-    // Verify the fast model was passed in the config
+    // Verify the fast model and callSite were passed in the config so the
+    // provider's RetryProvider routes through `resolveCallSiteConfig` for
+    // max_tokens/temperature while preserving the explicit fast-model
+    // override.
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
+    const options = callArgs[3] as {
+      config: { model: string; callSite: string };
+    };
     expect(options.config.model).toBe("claude-haiku-4-5-20251001");
+    expect(options.config.callSite).toBe("commitMessage");
   });
 
   // 7. fast-model override
@@ -253,8 +259,11 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.message).toBe(commitMsg);
 
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
+    const options = callArgs[3] as {
+      config: { model: string; callSite: string };
+    };
     expect(options.config.model).toBe("claude-sonnet-4-20250514");
+    expect(options.config.callSite).toBe("commitMessage");
   });
 
   // 8. LLM timeout

@@ -123,7 +123,7 @@ export async function generateInviteInstruction(params: {
       [userMessage(prompt)],
       undefined,
       undefined,
-      { signal, config: { modelIntent: "latency-optimized" } },
+      { signal, config: { callSite: "inviteInstructionGenerator" } },
     );
 
     const text = extractText(response).trim();

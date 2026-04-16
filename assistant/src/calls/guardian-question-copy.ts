@@ -82,7 +82,7 @@ export async function generateGuardianCopy(
       [userMessage(prompt)],
       undefined,
       undefined,
-      { signal, config: { modelIntent: "latency-optimized" } },
+      { signal, config: { callSite: "guardianQuestionCopy" } },
     );
 
     const text = extractText(response);

@@ -333,9 +333,12 @@ describe("POST /v1/btw", () => {
 
     // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
-    expect(options!.config!.modelIntent).toBe("latency-optimized");
     // Default call-site for the BTW side-chain is the identity intro path.
+    // `callSite` and `modelIntent` are mutually exclusive (PR 5 contract);
+    // when a caller passes neither, the default `callSite` is set and
+    // `modelIntent` stays undefined.
     expect(options!.config!.callSite).toBe("identityIntro");
+    expect(options!.config!.modelIntent).toBeUndefined();
   });
 
   test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {

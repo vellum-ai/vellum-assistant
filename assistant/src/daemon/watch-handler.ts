@@ -164,7 +164,7 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          modelIntent: "latency-optimized",
+          callSite: "watchCommentary",
           max_tokens: 200,
         },
       },
@@ -329,7 +329,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          modelIntent: "quality-optimized",
+          callSite: "watchSummary",
           max_tokens: 2000,
         },
       },

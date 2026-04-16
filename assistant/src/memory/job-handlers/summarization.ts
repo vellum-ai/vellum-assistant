@@ -189,7 +189,7 @@ async function summarizeWithLLM(
         systemPrompt,
         {
           config: {
-            modelIntent: summarizationConfig.modelIntent,
+            callSite: "conversationSummarization" as const,
             max_tokens: SUMMARY_MAX_TOKENS,
           },
           signal,

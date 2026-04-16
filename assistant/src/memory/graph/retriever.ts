@@ -111,7 +111,7 @@ Your job:
 3. Return the IDs in order of importance (most important first).`,
       {
         config: {
-          modelIntent: "quality-optimized" as const,
+          callSite: "memoryRetrieval" as const,
           tool_choice: { type: "tool" as const, name: "select_memories" },
           thinking: { type: "disabled" },
           temperature: 0,
@@ -202,7 +202,7 @@ async function dedupForTurn(
       `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
       {
         config: {
-          modelIntent: "latency-optimized" as const,
+          callSite: "memoryRetrieval" as const,
           tool_choice: { type: "tool" as const, name: "select_items" },
           thinking: { type: "disabled" },
           temperature: 0,
@@ -294,7 +294,7 @@ async function dedupCrossCategory(
       `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
       {
         config: {
-          modelIntent: "latency-optimized" as const,
+          callSite: "memoryRetrieval" as const,
           tool_choice: { type: "tool" as const, name: "select_items" },
           thinking: { type: "disabled" },
           temperature: 0,
