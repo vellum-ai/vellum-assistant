@@ -25,15 +25,15 @@ jobs:
         working-directory: assistant
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -67,15 +67,15 @@ jobs:
         working-directory: assistant
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -106,15 +106,15 @@ jobs:
         working-directory: assistant
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -150,13 +150,13 @@ jobs:
         working-directory: assistant
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Zip assistant artifact
         run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"
 
       - name: Upload assistant artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: assistant-pr-${{ github.event.pull_request.number }}
           path: assistant-pr-${{ github.event.pull_request.number }}.zip
@@ -166,7 +166,7 @@ jobs:
       - name: Generate GitHub App token
         if: github.event.pull_request.head.repo.full_name == github.repository
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v2.2.2
         with:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
@@ -197,15 +197,15 @@ jobs:
         working-directory: assistant
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: '1.3.9'
 
       - name: Cache bun dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
@@ -233,10 +233,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: '22.22.2'
 
