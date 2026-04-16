@@ -39,7 +39,7 @@ struct ChannelsGuardianSection: View {
 
             // MARK: - Approved Contacts
 
-            Section {
+            Section("Approved Contacts") {
                 if contactsStore.otherContacts.isEmpty {
                     Text("No approved contacts")
                         .foregroundStyle(.secondary)
@@ -49,10 +49,6 @@ struct ChannelsGuardianSection: View {
                         contactRow(contact)
                     }
                 }
-            } header: {
-                Text("Approved Contacts")
-            } footer: {
-                Text("Manage contacts and their channel policies in the Intelligence tab.")
             }
         }
         .navigationTitle("Channels & Guardian")
