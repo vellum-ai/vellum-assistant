@@ -74,7 +74,7 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
   const filePath = logFilePathForDate(config.dir, new Date());
   const fileStream = pino.destination({
     dest: filePath,
-    sync: false,
+    sync: true,
     mkdir: true,
     mode: 0o600,
   });
