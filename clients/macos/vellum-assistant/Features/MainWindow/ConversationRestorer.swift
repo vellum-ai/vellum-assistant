@@ -56,6 +56,8 @@ final class ConversationRestorer {
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
     private var fetchConversationListTask: Task<Void, Never>?
+    /// Debounce task for `conversation_list_invalidated` refetch.
+    private var invalidationRefetchTask: Task<Void, Never>?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -67,6 +69,7 @@ final class ConversationRestorer {
 
     deinit {
         fetchConversationListTask?.cancel()
+        invalidationRefetchTask?.cancel()
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -80,6 +83,8 @@ final class ConversationRestorer {
                     self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
                     self.handleConversationTitleUpdated(response)
+                case .conversationListInvalidated:
+                    self.scheduleInvalidationRefetch()
                 default:
                     break
                 }
@@ -391,6 +396,21 @@ final class ConversationRestorer {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
         delegate.conversations[index].title = response.title
+    }
+
+    // MARK: - Invalidation Debounce
+
+    /// Trailing-edge debounce for `conversation_list_invalidated` events.
+    /// Cancels any pending refetch and schedules a new one after 250 ms,
+    /// reusing the existing page-1 fetch + merge path so that selection,
+    /// scroll position, and per-conversation history are preserved.
+    func scheduleInvalidationRefetch() {
+        invalidationRefetchTask?.cancel()
+        invalidationRefetchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.fetchConversationList()
+        }
     }
 
     // MARK: - Private
