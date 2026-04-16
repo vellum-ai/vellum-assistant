@@ -746,9 +746,11 @@ public final class GatewayConnectionManager {
 
     // MARK: - Async Observation
 
-    /// An `AsyncStream` that emits whenever `isConnected` changes.
+    /// An async sequence that emits whenever `isConnected` changes.
     /// Yields the current value immediately, then emits on each subsequent change.
-    public var isConnectedStream: AsyncStream<Bool> {
+    /// Cancellation-cooperative: when the consuming task is cancelled, `next()`
+    /// returns `nil` promptly and all captured references are released.
+    public var isConnectedStream: ObservationValues<Bool> {
         observationStream { [weak self] in self?.isConnected ?? false }
     }
 
