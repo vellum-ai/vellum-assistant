@@ -32,15 +32,19 @@ public struct BottomAlignedMinHeightLayout: Layout {
 
     public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
-        let childSize = child.sizeThatFits(
-            ProposedViewSize(width: bounds.width, height: bounds.height)
-        )
+        // Re-measure with the SAME proposal that sizeThatFits received.
+        // Using bounds.height instead would propose the expanded min-height
+        // to the child, which can return a different size than during
+        // measurement — causing SwiftUI to detect a layout inconsistency
+        // and re-evaluate the layout every frame (visible as rapid cursor
+        // blinking in sibling text fields).
+        let childSize = child.sizeThatFits(proposal)
         // Pin child to bottom of bounds (same as alignment: .bottom).
         let y = bounds.maxY - childSize.height
         child.place(
             at: CGPoint(x: bounds.origin.x, y: y),
             anchor: .topLeading,
-            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+            proposal: ProposedViewSize(width: childSize.width, height: childSize.height)
         )
     }
 }
