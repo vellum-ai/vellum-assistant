@@ -23,7 +23,7 @@
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
-    "file-type": "21.3.0",
+    "file-type": "21.3.2",
     "minimatch": "10.2.4",
     "pino": "9.14.0",
     "pino-pretty": "13.1.3",
