@@ -514,9 +514,7 @@ public struct ToolConfirmationBubble: View {
                 }
 
                 // "All actions" — blanket approval for a duration.
-                // Hint is scoped to this section since these options
-                // (along with "Allow once") set the preferred approval.
-                // Guard ensures at least one button renders (not just the hint).
+                // These options (and "Allow once") set the preferred approval button.
                 if (hasAllow10m && primary != "allow_10m") || (hasAllowConversation && primary != "allow_conversation") {
                     Section("All actions") {
                         if hasAllow10m && primary != "allow_10m" {
@@ -539,9 +537,8 @@ public struct ToolConfirmationBubble: View {
                     }
                 }
 
-                // "Always allow" — persistent trust rules. Separated from
-                // the other options because it creates a permanent allowlist
-                // entry rather than setting a default preference.
+                // "Always allow" — persistent allowlist rules, not a
+                // default-preference change like the options above.
                 if hasAlwaysAllow {
                     Section("Always allow") {
                         alwaysAllowMenuItems
@@ -561,8 +558,7 @@ public struct ToolConfirmationBubble: View {
         let scopes = confirmation.scopeOptions
 
         if options.count > 1 {
-            // Multiple patterns — show each directly under the section,
-            // with scope submenus per pattern if needed.
+            // Multiple patterns — each with an optional scope submenu.
             ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
                 let subtitle = option.label.count > 50
                     ? String(option.label.prefix(50)) + "\u{2026}"
@@ -596,7 +592,7 @@ public struct ToolConfirmationBubble: View {
                 }
             }
         } else if let option = options.first {
-            // Single pattern — show as a direct button or scope submenu.
+            // Single pattern.
             if scopes.isEmpty {
                 Button(option.description) {
                     markCommandExplanationSeen()
@@ -608,8 +604,7 @@ public struct ToolConfirmationBubble: View {
                 }
                 .help(option.label)
             } else {
-                // Single pattern with scope choice — use a submenu
-                // consistent with the multi-pattern case.
+                // Single pattern with scope choice.
                 Menu {
                     Section("Scope") {
                         ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
