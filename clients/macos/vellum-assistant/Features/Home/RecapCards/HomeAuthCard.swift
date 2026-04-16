@@ -2,9 +2,16 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Card for payment authorisation actions. Supports two layouts:
-/// - **Simple**: title + Authorise/Deny buttons in a single row.
-/// - **Rich**: title + subtitle + Authorise/Deny/Dismiss buttons,
-///   with an optional file attachment row below.
+/// - **Simple**: title + Authorise/Deny buttons in a single pill.
+/// - **Rich**: title + subtitle + Authorise/Deny/Dismiss buttons in a
+///   pill, with an optional file attachment pill stacked below.
+///
+/// Both variants render each row as an independent glassmorphic capsule
+/// sitting directly on the page background, matching the Figma design.
+/// Using `Material` + a subtle white tint follows Apple's recommended
+/// recipe for translucent surfaces and adapts automatically between
+/// light and dark mode.
+/// Reference: https://developer.apple.com/documentation/swiftui/material
 struct HomeAuthCard: View {
     let title: String
     let subtitle: String?
@@ -32,49 +39,28 @@ struct HomeAuthCard: View {
         self.onDismiss = onDismiss
     }
 
-    private var isSimple: Bool {
-        subtitle == nil && attachment == nil
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             headerRow
+                .padding(VSpacing.sm)
+                .background(
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            Capsule().fill(VColor.auxWhite.opacity(0.1))
+                        )
+                )
+                .clipShape(Capsule())
+
             if let attachment {
                 HomeLinkFileRow(
                     icon: .file,
                     fileName: attachment.fileName,
-                    fileSize: attachment.fileSize
+                    fileSize: attachment.fileSize,
+                    style: .glass
                 )
             }
         }
-        .padding(VSpacing.sm)
-        .if(isSimple) { view in
-            view
-                .background(Capsule().fill(VColor.auxWhite.opacity(0.1)))
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
-                )
-                .clipShape(Capsule())
-        }
-        .if(!isSimple) { view in
-            view
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .fill(VColor.auxWhite.opacity(0.05))
-                )
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
-        }
-        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 12, x: 0, y: 4)
     }
 
     // MARK: - Header

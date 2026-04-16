@@ -4,9 +4,24 @@ import VellumAssistantShared
 /// Pill-shaped row displaying a file reference with icon, file name,
 /// and size. Used inside recap cards to show linked attachments.
 struct HomeLinkFileRow: View {
+
+    /// Visual style for the row's capsule background.
+    ///
+    /// - `solid`: opaque `surfaceOverlay` fill for use inside an outer
+    ///   card container (e.g. `HomeFileCard`) where the row should read
+    ///   as a nested surface.
+    /// - `glass`: translucent material + tint for use directly on the
+    ///   page background, matching the glassmorphic treatment applied
+    ///   to stacked recap pills (e.g. `HomeAuthCard` rich variant).
+    enum Style {
+        case solid
+        case glass
+    }
+
     let icon: VIcon
     let fileName: String
     let fileSize: String
+    var style: Style = .solid
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -25,10 +40,30 @@ struct HomeLinkFileRow: View {
             }
         }
         .padding(EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: VSpacing.lg))
-        .background(
+        .background(backgroundShape)
+        .clipShape(Capsule())
+    }
+
+    // MARK: - Background
+
+    /// Apple's canonical glassmorphic recipe is a translucent `Material`
+    /// for the blurred backdrop, optionally layered with a tint to match
+    /// the Figma `FFFFFF @ 10%` fill. `Material` adapts automatically to
+    /// the current appearance, so the same treatment reads correctly in
+    /// both light and dark mode without conditional logic.
+    /// Reference: https://developer.apple.com/documentation/swiftui/material
+    @ViewBuilder
+    private var backgroundShape: some View {
+        switch style {
+        case .solid:
+            Capsule().fill(VColor.surfaceOverlay)
+        case .glass:
             Capsule()
-                .fill(VColor.surfaceOverlay)
-        )
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Capsule().fill(VColor.auxWhite.opacity(0.1))
+                )
+        }
     }
 
     // MARK: - Icon circle
