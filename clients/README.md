@@ -36,7 +36,6 @@ clients/
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
-│   │   ├── Intelligence/      # Skills and contacts views (InstalledSkills, Contacts)
 │   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist
