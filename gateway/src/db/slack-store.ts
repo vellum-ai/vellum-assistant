@@ -1,4 +1,4 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { slackActiveThreads, slackSeenEvents } from "./schema.js";
 
@@ -44,12 +44,10 @@ export class SlackStore {
 
   cleanupExpiredThreads(): number {
     const now = Date.now();
-    const raw = (
-      this.db as unknown as { $client: import("bun:sqlite").Database }
-    ).$client;
-    return raw
-      .prepare("DELETE FROM slack_active_threads WHERE expires_at < ?")
-      .run(now).changes;
+    return this.db
+      .delete(slackActiveThreads)
+      .where(lt(slackActiveThreads.expiresAt, now))
+      .run().changes;
   }
 
   // -- Event dedup --
@@ -80,11 +78,9 @@ export class SlackStore {
 
   cleanupExpiredEvents(): number {
     const now = Date.now();
-    const raw = (
-      this.db as unknown as { $client: import("bun:sqlite").Database }
-    ).$client;
-    return raw
-      .prepare("DELETE FROM slack_seen_events WHERE expires_at < ?")
-      .run(now).changes;
+    return this.db
+      .delete(slackSeenEvents)
+      .where(lt(slackSeenEvents.expiresAt, now))
+      .run().changes;
   }
 }

@@ -68,8 +68,6 @@ export async function initGatewayDb(): Promise<void> {
 
   db = drizzle(raw, { schema });
 
-  // pushSQLiteSchema types against LibSQLDatabase but only uses .all()
-  // and .run() internally — BunSQLiteDatabase is duck-type compatible.
   const { pushSQLiteSchema } = await import("drizzle-kit/api");
   const { statementsToExecute, apply } = await pushSQLiteSchema(
     schema,
@@ -80,7 +78,7 @@ export async function initGatewayDb(): Promise<void> {
     await apply();
   }
 
-  runDataMigrations(raw);
+  runDataMigrations(getRawDb(db));
 }
 
 /**
@@ -98,13 +96,11 @@ export function getGatewayDb(): GatewayDb {
 }
 
 /**
- * Extract the underlying bun:sqlite Database from the Drizzle instance.
- *
- * Use for raw SQL that Drizzle doesn't support (data migrations, PRAGMAs).
- * This is the single canonical location for this cast.
+ * Extract the underlying bun:sqlite Database from a Drizzle instance.
+ * Internal helper — not exported. Production code should use getGatewayDb()
+ * with Drizzle's query API. Only needed for data migrations and test cleanup.
  */
-export function getGatewaySqlite(): Database {
-  const drizzleDb = getGatewayDb();
+function getRawDb(drizzleDb: GatewayDb): Database {
   return (drizzleDb as unknown as { $client: Database }).$client;
 }
 
@@ -115,7 +111,7 @@ export function getGatewaySqlite(): Database {
 export function resetGatewayDb(): void {
   if (db) {
     try {
-      (db as unknown as { $client: Database }).$client.close();
+      getRawDb(db).close();
     } catch {
       // best effort
     }
