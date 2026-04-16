@@ -71,7 +71,6 @@ struct ChatBubble: View, Equatable {
     var isLatestAssistantMessage: Bool = false
     var typographyGeneration: Int = 0
     @State private var isUserMessageExpanded: Bool = false
-    @State private var userMessageIntrinsicHeight: CGFloat = 0
     private let userMessageMaxCollapsedHeight: CGFloat = 150
     private static let heuristicUserCollapseCharacterThreshold = 3_000
     private static let heuristicUserCollapseLineThreshold = 40
@@ -609,11 +608,27 @@ struct ChatBubble: View, Equatable {
         return preview == trimmedText ? preview : "\(preview)\n\n..."
     }
 
-    /// Estimates whether the user message text will exceed the collapse
-    /// threshold when rendered. Used on the first frame before
-    /// `onGeometryChange` has fired to avoid a full-height flash.
-    private var estimatedTextExceedsCollapseThreshold: Bool {
+    /// Estimates whether the user message content will exceed the collapse
+    /// threshold when rendered. Decides the collapse state deterministically
+    /// from the model (text + attachments) rather than from observed geometry,
+    /// which avoids a measurement feedback loop: `.frame(height: 150)` forces
+    /// the observed subtree to lay out at 150pt, and if an `onGeometryChange`
+    /// inside that subtree writes the clamped height back to state, the
+    /// "is this message collapsible?" decision flips to false on the next
+    /// render — removing the "Show less" button and the clamp together.
+    ///
+    /// Per-attachment heights mirror the renderers in `ChatBubbleAttachmentContent.swift`:
+    /// single images use `AspectFitImageView` (~200pt typical), grid tiles are 120pt,
+    /// videos/inline previews are ~200pt, and file chips are compact rows.
+    ///
+    /// The estimate is intentionally conservative — it only needs to correctly
+    /// classify content above/below ~150pt. When the estimate is wrong on the
+    /// low side, the worst-case UX is a missing "Show more" button and the
+    /// content rendering at its natural height (no clipping), which matches
+    /// the existing non-collapsible user message behavior.
+    private var estimatedContentExceedsCollapseThreshold: Bool {
         guard isUser, !message.isStreaming else { return false }
+
         let text = message.text as NSString
         let contentWidth = max(bubbleMaxWidth - 2 * VSpacing.lg, 0)
         let font = NSFont.systemFont(ofSize: 14, weight: .regular)
@@ -622,34 +637,48 @@ struct ChatBubble: View, Equatable {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font]
         )
-        return ceil(textRect.height) > userMessageMaxCollapsedHeight
+        let textHeight = ceil(textRect.height)
+
+        let parts = partitionedAttachments
+        let imageCount = parts.images.count
+        let imageHeight: CGFloat
+        if imageCount == 0 {
+            imageHeight = 0
+        } else if imageCount == 1 {
+            imageHeight = 200
+        } else {
+            let rows = ceil(Double(imageCount) / 2)
+            imageHeight = CGFloat(rows) * 120
+        }
+        let videoHeight = CGFloat(parts.videos.count) * 200
+        let audioHeight = CGFloat(parts.audios.count) * 80
+        let fileHeight = CGFloat(parts.files.count) * 40
+
+        let totalHeight = textHeight + imageHeight + videoHeight + audioHeight + fileHeight
+        return totalHeight > userMessageMaxCollapsedHeight
     }
 
     // MARK: - User Message Collapse / Expand
     //
-    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
+    // `.frame(maxHeight:)` creates `_FlexFrameLayout` which recursively measures
     // children and resolves explicitAlignment through the entire LazyVStack
-    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs. We use
+    // `.frame(height:)` instead (`_FrameLayout` — O(1), no alignment cascade).
     //
-    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
-    // When height is nil (expanded / short), _FrameLayout passes through the
-    // child's natural height. Single view identity is preserved (no
-    // _ConditionalContent), so withAnimation still drives a smooth height
-    // transition on expand/collapse.
+    // The collapsibility decision is driven by a deterministic content
+    // estimate (see `estimatedContentExceedsCollapseThreshold`). Observing
+    // the clamped subtree's height and feeding it back into `@State` would
+    // create a layout/state feedback loop that collapses the button on
+    // toggle — see https://developer.apple.com/documentation/swiftui/view/ongeometrychange(for:of:action:)
+    // for the general guidance that geometry observations should not drive
+    // state that changes the observed layout.
 
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let isCollapsible = userMessageIntrinsicHeight > 0
-            ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
-            : estimatedTextExceedsCollapseThreshold
+        let isCollapsible = estimatedContentExceedsCollapseThreshold
         let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .leading, spacing: 0) {
             content()
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    userMessageIntrinsicHeight = height
-                }
                 .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
                 .clipped()
                 .overlay(alignment: .bottom) {
