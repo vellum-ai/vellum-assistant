@@ -8,15 +8,18 @@
  * Two triggers are supported:
  *   - **manual**: user-initiated analysis. Creates a fresh conversation each
  *     invocation, runs with `trustClass: "unknown"`, and strips the tool
- *     surface. Byte-for-byte unchanged from the original route logic.
+ *     surface.
  *   - **auto**: called by the auto-analyze job when a source conversation
  *     reaches a natural pause. Reuses a rolling analysis conversation per
  *     parent (creating one if none exists), runs with `trustClass:
  *     "guardian"`, and keeps the full tool surface so the analysis agent can
- *     write memory and skills directly. Reads optional model overrides from
- *     `analysis.modelIntent` / `analysis.modelOverride` config.
+ *     write memory and skills directly.
+ *
+ * Both triggers route the agent loop through `callSite: 'analyzeConversation'`
+ * so per-call provider/model selection flows through `resolveCallSiteConfig`
+ * against `llm.callSites.analyzeConversation` (populated by the unify-llm
+ * workspace migration from the legacy `analysis.modelIntent`/`modelOverride`).
  */
-import { getConfig } from "../../config/loader.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
@@ -31,7 +34,6 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import type { ModelIntent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -173,8 +175,6 @@ export async function analyzeConversation(
   let prompt: string;
   let trustClass: "unknown" | "guardian";
   let stripTools: boolean;
-  let modelIntent: ModelIntent | undefined;
-  let modelOverride: string | undefined;
 
   if (opts.trigger === "manual") {
     const newConv = createConversation({
@@ -205,10 +205,6 @@ export async function analyzeConversation(
     prompt = buildAutoAnalysisPrompt(transcript);
     trustClass = "guardian";
     stripTools = false;
-
-    const analysisConfig = getConfig().analysis;
-    modelIntent = analysisConfig.modelIntent;
-    modelOverride = analysisConfig.modelOverride;
   }
 
   // h. Load the conversation into memory with the appropriate trust
@@ -219,13 +215,14 @@ export async function analyzeConversation(
   // Hoisted ahead of message persistence so the auto branch can detect a
   // still-running prior agent loop on the rolling conversation and bail out
   // before mutating any state. See concurrency guard below.
+  //
+  // Per-call model selection is no longer threaded through `getOrCreateConversation`;
+  // the runAgentLoop call below passes `callSite: 'analyzeConversation'` so the
+  // unified call-site resolver picks up provider/model from
+  // `llm.callSites.analyzeConversation`.
   const analysisConversation =
     await deps.sendMessageDeps.getOrCreateConversation(
       analysisConversationId,
-      {
-        ...(modelIntent !== undefined ? { modelIntent } : {}),
-        ...(modelOverride !== undefined ? { modelOverride } : {}),
-      },
     );
 
   // h.1. Concurrency guard (auto trigger only). The rolling analysis
@@ -298,11 +295,14 @@ export async function analyzeConversation(
   analysisConversation.abortController = new AbortController();
   analysisConversation.currentRequestId = crypto.randomUUID();
 
-  // l. Fire-and-forget the agent loop
+  // l. Fire-and-forget the agent loop. `callSite: 'analyzeConversation'`
+  // routes the per-call provider config through `resolveCallSiteConfig`
+  // against `llm.callSites.analyzeConversation`.
   analysisConversation
     .runAgentLoop(prompt, messageId, onEvent, {
       isInteractive: false,
       isUserMessage: true,
+      callSite: "analyzeConversation",
     })
     .catch((err) => {
       log.error(
