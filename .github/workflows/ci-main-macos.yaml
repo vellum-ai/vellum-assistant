@@ -273,6 +273,77 @@ jobs:
             "vellum-assistant-${DEV_VERSION}.dmg"
           ls -lh "vellum-assistant-${DEV_VERSION}.dmg"
 
+      - name: Sign DMG
+        working-directory: clients/macos
+        run: |
+          DMG_PATH="vellum-assistant-${{ steps.version.outputs.dev_version }}.dmg"
+          codesign --sign "Developer ID Application" --timestamp "$DMG_PATH"
+          codesign --verify --verbose "$DMG_PATH"
+          echo "DMG signature verified"
+
+      - name: Notarize DMG
+        working-directory: clients/macos
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          DMG_PATH="vellum-assistant-${{ steps.version.outputs.dev_version }}.dmg"
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          echo "Submitting DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            2>&1) || NOTARIZE_FAILED=true
+
+          echo "$NOTARIZE_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+            echo "::error::Notarization failed"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
+                || echo "::warning::Could not fetch notarization log"
+            fi
+            exit 1
+          fi
+
+          echo "Notarization succeeded"
+
+      - name: Staple notarization ticket
+        working-directory: clients/macos
+        run: |
+          DMG_PATH="vellum-assistant-${{ steps.version.outputs.dev_version }}.dmg"
+          MAX_ATTEMPTS=10
+          WAIT_SECS=30
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
+            STAPLE_EXIT=$?
+            if [ $STAPLE_EXIT -eq 0 ]; then
+              echo "Stapling succeeded on attempt $i"
+              break
+            fi
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed"
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
+            sleep $WAIT_SECS
+            WAIT_SECS=$((WAIT_SECS + 15))
+          done
+          xcrun stapler validate "$DMG_PATH"
+          echo "Notarization ticket stapled and validated"
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
