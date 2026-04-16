@@ -257,11 +257,26 @@ Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Nod
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 
-## No New Daemon HTTP Port Consumers
+## CLI ↔ Daemon Communication
 
-Do not introduce new callers of the daemon's internal HTTP port from CLI commands or other out-of-process code. The daemon HTTP API is an internal surface consumed by the gateway and native clients — CLI commands run **in-process** and must use the service/store layer directly (see `assistant/src/cli/AGENTS.md`).
+**The Unix domain socket IPC (`assistant-cli.sock`) is the preferred method
+of inter-process communication between CLI commands and the running daemon.**
+Both file-based signals (`signals/` directory + `ConfigWatcher`) and the
+daemon HTTP port are deprecated for new CLI-to-daemon interactions.
 
-When you need to publish events to connected clients (e.g. `open_url`, `avatar_updated`) from code running inside the daemon process, import and call the `assistantEventHub` singleton directly rather than adding a new HTTP endpoint. For CLI commands (which run in-process but may not share the daemon's singleton context), use the file-based signal pattern: write a JSON `ServerMessage` to `signals/emit-event` via `getSignalsDir()` — the daemon's `ConfigWatcher` picks it up and publishes via `assistantEventHub`. See `assistant/src/cli/commands/platform/connect.ts` for an example.
+New commands that need to invoke daemon-side state (conversations, wake,
+in-memory lookups) should use the `cliIpcCall()` helper from
+`assistant/src/ipc/cli-client.ts` and register the corresponding method on
+the `CliIpcServer` in `assistant/src/daemon/server.ts`.
+
+The IPC protocol is newline-delimited JSON over the Unix domain socket:
+- Request:  `{ "id": string, "method": string, "params"?: object }`
+- Response: `{ "id": string, "result"?: unknown, "error"?: string }`
+
+When you need to publish events to connected clients (e.g. `open_url`,
+`avatar_updated`) from code running inside the daemon process, import and
+call the `assistantEventHub` singleton directly rather than adding a new
+HTTP endpoint.
 
 ## See Also
 
