@@ -361,16 +361,28 @@ public final class GatewayConnectionManager {
     private func startHealthCheckLoop() {
         healthCheckTask?.cancel()
 
-        healthCheckTask = Task { @MainActor [weak self] in
+        // The loop runs on a detached task at `.utility` priority so the
+        // 15 s `Task.sleep` scheduling and between-check overhead do not
+        // occupy `@MainActor`. Work that touches `@Published` state
+        // (`performHealthCheck` and the update-timeout cleanup) stays on
+        // the main actor; every other state read hops explicitly via
+        // `MainActor.run {}`.
+        healthCheckTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
+                let interval: TimeInterval = await MainActor.run { [weak self] in
+                    guard let self else { return 15.0 }
+                    return self.isUpdateInProgress ? 2.0 : self.healthCheckInterval
+                }
                 do {
-                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
                     try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 } catch {
                     return
                 }
+                guard !Task.isCancelled else { return }
 
-                guard let self, self.shouldReconnect else { return }
+                guard let self else { return }
+                let shouldContinue = await MainActor.run { self.shouldReconnect }
+                guard shouldContinue else { return }
 
                 do {
                     try await self.performHealthCheck()
@@ -378,18 +390,22 @@ public final class GatewayConnectionManager {
                     log.warning("Periodic health check failed: \(error.localizedDescription, privacy: .public)")
                 }
 
-                // Check for update timeout
-                if self.isUpdateInProgress, let expiresAt = self.updateExpiresAt, Date() > expiresAt {
-                    log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
-                    self.lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
-                    self.isUpdateInProgress = false
-                    self.updateTargetVersion = nil
-                    self.updateExpiresAt = nil
-                    self.updateStatusMessage = nil
-                    self.eventStreamClient.resetSSEReconnectDelay()
-                }
+                await self.checkUpdateTimeoutIfNeeded()
             }
         }
+    }
+
+    /// Clears update state if the update deadline has passed. Runs on the
+    /// main actor because it mutates `@Published` properties.
+    private func checkUpdateTimeoutIfNeeded() {
+        guard isUpdateInProgress, let expiresAt = updateExpiresAt, Date() > expiresAt else { return }
+        log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
+        lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
+        updateStatusMessage = nil
+        eventStreamClient.resetSSEReconnectDelay()
     }
 
     // MARK: - Version Comparison
