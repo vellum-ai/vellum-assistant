@@ -5,6 +5,7 @@ import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
 import { client } from "./commands/client";
 import { events } from "./commands/events";
+import { exec } from "./commands/exec";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
@@ -37,6 +38,7 @@ const commands = {
   clean,
   client,
   events,
+  exec,
   hatch,
   login,
   logout,
@@ -69,6 +71,7 @@ function printHelp(): void {
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  events   Stream events from a running assistant");
+  console.log("  exec     Execute a command inside an assistant's container");
   console.log("  hatch    Create a new assistant instance");
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");

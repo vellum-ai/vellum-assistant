@@ -6,7 +6,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
-import { sshAppleContainer } from "./ssh-apple-container";
+import { sshAppleContainer } from "../lib/ssh-apple-container";
 
 const SSH_OPTS = [
   "-o",
