@@ -462,6 +462,7 @@ function makeCtx(
         runMessages: messages,
         injectedTokens: 0,
       }),
+      retrackCachedNodes: () => {},
     } as unknown as AgentLoopConversationContext["graphMemory"],
 
     ...overrides,
