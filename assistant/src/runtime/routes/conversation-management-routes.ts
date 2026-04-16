@@ -390,11 +390,15 @@ export function conversationManagementRouteDefinitions(
         // (including the one that initiated the rename) update immediately.
         assistantEventHub
           .publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-              type: "conversation_title_updated",
-              conversationId: params.id,
-              title: name,
-            }),
+            buildAssistantEvent(
+              DAEMON_INTERNAL_ASSISTANT_ID,
+              {
+                type: "conversation_title_updated",
+                conversationId: params.id,
+                title: name,
+              },
+              params.id,
+            ),
           )
           .catch((err) => {
             log.warn(
