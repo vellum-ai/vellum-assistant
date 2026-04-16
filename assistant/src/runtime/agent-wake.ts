@@ -342,18 +342,96 @@ export async function wakeAgentForOpportunity(
     // interleave writes to `conversation.messages`).
     target.markProcessing(true);
 
-    let updatedHistory: Message[];
     let runError: Error | null = null;
+    let producedToolCalls = false;
+    let toolUseNames: string[] = [];
+    let tailMessageCount = 0;
     try {
-      updatedHistory = await target.agentLoop.run(
-        runInput,
-        onEvent,
-        undefined, // no external abort signal
-        `wake:${source}`,
-      );
-    } catch (err) {
-      runError = err instanceof Error ? err : new Error(String(err));
-      updatedHistory = runInput;
+      let updatedHistory: Message[];
+      try {
+        updatedHistory = await target.agentLoop.run(
+          runInput,
+          onEvent,
+          undefined, // no external abort signal
+          `wake:${source}`,
+        );
+      } catch (err) {
+        // Capture the error for post-finally logging, then short-circuit
+        // the rest of the try body — no tail to push/persist when the
+        // run threw mid-flight. The outer finally still runs to release
+        // `processing` and drain the queue.
+        runError = err instanceof Error ? err : new Error(String(err));
+        return { invoked: true, producedToolCalls: false };
+      }
+
+      // Run completed cleanly. Inspect the tail and, if there was real
+      // output, push to in-memory history + persist + flush buffered
+      // events BEFORE the finally hands control to drainQueue. The
+      // canonical user-turn pattern (conversation-agent-loop.ts:1860,
+      // 2106-2126) updates `ctx.messages` first, then resets
+      // `ctx.processing = false`, then calls `ctx.drainQueue(...)`. We
+      // mirror that order here so a message queued during the wake is
+      // dequeued against an already-updated history — otherwise
+      // `drainSingleMessage` reads `ctx.messages` mid-tail and writes a
+      // DB row that lands out of chronological order (queued user msg
+      // before the wake's just-produced assistant outputs).
+      const { tailMessages, hasVisibleText, toolUseNames: names } =
+        inspectWakeOutput(baseline.length, updatedHistory);
+      toolUseNames = names;
+      producedToolCalls = names.length > 0;
+      const producedOutput = producedToolCalls || hasVisibleText;
+
+      if (!producedOutput || tailMessages.length === 0) {
+        // Silent no-op: drop buffered events, push nothing, persist
+        // nothing, emit nothing. The finally still runs drainQueue so a
+        // racy queued message isn't stranded.
+        return { invoked: true, producedToolCalls: false };
+      }
+
+      tailMessageCount = tailMessages.length;
+
+      // Output produced: flush buffered client events through the
+      // target's translator. The internal hint is NOT emitted.
+      for (const event of buffered) {
+        try {
+          target.emitAgentEvent(event);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: client emitter threw; continuing",
+          );
+        }
+      }
+
+      // Append every tail message to live in-memory history. Without
+      // this, the next turn would rebuild from DB and lose the live
+      // references. Done BEFORE persist so a synchronous reader of
+      // `getMessages()` sees the full conversation immediately.
+      for (const msg of tailMessages) {
+        target.pushMessage(msg);
+      }
+
+      // Persist every tail message (assistant outputs + tool_result
+      // user messages from the loop's own tool execution). If we only
+      // persisted the first assistant message, a rehydration from DB
+      // would have a `tool_use` with no matching `tool_result`, which
+      // the provider would reject on the next turn. Persistence is
+      // delegated to the target so the daemon adapter can build
+      // channel/interface metadata (`provenanceFromTrustContext` + turn
+      // channel/interface contexts) and sync to the disk view, matching
+      // the canonical user-turn path.
+      for (const msg of tailMessages) {
+        try {
+          await target.persistTailMessage(msg);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err, role: msg.role },
+            "agent-wake: failed to persist wake-tail message",
+          );
+        }
+      }
+
+      return { invoked: true, producedToolCalls };
     } finally {
       // Release the processing marker regardless of success/failure so
       // the next user turn (or wake) isn't blocked waiting on a stale
@@ -370,10 +448,11 @@ export async function wakeAgentForOpportunity(
       // `enqueueMessage()` only queues when `processing === true`, so
       // late sends arriving while the wake was running landed on the
       // queue. The canonical user-turn finally calls drain after
-      // resetting `processing = false`; mirror that here so a queued
-      // message is picked up rather than stranded until the next user
-      // send. Wrapped in try/catch so a drain failure can't propagate
-      // out of the wake.
+      // resetting `processing = false` AND after `ctx.messages` has
+      // been updated with the new tail; mirror that here so a queued
+      // message is picked up against an updated history rather than
+      // stranded behind an out-of-order DB row. Wrapped in try/catch
+      // so a drain failure can't propagate out of the wake.
       if (target.drainQueue) {
         try {
           await target.drainQueue();
@@ -384,93 +463,38 @@ export async function wakeAgentForOpportunity(
           );
         }
       }
-    }
 
-    const durationMs = nowFn() - startedAt;
-    if (runError) {
-      log.error(
-        { conversationId, source, durationMs, err: runError },
-        "agent-wake: agent loop threw; treating as no-op",
-      );
-      return { invoked: true, producedToolCalls: false };
-    }
-
-    const { tailMessages, hasVisibleText, toolUseNames } = inspectWakeOutput(
-      baseline.length,
-      updatedHistory,
-    );
-
-    const producedToolCalls = toolUseNames.length > 0;
-    const producedOutput = producedToolCalls || hasVisibleText;
-
-    if (!producedOutput || tailMessages.length === 0) {
-      log.info(
-        {
-          source,
-          conversationId,
-          durationMs,
-          producedToolCalls: false,
-          toolNamesCalled: [],
-        },
-        "agent-wake: no output; silent no-op",
-      );
-      return { invoked: true, producedToolCalls: false };
-    }
-
-    // Output produced: flush buffered client events through the target's
-    // translator and persist the full tail (assistant messages + any
-    // intervening tool_result user messages) so the DB mirrors the
-    // in-memory history. The internal hint is NOT persisted and NOT
-    // emitted.
-    for (const event of buffered) {
-      try {
-        target.emitAgentEvent(event);
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err },
-          "agent-wake: client emitter threw; continuing",
+      const durationMs = nowFn() - startedAt;
+      if (runError) {
+        log.error(
+          { conversationId, source, durationMs, err: runError },
+          "agent-wake: agent loop threw; treating as no-op",
+        );
+      } else if (tailMessageCount === 0) {
+        log.info(
+          {
+            source,
+            conversationId,
+            durationMs,
+            producedToolCalls: false,
+            toolNamesCalled: [],
+          },
+          "agent-wake: no output; silent no-op",
+        );
+      } else {
+        log.info(
+          {
+            source,
+            conversationId,
+            durationMs,
+            producedToolCalls,
+            toolNamesCalled: toolUseNames,
+            tailMessageCount,
+          },
+          "agent-wake: produced output",
         );
       }
     }
-
-    // Append every tail message to live in-memory history. Without this,
-    // the next turn would rebuild from DB and lose the live references.
-    for (const msg of tailMessages) {
-      target.pushMessage(msg);
-    }
-
-    // Persist every tail message (assistant outputs + tool_result user
-    // messages from the loop's own tool execution). If we only persisted
-    // the first assistant message, a rehydration from DB would have a
-    // `tool_use` with no matching `tool_result`, which the provider
-    // would reject on the next turn. Persistence is delegated to the
-    // target so the daemon adapter can build channel/interface metadata
-    // (`provenanceFromTrustContext` + turn channel/interface contexts)
-    // and sync to the disk view, matching the canonical user-turn path.
-    for (const msg of tailMessages) {
-      try {
-        await target.persistTailMessage(msg);
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err, role: msg.role },
-          "agent-wake: failed to persist wake-tail message",
-        );
-      }
-    }
-
-    log.info(
-      {
-        source,
-        conversationId,
-        durationMs,
-        producedToolCalls,
-        toolNamesCalled: toolUseNames,
-        tailMessageCount: tailMessages.length,
-      },
-      "agent-wake: produced output",
-    );
-
-    return { invoked: true, producedToolCalls };
   });
 }
 

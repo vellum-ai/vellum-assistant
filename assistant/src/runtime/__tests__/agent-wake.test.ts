@@ -36,6 +36,18 @@ interface MockTarget extends WakeTarget {
   persistedTailCalls: Message[];
   /** Number of times `drainQueue` was invoked. */
   drainQueueCalls: number;
+  /**
+   * Cross-hook call sequence tag. Each push/persist/drain (and the
+   * processing toggles that bracket them) appends an entry so tests can
+   * assert end-to-end ordering, not just per-hook counts.
+   */
+  callSequence: string[];
+  /**
+   * Snapshot of `processing` at the moment `drainQueue` was invoked.
+   * Lets tests prove drain ran AFTER markProcessing(false), rather than
+   * just inferring it from the order of recorded toggles.
+   */
+  processingDuringDrain: boolean[];
 }
 
 function makeTarget(options: {
@@ -54,6 +66,8 @@ function makeTarget(options: {
   const runCalls: Array<{ input: Message[]; requestId?: string }> = [];
   const processingToggles: boolean[] = [];
   const persistedTailCalls: Message[] = [];
+  const callSequence: string[] = [];
+  const processingDuringDrain: boolean[] = [];
   const history: Message[] = [...(options.baseline ?? [])];
   let processing = options.isProcessing ?? false;
   let drainQueueCalls = 0;
@@ -65,6 +79,8 @@ function makeTarget(options: {
     runCalls,
     processingToggles,
     persistedTailCalls,
+    callSequence,
+    processingDuringDrain,
     get drainQueueCalls() {
       return drainQueueCalls;
     },
@@ -101,6 +117,7 @@ function makeTarget(options: {
     pushMessage: (msg: Message) => {
       pushedMessages.push(msg);
       history.push(msg);
+      callSequence.push("push");
     },
     emitAgentEvent: (event) => {
       emittedEvents.push(event);
@@ -109,15 +126,22 @@ function makeTarget(options: {
     markProcessing: (on: boolean) => {
       processing = on;
       processingToggles.push(on);
+      callSequence.push(on ? "processing:true" : "processing:false");
     },
     persistTailMessage: async (msg: Message) => {
       persistedTailCalls.push(msg);
+      callSequence.push("persist");
     },
     ...(options.omitDrainQueue
       ? {}
       : {
           drainQueue: async () => {
             drainQueueCalls++;
+            // Snapshot the live processing flag *inside* drain, not via
+            // the toggle log, so we directly observe the state visible
+            // to the dequeued message's enqueueMessage() gate.
+            processingDuringDrain.push(processing);
+            callSequence.push("drain");
           },
         }),
   };
@@ -533,7 +557,11 @@ describe("wakeAgentForOpportunity", () => {
     // If drain ran while processing was still true,
     // `enqueueMessage`'s `if (!ctx.processing) return ...` gate would
     // see processing=true and the drained item would itself just
-    // re-enqueue — no progress.
+    // re-enqueue — no progress. Snapshot the live flag *inside* drain
+    // (rather than inferring from toggle order) so a future regression
+    // that called drain before markProcessing(false) would fail this
+    // assertion directly.
+    expect(target.processingDuringDrain).toEqual([false]);
     expect(target.processingToggles).toEqual([true, false]);
     expect(target.isProcessing()).toBe(false);
   });
@@ -542,7 +570,7 @@ describe("wakeAgentForOpportunity", () => {
     // Verifies the drain is in the finally block, not just on success.
     // A wake that crashes mid-run must still flush queued messages —
     // otherwise a transient LLM error strands every concurrent send.
-    let drainCalls = 0;
+    const drainProcessingSnapshots: boolean[] = [];
     const toggles: boolean[] = [];
     let processing = false;
     const target: WakeTarget = {
@@ -562,13 +590,11 @@ describe("wakeAgentForOpportunity", () => {
       },
       persistTailMessage: async () => {},
       drainQueue: async () => {
-        drainCalls++;
-        // Snapshot processing inside drain to prove ordering.
-        if (processing) {
-          throw new Error(
-            "drainQueue invoked while processing=true — wrong order",
-          );
-        }
+        // Snapshot the live `processing` flag *inside* drain rather
+        // than inferring from toggle order. This directly observes the
+        // state visible to enqueueMessage's gate when a queued message
+        // is dequeued.
+        drainProcessingSnapshots.push(processing);
       },
     };
 
@@ -578,9 +604,10 @@ describe("wakeAgentForOpportunity", () => {
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(drainCalls).toBe(1);
     // Drain ran AFTER markProcessing(false), satisfying the
-    // enqueueMessage gate invariant.
+    // enqueueMessage gate invariant. Snapshot proves the flag was
+    // false at the moment drain ran.
+    expect(drainProcessingSnapshots).toEqual([false]);
     expect(toggles).toEqual([true, false]);
   });
 
@@ -684,4 +711,121 @@ describe("wakeAgentForOpportunity", () => {
       followup,
     ]);
   });
+
+  test(
+    "tail messages are pushed and persisted BEFORE drainQueue runs " +
+      "(so dequeued turns see updated history)",
+    async () => {
+      // Locks in the round-3 fix: a user message queued during the wake
+      // is drained against `conversation.messages`, so the wake's tail
+      // MUST be appended (push) and persisted to DB (persist) before the
+      // queue is drained. Otherwise `drainSingleMessage` reads stale
+      // history and writes a DB row that lands out of chronological
+      // order (queued user msg before the wake's just-produced
+      // assistant outputs).
+      //
+      // Mirrors the canonical user-turn pattern in
+      // conversation-agent-loop.ts:1860,2106-2126: messages updated →
+      // processing=false → drainQueue.
+      const firstAssistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "some_tool", input: {} },
+        ],
+      };
+      const toolResultUserMsg: Message = {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
+        ],
+      };
+      const followup: Message = {
+        role: "assistant",
+        content: [{ type: "text", text: "All done." }],
+      };
+      const target = makeTarget({
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        scriptedAssistant: firstAssistant,
+        scriptedTail: [toolResultUserMsg, followup],
+      });
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: target.conversationId,
+          hint: "x",
+          source: "meet-chat-opportunity",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      // Full call sequence: processing toggled true → 3 pushes →
+      // 3 persists → processing toggled false → drain. Specifically,
+      // every push and every persist must precede the single drain.
+      expect(target.callSequence).toEqual([
+        "processing:true",
+        "push",
+        "push",
+        "push",
+        "persist",
+        "persist",
+        "persist",
+        "processing:false",
+        "drain",
+      ]);
+
+      // Belt-and-braces: cross-check via index lookups so the failure
+      // mode (drain before push/persist) shows up clearly even if the
+      // exact sequence ever picks up additional entries.
+      const drainIdx = target.callSequence.indexOf("drain");
+      const lastPushIdx = target.callSequence.lastIndexOf("push");
+      const lastPersistIdx = target.callSequence.lastIndexOf("persist");
+      expect(drainIdx).toBeGreaterThan(lastPushIdx);
+      expect(drainIdx).toBeGreaterThan(lastPersistIdx);
+
+      // And processing was false when drain ran.
+      expect(target.processingDuringDrain).toEqual([false]);
+    },
+  );
+
+  test(
+    "silent no-op: drainQueue still runs (in finally) but nothing is " +
+      "pushed, persisted, or emitted",
+    async () => {
+      // The wake's silent-no-op semantics must be preserved by the
+      // round-3 reordering: an empty assistant reply produces no
+      // visible text and no tool calls, so no push/persist/emit should
+      // happen. drainQueue must still run in the finally block so a
+      // racy queued message is not stranded.
+      const target = makeTarget({
+        baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "" }],
+        },
+      });
+
+      await wakeAgentForOpportunity(
+        {
+          conversationId: target.conversationId,
+          hint: "x",
+          source: "unit-test",
+        },
+        { resolveTarget: async () => target },
+      );
+
+      // No push, no persist, no emit.
+      expect(target.pushedMessages).toHaveLength(0);
+      expect(target.persistedTailCalls).toHaveLength(0);
+      expect(target.emittedEvents).toHaveLength(0);
+
+      // But drain still ran exactly once, after processing flipped to
+      // false. Sequence: toggle true → toggle false → drain.
+      expect(target.callSequence).toEqual([
+        "processing:true",
+        "processing:false",
+        "drain",
+      ]);
+      expect(target.processingDuringDrain).toEqual([false]);
+    },
+  );
 });
