@@ -34,6 +34,8 @@ struct InferenceServiceCard: View {
     @State private var isSyncingProviderFromStore = false
     /// Whether the current provider has a stored API key (fetched per-component).
     @State private var providerHasKey = false
+    /// Whether the read-only per-call-site overrides sheet is presented.
+    @State private var showOverridesSheet = false
 
     // MARK: - Provider Helpers
 
@@ -88,51 +90,63 @@ struct InferenceServiceCard: View {
     }
 
     var body: some View {
-        ServiceModeCard(
-            title: "Inference",
-            subtitle: draftMode == "managed"
-                ? "Configure which model to use to power your assistant"
-                : "Configure which LLM provider and model to use to power your assistant",
-            draftMode: $draftMode,
-            managedContent: {
-                if isLoggedIn {
-                    PickerWithInlineSave(
-                        hasChanges: hasChanges,
-                        isSaving: store.apiKeySaving,
-                        onSave: { save() }
-                    ) {
-                        modelPicker
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            ServiceModeCard(
+                title: "Inference",
+                subtitle: draftMode == "managed"
+                    ? "Configure which model to use to power your assistant"
+                    : "Configure which LLM provider and model to use to power your assistant",
+                draftMode: $draftMode,
+                managedContent: {
+                    if isLoggedIn {
+                        PickerWithInlineSave(
+                            hasChanges: hasChanges,
+                            isSaving: store.apiKeySaving,
+                            onSave: { save() }
+                        ) {
+                            modelPicker
+                        }
+                    } else {
+                        managedLoginPrompt
                     }
-                } else {
-                    managedLoginPrompt
+                },
+                yourOwnContent: {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        providerPicker
+
+                        // Model picker
+                        modelPicker
+
+                        // API Key field
+                        apiKeyField
+
+                        // Action buttons
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: store.apiKeySaving,
+                            onSave: { save() },
+                            savingLabel: "Validating...",
+                            onReset: {
+                                store.clearAPIKeyForProvider(effectiveProvider)
+                                providerHasKey = false
+                                apiKeyText = ""
+                            },
+                            showReset: providerHasKey
+                        )
+                    }
                 }
-            },
-            yourOwnContent: {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    providerPicker
+            )
 
-                    // Model picker
-                    modelPicker
-
-                    // API Key field
-                    apiKeyField
-
-                    // Action buttons
-                    ServiceCardActions(
-                        hasChanges: hasChanges,
-                        isSaving: store.apiKeySaving,
-                        onSave: { save() },
-                        savingLabel: "Validating...",
-                        onReset: {
-                            store.clearAPIKeyForProvider(effectiveProvider)
-                            providerHasKey = false
-                            apiKeyText = ""
-                        },
-                        showReset: providerHasKey
-                    )
-                }
+            // Per-call-site overrides badge — only visible when the user has
+            // at least one override configured. Tapping opens the read-only
+            // overrides sheet (PR 22). PR 23 makes this sheet editable.
+            if store.overridesCount > 0 {
+                overridesBadge
             }
-        )
+        }
+        .sheet(isPresented: $showOverridesSheet) {
+            CallSiteOverridesSheet(store: store, isPresented: $showOverridesSheet)
+        }
         .onAppear {
             draftMode = store.inferenceMode
             draftModel = store.selectedModel
@@ -285,6 +299,28 @@ struct InferenceServiceCard: View {
                     + " You'll need to review and save them below."
             )
         }
+    }
+
+    // MARK: - Per-Call-Site Overrides Badge
+
+    /// Compact link-styled label that surfaces the count of explicit per-task
+    /// overrides and opens the read-only overrides sheet on tap. Hidden by
+    /// the parent when `store.overridesCount == 0`.
+    private var overridesBadge: some View {
+        Button {
+            showOverridesSheet = true
+        } label: {
+            Text(
+                "\(store.overridesCount) per-task override"
+                    + (store.overridesCount == 1 ? "" : "s")
+            )
+            .font(VFont.bodySmallDefault)
+            .foregroundStyle(.secondary)
+            .underline()
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("View per-task model overrides")
     }
 
     // MARK: - Managed Login Prompt
