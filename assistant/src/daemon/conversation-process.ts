@@ -20,6 +20,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
@@ -140,6 +141,7 @@ export interface ProcessConversationContext {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      callSite?: LLMCallSite;
     },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
@@ -1291,7 +1293,7 @@ export async function processMessage(
   requestId?: string,
   activeSurfaceId?: string,
   currentPage?: string,
-  options?: { isInteractive?: boolean },
+  options?: { isInteractive?: boolean; callSite?: LLMCallSite },
   displayContent?: string,
 ): Promise<string> {
   await conversation.ensureActorScopedHistory();
@@ -1647,11 +1649,13 @@ export async function processMessage(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    callSite?: LLMCallSite;
   } = { isUserMessage: true };
   if (options?.isInteractive !== undefined)
     loopOptions.isInteractive = options.isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
+  if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
 
   await conversation.runAgentLoop(
     agentLoopContent,

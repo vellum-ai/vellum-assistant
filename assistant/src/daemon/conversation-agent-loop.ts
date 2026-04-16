@@ -24,6 +24,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -356,6 +357,14 @@ export async function runAgentLoopImpl(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    /**
+     * LLM call-site identifier threaded into the per-call provider config.
+     * When unset, defaults to `'mainAgent'` so this turn routes through the
+     * main-agent profile in the unified `llm` config. Adapter callers
+     * (heartbeat, filing, schedule, etc.) override with their own call-site
+     * id as PRs 7-11 migrate them off the legacy `speed` / `modelIntent` paths.
+     */
+    callSite?: LLMCallSite;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -378,6 +387,27 @@ export async function runAgentLoopImpl(
     requestId: reqId,
   });
   let yieldedForHandoff = false;
+
+  // Resolve the LLM call-site for this turn.
+  //
+  // Reviewers (Codex P1 + Devin) flagged that defaulting absent callers to
+  // 'mainAgent' would route every conversation turn through
+  // `RetryProvider`'s new call-site resolver, which reads model/provider
+  // settings from `config.llm`. That creates a regression because
+  // `config-model.setModel` still writes to `services.inference` without
+  // syncing `llm.default`, so a model switch could leave agent-loop turns
+  // using stale or incompatible model IDs (e.g. an Anthropic model on an
+  // OpenAI transport).
+  //
+  // Defer the cutover. Leave `turnCallSite` undefined when the caller does
+  // not pass one, so `agentLoop.run()` omits `callSite` from the per-call
+  // provider config and `RetryProvider` keeps using the legacy
+  // `modelIntent` path. Adapter callers (heartbeat/filing/scheduler in
+  // PRs 7-11) still pass an explicit `callSite` and route through the new
+  // resolver as intended. A future PR will migrate the agent-loop turn to
+  // an explicit `'mainAgent'` callSite once the model-sync writers are
+  // wired up.
+  const turnCallSite: LLMCallSite | undefined = options?.callSite;
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
@@ -1102,6 +1132,7 @@ export async function runAgentLoopImpl(
       abortController.signal,
       reqId,
       onCheckpoint,
+      turnCallSite,
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1215,6 +1246,7 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        turnCallSite,
       );
     }
 
@@ -1257,6 +1289,7 @@ export async function runAgentLoopImpl(
         abortController.signal,
         reqId,
         onCheckpoint,
+        turnCallSite,
       );
 
       if (state.orderingErrorDetected) {
@@ -1440,6 +1473,7 @@ export async function runAgentLoopImpl(
           abortController.signal,
           reqId,
           onCheckpoint,
+          turnCallSite,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -1566,6 +1600,7 @@ export async function runAgentLoopImpl(
               abortController.signal,
               reqId,
               onCheckpoint,
+              turnCallSite,
             );
           } else {
             // User denied compression — emit a graceful assistant explanation
@@ -1689,6 +1724,7 @@ export async function runAgentLoopImpl(
             abortController.signal,
             reqId,
             onCheckpoint,
+            turnCallSite,
           );
         }
         // action === "fail_gracefully" falls through to the final error below

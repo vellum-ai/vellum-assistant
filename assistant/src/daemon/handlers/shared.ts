@@ -2,6 +2,7 @@ import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
 import type { Speed } from "../../config/schemas/inference.js";
+import type { LLMCallSite } from "../../config/schemas/llm.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import type { ModelIntent } from "../../providers/types.js";
@@ -141,6 +142,13 @@ export interface ConversationCreateOptions {
    * to a specific model.
    */
   modelOverride?: string;
+  /**
+   * Optional LLM call-site identifier threaded through to the per-call
+   * provider config. Adapter callers (heartbeat, filing, schedule, etc.)
+   * pass their call-site here so PRs 7-11 can route those flows through
+   * `resolveCallSiteConfig` instead of the legacy `speed`/`modelIntent` paths.
+   */
+  callSite?: LLMCallSite;
 }
 
 /**

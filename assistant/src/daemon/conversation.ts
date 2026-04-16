@@ -25,6 +25,7 @@ import type {
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -1333,6 +1334,7 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      callSite?: LLMCallSite;
     },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
@@ -1349,7 +1351,7 @@ export class Conversation {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
-    options?: { isInteractive?: boolean },
+    options?: { isInteractive?: boolean; callSite?: LLMCallSite },
     displayContent?: string,
   ): Promise<string> {
     return processMessageImpl(

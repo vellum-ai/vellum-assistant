@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import {
@@ -81,7 +82,7 @@ export interface HeartbeatDeps {
   processMessage: (
     conversationId: string,
     content: string,
-    options?: { speed?: Speed },
+    options?: { speed?: Speed; callSite?: LLMCallSite },
   ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {

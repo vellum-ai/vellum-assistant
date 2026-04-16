@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -42,7 +43,7 @@ export interface FilingDeps {
   processMessage: (
     conversationId: string,
     content: string,
-    options?: { speed?: Speed },
+    options?: { speed?: Speed; callSite?: LLMCallSite },
   ) => Promise<{ messageId: string }>;
   onConversationCreated?: (info: {
     conversationId: string;

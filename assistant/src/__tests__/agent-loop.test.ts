@@ -26,12 +26,14 @@ function createMockProvider(responses: ProviderResponse[]): {
     messages: Message[];
     tools?: ToolDefinition[];
     systemPrompt?: string;
+    options?: SendMessageOptions;
   }[];
 } {
   const calls: {
     messages: Message[];
     tools?: ToolDefinition[];
     systemPrompt?: string;
+    options?: SendMessageOptions;
   }[] = [];
   let callIndex = 0;
 
@@ -43,7 +45,7 @@ function createMockProvider(responses: ProviderResponse[]): {
       systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt });
+      calls.push({ messages: [...messages], tools, systemPrompt, options });
       const response = responses[callIndex] ?? responses[responses.length - 1];
       callIndex++;
 
@@ -1830,5 +1832,35 @@ describe("AgentLoop", () => {
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
     expect(history).toHaveLength(2); // user + empty assistant
+  });
+
+  // PR 6: callSite threading from AgentLoop.run() into provider config.
+  // Verifies the per-call config exposes `callSite` so RetryProvider can route
+  // through `resolveCallSiteConfig` instead of the legacy `modelIntent` path.
+  test("threads callSite from AgentLoop.run() into per-call provider config", async () => {
+    const { provider, calls } = createMockProvider([textResponse("ok")]);
+
+    const loop = new AgentLoop(provider, "system");
+    await loop.run(
+      [userMessage],
+      () => {},
+      undefined, // signal
+      undefined, // requestId
+      undefined, // onCheckpoint
+      "heartbeatAgent",
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].options?.config?.callSite).toBe("heartbeatAgent");
+  });
+
+  test("omits callSite from provider config when not supplied", async () => {
+    const { provider, calls } = createMockProvider([textResponse("ok")]);
+
+    const loop = new AgentLoop(provider, "system");
+    await loop.run([userMessage], () => {});
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].options?.config?.callSite).toBeUndefined();
   });
 });
