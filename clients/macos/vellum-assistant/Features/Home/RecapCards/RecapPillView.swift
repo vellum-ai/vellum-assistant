@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// An inline pill/chip view for recap flowing text.
 ///
@@ -38,7 +39,7 @@ struct RecapPillView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
         .background(
-            Color.white.opacity(backgroundOpacity)
+            VColor.auxWhite.opacity(backgroundOpacity)
         )
         .clipShape(Capsule())
         .pointerCursor(onHover: { hovering in
@@ -63,43 +64,4 @@ struct RecapPillView: View {
             return VColor.systemMidStrong
         }
     }
-}
-
-// MARK: - Previews
-
-#Preview("High Priority") {
-    RecapPillView(
-        text: "authorising a transaction to NBA",
-        priority: .high
-    )
-    .padding()
-    .background(Color.gray.opacity(0.3))
-}
-
-#Preview("Medium Priority") {
-    RecapPillView(
-        text: "schedule team standup",
-        priority: .medium
-    )
-    .padding()
-    .background(Color.gray.opacity(0.3))
-}
-
-#Preview("No Priority") {
-    RecapPillView(
-        text: "review pull request",
-        priority: nil
-    )
-    .padding()
-    .background(Color.gray.opacity(0.3))
-}
-
-#Preview("Highlighted") {
-    RecapPillView(
-        text: "authorising a transaction to NBA",
-        priority: .high,
-        isHighlighted: true
-    )
-    .padding()
-    .background(Color.gray.opacity(0.3))
 }
