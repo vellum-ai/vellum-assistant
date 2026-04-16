@@ -30,7 +30,6 @@ final class AvatarAppearanceManager {
     /// Cached full-size fallback avatar for larger displays (identity panel, constellation).
     @ObservationIgnored private var cachedFullFallbackAvatar: NSImage?
     @ObservationIgnored private var cachedFullFallbackName: String?
-
     /// Bundled initial avatar loaded once from Resources.
     private static let bundledInitialAvatar: NSImage? = {
         guard let url = ResourceBundle.bundle.url(forResource: "initial-avatar", withExtension: "png") else { return nil }
@@ -189,6 +188,7 @@ final class AvatarAppearanceManager {
                 if characterColor != nil { characterColor = nil }
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
+
                 updateDockIcon()
                 return
             }
