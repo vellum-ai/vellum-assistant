@@ -42,6 +42,7 @@ private struct DeveloperSettingsSectionContent: View {
     @State private var selectedAssistantId: String = ""
     @State private var isLoadingAssistants = false
     @State private var assistantLoadError: String?
+    @State private var showResetConfirmation = false
 
     init(clientProvider: ClientProvider, traceStore: TraceStore, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
@@ -93,6 +94,16 @@ private struct DeveloperSettingsSectionContent: View {
 
             Section("Connection") {
                 LabeledContent("Status", value: clientProvider.isConnected ? "Connected" : "Disconnected")
+            }
+
+            Section {
+                Button("Reset Connection & Re-onboard", role: .destructive) {
+                    showResetConfirmation = true
+                }
+            } header: {
+                Text("Reset")
+            } footer: {
+                Text("Clears all connection state (tokens, assistant config, org ID) and returns to the onboarding flow. Preferences like appearance and voice settings are preserved.")
             }
 
             Section("Connection Diagnostics") {
@@ -149,6 +160,14 @@ private struct DeveloperSettingsSectionContent: View {
         }
         .onChange(of: clientProvider.clientGeneration) {
             usageDashboardStore.reset()
+        }
+        .alert("Reset Connection?", isPresented: $showResetConfirmation) {
+            Button("Reset & Re-onboard", role: .destructive) {
+                performConnectionReset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will clear all connection credentials and return to onboarding. You will need to log in or pair again.")
         }
         .task {
             await loadAssistants()
@@ -238,6 +257,35 @@ private struct DeveloperSettingsSectionContent: View {
         }
 
         isLoadingAssistants = false
+    }
+
+    // MARK: - Connection Reset
+
+    private func performConnectionReset() {
+        let defaults = UserDefaults.standard
+
+        // Clear managed assistant config
+        defaults.removeObject(forKey: UserDefaultsKeys.managedAssistantId)
+        defaults.removeObject(forKey: UserDefaultsKeys.managedPlatformBaseURL)
+
+        // Clear QR-paired gateway config
+        defaults.removeObject(forKey: UserDefaultsKeys.gatewayBaseURL)
+
+        // Clear organization ID
+        defaults.removeObject(forKey: "connectedOrganizationId")
+
+        // Clear keychain credentials
+        SessionTokenManager.deleteToken()
+        ActorTokenManager.deleteAllCredentials()
+        _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
+
+        // Rebuild the client so it picks up the cleared state
+        clientProvider.rebuildClient()
+
+        // Return to onboarding by resetting the completion flag.
+        // VellumAssistantApp observes this via @AppStorage and will
+        // swap ContentView for OnboardingView.
+        defaults.set(false, forKey: "onboarding_completed")
     }
 
     private func switchAssistant(to assistantId: String) {
