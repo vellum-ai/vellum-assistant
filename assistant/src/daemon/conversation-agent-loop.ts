@@ -388,11 +388,26 @@ export async function runAgentLoopImpl(
   });
   let yieldedForHandoff = false;
 
-  // Resolve the LLM call-site for this turn. Defaults to 'mainAgent' when the
-  // caller (e.g. processMessage from a chat send) doesn't specify one. Adapter
-  // callers like heartbeat/filing/scheduler will override with their own
-  // call-site id once their wrappers in PRs 7-11 start passing it through.
-  const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+  // Resolve the LLM call-site for this turn.
+  //
+  // Reviewers (Codex P1 + Devin) flagged that defaulting absent callers to
+  // 'mainAgent' would route every conversation turn through
+  // `RetryProvider`'s new call-site resolver, which reads model/provider
+  // settings from `config.llm`. That creates a regression because
+  // `config-model.setModel` still writes to `services.inference` without
+  // syncing `llm.default`, so a model switch could leave agent-loop turns
+  // using stale or incompatible model IDs (e.g. an Anthropic model on an
+  // OpenAI transport).
+  //
+  // Defer the cutover. Leave `turnCallSite` undefined when the caller does
+  // not pass one, so `agentLoop.run()` omits `callSite` from the per-call
+  // provider config and `RetryProvider` keeps using the legacy
+  // `modelIntent` path. Adapter callers (heartbeat/filing/scheduler in
+  // PRs 7-11) still pass an explicit `callSite` and route through the new
+  // resolver as intended. A future PR will migrate the agent-loop turn to
+  // an explicit `'mainAgent'` callSite once the model-sync writers are
+  // wired up.
+  const turnCallSite: LLMCallSite | undefined = options?.callSite;
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.

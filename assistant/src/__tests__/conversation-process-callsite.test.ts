@@ -4,9 +4,17 @@
  *
  * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
  * the conversation passes after `processMessage` runs the slash-resolver and
- * runtime-injection pipeline. The default (no `callSite` given) is asserted
- * separately — `runAgentLoopImpl` falls back to `'mainAgent'`, which is what
- * `agentLoop.run()` then includes in the per-call config.
+ * runtime-injection pipeline.
+ *
+ * NOTE: PR 6 originally defaulted absent callers to `'mainAgent'`, but
+ * Codex/Devin flagged that this routes every conversation turn through
+ * `RetryProvider`'s new call-site resolver while `config-model.setModel`
+ * still writes to `services.inference` without syncing `llm.default`.
+ * Defer the cutover to a future PR that handles the model-sync. Until
+ * then, agent-loop turns leave `callSite` undefined so the legacy
+ * `modelIntent` path remains in effect for the user-message conversation
+ * flow, while adapter callers (heartbeat/filing/scheduler) keep passing
+ * their explicit `callSite` through.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -257,7 +265,13 @@ describe("processMessage callSite threading", () => {
     expect(captured.callSite).toBe("heartbeatAgent");
   });
 
-  test("defaults to 'mainAgent' when callSite is not supplied", async () => {
+  test("leaves callSite undefined when not supplied (legacy modelIntent path)", async () => {
+    // PR 6 originally defaulted absent callers to 'mainAgent', but
+    // Codex/Devin flagged that this routes every conversation turn through
+    // the new RetryProvider call-site resolver while `services.inference`
+    // writes don't sync to `llm.default`. Defer the cutover to a future PR
+    // that handles the model-sync. Until then, agent-loop turns keep using
+    // the legacy modelIntent path by leaving `callSite` undefined.
     mockConversation = {
       id: "conv-1",
       contextSummary: null,
@@ -274,6 +288,6 @@ describe("processMessage callSite threading", () => {
 
     await conversation.processMessage("Plain user message", [], () => {});
 
-    expect(captured.callSite).toBe("mainAgent");
+    expect(captured.callSite).toBeUndefined();
   });
 });
