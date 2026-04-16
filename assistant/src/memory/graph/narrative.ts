@@ -196,7 +196,7 @@ export async function runNarrativeRefinement(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "narrativeRefinement" as const,
         tool_choice: { type: "tool" as const, name: "refine_narratives" },
       },
     },
