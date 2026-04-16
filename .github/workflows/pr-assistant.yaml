@@ -8,7 +8,6 @@ on:
       - 'credential-executor/**'
       - 'packages/**'
       - 'scripts/skills/**'
-      - 'skills/meet-join/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
 

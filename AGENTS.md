@@ -138,7 +138,7 @@ Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimi
 
 ## Skill Isolation
 
-The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. Guard test: `skill-meet-isolation.test.ts`. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
 
 ## Tooling Direction
 

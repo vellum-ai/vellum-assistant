@@ -126,24 +126,40 @@ jobs:
           SKILL_DIR="skills/${{ matrix.skill }}"
           SKILL_NAME="${{ matrix.skill }}"
 
-          # Skills tested elsewhere (to avoid duplicate / broken coverage):
-          # - meet-join: daemon tests use `mock.module()` which is process-global
-          #   in Bun. A flat `bun test` across all files causes cross-file
-          #   pollution and SyntaxError failures. These tests are covered by
-          #   pr-assistant.yaml's test.sh, which runs each file in its own
-          #   process. The bot/ subpackage with its own package.json `test`
-          #   script still runs below.
+          # meet-join: daemon tests use `mock.module()` which is process-global
+          # in Bun. A flat `bun test` causes cross-file pollution and
+          # SyntaxError failures. Run each test file in its own Bun process
+          # (same isolation strategy as assistant's test.sh). The bot/
+          # subpackage has its own package.json and runs separately below.
           if [ "$SKILL_NAME" = "meet-join" ]; then
-            echo "Skipping flat test run for meet-join — covered by pr-assistant.yaml (per-file isolation)."
-            # Install parent skill deps first — bot imports contracts which
-            # resolve zod from the parent node_modules.
             (cd "$SKILL_DIR" && bun install)
+            # Run bot/ subpackage tests
             for sub in bot; do
               if [ -f "$SKILL_DIR/$sub/package.json" ]; then
                 echo "Running tests for skills/$SKILL_NAME/$sub ..."
                 (cd "$SKILL_DIR/$sub" && bun install && bun test)
               fi
             done
+            # Run remaining meet-join tests with per-file process isolation
+            TEST_FILES=$(find "$SKILL_DIR" \
+              -path "$SKILL_DIR/bot" -prune -o \
+              -path "$SKILL_DIR/contracts" -prune -o \
+              -path "$SKILL_DIR/node_modules" -prune -o \
+              -type f -name '*.test.ts' -print | sort)
+            if [ -n "$TEST_FILES" ]; then
+              echo "Running meet-join tests with per-file isolation..."
+              FAIL=0
+              for tf in $TEST_FILES; do
+                echo "  Testing $tf ..."
+                if ! bun test "$tf"; then
+                  FAIL=1
+                fi
+              done
+              if [ "$FAIL" -ne 0 ]; then
+                echo "Some meet-join tests failed"
+                exit 1
+              fi
+            fi
             exit 0
           fi
 
