@@ -290,9 +290,12 @@ struct AssistantProgressView: View {
                     startDate = Date()
                 }
             }
-            // Reset thinking anchor only when tools actually resume (not on streamingCode,
-            // which can fire from lingering code previews after tools complete).
-            if newPhase == .toolRunning {
+            // Reset thinking anchor when tools resume. Also reset on streamingCode
+            // when tools are still incomplete — phase resolution returns streamingCode
+            // before toolRunning whenever a code preview lingers, so in multi-wave runs
+            // the card can skip toolRunning and keep a stale anchor from the previous wave.
+            if newPhase == .toolRunning
+                || (newPhase == .streamingCode && !model.allComplete && model.hasTools) {
                 thinkingAfterToolsStartDate = nil
                 thinkingAfterToolsEndDate = nil
             }
