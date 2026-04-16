@@ -18,10 +18,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     case provisioningFailed(String)
     case assistantInjectionFailed
     case multipleOrganizations
-    /// The user already has a different local assistant registered with the
-    /// platform. Carries the existing assistant so the UI can offer to retire
-    /// it and retry. Also carries the organization ID needed for the retire
-    /// call so callers don't have to re-resolve it.
+    /// organizationId is carried so the retire call doesn't re-resolve it.
     case existingRegistrationConflict(existing: PlatformAssistant, organizationId: String)
 
     public var errorDescription: String? {
@@ -139,11 +136,8 @@ public final class LocalAssistantBootstrapService {
                 assistantVersion: assistantVersion
             )
         } catch let error as PlatformAPIError {
-            // Non-Vellum users are capped at one local assistant; the platform
-            // returns 400 with code=single_local_assistant_limit when a
-            // different runtime tries to register. Gate on the code (not just
-            // the 400 status) so unrelated bad-request responses fall through
-            // to the generic registration-failed path.
+            // Gate on the specific code (not just 400) so unrelated bad-request
+            // responses aren't misinterpreted as the single-assistant limit.
             if case .serverError(400, let body) = error,
                Self.isSingleLocalAssistantLimitError(body),
                let existing = try? await firstExistingLocalAssistant(organizationId: organizationId) {
@@ -375,37 +369,22 @@ public final class LocalAssistantBootstrapService {
         return session.data?.user?.id
     }
 
-    /// Stable error code returned by the platform when a non-Vellum user
-    /// already has a local assistant registered. Must stay in sync with the
-    /// backend constant on `POST /v1/assistants/self-hosted-local/ensure-registration/`.
-    private static let singleLocalAssistantLimitCode = "single_local_assistant_limit"
-
-    /// Shape of the structured 400 body the platform returns for
-    /// ensure-registration failures: `{success, code, detail}` (matches the
-    /// OAuth error pattern). All fields are optional so unrelated 400s that
-    /// don't follow this shape decode as `nil` and fall through.
+    /// Fields are optional so unrelated 400s that don't follow this shape decode as nil and fall through.
     private struct EnsureRegistrationErrorBody: Decodable {
         let success: Bool?
         let code: String?
         let detail: String?
     }
 
-    /// Returns true when the raw 400 body identifies the single-local-assistant
-    /// limit specifically. Anything else (free-form text, missing code, other
-    /// codes) returns false so the caller falls through to the generic
-    /// registration-failed path.
+    /// Code string must stay in sync with the backend on POST /v1/assistants/self-hosted-local/ensure-registration/.
     private static func isSingleLocalAssistantLimitError(_ body: String?) -> Bool {
         guard let data = body?.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(EnsureRegistrationErrorBody.self, from: data) else {
             return false
         }
-        return parsed.code == singleLocalAssistantLimitCode
+        return parsed.code == "single_local_assistant_limit"
     }
 
-    /// Returns the first self-hosted local assistant the caller has registered
-    /// in the given organization, or nil if the list is empty / the request fails.
-    /// Used to resolve the conflicting registration after a 400 from
-    /// ensure-registration.
     private func firstExistingLocalAssistant(organizationId: String) async throws -> PlatformAssistant? {
         let assistants = try await authService.listSelfHostedLocalAssistants(organizationId: organizationId)
         return assistants.first

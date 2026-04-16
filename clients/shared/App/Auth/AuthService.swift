@@ -373,11 +373,7 @@ public final class AuthService {
         return try response.decode(PaginatedPlatformAssistantsResponse.self).results
     }
 
-    /// List self-hosted local assistant registrations visible to the caller.
-    ///
-    /// Used to resolve the existing registration when ensure-registration
-    /// returns 400 because the user already has another local assistant
-    /// registered (non-Vellum users are capped at one).
+    /// List self-hosted local assistant registrations for the caller.
     public func listSelfHostedLocalAssistants(organizationId: String) async throws -> [PlatformAssistant] {
         let response = try await performPlatformRequest(
             path: "v1/assistants/?hosting=local",

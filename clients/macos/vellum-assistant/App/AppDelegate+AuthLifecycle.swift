@@ -418,10 +418,6 @@ extension AppDelegate {
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
-                // Non-Vellum users are capped at one local assistant. When the
-                // platform rejects this registration with 400, the bootstrap
-                // surfaces the existing assistant so we can prompt the user to
-                // retire it and retry.
                 if let bootstrapError = error as? LocalBootstrapError,
                    case .existingRegistrationConflict(let existing, let organizationId) = bootstrapError {
                     let didRetire = await self.presentExistingRegistrationConflict(
@@ -453,11 +449,7 @@ extension AppDelegate {
         }
     }
 
-    /// Prompts the user to retire an existing local-assistant registration
-    /// that's blocking this device's registration, then performs the retire.
-    /// Returns true if the user confirmed and the retire succeeded — the
-    /// caller should retry the bootstrap. Returns false if the user cancelled
-    /// or the retire failed (a follow-up alert is shown on failure).
+    /// Returns true iff the user confirmed and the retire succeeded (caller should retry bootstrap).
     @MainActor
     private func presentExistingRegistrationConflict(
         existing: PlatformAssistant,
