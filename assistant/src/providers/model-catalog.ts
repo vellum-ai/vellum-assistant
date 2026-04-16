@@ -18,6 +18,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "anthropic",
     displayName: "Anthropic",
     models: [
+      { id: "claude-opus-4-7", displayName: "Claude Opus 4.7" },
       { id: "claude-opus-4-6", displayName: "Claude Opus 4.6" },
       { id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6" },
       { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
@@ -77,6 +78,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     displayName: "OpenRouter",
     models: [
       // Anthropic
+      { id: "anthropic/claude-opus-4.7", displayName: "Claude Opus 4.7" },
       { id: "anthropic/claude-opus-4.6", displayName: "Claude Opus 4.6" },
       { id: "anthropic/claude-sonnet-4.6", displayName: "Claude Sonnet 4.6" },
       { id: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku 4.5" },

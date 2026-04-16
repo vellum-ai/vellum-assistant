@@ -961,7 +961,7 @@ export class AnthropicProvider implements Provider {
         finalMessage(): Promise<Anthropic.Message>;
       }
 
-      // Fast mode: use the beta endpoint with speed: "fast" for Opus 4.6
+      // Fast mode: use the beta endpoint with speed: "fast" for Opus models (4.6, 4.7)
       const useFastMode = speed === "fast" && effectiveModel.includes("opus");
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
