@@ -56,7 +56,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Notify Slack of failure
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
@@ -134,7 +134,7 @@ jobs:
           echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
 
       - name: Notify Slack of release start
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
@@ -176,7 +176,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install assistant dependencies
         working-directory: assistant
