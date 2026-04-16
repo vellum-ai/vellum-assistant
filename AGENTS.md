@@ -58,7 +58,10 @@ In every `Dockerfile`, `FROM` lines must pin the base image to both an exact ver
 
 ### Tool versions
 
-`.tool-versions`, `.nvmrc`, `setup.sh`, all `bun-version:` workflow inputs, and all production `Dockerfile` bun installs must reference the same exact version string. When bumping any of them, bump all of them in the same PR so the repo never has drifted copies. The same rule applies to Node — `.nvmrc` and every workflow `node-version:` input must match.
+Bun and Node are tracked as separate toolchains; each has its own set of files that must stay in sync. When bumping any file in a set, bump all of them in the same PR so the repo never has drifted copies.
+
+- **Bun**: `.tool-versions`, `setup.sh`, all `bun-version:` workflow inputs, and all production `Dockerfile` bun installs must reference the same exact version string.
+- **Node**: `.nvmrc` and every workflow `node-version:` input must reference the same exact version string. (`.nvmrc` is Node-only and is intentionally not tied to the Bun version.)
 
 ### What we explicitly do not pin
 
