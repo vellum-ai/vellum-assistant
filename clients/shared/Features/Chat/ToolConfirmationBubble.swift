@@ -573,13 +573,13 @@ public struct ToolConfirmationBubble: View {
                 Section(alwaysAllowPatternLabel) {
                     ForEach(Array(options.enumerated()), id: \.element.pattern) { _, option in
                         if scopes.isEmpty {
-                            Button(option.label) {
+                            Button(option.description) {
                                 markCommandExplanationSeen()
     
                                 onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
                             }
                         } else {
-                            Menu(option.label) {
+                            Menu(option.description) {
                                 Section("Scope") {
                                     ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
                                         Button(scopeOption.label) {
