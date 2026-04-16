@@ -46,8 +46,16 @@ const log = getLogger("meet-docker-runner");
 /** Path to the Docker Engine unix socket. */
 export const DEFAULT_DOCKER_SOCKET_PATH = "/var/run/docker.sock";
 
-/** Docker Engine API version used in request paths. */
-const DOCKER_API_VERSION = "v1.43";
+/**
+ * Docker Engine API version used in request paths.
+ *
+ * Must be <= the daemon's `ApiVersion` and >= its `MinAPIVersion`. Docker 28+
+ * raised `MinAPIVersion` to 1.44 and rejects older clients with a 400. We pin
+ * to the lowest version that's still supported by current Docker releases —
+ * v1.44 (Docker 25.0, January 2024) — to maximise backwards compatibility
+ * while clearing the new floor.
+ */
+const DOCKER_API_VERSION = "v1.44";
 
 /** Host for unix-socket HTTP requests (ignored by the socket transport). */
 const UNIX_SOCKET_HOST = "localhost";
