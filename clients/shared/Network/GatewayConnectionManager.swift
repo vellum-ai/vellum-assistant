@@ -363,7 +363,7 @@ public final class GatewayConnectionManager {
 
         // The loop runs on a detached task at `.utility` priority so the
         // 15 s `Task.sleep` scheduling and between-check overhead do not
-        // occupy `@MainActor`. Work that touches `@Published` state
+        // occupy `@MainActor`. Work that touches observable state
         // (`performHealthCheck` and the update-timeout cleanup) stays on
         // the main actor; every other state read hops explicitly via
         // `MainActor.run {}`.
@@ -396,7 +396,7 @@ public final class GatewayConnectionManager {
     }
 
     /// Clears update state if the update deadline has passed. Runs on the
-    /// main actor because it mutates `@Published` properties.
+    /// main actor because it mutates observable properties.
     private func checkUpdateTimeoutIfNeeded() {
         guard isUpdateInProgress, let expiresAt = updateExpiresAt, Date() > expiresAt else { return }
         log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
