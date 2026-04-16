@@ -333,19 +333,35 @@ public final class GatewayConnectionManager: ObservableObject {
         // Apple's guidance to keep state on `@MainActor` and push CPU-bound /
         // I/O-bound work off it — WWDC25 "Embracing Swift concurrency"
         // (https://developer.apple.com/videos/play/wwdc2025/268/).
+        //
+        // Detached tasks are unstructured, so cancelling the enclosing
+        // `healthCheckTask` (e.g. from `disconnectInternal()`) does not
+        // automatically propagate to the network call. `withTaskCancellationHandler`
+        // forwards the parent's cancellation to the detached handle, and the
+        // explicit `checkCancellation()` below guards the subsequent
+        // `@MainActor` state mutations so a late-arriving success cannot flip
+        // `isConnected` back to `true` after disconnect.
+        let detachedHealthCheck = Task.detached(priority: .userInitiated) {
+            let response = try await GatewayHTTPClient.get(
+                path: healthPath,
+                timeout: 10,
+                quiet: true
+            )
+            let version: String? = response.isSuccess
+                ? (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version
+                : nil
+            return HealthCheckOutcome(statusCode: response.statusCode, version: version)
+        }
         let outcome: HealthCheckOutcome
         do {
-            outcome = try await Task.detached(priority: .userInitiated) {
-                let response = try await GatewayHTTPClient.get(
-                    path: healthPath,
-                    timeout: 10,
-                    quiet: true
-                )
-                let version: String? = response.isSuccess
-                    ? (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version
-                    : nil
-                return HealthCheckOutcome(statusCode: response.statusCode, version: version)
-            }.value
+            outcome = try await withTaskCancellationHandler {
+                try await detachedHealthCheck.value
+            } onCancel: {
+                detachedHealthCheck.cancel()
+            }
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as GatewayHTTPClient.ClientError {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
