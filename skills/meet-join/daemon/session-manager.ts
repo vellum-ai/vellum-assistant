@@ -72,6 +72,9 @@ import type {
 import { wakeAgentForOpportunity } from "../../../assistant/src/runtime/agent-wake.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
 import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
+import { getTtsProvider } from "../../../assistant/src/tts/provider-registry.js";
+import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver.js";
+import type { TtsProvider } from "../../../assistant/src/tts/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
@@ -102,6 +105,12 @@ import {
 } from "./event-publisher.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
 import { MeetStorageWriter, type PcmSource } from "./storage-writer.js";
+import {
+  MeetTtsBridge,
+  type MeetTtsBridgeArgs,
+  type MeetTtsBridgeDeps,
+  type SpeakInput,
+} from "./tts-bridge.js";
 
 const log = getLogger("meet-session-manager");
 
@@ -278,6 +287,13 @@ interface ActiveSession extends MeetSession {
    * Disposed in `leave()` before the dispatcher is unregistered.
    */
   chatOpportunityDetector: MeetChatOpportunityDetectorLike | null;
+  /**
+   * TTS-bridge for this meeting — drives {@link MeetSessionManager.speak}
+   * and {@link MeetSessionManager.cancelSpeak}. Constructed in `join()`
+   * after the bot's base URL is known, torn down via `cancelAll()` in
+   * `leave()` so no orphan stream outlives the container.
+   */
+  ttsBridge: MeetTtsBridgeLike;
 }
 
 /**
@@ -339,6 +355,17 @@ export interface MeetStorageWriterLike {
   stop(): Promise<void>;
 }
 
+/**
+ * Thin interface for the TTS-bridge surface the session manager uses. Lets
+ * tests swap in a fake without spinning up ffmpeg or a real HTTP client.
+ */
+export interface MeetTtsBridgeLike {
+  speak(input: SpeakInput): Promise<{ streamId: string; completion: Promise<void> }>;
+  cancel(streamId: string): Promise<void>;
+  cancelAll(): Promise<void>;
+  activeStreamCount(): number;
+}
+
 /** Arguments passed to {@link MeetSessionManagerDeps.consentMonitorFactory}. */
 export interface MeetConsentMonitorFactoryArgs {
   meetingId: string;
@@ -356,6 +383,13 @@ export interface MeetConversationBridgeFactoryArgs {
 /** Arguments passed to {@link MeetSessionManagerDeps.storageWriterFactory}. */
 export interface MeetStorageWriterFactoryArgs {
   meetingId: string;
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.ttsBridgeFactory}. */
+export interface MeetTtsBridgeFactoryArgs {
+  meetingId: string;
+  botBaseUrl: string;
+  botApiToken: string;
 }
 
 /**
@@ -451,6 +485,14 @@ export interface MeetSessionManagerDeps {
     args: MeetChatOpportunityDetectorFactoryArgs,
   ) => MeetChatOpportunityDetectorLike;
   /**
+   * Override the TTS-bridge factory. Default constructs a
+   * {@link MeetTtsBridge} that resolves the configured TTS provider via
+   * the registry on each `speak` call. Tests can inject a fake to
+   * observe speak/cancel without spinning up ffmpeg or a real HTTP
+   * client.
+   */
+  ttsBridgeFactory?: (args: MeetTtsBridgeFactoryArgs) => MeetTtsBridgeLike;
+  /**
    * Override the function the session manager calls to wake the agent
    * loop when the detector fires an opportunity. Default routes through
    * the runtime-level {@link wakeAgentForOpportunity} using the
@@ -503,6 +545,8 @@ class MeetSessionManagerImpl {
       chatOpportunityDetectorFactory:
         deps.chatOpportunityDetectorFactory ??
         defaultChatOpportunityDetectorFactory,
+      ttsBridgeFactory:
+        deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
     };
 
@@ -543,6 +587,11 @@ class MeetSessionManagerImpl {
       }
       try {
         session.chatOpportunityDetector?.dispose();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        void session.ttsBridge.cancelAll();
       } catch {
         /* best-effort */
       }
@@ -825,6 +874,15 @@ class MeetSessionManagerImpl {
           })
         : null;
 
+    // TTS bridge — streams synthesized speech into the bot's /play_audio
+    // endpoint. Resolved lazily per speak call so config-live provider
+    // changes propagate.
+    const ttsBridge = this.deps.ttsBridgeFactory({
+      meetingId,
+      botBaseUrl,
+      botApiToken,
+    });
+
     const startedAt = Date.now();
     const session: ActiveSession = {
       meetingId,
@@ -842,6 +900,7 @@ class MeetSessionManagerImpl {
       conversationBridge,
       storageWriter,
       chatOpportunityDetector,
+      ttsBridge,
     };
     this.sessions.set(meetingId, session);
 
@@ -973,6 +1032,19 @@ class MeetSessionManagerImpl {
       log.warn(
         { err, meetingId },
         "MeetChatOpportunityDetector.dispose threw during leave — continuing teardown",
+      );
+    }
+
+    // Cancel any in-flight TTS streams so orphan playback doesn't try to
+    // talk to a bot container that's about to be removed. `cancelAll`
+    // awaits the per-stream teardown (which includes the best-effort
+    // DELETE /play_audio/<id>) — bounded by the stream's own abort path.
+    try {
+      await session.ttsBridge.cancelAll();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetTtsBridge.cancelAll threw during leave — continuing teardown",
       );
     }
 
@@ -1167,6 +1239,87 @@ class MeetSessionManagerImpl {
   }
 
   /**
+   * Speak synthesized audio into the meeting via the bot's `/play_audio`
+   * endpoint. Thin wrapper over {@link MeetTtsBridge.speak} that looks up
+   * the active session, publishes `meet.speaking_started` before the stream
+   * begins, and publishes `meet.speaking_ended` once the bot-side playback
+   * settles. Returns the opaque streamId so callers can cancel the stream
+   * mid-playback via {@link cancelSpeak}.
+   *
+   * Throws {@link MeetSessionNotFoundError} when no active session exists.
+   */
+  async speak(
+    meetingId: string,
+    input: { text: string; voice?: string; streamId?: string },
+  ): Promise<{ streamId: string }> {
+    const session = this.sessions.get(meetingId);
+    if (!session) {
+      throw new MeetSessionNotFoundError(meetingId);
+    }
+
+    const result = await session.ttsBridge.speak(input);
+    const streamId = result.streamId;
+
+    void publishMeetEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      meetingId,
+      "meet.speaking_started",
+      { streamId },
+    );
+
+    // Fire-and-forget completion publisher. `result.completion` resolves
+    // when the outbound POST settles (either success, cancel, or error);
+    // errors are rethrown from the bridge so we can distinguish a natural
+    // finish from a rejected one and emit the matching reason.
+    void result.completion
+      .then(() => {
+        void publishMeetEvent(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+          meetingId,
+          "meet.speaking_ended",
+          { streamId, reason: "completed" as const },
+        );
+      })
+      .catch((err) => {
+        const reason: "cancelled" | "error" =
+          err instanceof Error && err.message === "cancel"
+            ? "cancelled"
+            : "error";
+        log.warn(
+          { err, meetingId, streamId, reason },
+          "MeetTtsBridge speak completion rejected",
+        );
+        void publishMeetEvent(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+          meetingId,
+          "meet.speaking_ended",
+          { streamId, reason },
+        );
+      });
+
+    log.info(
+      { meetingId, streamId, textLength: input.text.length },
+      "Meet TTS speak started",
+    );
+
+    return { streamId };
+  }
+
+  /**
+   * Cancel every in-flight TTS stream for the meeting. Idempotent — safe
+   * to call when no streams are active. Throws
+   * {@link MeetSessionNotFoundError} when no active session exists so
+   * callers can distinguish "unknown meeting" from "nothing to cancel".
+   */
+  async cancelSpeak(meetingId: string): Promise<void> {
+    const session = this.sessions.get(meetingId);
+    if (!session) {
+      throw new MeetSessionNotFoundError(meetingId);
+    }
+    await session.ttsBridge.cancelAll();
+  }
+
+  /**
    * Tear down every active meeting in parallel with a shared overall deadline.
    *
    * Invoked from the daemon's shutdown sequence so live meetings don't leak
@@ -1262,6 +1415,11 @@ class MeetSessionManagerImpl {
           }
           try {
             lingering.chatOpportunityDetector?.dispose();
+          } catch {
+            /* best-effort */
+          }
+          try {
+            await lingering.ttsBridge.cancelAll();
           } catch {
             /* best-effort */
           }
@@ -1456,6 +1614,30 @@ async function defaultCallDetectorLLM(
   } finally {
     cleanup();
   }
+}
+
+/**
+ * Default {@link MeetTtsBridge} factory — resolves the TTS provider from
+ * the registry using `services.tts.provider` on each `speak` call so
+ * config-live provider changes propagate without needing to rebuild the
+ * bridge. Tests can inject a fake via
+ * {@link MeetSessionManagerDeps.ttsBridgeFactory}.
+ */
+function defaultTtsBridgeFactory(
+  args: MeetTtsBridgeFactoryArgs,
+): MeetTtsBridgeLike {
+  const bridgeArgs: MeetTtsBridgeArgs = {
+    meetingId: args.meetingId,
+    botBaseUrl: args.botBaseUrl,
+    botApiToken: args.botApiToken,
+  };
+  const bridgeDeps: MeetTtsBridgeDeps = {
+    providerFactory: (): TtsProvider => {
+      const resolved = resolveTtsConfig(getConfig());
+      return getTtsProvider(resolved.provider);
+    },
+  };
+  return new MeetTtsBridge(bridgeArgs, bridgeDeps);
 }
 
 /**
