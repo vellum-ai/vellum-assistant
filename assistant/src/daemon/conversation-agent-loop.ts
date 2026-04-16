@@ -1847,12 +1847,6 @@ export async function runAgentLoopImpl(
       }
     }
 
-    const postLoopContextEstimate = estimatePromptTokens(
-      restoredHistory,
-      ctx.systemPrompt,
-      { providerName: ctx.provider.name, toolTokenBudget },
-    );
-
     // Persist injections in history: runtime-injected context stays on
     // historical user messages so the conversation prefix is stable for
     // Anthropic's prefix caching.  Stripping only happens during
@@ -1873,7 +1867,7 @@ export async function runAgentLoopImpl(
       state.exchangeProviderName,
       state.exchangeLlmCallCount,
       {
-        tokens: postLoopContextEstimate,
+        tokens: state.lastCallInputTokens,
         maxTokens: config.contextWindow.maxInputTokens,
       },
     );
