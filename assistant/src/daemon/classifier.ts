@@ -65,7 +65,7 @@ export async function classifyInteraction(
         "You are a classifier. Determine whether the user's request requires computer use (controlling the GUI — clicking, scrolling, typing into app windows, navigating between apps) or can be handled with local tools (answering questions, running terminal commands, creating/editing/reading files, web searches, writing code). GUI tasks → computer_use. Everything else → text_qa.",
         {
           config: {
-            modelIntent: "latency-optimized",
+            callSite: "interactionClassifier",
             max_tokens: 128,
             tool_choice: {
               type: "tool" as const,
