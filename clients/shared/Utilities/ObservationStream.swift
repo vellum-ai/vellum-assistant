@@ -42,7 +42,7 @@ public struct ObservationValues<Value: Equatable & Sendable>: AsyncSequence, Sen
             }
             return await withTaskCancellationHandler {
                 await base.next()
-            } onCancel: {
+            } onCancel: { [finish] in
                 finish()
             }
         }
