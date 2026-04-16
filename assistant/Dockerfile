@@ -101,20 +101,6 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y docker-ce docker-ce-cli containerd.io \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure dockerd for Docker-in-Docker execution. The init supervisor in
-# docker-entrypoint.sh starts dockerd with --storage-driver=overlay2 by
-# default, falling back to vfs if overlay2 cannot initialize (e.g. on
-# hosts whose storage driver doesn't support nested overlay mounts). The
-# storage driver is passed on the CLI rather than set here so the fallback
-# path can override it without rewriting this config. Log rotation keeps
-# sibling-container logs from filling the workspace volume.
-RUN mkdir -p /etc/docker && \
-    printf '%s\n' \
-        '{' \
-        '  "log-driver": "json-file",' \
-        '  "log-opts": { "max-size": "10m", "max-file": "3" }' \
-        '}' > /etc/docker/daemon.json
-
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
