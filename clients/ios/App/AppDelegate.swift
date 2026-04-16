@@ -142,6 +142,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // the new approval flow. Runs once; the flag persists across future launches.
         migrateToPairingV4IfNeeded()
 
+        // Observe system memory pressure so subsystems that do periodic or
+        // memory-retaining work (e.g. `ChatViewModel`'s low-memory message
+        // trim) receive `.warning` / `.critical` events. Matches the macOS
+        // AppDelegate so iOS devices — which are generally more
+        // memory-constrained and more likely to be jettisoned — get the same
+        // pressure-driven eviction behavior.
+        MemoryPressureMonitor.shared.start()
+
         // Set recovery credentials for automatic 401 re-bootstrap
         if let daemon = clientProvider.client as? GatewayConnectionManager {
             daemon.recoveryPlatform = "ios"
