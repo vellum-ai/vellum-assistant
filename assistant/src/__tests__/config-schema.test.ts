@@ -161,6 +161,145 @@ describe("AssistantConfigSchema", () => {
     expect(result.secretDetection.action).toBe("block");
   });
 
+  test("applies llm defaults when llm key is omitted", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.llm).toBeDefined();
+    expect(result.llm.default).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+      maxTokens: 64000,
+      effort: "max",
+      speed: "standard",
+      temperature: null,
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        enabled: true,
+        maxInputTokens: 200000,
+        targetBudgetRatio: 0.3,
+        compactThreshold: 0.8,
+        summaryBudgetRatio: 0.05,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0.05,
+          maxAttempts: 3,
+          interactiveLatestTurnCompression: "summarize",
+          nonInteractiveLatestTurnCompression: "truncate",
+        },
+      },
+    });
+    expect(result.llm.profiles).toEqual({});
+    expect(result.llm.callSites).toEqual({});
+    expect(result.llm.pricingOverrides).toEqual([]);
+  });
+
+  test("accepts an explicit llm block with profiles and call sites", () => {
+    const input = {
+      llm: {
+        default: {
+          provider: "anthropic" as const,
+          model: "claude-opus-4-7",
+          maxTokens: 32000,
+          effort: "high" as const,
+          speed: "fast" as const,
+          temperature: null,
+          thinking: { enabled: true, streamThinking: false },
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 200000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize" as const,
+              nonInteractiveLatestTurnCompression: "truncate" as const,
+            },
+          },
+        },
+        profiles: {
+          fast: { speed: "fast" as const, effort: "low" as const },
+        },
+        callSites: {
+          mainAgent: { profile: "fast" },
+          commitMessage: { maxTokens: 256 },
+        },
+        pricingOverrides: [],
+      },
+    };
+    const result = AssistantConfigSchema.parse(input);
+    expect(result.llm.default.model).toBe("claude-opus-4-7");
+    expect(result.llm.default.speed).toBe("fast");
+    expect(result.llm.profiles?.fast).toEqual({
+      speed: "fast",
+      effort: "low",
+    });
+    expect(result.llm.callSites?.mainAgent).toEqual({ profile: "fast" });
+    expect(result.llm.callSites?.commitMessage).toEqual({ maxTokens: 256 });
+  });
+
+  test("rejects an llm.callSites entry that references an undefined profile", () => {
+    const input = {
+      llm: {
+        default: {
+          provider: "anthropic" as const,
+          model: "claude-opus-4-6",
+          maxTokens: 64000,
+          effort: "max" as const,
+          speed: "standard" as const,
+          temperature: null,
+          thinking: { enabled: true, streamThinking: true },
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 200000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize" as const,
+              nonInteractiveLatestTurnCompression: "truncate" as const,
+            },
+          },
+        },
+        callSites: {
+          mainAgent: { profile: "missing-profile" },
+        },
+      },
+    };
+    expect(() => AssistantConfigSchema.parse(input)).toThrow(
+      /missing-profile/,
+    );
+  });
+
+  test("legacy top-level inference keys still parse alongside the new llm block", () => {
+    // Backward compatibility: configs that set the legacy top-level keys
+    // (maxTokens, effort, speed, thinking, contextWindow, services.inference)
+    // continue to parse correctly. PR 19 removes these once adoption is done.
+    const input = {
+      services: {
+        inference: { provider: "openai" as const, model: "gpt-4" },
+      },
+      maxTokens: 8000,
+      effort: "medium" as const,
+      speed: "fast" as const,
+      thinking: { enabled: false, streamThinking: false },
+    };
+    const result = AssistantConfigSchema.parse(input);
+    expect(result.services.inference.provider).toBe("openai");
+    expect(result.maxTokens).toBe(8000);
+    expect(result.effort).toBe("medium");
+    expect(result.speed).toBe("fast");
+    expect(result.thinking.enabled).toBe(false);
+    // The new llm block falls back to its own defaults (independent of the
+    // legacy top-level keys until the migration in PR 4 backfills it).
+    expect(result.llm.default.provider).toBe("anthropic");
+    expect(result.llm.default.model).toBe("claude-opus-4-6");
+  });
+
   test("applies rollout defaults for dynamic budget", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.retrieval.dynamicBudget).toEqual({
