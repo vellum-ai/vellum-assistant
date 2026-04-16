@@ -1,10 +1,13 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Maximum width for any home recap card. Cards naturally hug their
-/// content; apply `.recapCardMaxWidth()` if a card or its container
-/// should cap expansion at this value.
-let recapCardMaxWidth: CGFloat = 528
+/// Namespace for shared home recap card constants.
+enum RecapCard {
+    /// Maximum width for any home recap card. Cards naturally hug their
+    /// content; apply `.recapCardMaxWidth()` if a card or its container
+    /// should cap expansion at this value.
+    static let maxWidth: CGFloat = 528
+}
 
 /// Synthetic glassmorphism for home recap cards.
 /// Adaptive across light/dark, context-independent (does not rely on
@@ -80,11 +83,11 @@ extension View {
         )
     }
 
-    /// Cap the view's width at `recapCardMaxWidth` (528pt). The view fills
+    /// Cap the view's width at `RecapCard.maxWidth` (528pt). The view fills
     /// available width up to the cap and stops growing. Apply this to
     /// recap cards (or their containers) that should expand to fill but
     /// not exceed the standard home page card width.
     func recapCardMaxWidth() -> some View {
-        frame(maxWidth: recapCardMaxWidth, alignment: .leading)
+        frame(maxWidth: RecapCard.maxWidth, alignment: .leading)
     }
 }
