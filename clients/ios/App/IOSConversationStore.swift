@@ -601,38 +601,77 @@ class IOSConversationStore: ObservableObject {
     private func sendPageOneConversationList(daemon: GatewayConnectionManager) {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
-            guard let self else { return }
-            // Fetch foreground and background conversations in parallel so
-            // background conversations don't consume pagination slots.
-            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
-            async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
-            let foreground = await foregroundResult
-            let background = await backgroundResult
-
-            if let foreground {
-                guard currentGeneration == self.conversationListGeneration else { return }
-                // Deduplicate by conversation ID so that daemons that don't
-                // yet support the conversationType query param (which return
-                // the same conversations for both requests) don't produce
-                // duplicate sidebar entries.
-                var seenIds = Set(foreground.conversations.map(\.id))
-                let uniqueBackground = (background?.conversations ?? []).filter {
-                    seenIds.insert($0.id).inserted
-                }
-                let merged = ConversationListResponse(
-                    type: foreground.type,
-                    conversations: foreground.conversations + uniqueBackground,
-                    hasMore: foreground.hasMore
-                )
-                self.expectedConversationListGeneration = currentGeneration
-                self.lastFetchError = nil
-                self.handleConversationListResponse(merged)
-            } else {
-                guard currentGeneration == self.conversationListGeneration else { return }
-                self.lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
-                self.isLoadingInitialConversations = false
-            }
+            await self?.performPageOneConversationListFetch(generation: currentGeneration)
         }
+    }
+
+    /// Shared page-1 fetch implementation. Awaits both the foreground and background
+    /// list requests in parallel, dedupes by conversation ID, and forwards the merged
+    /// response through `handleConversationListResponse`.
+    ///
+    /// Callers are responsible for bumping `conversationListGeneration` before calling
+    /// and passing the captured value as `generation` so stale responses from an earlier
+    /// connection are discarded via the generation guard.
+    private func performPageOneConversationListFetch(generation: UInt64) async {
+        // Fetch foreground and background conversations in parallel so
+        // background conversations don't consume pagination slots.
+        async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
+        async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
+        let foreground = await foregroundResult
+        let background = await backgroundResult
+
+        if let foreground {
+            guard generation == self.conversationListGeneration else { return }
+            // Deduplicate by conversation ID so that daemons that don't
+            // yet support the conversationType query param (which return
+            // the same conversations for both requests) don't produce
+            // duplicate sidebar entries.
+            var seenIds = Set(foreground.conversations.map(\.id))
+            let uniqueBackground = (background?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
+            }
+            let merged = ConversationListResponse(
+                type: foreground.type,
+                conversations: foreground.conversations + uniqueBackground,
+                hasMore: foreground.hasMore
+            )
+            self.expectedConversationListGeneration = generation
+            self.lastFetchError = nil
+            self.handleConversationListResponse(merged)
+        } else {
+            guard generation == self.conversationListGeneration else { return }
+            self.lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
+            self.isLoadingInitialConversations = false
+            // Clear the load-more flag too; a manual refresh that races with an in-flight
+            // `loadMoreConversations` would otherwise leave the store stuck with the footer
+            // spinner visible and further pagination blocked by the early-return guard in
+            // `loadMoreConversations`.
+            self.isLoadingMoreConversations = false
+        }
+    }
+
+    /// Refresh the conversation list by refetching page 1 from the daemon.
+    ///
+    /// Awaitable so SwiftUI's `.refreshable` modifier (pull-to-refresh) can accurately
+    /// reflect the in-progress state in its system spinner. No-op in Standalone mode or
+    /// when the daemon is not currently connected — both cases have nothing to refresh.
+    func refreshConversations() async {
+        guard isConnectedMode,
+              let daemon = connectionManager as? GatewayConnectionManager,
+              daemon.isConnected else { return }
+
+        // Reset pagination so the full first page is refetched and bump the
+        // generation so any in-flight responses from earlier sends are ignored.
+        // Clear the load-more flag as well; any in-flight `loadMoreConversations`
+        // response will be discarded by the generation guard, so leaving the flag
+        // set would permanently block further pagination.
+        conversationListOffset = 0
+        hasMoreConversations = false
+        isLoadingMoreConversations = false
+        conversationListGeneration += 1
+        let currentGeneration = conversationListGeneration
+
+        await performPageOneConversationListFetch(generation: currentGeneration)
     }
 
     /// Re-point the store at a freshly constructed GatewayConnectionManager after `rebuildClient()`.
