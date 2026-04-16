@@ -36,7 +36,7 @@ const externalTools: Tool[] = [];
 
 /**
  * Register tools provided by an external skill. Called during skill
- * initialization (e.g. from `skills/meet-join/register.ts`).
+ * initialization.
  */
 export function registerExternalTools(tools: Tool[]): void {
   externalTools.push(...tools);

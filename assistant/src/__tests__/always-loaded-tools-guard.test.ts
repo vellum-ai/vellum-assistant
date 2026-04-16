@@ -28,7 +28,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 16 (no-client baseline excludes host tools)", async () => {
+  test("should be exactly 11 (no-client baseline excludes host tools)", async () => {
     await initializeTools();
     const allDefs = buildToolDefinitions();
 
@@ -56,11 +56,6 @@ describe("always-loaded tool count", () => {
       "file_edit",
       "file_read",
       "file_write",
-      "meet_cancel_speak",
-      "meet_join",
-      "meet_leave",
-      "meet_send_chat",
-      "meet_speak",
       "recall",
       "remember",
       "skill_execute",
@@ -70,6 +65,6 @@ describe("always-loaded tool count", () => {
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
-    expect(activeTools.length).toBe(16);
+    expect(activeTools.length).toBe(11);
   });
 });
