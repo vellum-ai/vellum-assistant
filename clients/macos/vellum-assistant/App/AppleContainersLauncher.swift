@@ -144,6 +144,10 @@ final class AppleContainersLauncher: AssistantManagementClient {
         // as cli.sock, cli2.sock, etc. to keep the path short.
         let mgmtSocketPath = Self.nextAvailableSocketPath()
         let server = ExecManagementServer(socketPath: mgmtSocketPath, podRuntime: runtime)
+        server.onRetire = { [weak self] in
+            guard let self else { throw LauncherError.hatchFailed("Launcher deallocated") }
+            _ = try await self.retire()
+        }
         do {
             try server.start()
             self.mgmtServer = server
