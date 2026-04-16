@@ -6,7 +6,7 @@
  * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
