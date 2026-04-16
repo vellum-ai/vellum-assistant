@@ -338,6 +338,7 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testViewModelOnConversationCreatedBackfillsLocalConversationId() async {
         let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
         let store = IOSConversationStore(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
 
         guard let placeholderConversation = store.conversations.first else {
