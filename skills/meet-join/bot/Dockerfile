@@ -25,7 +25,7 @@
 #     targets different images. See:
 #     https://docs.docker.com/build/concepts/context/#dockerignore-files
 
-FROM oven/bun:1-debian
+FROM oven/bun:1.3.9-debian@sha256:d48b40bf0106dc1e94462c7086fbf4e8aab97f0870db2c87a05ecf8765f964df
 
 # System dependencies. Keep this list grouped and sorted so future PRs can
 # add/remove packages cleanly.

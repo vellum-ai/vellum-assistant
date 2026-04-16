@@ -19,16 +19,23 @@ error() { echo "error: $*" >&2; exit 1; }
 # ---------------------------------------------------------------------------
 # Pre-flight: ensure bun is available (install automatically if missing)
 # ---------------------------------------------------------------------------
+# Keep this version in sync with .tool-versions (bun).
+EXPECTED_BUN_VERSION="1.3.9"
+
 if ! command -v bun &>/dev/null; then
-  info "Bun not found — installing from https://bun.sh"
-  curl -fsSL https://bun.sh/install | bash
+  info "Bun not found — installing bun-v${EXPECTED_BUN_VERSION} from https://bun.sh"
+  curl -fsSL https://bun.sh/install | bash -s "bun-v${EXPECTED_BUN_VERSION}"
   # Add bun to PATH for the rest of this script
   export BUN_INSTALL="${HOME}/.bun"
   export PATH="${BUN_INSTALL}/bin:${PATH}"
   if ! command -v bun &>/dev/null; then
     error "Bun installation failed. Install it manually from https://bun.sh and try again."
   fi
-  info "Bun $(bun --version) installed successfully"
+  installed_bun_version="$(bun --version)"
+  info "Bun ${installed_bun_version} installed successfully"
+  if [ "${installed_bun_version}" != "${EXPECTED_BUN_VERSION}" ]; then
+    echo "warning: installed bun ${installed_bun_version} does not match expected ${EXPECTED_BUN_VERSION} (keep setup.sh and .tool-versions in sync when upgrading)" >&2
+  fi
 fi
 
 # ---------------------------------------------------------------------------

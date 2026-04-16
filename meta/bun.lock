@@ -11,14 +11,14 @@
         "@vellumai/vellum-gateway": "0.6.3",
       },
       "devDependencies": {
-        "@types/bun": "^1.2.4",
+        "@types/bun": "1.3.12",
       },
     },
   },
   "overrides": {
     "drizzle-orm": "0.45.2",
-    "lodash": "^4.18.0",
-    "path-to-regexp": "^8.4.0",
+    "lodash": "4.18.1",
+    "path-to-regexp": "8.4.2",
   },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@0.16.1", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-1ad+Sc/0sCtZGHthxxvgEUo5Wsbw16I+aF+YwdiLnPwkZG8KAGUEAPK6LM6Pf69lCyJPt1Aomk1d+8oE3C4ZEw=="],
@@ -819,17 +819,17 @@
 
     "@prisma/instrumentation/@opentelemetry/instrumentation": ["@opentelemetry/instrumentation@0.207.0", "", { "dependencies": { "@opentelemetry/api-logs": "0.207.0", "import-in-the-middle": "^2.0.0", "require-in-the-middle": "^8.0.0" }, "peerDependencies": { "@opentelemetry/api": "^1.3.0" } }, "sha512-y6eeli9+TLKnznrR8AZlQMSJT7wILpXH+6EYq5Vf/4Ao+huI7EedxQHwRgVUOMLFbe7VFDvHJrX9/f4lcwnJsA=="],
 
-    "@vellumai/assistant/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", { "bundled": true }],
+    "@vellumai/assistant/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", {}],
 
-    "@vellumai/assistant/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "bundled": true }],
+    "@vellumai/assistant/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", {}],
 
-    "@vellumai/assistant/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "bundled": true }],
+    "@vellumai/assistant/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", {}],
 
-    "@vellumai/credential-executor/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", { "bundled": true }],
+    "@vellumai/credential-executor/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", {}],
 
-    "@vellumai/credential-executor/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "bundled": true }],
+    "@vellumai/credential-executor/@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", {}],
 
-    "@vellumai/credential-executor/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "bundled": true }],
+    "@vellumai/credential-executor/@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", {}],
 
     "@vellumai/vellum-gateway/uuid": ["uuid@13.0.0", "", { "bin": { "uuid": "dist-node/bin/uuid" } }, "sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w=="],
 
