@@ -72,6 +72,12 @@ start_dockerd_if_containerized() {
     return 0
   fi
 
+  # Kill the stale dockerd from the last failed attempt before continuing.
+  if [ -n "${DOCKERD_PID:-}" ] && kill -0 "${DOCKERD_PID}" 2>/dev/null; then
+    kill "${DOCKERD_PID}" 2>/dev/null || true
+    wait "${DOCKERD_PID}" 2>/dev/null || true
+  fi
+
   # Keep the assistant booting even when the inner Docker Engine is
   # unavailable. Features that require nested containers (for example,
   # Meet bot spawning) already fail lazily with a clear runtime error when
