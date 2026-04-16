@@ -24,7 +24,9 @@ export interface OpenAIChatCompletionsProviderOptions {
   extraCreateParams?: Record<string, unknown>;
 }
 
-/** Map our internal effort values to OpenAI's reasoning_effort parameter. */
+/** Map our internal effort values to OpenAI's reasoning_effort parameter.
+ *  OpenAI's reasoning_effort caps at "high", so "xhigh" and "max" both
+ *  collapse to "high" on this transport. */
 const EFFORT_TO_REASONING_EFFORT: Record<
   string,
   NonNullable<
@@ -34,6 +36,7 @@ const EFFORT_TO_REASONING_EFFORT: Record<
   low: "low",
   medium: "medium",
   high: "high",
+  xhigh: "high",
   max: "high",
 };
 
