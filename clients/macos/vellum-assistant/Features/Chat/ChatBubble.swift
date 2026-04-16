@@ -654,7 +654,30 @@ struct ChatBubble: View, Equatable {
         let audioHeight = CGFloat(parts.audios.count) * 80
         let fileHeight = CGFloat(parts.files.count) * 40
 
-        let totalHeight = textHeight + imageHeight + videoHeight + audioHeight + fileHeight
+        // `bubbleChrome` adds top+bottom padding around the entire subtree
+        // (see `bubbleChrome` for user messages: `EdgeInsets(top: VSpacing.md, bottom: VSpacing.md, ...)`),
+        // and the inner VStack separates sibling content sections by `VSpacing.sm`.
+        // These contribute to the rendered bubble height that `.frame(height: 150)`
+        // clamps, so the estimate must include them — otherwise messages with
+        // intrinsic content between (150 - padding) and 150pt render taller than
+        // the clamp but are classified as non-collapsible.
+        let bubbleVerticalPadding: CGFloat = 2 * VSpacing.md
+        let contentSections = [
+            textHeight > 0,
+            imageHeight > 0,
+            videoHeight > 0,
+            audioHeight > 0,
+            fileHeight > 0
+        ].filter { $0 }.count
+        let interSectionSpacing = CGFloat(max(0, contentSections - 1)) * VSpacing.sm
+
+        let totalHeight = textHeight
+            + imageHeight
+            + videoHeight
+            + audioHeight
+            + fileHeight
+            + bubbleVerticalPadding
+            + interSectionSpacing
         return totalHeight > userMessageMaxCollapsedHeight
     }
 
