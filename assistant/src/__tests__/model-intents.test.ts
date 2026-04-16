@@ -59,7 +59,7 @@ describe("model intents", () => {
       "claude-haiku-4-5-20251001",
     );
     expect(resolveModelIntent("anthropic", "quality-optimized")).toBe(
-      "claude-opus-4-6",
+      "claude-opus-4-7",
     );
     expect(resolveModelIntent("anthropic", "vision-optimized")).toBe(
       "claude-opus-4-6",
@@ -94,7 +94,7 @@ describe("RetryProvider model intent normalization", () => {
     });
 
     const config = seen?.config as Record<string, unknown>;
-    expect(config.model).toBe("claude-opus-4-6");
+    expect(config.model).toBe("claude-opus-4-7");
     expect(config.modelIntent).toBeUndefined();
     expect(config.max_tokens).toBe(123);
   });
