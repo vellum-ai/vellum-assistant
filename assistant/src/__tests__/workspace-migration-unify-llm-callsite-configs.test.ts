@@ -100,7 +100,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
           temperature: null,
         },
       },
-      services: { inference: { provider: "anthropic", model: "claude-opus-4-6" } },
+      services: {
+        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
       maxTokens: 64000,
     };
     writeConfig(original);
@@ -265,7 +267,10 @@ describe("038-unify-llm-callsite-configs migration", () => {
     // ui.greetingModelIntent ("quality-optimized") for openai → gpt-5.4
     expect(llm.callSites.emptyStateGreeting).toEqual({ model: "gpt-5.4" });
     // notifications.decisionModelIntent ("vision-optimized") for openai → gpt-5.4
+    // The same intent drives BOTH notificationDecision and
+    // preferenceExtraction (both legacy readers consult the same key).
     expect(llm.callSites.notificationDecision).toEqual({ model: "gpt-5.4" });
+    expect(llm.callSites.preferenceExtraction).toEqual({ model: "gpt-5.4" });
     // calls.model copied verbatim
     expect(llm.callSites.callAgent).toEqual({ model: "gpt-5.4-nano" });
 
@@ -383,7 +388,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
 
   test("analysis.modelIntent (no override) resolves intent against active provider", () => {
     writeConfig({
-      services: { inference: { provider: "anthropic", model: "claude-opus-4-6" } },
+      services: {
+        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
       analysis: { modelIntent: "latency-optimized" },
     });
 
@@ -424,6 +431,165 @@ describe("038-unify-llm-callsite-configs migration", () => {
       callSites?: Record<string, Record<string, unknown>>;
     };
     expect(llm.callSites?.callAgent).toEqual({ model: "gpt-5.4-nano" });
+  });
+
+  // ─── Regression: notifications.decisionModelIntent → both call sites ──
+
+  test("notifications.decisionModelIntent seeds BOTH notificationDecision and preferenceExtraction", () => {
+    // The legacy `notifications.decisionModelIntent` is the single source of
+    // truth for two readers: `notifications/decision-engine.ts` (notification
+    // classification) and `notifications/preference-extractor.ts` (preference
+    // extraction). The migration must seed both call sites from the same
+    // intent so neither path silently regresses to the schema default.
+    writeConfig({
+      services: {
+        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
+      notifications: { decisionModelIntent: "latency-optimized" },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as {
+      callSites?: Record<string, Record<string, unknown>>;
+    };
+    // anthropic + latency-optimized → claude-haiku-4-5-20251001
+    expect(llm.callSites?.notificationDecision).toEqual({
+      model: "claude-haiku-4-5-20251001",
+    });
+    expect(llm.callSites?.preferenceExtraction).toEqual({
+      model: "claude-haiku-4-5-20251001",
+    });
+  });
+
+  // ─── Regression: pre-existing llm subtree is preserved ────────────────
+
+  test("pre-existing llm.callSites and llm.profiles survive migration", () => {
+    // A workspace can legitimately have `llm.callSites` and/or
+    // `llm.profiles` set without `llm.default` (defaults are schema-injected
+    // at parse time). The migration's idempotency check looks at
+    // `llm.default`, so it will run against this workspace — and must
+    // preserve the user-defined entries instead of clobbering the entire
+    // `llm` block. Migration-derived call sites should still appear, but
+    // pre-existing call-site keys not produced by the migration must be
+    // retained, and `llm.profiles` must pass through verbatim.
+    writeConfig({
+      llm: {
+        callSites: {
+          memoryRetrieval: { provider: "openai", model: "gpt-4o-mini" },
+        },
+        profiles: { fast: { speed: "fast" } },
+      },
+      services: {
+        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
+      analysis: { modelOverride: "anthropic/claude-opus-4-7" },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as {
+      default: Record<string, unknown>;
+      callSites: Record<string, Record<string, unknown>>;
+      profiles: Record<string, unknown>;
+    };
+
+    // Default block was synthesized from legacy keys.
+    expect(llm.default.provider).toBe("anthropic");
+    expect(llm.default.model).toBe("claude-opus-4-6");
+
+    // Pre-existing call-site survives.
+    expect(llm.callSites.memoryRetrieval).toEqual({
+      provider: "openai",
+      model: "gpt-4o-mini",
+    });
+    // Migration-derived call-site is added.
+    expect(llm.callSites.analyzeConversation).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+    });
+
+    // Pre-existing profiles survive verbatim.
+    expect(llm.profiles).toEqual({ fast: { speed: "fast" } });
+  });
+
+  test("pre-existing llm.callSites entry with same key is overwritten by migration", () => {
+    // When a pre-existing call-site key collides with a migration-derived
+    // one, the migration value wins (legacy scattered config is the source
+    // of truth being unified). This documents the merge precedence.
+    writeConfig({
+      llm: {
+        callSites: {
+          // Stale value the user wrote directly; will be overwritten because
+          // the migration also produces `analyzeConversation` from
+          // `analysis.modelOverride`.
+          analyzeConversation: { model: "stale-model" },
+        },
+      },
+      analysis: { modelOverride: "anthropic/claude-opus-4-6" },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as {
+      callSites: Record<string, Record<string, unknown>>;
+    };
+    expect(llm.callSites.analyzeConversation).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+    });
+  });
+
+  test("pre-existing llm.pricingOverrides is preserved when legacy top-level is absent", () => {
+    // If the user has only `llm.pricingOverrides` (no top-level
+    // `pricingOverrides`), the migration must not drop them.
+    const overrides = [
+      {
+        provider: "anthropic",
+        modelPattern: "claude-*",
+        inputPer1M: 5,
+        outputPer1M: 25,
+      },
+    ];
+    writeConfig({
+      llm: { pricingOverrides: overrides },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as { pricingOverrides?: unknown };
+    expect(llm.pricingOverrides).toEqual(overrides);
+  });
+
+  test("legacy top-level pricingOverrides wins over pre-existing llm.pricingOverrides", () => {
+    // When both sources exist, the legacy top-level wins (it's the
+    // canonical source the migration is unifying from). This documents the
+    // precedence rule.
+    const legacy = [
+      {
+        provider: "openai",
+        modelPattern: "gpt-5.4",
+        inputPer1M: 1,
+        outputPer1M: 2,
+      },
+    ];
+    const preExisting = [
+      {
+        provider: "anthropic",
+        modelPattern: "claude-*",
+        inputPer1M: 99,
+        outputPer1M: 99,
+      },
+    ];
+    writeConfig({
+      llm: { pricingOverrides: preExisting },
+      pricingOverrides: legacy,
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as { pricingOverrides?: unknown };
+    expect(llm.pricingOverrides).toEqual(legacy);
   });
 
   // ─── Old keys preserved ────────────────────────────────────────────────
@@ -582,7 +748,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
   test("down() is a no-op when llm block is absent", () => {
     const original = {
       maxTokens: 32000,
-      services: { inference: { provider: "anthropic", model: "claude-opus-4-6" } },
+      services: {
+        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+      },
     };
     writeConfig(original);
 

@@ -18,7 +18,8 @@ import type { WorkspaceMigration } from "./types.js";
  *     `analysis.modelIntent`/`modelOverride`,
  *     `memory.summarization.modelIntent`,
  *     `workspaceGit.commitMessageLLM.{maxTokens,temperature}`,
- *     `ui.greetingModelIntent`, `notifications.decisionModelIntent`,
+ *     `ui.greetingModelIntent`, `notifications.decisionModelIntent` (which
+ *     drives both `notificationDecision` and `preferenceExtraction`),
  *     `calls.model`).
  *   - `llm.pricingOverrides` — copied from the top-level `pricingOverrides`.
  *
@@ -72,9 +73,13 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
 
     const defaultBlock: Record<string, unknown> = {
       provider:
-        readString(inference.provider) ?? readString(config.provider) ?? "anthropic",
+        readString(inference.provider) ??
+        readString(config.provider) ??
+        "anthropic",
       model:
-        readString(inference.model) ?? readString(config.model) ?? "claude-opus-4-6",
+        readString(inference.model) ??
+        readString(config.model) ??
+        "claude-opus-4-6",
       maxTokens: readPositiveInt(config.maxTokens) ?? 64000,
       effort: readEnum(config.effort, EFFORT_VALUES) ?? "max",
       speed: readEnum(config.speed, SPEED_VALUES) ?? "standard",
@@ -205,7 +210,13 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
         notificationIntent,
       );
       if (resolvedModel !== undefined) {
+        // `notifications.decisionModelIntent` drives BOTH the notification
+        // decision engine (`notifications/decision-engine.ts`) AND the
+        // preference extractor (`notifications/preference-extractor.ts`), so
+        // seed both call sites from the same source intent. Confirmed via
+        // grep — those are the only two readers of the legacy key.
         callSites.notificationDecision = { model: resolvedModel };
+        callSites.preferenceExtraction = { model: resolvedModel };
       }
     }
 
@@ -216,15 +227,52 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
     }
 
     // ── Build llm block ────────────────────────────────────────────────
+    //
+    // Preserve any pre-existing `llm` subtree. Reaching this point means
+    // `llm.default` was absent (idempotency check at the top), but a user
+    // may still have defined `llm.callSites`, `llm.profiles`, or
+    // `llm.pricingOverrides` directly. Wholesale-replacing `config.llm`
+    // would silently drop those user overrides, so deep-merge instead:
+    //   - `default`: always taken from this migration (we just synthesized
+    //     it from legacy keys).
+    //   - `callSites`: per-key merge, with migration-derived entries
+    //     overwriting pre-existing entries that share the same key.
+    //   - `profiles`: preserved verbatim from existing `llm.profiles`.
+    //   - `pricingOverrides`: prefer the migration-derived value (legacy
+    //     top-level `pricingOverrides`); fall back to existing
+    //     `llm.pricingOverrides` if the legacy key is absent.
     const llmBlock: Record<string, unknown> = {
       default: defaultBlock,
     };
-    if (Object.keys(callSites).length > 0) {
-      llmBlock.callSites = callSites;
+    const existingProfiles = existingLlm
+      ? readObject(existingLlm.profiles)
+      : null;
+    if (existingProfiles !== null) {
+      llmBlock.profiles = existingProfiles;
+    }
+    const existingCallSites = existingLlm
+      ? readObject(existingLlm.callSites)
+      : null;
+    const mergedCallSites: Record<string, Record<string, unknown>> = {};
+    if (existingCallSites !== null) {
+      for (const [key, value] of Object.entries(existingCallSites)) {
+        const obj = readObject(value);
+        if (obj !== null) {
+          mergedCallSites[key] = obj;
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(callSites)) {
+      mergedCallSites[key] = value;
+    }
+    if (Object.keys(mergedCallSites).length > 0) {
+      llmBlock.callSites = mergedCallSites;
     }
     const pricingOverrides = config.pricingOverrides;
     if (Array.isArray(pricingOverrides)) {
       llmBlock.pricingOverrides = pricingOverrides;
+    } else if (existingLlm && Array.isArray(existingLlm.pricingOverrides)) {
+      llmBlock.pricingOverrides = existingLlm.pricingOverrides;
     }
 
     config.llm = llmBlock;
@@ -341,11 +389,12 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
         }
       }
     }
-    // Note: `conversationSummarization`, `emptyStateGreeting`, and
-    // `notificationDecision` were derived from `modelIntent` keys — `down()`
-    // intentionally does not synthesize a reverse intent (we only have a
-    // resolved model, not the intent that produced it). Callers reading those
-    // legacy keys after a rollback will fall back to schema defaults.
+    // Note: `conversationSummarization`, `emptyStateGreeting`,
+    // `notificationDecision`, and `preferenceExtraction` were derived from
+    // `modelIntent` keys — `down()` intentionally does not synthesize a
+    // reverse intent (we only have a resolved model, not the intent that
+    // produced it). Callers reading those legacy keys after a rollback will
+    // fall back to schema defaults.
 
     // ── Reverse llm.pricingOverrides → top-level pricingOverrides ─────
     if (Array.isArray(llm.pricingOverrides)) {
@@ -377,7 +426,10 @@ const MODEL_INTENT_VALUES = new Set([
  * is frozen against the catalog as it existed when users upgraded across this
  * boundary, even if the runtime catalog evolves later.
  */
-const PROVIDER_MODEL_INTENTS_SNAPSHOT: Record<string, Record<string, string>> = {
+const PROVIDER_MODEL_INTENTS_SNAPSHOT: Record<
+  string,
+  Record<string, string>
+> = {
   anthropic: {
     "latency-optimized": "claude-haiku-4-5-20251001",
     "quality-optimized": "claude-opus-4-7",
@@ -429,9 +481,7 @@ function readString(value: unknown): string | undefined {
 }
 
 function readPositiveInt(value: unknown): number | undefined {
-  return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value > 0
+  return typeof value === "number" && Number.isInteger(value) && value > 0
     ? value
     : undefined;
 }
