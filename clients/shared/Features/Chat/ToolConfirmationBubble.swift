@@ -516,7 +516,8 @@ public struct ToolConfirmationBubble: View {
                 // "All actions" — blanket approval for a duration.
                 // Hint is scoped to this section since these options
                 // (along with "Allow once") set the preferred approval.
-                if hasAllow10m || hasAllowConversation {
+                // Guard ensures at least one button renders (not just the hint).
+                if (hasAllow10m && primary != "allow_10m") || (hasAllowConversation && primary != "allow_conversation") {
                     Section("All actions") {
                         if hasAllow10m && primary != "allow_10m" {
                             Button("Allow for 10 minutes") {
@@ -552,14 +553,6 @@ public struct ToolConfirmationBubble: View {
                 firePrimaryAllow()
             }
         }
-    }
-
-    private var alwaysAllowPatternLabel: String {
-        let tool = confirmation.toolName
-        if tool == "bash" || tool == "host_bash" { return "Command" }
-        if tool.contains("file") { return "File" }
-        if tool == "web_fetch" || tool == "web_search" { return "URL" }
-        return "Pattern"
     }
 
     @ViewBuilder
@@ -615,14 +608,22 @@ public struct ToolConfirmationBubble: View {
                 }
                 .help(option.label)
             } else {
-                // Single pattern with scope choice
-                ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
-                    Button(scopeOption.label) {
-                        markCommandExplanationSeen()
+                // Single pattern with scope choice — use a submenu
+                // consistent with the multi-pattern case.
+                Menu {
+                    Section("Scope") {
+                        ForEach(Array(scopes.enumerated()), id: \.element.scope) { _, scopeOption in
+                            Button(scopeOption.label) {
+                                markCommandExplanationSeen()
 
-                        onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                                onAlwaysAllow(confirmation.requestId, option.pattern, scopeOption.scope, alwaysAllowDecision)
+                            }
+                        }
                     }
+                } label: {
+                    Text(option.description)
                 }
+                .help(option.label)
             }
         }
     }
