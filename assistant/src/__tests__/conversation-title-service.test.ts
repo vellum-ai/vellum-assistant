@@ -85,7 +85,7 @@ describe("conversation-title-service", () => {
         provider,
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
-        modelIntent: "quality-optimized",
+        callSite: "conversationTitle",
         timeoutMs: 10_000,
       }),
     );
@@ -203,7 +203,7 @@ describe("conversation-title-service", () => {
         provider,
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
-        modelIntent: "quality-optimized",
+        callSite: "conversationTitle",
         timeoutMs: 10_000,
       }),
     );
