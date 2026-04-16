@@ -1,0 +1,1027 @@
+name: Dev Release
+
+on:
+  schedule:
+    # Every hour on the hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: true
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+    steps:
+      - name: Compute dev version
+        id: version
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          VERSION="dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Dev release version: ${VERSION}"
+
+  # ── CI Checks (gate image builds) ───────────────────────────────────────
+
+  ci-assistant:
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: assistant
+
+      - name: Install nested package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          done
+
+      - name: Sync feature flag registry
+        run: bun run meta/feature-flags/sync-bundled-copies.ts
+
+      - name: Lint
+        run: bun run lint
+        working-directory: assistant
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+        working-directory: assistant
+
+      - name: Test
+        run: bun run test
+        working-directory: assistant
+        env:
+          EXCLUDE_EXPERIMENTAL: 'true'
+          TEST_WORKERS: '4'
+
+  ci-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: gateway
+
+      - name: Sync feature flag registry
+        run: bun run meta/feature-flags/sync-bundled-copies.ts
+
+      - name: Lint
+        run: bun run lint
+        working-directory: gateway
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: gateway
+
+      - name: Test
+        run: bun run test
+        working-directory: gateway
+
+  ci-credential-executor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: credential-executor
+
+      - name: Install linked package dependencies
+        run: |
+          for pkg in $(jq -r '.bundledDependencies[]' credential-executor/package.json | sed 's|@vellumai/||'); do
+            cd packages/$pkg && bun install --frozen-lockfile && cd ../..;
+          done
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: credential-executor
+
+      - name: Test
+        run: bun run test
+        working-directory: credential-executor
+
+  # ── Docker Images ──────────────────────────────────────────────────────
+
+  push-assistant-image:
+    needs: [compute-version, ci-assistant]
+    runs-on: ubuntu-latest-8-cores
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: image
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync feature flag registry for Docker context
+        run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: assistant/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=assistant-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-dev-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Prepare platform suffix
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "suffix=${platform//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-digests-dev-${{ steps.platform.outputs.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  push-assistant-manifest:
+    needs: [compute-version, push-assistant-image]
+    if: ${{ always() && !cancelled() && needs.push-assistant-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: assistant-digests-dev-*
+          merge-multiple: true
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          SHORT_SHA="${{ needs.compute-version.outputs.short_sha }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GCP_TAGS="${GCP_IMAGE}:${GITHUB_SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:dev")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-manifest-digest-dev
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
+  push-gateway-image:
+    needs: [compute-version, ci-gateway]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: image
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync feature flag registry for Docker context
+        run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=gateway-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=gateway-dev-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Prepare platform suffix
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "suffix=${platform//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-digests-dev-${{ steps.platform.outputs.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  push-gateway-manifest:
+    needs: [compute-version, push-gateway-image]
+    if: ${{ always() && !cancelled() && needs.push-gateway-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: gateway-digests-dev-*
+          merge-multiple: true
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          GCP_TAGS="${GCP_IMAGE}:${GITHUB_SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:dev")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-manifest-digest-dev
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
+  push-credential-executor-image:
+    needs: [compute-version, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: image
+        run: |
+          echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: credential-executor/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=credential-executor-dev-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=credential-executor-dev-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Prepare platform suffix
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "suffix=${platform//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: credential-executor-digests-dev-${{ steps.platform.outputs.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  push-credential-executor-manifest:
+    needs: [compute-version, push-credential-executor-image]
+    if: ${{ always() && !cancelled() && needs.push-credential-executor-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Login to Docker Hub
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        run: bun scripts/docker-login-with-retry.ts
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: credential-executor-digests-dev-*
+          merge-multiple: true
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          GCP_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          GCP_TAGS="${GCP_IMAGE}:${GITHUB_SHA}"
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:${VERSION}")
+          GCP_TAGS=$(printf "%s\n%s" "$GCP_TAGS" "${GCP_IMAGE}:dev")
+          echo "gcp_tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$GCP_TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "gcp_image=${GCP_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          TAG_ARGS=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && TAG_ARGS="$TAG_ARGS -t $tag"
+          done <<< "${{ steps.tags.outputs.gcp_tags }}"
+          SOURCES=$(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools create $TAG_ARGS $SOURCES
+
+      - name: Export manifest digest
+        id: manifest-digest
+        run: |
+          IMAGE="${{ steps.tags.outputs.gcp_image }}"
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          mkdir -p /tmp/manifest-digest
+          echo "${DIGEST}" > /tmp/manifest-digest/digest
+
+      - name: Upload manifest digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: credential-executor-manifest-digest-dev
+          path: /tmp/manifest-digest/digest
+          retention-days: 1
+
+  # ── Register Release with Dev Platform ─────────────────────────────────
+
+  register-release:
+    needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Compute migration ceilings
+        id: migration-ceilings
+        run: |
+          DB_VERSION=$(node -e "
+            const fs = require('fs');
+            const content = fs.readFileSync('assistant/src/memory/migrations/registry.ts', 'utf-8');
+            const versions = [...content.matchAll(/version:\s*(\d+)/g)].map(m => parseInt(m[1]));
+            console.log(Math.max(...versions));
+          ")
+          echo "db_version=$DB_VERSION" >> "$GITHUB_OUTPUT"
+
+          WS_ID=$(node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const registry = fs.readFileSync('assistant/src/workspace/migrations/registry.ts', 'utf-8');
+            const importMap = {};
+            for (const m of registry.matchAll(/import\s+\{\s*(\w+)\s*\}\s+from\s+['\x22]\.\/([^'\x22]+)['\x22];/g)) {
+              importMap[m[1]] = m[2];
+            }
+            const arrayMatch = registry.match(/WORKSPACE_MIGRATIONS[^=]*=\s*\[([\s\S]*?)\]/);
+            const entries = arrayMatch[1].match(/\w+/g);
+            const lastVar = entries[entries.length - 1];
+            const relPath = importMap[lastVar];
+            const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
+            const src = fs.readFileSync(filePath, 'utf-8');
+            const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            console.log(idMatch[1]);
+          ")
+          echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
+          echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
+
+      - name: Download manifest digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-manifest-digest-dev'
+          path: /tmp/digests
+
+      - name: Extract manifest digests
+        id: digests
+        run: |
+          echo "assistant_digest=$(cat /tmp/digests/assistant-manifest-digest-dev/digest)" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=$(cat /tmp/digests/gateway-manifest-digest-dev/digest)" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_digest=$(cat /tmp/digests/credential-executor-manifest-digest-dev/digest)" >> "$GITHUB_OUTPUT"
+
+      - name: Register release with platform
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          SHA="${GITHUB_SHA}"
+          ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson is_stable true \
+            --argjson db_migration_version "${{ steps.migration-ceilings.outputs.db_version }}" \
+            --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
+            --arg assistant_repo "$ASSISTANT_REPO" \
+            --arg assistant_tag "${VERSION}" \
+            --arg assistant_sha "$SHA" \
+            --arg assistant_digest "${{ steps.digests.outputs.assistant_digest }}" \
+            --arg gateway_repo "$GATEWAY_REPO" \
+            --arg gateway_tag "${VERSION}" \
+            --arg gateway_sha "$SHA" \
+            --arg gateway_digest "${{ steps.digests.outputs.gateway_digest }}" \
+            --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
+            --arg credential_executor_tag "${VERSION}" \
+            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_digest "${{ steps.digests.outputs.credential_executor_digest }}" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              is_stable: $is_stable,
+              db_migration_version: $db_migration_version,
+              last_workspace_migration_id: $last_workspace_migration_id,
+              assistant_image: {
+                repository: $assistant_repo,
+                tag: $assistant_tag,
+                sha: $assistant_sha,
+                digest: $assistant_digest
+              },
+              gateway_image: {
+                repository: $gateway_repo,
+                tag: $gateway_tag,
+                sha: $gateway_sha,
+                digest: $gateway_digest
+              },
+              credential_executor_image: {
+                repository: $credential_executor_repo,
+                tag: $credential_executor_tag,
+                sha: $credential_executor_sha,
+                digest: $credential_executor_digest
+              }
+            }')
+
+          DELAYS=(5 15 30)
+          MAX_ATTEMPTS=3
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            CURL_EXIT=0
+            echo "Registering dev release ${VERSION} [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+              -X POST "${{ secrets.PLATFORM_API_URL }}/v1/internal/assistant-image-releases/" \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Service-Api-Key: ${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" \
+              -d "$PAYLOAD") || CURL_EXIT=$?
+
+            if [ "${CURL_EXIT:-0}" -ne 0 ]; then
+              echo "::warning::curl transport error (exit code $CURL_EXIT)"
+              HTTP_STATUS="000"
+            else
+              echo "HTTP Status: $HTTP_STATUS"
+              cat /tmp/response.json
+            fi
+
+            if [ "$HTTP_STATUS" -ge 200 ] 2>/dev/null && [ "$HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+              echo "Registration succeeded"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              DELAY=${DELAYS[$((attempt - 1))]}
+              echo "::warning::Attempt ${attempt} failed (HTTP $HTTP_STATUS). Retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            else
+              echo "::error::Release registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
+
+  # ── macOS DMG ──────────────────────────────────────────────────────────
+
+  build-macos:
+    needs: [compute-version, ci-assistant, ci-gateway, ci-credential-executor]
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: clients/macos
+    env:
+      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Inject CWS extension ID into allowlist
+        if: vars.CWS_EXTENSION_ID != ''
+        working-directory: .
+        run: |
+          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
+            '.allowedExtensionIds += [$id]' \
+            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
+            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
+
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm /tmp/certificate.p12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+            || { echo "::error::Developer ID Application identity not found"; exit 1; }
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Install nested package dependencies
+        working-directory: .
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          done
+
+      - name: Build binaries
+        run: |
+          DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
+          ./build.sh binaries
+
+      - name: Build macOS app
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          SKIP_BUN_REBUILD=1 \
+          BUNDLE_DISPLAY_NAME="Vellum" \
+          DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
+          COMMIT_SHA="${{ github.sha }}" \
+          VELLUM_ENVIRONMENT=dev \
+          SIGN_IDENTITY="Developer ID Application" \
+          RELEASE_ARCH_FLAGS="--arch arm64" \
+          ./build.sh release 2>&1 | while IFS= read -r line; do
+            echo "[$(date -u '+%H:%M:%S')] $line"
+          done
+
+      - name: Free disk space
+        run: |
+          rm -rf .build daemon-bin assistant-bin cli-bin gateway-bin ces-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules ../../credential-executor/node_modules
+          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          df -h .
+
+      - name: Cache Homebrew create-dmg
+        id: cache-create-dmg
+        uses: actions/cache@v5
+        with:
+          path: |
+            /usr/local/Cellar/create-dmg
+            /opt/homebrew/Cellar/create-dmg
+          key: create-dmg-v1-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit != 'true'
+        run: brew install create-dmg
+
+      - name: Link create-dmg
+        if: steps.cache-create-dmg.outputs.cache-hit == 'true'
+        run: brew link create-dmg 2>/dev/null || true
+
+      - name: Create DMG
+        run: |
+          DMG_STAGING="build/dmg-staging"
+          mkdir -p "$DMG_STAGING" build
+          cp -R "dist/Vellum.app" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          create-dmg \
+            --volname "Vellum" \
+            --background "dmg/dmg-background@2x.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --text-size 10 \
+            --icon "Vellum.app" 175 190 \
+            --icon "Applications" 530 190 \
+            --hide-extension "Vellum.app" \
+            --no-internet-enable \
+            "build/vellum-assistant.dmg" \
+            "$DMG_STAGING/" \
+          || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ] && [ -f "build/vellum-assistant.dmg" ]; then
+              echo "create-dmg exited with warning (code 2), but DMG was created"
+            else
+              exit $EXIT_CODE
+            fi
+          }
+          ls -lh "build/vellum-assistant.dmg"
+
+      - name: Sign DMG
+        run: |
+          codesign --sign "Developer ID Application" --timestamp "build/vellum-assistant.dmg"
+          codesign --verify --verbose "build/vellum-assistant.dmg"
+
+      - name: Notarize DMG
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          echo "Submitting DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "build/vellum-assistant.dmg" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            2>&1) || NOTARIZE_FAILED=true
+
+          echo "$NOTARIZE_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+            echo "::error::Notarization failed"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
+                || echo "::warning::Could not fetch notarization log"
+            fi
+            exit 1
+          fi
+
+      - name: Staple notarization ticket
+        run: |
+          MAX_ATTEMPTS=10
+          WAIT_SECS=30
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STAPLE_OUTPUT=$(xcrun stapler staple "build/vellum-assistant.dmg" 2>&1)
+            STAPLE_EXIT=$?
+            if [ $STAPLE_EXIT -eq 0 ]; then
+              echo "Stapling succeeded on attempt $i"
+              break
+            fi
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed"
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            sleep $WAIT_SECS
+            WAIT_SECS=$((WAIT_SECS + 15))
+          done
+          xcrun stapler validate "build/vellum-assistant.dmg"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-dmg
+          path: clients/macos/build/vellum-assistant.dmg
+          retention-days: 30
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+
