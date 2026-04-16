@@ -50,31 +50,51 @@ struct HomeAuthCard: View {
         .padding(VSpacing.sm)
         .if(isSimple) { view in
             view
-                .background(Capsule().fill(VColor.auxWhite.opacity(0.1)))
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
-                )
+                .background(Capsule().fill(glassFill))
+                .overlay(Capsule().strokeBorder(glassStroke, lineWidth: 1))
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
             view
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .fill(VColor.auxWhite.opacity(0.05))
-                )
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                        .fill(glassFill)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.contentEmphasized.opacity(0.12), lineWidth: 1)
+                        .strokeBorder(glassStroke, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
-        .shadow(color: VColor.auxBlack.opacity(0.05), radius: 12, x: 0, y: 4)
+        .shadow(color: VColor.auxBlack.opacity(0.08), radius: 16, x: 0, y: 6)
+    }
+
+    // MARK: - Glass Recipe
+
+    /// Synthetic glassmorphism — adaptive across light/dark, context-independent.
+    /// Uses contentEmphasized (near-black light, near-white dark) so the gradient
+    /// reads as glass refraction in both modes, regardless of backdrop.
+    private var glassFill: LinearGradient {
+        LinearGradient(
+            colors: [
+                VColor.contentEmphasized.opacity(0.06),
+                VColor.contentEmphasized.opacity(0.02),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var glassStroke: LinearGradient {
+        LinearGradient(
+            colors: [
+                VColor.contentEmphasized.opacity(0.18),
+                VColor.contentEmphasized.opacity(0.06),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
     }
 
     // MARK: - Header
