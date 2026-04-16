@@ -929,7 +929,7 @@ export async function runGraphExtraction(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryExtraction" as const,
         tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
       },
     },
