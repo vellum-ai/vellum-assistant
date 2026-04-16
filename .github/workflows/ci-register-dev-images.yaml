@@ -170,11 +170,11 @@ jobs:
                 run_num="${info##* }"
                 echo "${sha}"
                 echo "dev.${run_num}.${sha:0:7}"
-                return
+                return 0
               fi
             done
-            echo "::error::No recent CI run with successful push-dev-manifest found for ${wf_file}"
-            exit 1
+            echo "::error::No recent CI run with successful push-dev-manifest found for ${wf_file}" >&2
+            return 1
           }
 
           # Resolve SHA and digest for a non-triggered service using its
@@ -183,7 +183,7 @@ jobs:
           resolve_service() {
             local wf_file="$1" image="$2"
             local info sha tag
-            info=$(get_latest_dev_pusher_info "$wf_file")
+            info=$(get_latest_dev_pusher_info "$wf_file") || return 1
             sha=$(echo "$info" | sed -n '1p')
             tag=$(echo "$info" | sed -n '2p')
             local digest
@@ -195,18 +195,24 @@ jobs:
             *Assistant*)
               ASSISTANT_SHA="$TRIGGERED_SHA"
               ASSISTANT_DIGEST="$TRIGGERED_DIGEST"
-              read GATEWAY_SHA GATEWAY_DIGEST <<< "$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE")"
-              read CE_SHA CE_DIGEST <<< "$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE")"
+              RESOLVE_OUT=$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE") || exit 1
+              read GATEWAY_SHA GATEWAY_DIGEST <<< "$RESOLVE_OUT"
+              RESOLVE_OUT=$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE") || exit 1
+              read CE_SHA CE_DIGEST <<< "$RESOLVE_OUT"
               ;;
             *Gateway*)
-              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE")"
+              RESOLVE_OUT=$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE") || exit 1
+              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$RESOLVE_OUT"
               GATEWAY_SHA="$TRIGGERED_SHA"
               GATEWAY_DIGEST="$TRIGGERED_DIGEST"
-              read CE_SHA CE_DIGEST <<< "$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE")"
+              RESOLVE_OUT=$(resolve_service ci-main-credential-executor.yaml "$CE_IMAGE") || exit 1
+              read CE_SHA CE_DIGEST <<< "$RESOLVE_OUT"
               ;;
             *Credential*)
-              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE")"
-              read GATEWAY_SHA GATEWAY_DIGEST <<< "$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE")"
+              RESOLVE_OUT=$(resolve_service ci-main-assistant.yaml "$ASSISTANT_IMAGE") || exit 1
+              read ASSISTANT_SHA ASSISTANT_DIGEST <<< "$RESOLVE_OUT"
+              RESOLVE_OUT=$(resolve_service ci-main-gateway.yaml "$GATEWAY_IMAGE") || exit 1
+              read GATEWAY_SHA GATEWAY_DIGEST <<< "$RESOLVE_OUT"
               CE_SHA="$TRIGGERED_SHA"
               CE_DIGEST="$TRIGGERED_DIGEST"
               ;;
