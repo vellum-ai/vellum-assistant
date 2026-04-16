@@ -140,26 +140,6 @@ MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE -Xcc 
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
-# Read the dock display name persisted by the running app (assistant name),
-# falling back to "Vellum" if not set. Can be overridden via env var.
-_DOCK_LABEL_FILE="$HOME/.vellum/.dock-display-name"
-if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
-    _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
-    # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
-    # that would produce invalid Info.plist XML or break file paths.
-    if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
-        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
-        BUNDLE_DISPLAY_NAME="Vellum"
-    else
-        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
-    fi
-fi
-BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
-APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
-CONTENTS="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS/MacOS"
-RESOURCES_DIR="$CONTENTS/Resources"
-FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_VERSION="3.17.0"
 KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
 # When bumping KATA_KERNEL_VERSION, update both SHAs:
@@ -170,7 +150,6 @@ KATA_KERNEL_SHA256="67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af
 KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
 KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
 KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
-KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
@@ -616,6 +595,38 @@ case "$VELLUM_ENVIRONMENT" in
     *)          BUNDLE_ID="com.vellum.vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
 esac
 echo "BUNDLE_ID=$BUNDLE_ID"
+
+# ---------------------------------------------------------------------------
+# Resolve dock display name from the environment-scoped XDG config directory.
+# Mirrors VellumPaths.configDir (Swift) and getConfigDir() (TS):
+#   production  → $XDG_CONFIG_HOME/vellum/dock-display-name
+#   <env>       → $XDG_CONFIG_HOME/vellum-<env>/dock-display-name
+# ---------------------------------------------------------------------------
+_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+case "$VELLUM_ENVIRONMENT" in
+    production) _VELLUM_CONFIG_DIR="$_XDG_CONFIG_HOME/vellum" ;;
+    *)          _VELLUM_CONFIG_DIR="$_XDG_CONFIG_HOME/vellum-${VELLUM_ENVIRONMENT}" ;;
+esac
+_DOCK_LABEL_FILE="$_VELLUM_CONFIG_DIR/dock-display-name"
+if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
+    _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
+    # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
+    # that would produce invalid Info.plist XML or break file paths.
+    if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
+        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
+        BUNDLE_DISPLAY_NAME="Vellum"
+    else
+        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+    fi
+fi
+BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
+APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
+CONTENTS="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS/MacOS"
+RESOURCES_DIR="$CONTENTS/Resources"
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
+echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then

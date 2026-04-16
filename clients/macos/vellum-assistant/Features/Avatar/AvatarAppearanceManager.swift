@@ -482,9 +482,14 @@ final class AvatarAppearanceManager {
     /// Sentinel file that `build.sh` reads at build time to set
     /// `CFBundleDisplayName` so the Dock shows the assistant name from
     /// the very first launch after a rebuild.
+    ///
+    /// Lives under the environment-scoped XDG config directory so that
+    /// production and non-production builds don't collide (e.g.
+    /// `~/.config/vellum/dock-display-name` for production,
+    /// `~/.config/vellum-dev/dock-display-name` for dev).
     private static let dockDisplayNameURL: URL = {
-        URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum/.dock-display-name")
+        VellumPaths.current.configDir
+            .appendingPathComponent("dock-display-name")
     }()
 
     /// Persists the dock label so `build.sh` can embed it into
