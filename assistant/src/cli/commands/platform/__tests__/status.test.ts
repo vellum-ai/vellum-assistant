@@ -37,7 +37,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
     mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
   setSecureKeyViaDaemon: async () => false,
-  getProviderKeyViaDaemon: async () => undefined,
   getSecureKeyResultViaDaemon: async () => ({
     value: undefined,
     unreachable: false,
