@@ -1,11 +1,10 @@
-#if os(macOS)
 import ObjectiveC
 import SwiftUI
 
 // MARK: - Associated-object key for transparency cache
 
 /// Key used by `objc_setAssociatedObject` to attach a cached transparency
-/// result directly to an `NSImage` instance. This avoids repeated CGContext
+/// result directly to a `PlatformImage` instance. This avoids repeated CGContext
 /// allocations when the same image is passed to multiple `VAvatarImage` inits
 /// (e.g. during SwiftUI body re-evaluation).
 private var transparencyCacheKey: UInt8 = 0
@@ -20,7 +19,7 @@ private var transparencyCacheKey: UInt8 = 0
 /// LUM-915. Instead, `isTransparent` is a `@State` value seeded from the
 /// associated-object cache and refreshed via `.task(id:)` on a detached task.
 public struct VAvatarImage: View {
-    public let image: NSImage
+    public let image: PlatformImage
     public let size: CGFloat
 
     /// Optional border color. Defaults to `VColor.borderBase`.
@@ -48,7 +47,7 @@ public struct VAvatarImage: View {
     /// so full-resolution rendering is unnecessary.
     static let maxSamplingDimension = 64
 
-    public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
+    public init(image: PlatformImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
         self.size = size
         self.borderColor = borderColor
@@ -83,7 +82,7 @@ public struct VAvatarImage: View {
     }
 
     private var baseImage: some View {
-        Image(nsImage: image)
+        Image(platformImage: image)
             .interpolation(.none)
             .resizable()
     }
@@ -92,8 +91,8 @@ public struct VAvatarImage: View {
     ///
     /// - Hits the associated-object cache synchronously on the main actor
     ///   (O(1), no pixel work) and returns early on a hit.
-    /// - On a cache miss, extracts the `CGImage` on the main actor — NSImage
-    ///   is not thread-safe, per
+    /// - On a cache miss, extracts the `CGImage` on the main actor — platform
+    ///   image types are not thread-safe, per
     ///   [Apple docs](https://developer.apple.com/documentation/appkit/nsimage) —
     ///   then offloads the CGContext allocation, `CGContext.draw`, and alpha
     ///   sampling to a detached background task. `CGImage` is thread-safe and
@@ -119,7 +118,7 @@ public struct VAvatarImage: View {
             isTransparent = false
         }
 
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        guard let cgImage = Self.extractCGImage(from: image) else {
             return
         }
 
@@ -145,21 +144,21 @@ public struct VAvatarImage: View {
     /// **Do not call from view code.** The CGContext allocation + pixel draw
     /// is CPU-bound and has blocked the main thread in production (LUM-915).
     /// Production code must use the async `.task` path on `VAvatarImage`.
-    /// Results are cached on the `NSImage` instance via
+    /// Results are cached on the `PlatformImage` instance via
     /// `objc_setAssociatedObject` so tests that call this twice still observe
     /// caching behavior.
-    static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
-        if let cached = objc_getAssociatedObject(nsImage, &transparencyCacheKey) as? Bool {
+    static func imageHasTransparency(_ image: PlatformImage) -> Bool {
+        if let cached = objc_getAssociatedObject(image, &transparencyCacheKey) as? Bool {
             return cached
         }
 
-        guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        guard let cgImage = extractCGImage(from: image) else {
             return false
         }
 
         let result = computeTransparencyFromCGImage(cgImage)
         objc_setAssociatedObject(
-            nsImage,
+            image,
             &transparencyCacheKey,
             result,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
@@ -167,9 +166,9 @@ public struct VAvatarImage: View {
         return result
     }
 
-    /// Core pixel-sampling logic. Takes a `CGImage` rather than an `NSImage`
-    /// so it can run on any thread — `CGImage` is thread-safe, `NSImage` is
-    /// not.
+    /// Core pixel-sampling logic. Takes a `CGImage` rather than a platform
+    /// image so it can run on any thread — `CGImage` is thread-safe, platform
+    /// image types are not.
     ///
     /// - Returns `false` in O(1) when the pixel format has no alpha channel.
     /// - Otherwise draws into a downsampled 32-bit BGRA context and checks
@@ -238,5 +237,33 @@ public struct VAvatarImage: View {
 
         return false
     }
+
+    /// Extract a CGImage from a platform image type.
+    ///
+    /// On macOS, `NSImage.cgImage(forProposedRect:context:hints:)` rasterizes
+    /// vector images automatically. On iOS, `UIImage.cgImage` returns `nil` for
+    /// vector-backed images (SF Symbols, PDF assets, CIImage-backed images), so
+    /// we fall back to rendering into a bitmap context.
+    private static func extractCGImage(from image: PlatformImage) -> CGImage? {
+        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        #elseif canImport(UIKit)
+        if let cgImage = image.cgImage {
+            return cgImage
+        }
+        // Vector-backed UIImages (SF Symbols, PDF assets) have no backing
+        // CGImage. Render into a small bitmap — we only need 8 sample points
+        // so the sampling dimension cap is sufficient.
+        let dim = maxSamplingDimension
+        let size = CGSize(width: dim, height: dim)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let rasterized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return rasterized.cgImage
+        #endif
+    }
 }
-#endif
