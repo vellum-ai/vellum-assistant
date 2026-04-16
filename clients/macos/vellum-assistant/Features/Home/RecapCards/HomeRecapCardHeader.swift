@@ -1,0 +1,92 @@
+import SwiftUI
+import VellumAssistantShared
+
+/// Reusable header row for recap cards. Displays a circular icon
+/// container, title, optional subtitle (thread name), and an
+/// optional dismiss button.
+struct HomeRecapCardHeader: View {
+    let icon: VIcon
+    let iconColor: Color
+    let title: String
+    let subtitle: String?
+    let showDismiss: Bool
+    let onDismiss: (() -> Void)?
+
+    init(
+        icon: VIcon,
+        iconColor: Color = VColor.contentDisabled,
+        title: String,
+        subtitle: String? = nil,
+        showDismiss: Bool = false,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        self.icon = icon
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+        self.showDismiss = showDismiss
+        self.onDismiss = onDismiss
+    }
+
+    var body: some View {
+        HStack(spacing: VSpacing.sm) {
+            iconCircle
+            titleStack
+            Spacer(minLength: 0)
+            if showDismiss {
+                dismissButton
+            }
+        }
+    }
+
+    // MARK: - Icon circle
+
+    /// 38pt circular container with white background housing the icon.
+    private var iconCircle: some View {
+        ZStack {
+            Circle()
+                .fill(VColor.auxWhite)
+                .frame(width: 38, height: 38)
+
+            VIconView(icon, size: 18)
+                .foregroundStyle(iconColor)
+        }
+    }
+
+    // MARK: - Title stack
+
+    private var titleStack: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(title)
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentEmphasized)
+                .lineLimit(1)
+
+            if let subtitle {
+                Text(subtitle)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    // MARK: - Dismiss button
+
+    /// Bordered pill dismiss button with an X icon.
+    private var dismissButton: some View {
+        Button {
+            onDismiss?()
+        } label: {
+            VIconView(.x, size: 12)
+                .foregroundStyle(VColor.contentSecondary)
+                .padding(VSpacing.xs)
+                .background(
+                    Capsule()
+                        .strokeBorder(VColor.borderBase, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Dismiss")
+    }
+}
