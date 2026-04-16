@@ -12,6 +12,7 @@ import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import { retireLocal } from "../lib/retire-local";
+import { retireAppleContainer } from "../lib/retire-apple-container";
 import { exec } from "../lib/step-runner";
 import {
   openLogFile,
@@ -212,13 +213,8 @@ async function retireInner(): Promise<void> {
   const cloud = resolveCloud(entry);
 
   if (cloud === "apple-container") {
-    console.error(
-      `Error: '${name}' uses the Apple Containers runtime. Its lifecycle is managed by the macOS app — use the app to retire it.`,
-    );
-    process.exit(1);
-  }
-
-  if (cloud === "gcp") {
+    await retireAppleContainer(name, entry);
+  } else if (cloud === "gcp") {
     const project = entry.project;
     const zone = entry.zone;
     if (!project || !zone) {

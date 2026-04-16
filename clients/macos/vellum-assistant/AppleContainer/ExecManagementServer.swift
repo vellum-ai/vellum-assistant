@@ -9,15 +9,22 @@ private let log = Logger(
 )
 
 /// Listens on a Unix domain socket and brokers interactive exec sessions
-/// into a running Apple Container pod.
+/// and lifecycle commands for a running Apple Container pod.
 ///
 /// Protocol:
-/// 1. Client connects and sends a single JSON line:
+/// 1. Client connects and sends a single JSON line.
+///
+///    **Exec** (default when `action` is absent):
 ///    `{"command": ["/bin/bash"], "service": "vellum-assistant", "cols": 120, "rows": 40}\n`
-/// 2. Server replies with a JSON line:
-///    `{"status": "ok"}\n`  or  `{"status": "error", "message": "..."}\n`
-/// 3. On success the connection switches to raw mode — bytes flow
-///    bidirectionally between the client and the container PTY.
+///    → Server replies `{"status": "ok"}\n` then switches to raw PTY relay.
+///
+///    **Retire**:
+///    `{"action": "retire"}\n`
+///    → Server triggers the full retire flow (stop pod, archive, cleanup)
+///      and replies `{"status": "ok"}\n` or `{"status": "error", "message": "..."}\n`.
+///
+/// 2. On error, the server always replies with:
+///    `{"status": "error", "message": "..."}\n`
 @available(macOS 26.0, *)
 final class ExecManagementServer: @unchecked Sendable {
 
@@ -27,6 +34,11 @@ final class ExecManagementServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var _listener: NWListener?
+
+    /// Called when a client sends `{"action": "retire"}`. The closure should
+    /// perform the full retire flow (stop pod, archive, cleanup, remove
+    /// lockfile entry) and throw on failure.
+    var onRetire: (@Sendable () async throws -> Void)?
 
     init(socketPath: String, podRuntime: AppleContainersPodRuntime) {
         self.socketPath = socketPath
@@ -166,15 +178,25 @@ final class ExecManagementServer: @unchecked Sendable {
                 return
             }
 
-            // Parse JSON handshake.
-            guard let request = self.parseHandshake(data) else {
+            // Parse JSON handshake — determine the action.
+            guard let json = self.parseJSON(data) else {
                 self.sendError(connection, message: "Invalid handshake JSON")
                 return
             }
 
-            // Start the exec session on a Task.
-            Task {
-                await self.startExecSession(connection: connection, request: request)
+            let action = json["action"] as? String ?? "exec"
+
+            switch action {
+            case "retire":
+                Task { await self.handleRetire(connection: connection) }
+            case "exec":
+                guard let request = self.parseExecRequest(json) else {
+                    self.sendError(connection, message: "Invalid exec request")
+                    return
+                }
+                Task { await self.startExecSession(connection: connection, request: request) }
+            default:
+                self.sendError(connection, message: "Unknown action: \(action)")
             }
         }
     }
@@ -186,17 +208,15 @@ final class ExecManagementServer: @unchecked Sendable {
         var rows: UInt16
     }
 
-    private func parseHandshake(_ data: Data) -> ExecRequest? {
-        // Strip trailing newline if present.
+    private func parseJSON(_ data: Data) -> [String: Any]? {
         var trimmed = data
         if let last = trimmed.last, last == UInt8(ascii: "\n") {
             trimmed = trimmed.dropLast()
         }
+        return try? JSONSerialization.jsonObject(with: trimmed) as? [String: Any]
+    }
 
-        guard let json = try? JSONSerialization.jsonObject(with: trimmed) as? [String: Any] else {
-            return nil
-        }
-
+    private func parseExecRequest(_ json: [String: Any]) -> ExecRequest? {
         let command = (json["command"] as? [String]) ?? ["/bin/bash"]
         let serviceName = (json["service"] as? String) ?? VellumServiceName.assistant.rawValue
         let service = VellumServiceName(rawValue: serviceName) ?? .assistant
@@ -206,6 +226,26 @@ final class ExecManagementServer: @unchecked Sendable {
         let rows = UInt16(clamping: max(1, rawRows))
 
         return ExecRequest(command: command, service: service, cols: cols, rows: rows)
+    }
+
+    // MARK: - Retire
+
+    private func handleRetire(connection: NWConnection) async {
+        guard let onRetire else {
+            log.error("Management socket: retire requested but no onRetire handler registered")
+            sendError(connection, message: "Retire not supported — no handler registered")
+            return
+        }
+
+        log.info("Management socket: retire requested by CLI")
+        do {
+            try await onRetire()
+            sendOk(connection)
+            log.info("Management socket: retire completed successfully")
+        } catch {
+            log.error("Management socket: retire failed: \(error.localizedDescription, privacy: .public)")
+            sendError(connection, message: error.localizedDescription)
+        }
     }
 
     // MARK: - Exec Session
