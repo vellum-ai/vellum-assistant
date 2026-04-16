@@ -113,6 +113,168 @@ function normalizeOpenAiRequestPayload(
   requestPayload: unknown,
   allowPlainText = false,
 ): NormalizedPayloadCandidate | null {
+  // Try Responses API shape first, then fall back to chat-completions.
+  return (
+    normalizeOpenAiResponsesRequestPayload(requestPayload, allowPlainText) ??
+    normalizeOpenAiChatCompletionsRequestPayload(requestPayload, allowPlainText)
+  );
+}
+
+/**
+ * Detect and normalize OpenAI Responses API request payloads.
+ *
+ * Responses requests use `input` (array) instead of `messages`, may have a
+ * top-level `instructions` string, and tools have `type: "function"` at the
+ * top level with the function fields inlined (no nested `function` wrapper).
+ */
+function normalizeOpenAiResponsesRequestPayload(
+  requestPayload: unknown,
+  allowPlainText = false,
+): NormalizedPayloadCandidate | null {
+  const request = asRecord(requestPayload);
+  if (!request) {
+    return null;
+  }
+
+  const input = asRecordArray(request.input);
+  if (!input) {
+    return null;
+  }
+
+  // Require at least one Responses-specific signal to avoid matching generic
+  // arrays. `instructions` is the strongest signal; otherwise look for
+  // Responses-shaped input items or tool objects.
+  const hasResponsesSignal =
+    typeof request.instructions === "string" ||
+    hasOpenAiModelPrefix(asString(request.model)) ||
+    input.some(
+      (item) =>
+        asString(item.type) === "function_call" ||
+        asString(item.type) === "function_call_output",
+    ) ||
+    extractOpenAiResponsesRequestToolNames(request.tools).length > 0;
+
+  if (!allowPlainText && !hasResponsesSignal) {
+    return null;
+  }
+
+  const requestSections: LlmContextSection[] = [];
+
+  // System-level instructions
+  const instructions = asString(request.instructions);
+  if (instructions && hasMeaningfulText(instructions)) {
+    requestSections.push({
+      kind: "system",
+      label: "System prompt",
+      role: "system",
+      text: instructions,
+    });
+  }
+
+  // Input items
+  let messageIndex = 0;
+  for (const item of input) {
+    const itemType = asString(item.type);
+
+    if (itemType === "message") {
+      messageIndex++;
+      const role = asString(item.role) ?? "unknown";
+      const messageText = extractOpenAiContentText(item.content);
+      if (messageText !== undefined) {
+        requestSections.push({
+          kind: "message",
+          label: buildMessageLabel(role, messageIndex),
+          role,
+          text: messageText,
+        });
+      }
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      const name = asString(item.name);
+      const args = parseJsonValue(asString(item.arguments));
+      requestSections.push({
+        kind: "function_call",
+        label: `Request tool call${name ? ` (${name})` : ""}`,
+        role: "assistant",
+        toolName: name,
+        data: args,
+        text: previewStructuredValue(args),
+      });
+      continue;
+    }
+
+    if (itemType === "function_call_output") {
+      const output = asString(item.output);
+      requestSections.push({
+        kind: "tool_result",
+        label: `Tool result${asString(item.call_id) ? ` (${asString(item.call_id)})` : ""}`,
+        role: "tool",
+        toolName: asString(item.call_id),
+        text: output,
+      });
+    }
+  }
+
+  // Tool definitions (Responses shape: top-level type/name/parameters)
+  const requestToolNames = extractOpenAiResponsesRequestToolNames(
+    request.tools,
+  );
+  if (requestToolNames.length > 0) {
+    requestSections.push({
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: {
+        tools: asRecordArray(request.tools) ?? request.tools,
+      },
+      language: "json",
+    });
+  }
+
+  const requestSettings = omitRecordKeys(request, [
+    "instructions",
+    "input",
+    "tools",
+  ]);
+  if (hasMeaningfulRequestSettings(requestSettings)) {
+    requestSections.push(
+      structuredJsonSection("settings", "Request settings", requestSettings),
+    );
+  }
+
+  // Count all input items for the message count (includes messages, function
+  // calls, and function call outputs — mirrors how chat-completions counts
+  // all messages regardless of role).
+  return {
+    provider: "openai",
+    summary: {
+      provider: "openai",
+      model: asString(request.model),
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: undefined,
+      requestMessageCount: input.length,
+      requestToolCount: requestToolNames.length,
+      responseMessageCount: undefined,
+      responseToolCallCount: undefined,
+      responsePreview: undefined,
+      toolCallNames: undefined,
+    },
+    requestSections: requestSections.length > 0 ? requestSections : undefined,
+  };
+}
+
+/**
+ * Normalize a legacy OpenAI Chat Completions request payload.
+ * Requires `messages` array in the request.
+ */
+function normalizeOpenAiChatCompletionsRequestPayload(
+  requestPayload: unknown,
+  allowPlainText = false,
+): NormalizedPayloadCandidate | null {
   const request = asRecord(requestPayload);
   if (!request) {
     return null;
@@ -201,6 +363,130 @@ function normalizeOpenAiRequestPayload(
 }
 
 function normalizeOpenAiResponsePayload(
+  responsePayload: unknown,
+): NormalizedPayloadCandidate | null {
+  // Try Responses API shape first, then fall back to chat-completions.
+  return (
+    normalizeOpenAiResponsesResponsePayload(responsePayload) ??
+    normalizeOpenAiChatCompletionsResponsePayload(responsePayload)
+  );
+}
+
+/**
+ * Detect and normalize OpenAI Responses API response payloads.
+ *
+ * Responses responses have an `output` array of items instead of `choices`.
+ * Tool calls are top-level items with `type: "function_call"`.
+ * Usage uses `input_tokens`/`output_tokens` (not `prompt_tokens`/`completion_tokens`).
+ * `status` replaces `choices[0].finish_reason`.
+ */
+function normalizeOpenAiResponsesResponsePayload(
+  responsePayload: unknown,
+): NormalizedPayloadCandidate | null {
+  const response = asRecord(responsePayload);
+  if (!response) {
+    return null;
+  }
+
+  const output = asRecordArray(response.output);
+  if (!output) {
+    return null;
+  }
+
+  // Require at least one Responses-specific signal
+  const hasResponsesSignal =
+    typeof response.status === "string" ||
+    hasOpenAiModelPrefix(asString(response.model)) ||
+    output.some(
+      (item) =>
+        asString(item.type) === "message" ||
+        asString(item.type) === "function_call",
+    );
+  if (!hasResponsesSignal) {
+    return null;
+  }
+
+  const responseSections: LlmContextSection[] = [];
+  let responseText: string | undefined;
+  const toolCallSections: LlmContextSection[] = [];
+  let toolCallIndex = 0;
+
+  for (const item of output) {
+    const itemType = asString(item.type);
+
+    if (itemType === "message") {
+      const role = asString(item.role) ?? "assistant";
+      const content = asRecordArray(item.content);
+      const text = content ? extractOpenAiContentText(content) : undefined;
+      if (text !== undefined) {
+        responseText = text;
+        responseSections.push({
+          kind: "message",
+          label: "Assistant response",
+          role,
+          text,
+        });
+      }
+      continue;
+    }
+
+    if (itemType === "function_call") {
+      toolCallIndex++;
+      const name = asString(item.name);
+      const args = parseJsonValue(asString(item.arguments));
+      const section: LlmContextSection = {
+        kind: "function_call",
+        label: `Response tool call ${toolCallIndex}`,
+        role: "assistant",
+        toolName: name,
+        data: args,
+        text: previewStructuredValue(args),
+      };
+      toolCallSections.push(section);
+      responseSections.push(section);
+    }
+  }
+
+  const usage = asRecord(response.usage);
+  const toolCallNames = toolCallSections
+    .map((section) => section.toolName)
+    .filter((name): name is string => typeof name === "string");
+
+  // Map Responses API status to a stop reason string.
+  const status = asString(response.status);
+  const stopReason = status === "completed" ? "stop" : status;
+
+  return {
+    provider: "openai",
+    summary: {
+      provider: "openai",
+      model: asString(response.model),
+      inputTokens: asNumber(usage?.input_tokens),
+      outputTokens: asNumber(usage?.output_tokens),
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason,
+      requestMessageCount: undefined,
+      requestToolCount: undefined,
+      responseMessageCount:
+        responseText !== undefined || toolCallSections.length > 0
+          ? 1
+          : undefined,
+      responseToolCallCount:
+        toolCallSections.length > 0 ? toolCallSections.length : undefined,
+      responsePreview: responseText ? truncateText(responseText) : undefined,
+      toolCallNames: toolCallNames.length > 0 ? toolCallNames : undefined,
+    },
+    responseSections:
+      responseSections.length > 0 ? responseSections : undefined,
+  };
+}
+
+/**
+ * Normalize a legacy OpenAI Chat Completions response payload.
+ * Requires `choices` array in the response.
+ */
+function normalizeOpenAiChatCompletionsResponsePayload(
   responsePayload: unknown,
 ): NormalizedPayloadCandidate | null {
   const response = asRecord(responsePayload);
@@ -736,6 +1022,23 @@ function geminiFunctionCallSections(
 function extractOpenAiRequestToolNames(tools: unknown): string[] {
   return (asRecordArray(tools) ?? [])
     .map((tool) => asString(asRecord(tool.function)?.name))
+    .filter((name): name is string => typeof name === "string");
+}
+
+/**
+ * Extract tool names from Responses API tool definitions.
+ * Responses tools have `type: "function"` at the top level with `name`
+ * directly on the tool object (no nested `function` wrapper).
+ */
+function extractOpenAiResponsesRequestToolNames(tools: unknown): string[] {
+  return (asRecordArray(tools) ?? [])
+    .map((tool) => {
+      // Responses shape: { type: "function", name: "...", ... }
+      if (asString(tool.type) === "function" && asString(tool.name)) {
+        return asString(tool.name);
+      }
+      return undefined;
+    })
     .filter((name): name is string => typeof name === "string");
 }
 

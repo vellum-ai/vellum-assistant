@@ -1,5 +1,5 @@
 import { getOllamaBaseUrlEnv } from "../../config/env.js";
-import { OpenAIProvider } from "../openai/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 
 export interface OllamaProviderOptions {
   apiKey?: string;
@@ -9,7 +9,7 @@ export interface OllamaProviderOptions {
 
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
 
-export class OllamaProvider extends OpenAIProvider {
+export class OllamaProvider extends OpenAIChatCompletionsProvider {
   constructor(model: string, options: OllamaProviderOptions = {}) {
     super(options.apiKey ?? "ollama", model, {
       baseURL: resolveBaseUrl(options.baseURL),

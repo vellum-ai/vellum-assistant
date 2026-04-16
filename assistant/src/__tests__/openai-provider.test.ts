@@ -89,6 +89,7 @@ mock.module("openai", () => ({
 // Import after mocking
 import { FireworksProvider } from "../providers/fireworks/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
+import { OpenAIChatCompletionsProvider } from "../providers/openai/chat-completions-provider.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
 import { OpenRouterProvider } from "../providers/openrouter/client.js";
 
@@ -181,6 +182,32 @@ function reasoningUsageChunk(
     model: "gpt-5.2",
   };
 }
+
+// ---------------------------------------------------------------------------
+// Class extraction sanity checks
+// ---------------------------------------------------------------------------
+
+describe("OpenAIChatCompletionsProvider extraction", () => {
+  test("OpenAIProvider is an alias for OpenAIChatCompletionsProvider", () => {
+    expect(OpenAIProvider).toBe(OpenAIChatCompletionsProvider);
+  });
+
+  test("compatibility providers extend OpenAIChatCompletionsProvider", () => {
+    lastConstructorOptions = null;
+
+    const or = new OpenRouterProvider("or-key", "openai/gpt-4o");
+    expect(or).toBeInstanceOf(OpenAIChatCompletionsProvider);
+
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    );
+    expect(fw).toBeInstanceOf(OpenAIChatCompletionsProvider);
+
+    const ol = new OllamaProvider("llama3.2");
+    expect(ol).toBeInstanceOf(OpenAIChatCompletionsProvider);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1219,10 +1246,7 @@ describe("OpenRouterProvider reasoning", () => {
   });
 
   test("sends reasoning.enabled=true when thinking config is present", async () => {
-    const provider = new OpenRouterProvider(
-      "or-key",
-      "x-ai/grok-4",
-    );
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "adaptive" } },
     });
@@ -1232,10 +1256,7 @@ describe("OpenRouterProvider reasoning", () => {
   });
 
   test("sends reasoning.enabled=false when thinking config is absent", async () => {
-    const provider = new OpenRouterProvider(
-      "or-key",
-      "x-ai/grok-4",
-    );
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: {},
     });
@@ -1245,10 +1266,7 @@ describe("OpenRouterProvider reasoning", () => {
   });
 
   test("sends reasoning.enabled=false when no options are provided", async () => {
-    const provider = new OpenRouterProvider(
-      "or-key",
-      "x-ai/grok-4",
-    );
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")]);
 
     expect(lastCreateParams).toBeTruthy();
@@ -1256,10 +1274,7 @@ describe("OpenRouterProvider reasoning", () => {
   });
 
   test("RetryProvider + OpenRouterProvider enables thinking end-to-end", async () => {
-    const provider = new OpenRouterProvider(
-      "or-key",
-      "x-ai/grok-4",
-    );
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);
 
     // thinking enabled at loop-level → config.thinking set
@@ -1270,10 +1285,7 @@ describe("OpenRouterProvider reasoning", () => {
   });
 
   test("RetryProvider + OpenRouterProvider disables thinking end-to-end", async () => {
-    const provider = new OpenRouterProvider(
-      "or-key",
-      "x-ai/grok-4",
-    );
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);
 
     // thinking disabled at loop-level → config.thinking omitted
