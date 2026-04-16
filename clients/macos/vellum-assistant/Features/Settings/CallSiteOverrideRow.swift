@@ -18,6 +18,11 @@ struct CallSiteOverrideRow: View {
     @Binding var draft: CallSiteOverride
     let original: CallSiteOverride
     let providerIds: [String]
+    /// The user's currently-selected default provider. Used to seed the
+    /// override picker when the toggle flips ON so the row starts on the
+    /// provider the user actually defaults to, not whatever happens to come
+    /// first in the catalog (which can pin the wrong provider on Save).
+    let defaultProvider: String
     let providerDisplayName: (String) -> String
     let availableModels: [String: [String]]
     let modelDisplayName: (String, String) -> String
@@ -121,11 +126,19 @@ struct CallSiteOverrideRow: View {
                     get: { isOverrideOn },
                     set: { newValue in
                         if newValue {
-                            // Switching ON: seed with the global default
-                            // provider so the picker has a sensible starting
-                            // point. The user can change either picker.
+                            // Switching ON: seed with the user's actual
+                            // default provider so the picker starts where
+                            // the user already operates. Falling back to
+                            // catalog order would silently pin a different
+                            // provider on Save when the catalog's first
+                            // entry isn't the user's default.
                             if !draft.hasOverride {
-                                let seedProvider = providerIds.first ?? "anthropic"
+                                let seedProvider: String
+                                if providerIds.contains(defaultProvider) {
+                                    seedProvider = defaultProvider
+                                } else {
+                                    seedProvider = providerIds.first ?? "anthropic"
+                                }
                                 draft.provider = seedProvider
                                 let firstModel = availableModels[seedProvider]?.first ?? ""
                                 draft.model = firstModel.isEmpty ? nil : firstModel

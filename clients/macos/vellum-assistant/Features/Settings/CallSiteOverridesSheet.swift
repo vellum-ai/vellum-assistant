@@ -17,6 +17,15 @@ struct CallSiteOverridesSheet: View {
     /// changes externally.
     @State private var drafts: [String: CallSiteOverride] = [:]
 
+    /// Snapshot of the last persisted value we synced into each draft. Used
+    /// by `syncDraftsFromStore` to distinguish "user has unsaved edits"
+    /// (draft != lastSynced) from "store changed externally and we need to
+    /// pick up the new value" (draft == lastSynced but lastSynced != new
+    /// persisted). Without this, we would compare the draft to the *new*
+    /// persisted value and incorrectly flag externally-updated rows as
+    /// touched, which would let Save All clobber newer daemon-side updates.
+    @State private var lastSyncedFromStore: [String: CallSiteOverride] = [:]
+
     /// Shows the destructive confirmation for Reset All.
     @State private var showResetAllConfirmation = false
 
@@ -161,6 +170,7 @@ struct CallSiteOverridesSheet: View {
                             draft: draftBinding(for: entry.id),
                             original: persistedById[entry.id] ?? entry,
                             providerIds: providerIds,
+                            defaultProvider: store.selectedInferenceProvider,
                             providerDisplayName: { store.dynamicProviderDisplayName($0) },
                             availableModels: availableModels,
                             modelDisplayName: { provider, modelId in
@@ -186,23 +196,38 @@ struct CallSiteOverridesSheet: View {
     /// touched. Preserves in-progress edits — without this, saving one row
     /// would clobber unsaved drafts in every other row when the store's
     /// optimistic update fires `onChange`.
+    ///
+    /// "Untouched" is defined as `draft == lastSyncedFromStore[id]` — the
+    /// draft still matches the value we last accepted from the store.
+    /// Comparing against the *new* persisted value would mis-flag external
+    /// updates as user edits and let Save All overwrite newer daemon-side
+    /// changes with stale drafts captured at sheet open.
     private func syncDraftsFromStore() {
-        var next: [String: CallSiteOverride] = drafts
+        var nextDrafts: [String: CallSiteOverride] = drafts
+        var nextSynced: [String: CallSiteOverride] = lastSyncedFromStore
         for entry in store.callSiteOverrides {
-            // If we have no draft yet, or the existing draft already matches
-            // what was previously persisted (i.e. untouched), accept the new
-            // value. Otherwise, leave the user's WIP edit alone.
-            let existingDraft = next[entry.id]
-            let untouched = existingDraft.map { draft in
-                draft.provider == entry.provider
-                    && draft.model == entry.model
-                    && draft.profile == entry.profile
-            } ?? true
-            if untouched {
-                next[entry.id] = entry
+            let existingDraft = nextDrafts[entry.id]
+            let baseline = nextSynced[entry.id]
+            let untouched: Bool
+            if let draft = existingDraft, let baseline = baseline {
+                untouched = draft.provider == baseline.provider
+                    && draft.model == baseline.model
+                    && draft.profile == baseline.profile
+            } else {
+                // No baseline yet (first sync) or no draft yet — treat as
+                // untouched so the row picks up the persisted value.
+                untouched = true
             }
+            if untouched {
+                nextDrafts[entry.id] = entry
+            }
+            // Always advance the baseline so future external updates are
+            // detected against the latest persisted value, even when the
+            // user has unsaved edits we left alone.
+            nextSynced[entry.id] = entry
         }
-        drafts = next
+        drafts = nextDrafts
+        lastSyncedFromStore = nextSynced
     }
 
     /// Returns a Binding into the draft cache, falling back to the catalog
@@ -236,6 +261,10 @@ struct CallSiteOverridesSheet: View {
         } else {
             store.clearCallSiteOverride(id)
         }
+        // The draft is now the new persisted state — bump the baseline so
+        // any subsequent `onChange` from the store doesn't see a stale
+        // baseline and re-flag the row as touched.
+        lastSyncedFromStore[id] = drafts[id]
     }
 
     private func clear(id: String) {
@@ -246,6 +275,8 @@ struct CallSiteOverridesSheet: View {
         drafts[id]?.model = nil
         drafts[id]?.profile = nil
         store.clearCallSiteOverride(id)
+        // Baseline now matches the cleared draft (no override).
+        lastSyncedFromStore[id] = drafts[id]
     }
 
     private func saveAll() {
@@ -257,6 +288,11 @@ struct CallSiteOverridesSheet: View {
             drafts[entry.id] ?? entry
         }
         store.setCallSiteOverrides(merged)
+        // Every draft is now the new persisted state — refresh the baseline
+        // for each entry so future external updates are detected correctly.
+        for entry in merged {
+            lastSyncedFromStore[entry.id] = entry
+        }
     }
 
     private func resetAll() {
@@ -273,6 +309,9 @@ struct CallSiteOverridesSheet: View {
         }
         for entry in cleared {
             drafts[entry.id] = entry
+            // Baseline matches the cleared state so unrelated external
+            // updates after the reset are still detected and applied.
+            lastSyncedFromStore[entry.id] = entry
         }
         store.setCallSiteOverrides(cleared)
     }
