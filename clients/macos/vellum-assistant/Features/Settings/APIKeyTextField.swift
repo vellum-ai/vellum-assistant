@@ -1,17 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Reusable secure text field for API key entry across settings cards.
+/// Secure text field for API key entry with automatic placeholder handling.
 ///
-/// Encapsulates the shared placeholder convention: when a key already exists,
-/// the field shows masked dots (or a custom masked string); when no key is
-/// stored, it shows an empty-state placeholder (defaults to "Enter your API
-/// key"). This eliminates the duplicated placeholder logic that previously
-/// lived in each service card and prevents inconsistencies (e.g. forgetting
-/// to check `hasKey` before choosing the placeholder).
+/// Shows masked dots (or a custom masked string) when a key already exists,
+/// and an empty-state prompt when no key is stored. Wraps ``VTextField`` with
+/// `isSecure: true`.
 ///
-/// Callers can still chain standard SwiftUI modifiers (`.disabled()`, `.id()`,
-/// etc.) on the returned view as needed.
+/// Callers can chain standard SwiftUI modifiers (`.disabled()`, `.id()`, etc.)
+/// on the returned view as needed.
 @MainActor
 struct APIKeyTextField: View {
     /// Label displayed above the text field (e.g. "API Key", "Anthropic API Key").
