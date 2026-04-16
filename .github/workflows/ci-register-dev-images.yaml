@@ -123,7 +123,7 @@ jobs:
           GATEWAY_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CE_IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
 
-          SHA="${{ github.event.workflow_run.head_sha }}"
+          TRIGGERED_SHA="${{ github.event.workflow_run.head_sha }}"
           VERSION="${{ steps.version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
 
@@ -132,7 +132,7 @@ jobs:
           REPO="${{ github.repository }}"
           RUN_ID="${{ github.event.workflow_run.id }}"
           RUN_NUMBER=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq '.run_number')
-          SHORT_SHA="${SHA:0:7}"
+          SHORT_SHA="${TRIGGERED_SHA:0:7}"
           IMMUTABLE_TAG="dev.${RUN_NUMBER}.${SHORT_SHA}"
 
           # Determine which service was just built.
@@ -147,37 +147,60 @@ jobs:
           TRIGGERED_DIGEST=$(docker buildx imagetools inspect "${TRIGGERED_IMAGE}:${IMMUTABLE_TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "Triggered service digest (${WF_NAME}): ${TRIGGERED_DIGEST}"
 
-          # For the other two services, capture the current :dev digest.
+          # Look up the correct head_sha for each non-triggered service by
+          # finding its most recent successful CI run. This avoids the bug
+          # where all three services were registered with the triggering
+          # workflow's SHA even though the :dev images for the other two
+          # services were built from different commits.
+          get_latest_ci_sha() {
+            local wf_file="$1"
+            gh api "repos/${REPO}/actions/workflows/${wf_file}/runs?branch=main&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha'
+          }
+
           case "$WF_NAME" in
             *Assistant*)
+              ASSISTANT_SHA="$TRIGGERED_SHA"
               ASSISTANT_DIGEST="$TRIGGERED_DIGEST"
+              GATEWAY_SHA=$(get_latest_ci_sha "ci-main-gateway.yaml")
               GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              CE_SHA=$(get_latest_ci_sha "ci-main-credential-executor.yaml")
               CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
               ;;
             *Gateway*)
+              ASSISTANT_SHA=$(get_latest_ci_sha "ci-main-assistant.yaml")
               ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              GATEWAY_SHA="$TRIGGERED_SHA"
               GATEWAY_DIGEST="$TRIGGERED_DIGEST"
+              CE_SHA=$(get_latest_ci_sha "ci-main-credential-executor.yaml")
               CE_DIGEST=$(docker buildx imagetools inspect "${CE_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
               ;;
             *Credential*)
+              ASSISTANT_SHA=$(get_latest_ci_sha "ci-main-assistant.yaml")
               ASSISTANT_DIGEST=$(docker buildx imagetools inspect "${ASSISTANT_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              GATEWAY_SHA=$(get_latest_ci_sha "ci-main-gateway.yaml")
               GATEWAY_DIGEST=$(docker buildx imagetools inspect "${GATEWAY_IMAGE}:dev" --format '{{json .Manifest.Digest}}' | tr -d '"')
+              CE_SHA="$TRIGGERED_SHA"
               CE_DIGEST="$TRIGGERED_DIGEST"
               ;;
           esac
 
-          # Tag all three images with the version tag and SHA tag.
+          echo "SHAs: assistant=${ASSISTANT_SHA:0:7}, gateway=${GATEWAY_SHA:0:7}, ce=${CE_SHA:0:7}"
+
+          # Tag all three images with the version tag and their own SHA tag.
           # Uses digest-pinned retags so even if :dev moves, we tag the
           # exact digests we captured above.
-          for IMAGE_REF in \
-            "${ASSISTANT_IMAGE}@${ASSISTANT_DIGEST}" \
-            "${GATEWAY_IMAGE}@${GATEWAY_DIGEST}" \
-            "${CE_IMAGE}@${CE_DIGEST}"; do
+          for ENTRY in \
+            "${ASSISTANT_IMAGE}@${ASSISTANT_DIGEST}|${ASSISTANT_SHA}" \
+            "${GATEWAY_IMAGE}@${GATEWAY_DIGEST}|${GATEWAY_SHA}" \
+            "${CE_IMAGE}@${CE_DIGEST}|${CE_SHA}"; do
+            IMAGE_REF="${ENTRY%%|*}"
+            IMAGE_SHA="${ENTRY##*|}"
             BASE="${IMAGE_REF%%@*}"
-            echo "Tagging ${BASE} with ${VERSION_TAG} and ${SHA}"
+            echo "Tagging ${BASE} with ${VERSION_TAG} and ${IMAGE_SHA:0:7}"
             docker buildx imagetools create \
               -t "${BASE}:${VERSION_TAG}" \
-              -t "${BASE}:${SHA}" \
+              -t "${BASE}:${IMAGE_SHA}" \
               "${IMAGE_REF}"
           done
 
@@ -187,6 +210,9 @@ jobs:
           echo "assistant_digest=$ASSISTANT_DIGEST" >> "$GITHUB_OUTPUT"
           echo "gateway_digest=$GATEWAY_DIGEST" >> "$GITHUB_OUTPUT"
           echo "ce_digest=$CE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "assistant_sha=$ASSISTANT_SHA" >> "$GITHUB_OUTPUT"
+          echo "gateway_sha=$GATEWAY_SHA" >> "$GITHUB_OUTPUT"
+          echo "ce_sha=$CE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Compute migration ceilings
 
@@ -225,7 +251,6 @@ jobs:
       - name: Register with platform
 
         run: |
-          SHA="${{ github.event.workflow_run.head_sha }}"
           VERSION="${{ steps.version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
           ASSISTANT_REPO="${{ steps.images.outputs.assistant_image }}"
@@ -241,15 +266,15 @@ jobs:
             --arg last_workspace_migration_id "${{ steps.migration-ceilings.outputs.ws_id }}" \
             --arg assistant_repo "$ASSISTANT_REPO" \
             --arg assistant_tag "$VERSION_TAG" \
-            --arg assistant_sha "$SHA" \
+            --arg assistant_sha "${{ steps.images.outputs.assistant_sha }}" \
             --arg assistant_digest "${{ steps.images.outputs.assistant_digest }}" \
             --arg gateway_repo "$GATEWAY_REPO" \
             --arg gateway_tag "$VERSION_TAG" \
-            --arg gateway_sha "$SHA" \
+            --arg gateway_sha "${{ steps.images.outputs.gateway_sha }}" \
             --arg gateway_digest "${{ steps.images.outputs.gateway_digest }}" \
             --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
             --arg credential_executor_tag "$VERSION_TAG" \
-            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_sha "${{ steps.images.outputs.ce_sha }}" \
             --arg credential_executor_digest "${{ steps.images.outputs.ce_digest }}" \
             '{
               version: $version,
