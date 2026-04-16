@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import {
   disposeAcpSessionManager,
   getAcpSessionManager,
@@ -26,6 +28,7 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { CliIpcServer } from "../ipc/cli-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -64,8 +67,6 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
-import { CliIpcServer } from "../ipc/cli-server.js";
-import { z } from "zod";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";

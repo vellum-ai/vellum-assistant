@@ -11,7 +11,6 @@
 import { connect, type Socket } from "node:net";
 
 import { getLogger } from "../util/logger.js";
-
 import { getCliSocketPath } from "./cli-server.js";
 
 const log = getLogger("cli-ipc-client");
