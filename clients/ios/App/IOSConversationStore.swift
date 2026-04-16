@@ -508,6 +508,11 @@ class IOSConversationStore: ObservableObject {
                     }
                     self.isLoadingInitialConversations = false
                     self.saveConnectedCache()
+                case .conversationTitleUpdated(let msg):
+                    if let idx = self.conversations.firstIndex(where: { $0.conversationId == msg.conversationId }) {
+                        self.conversations[idx].title = msg.title
+                        self.saveConnectedCache()
+                    }
                 case .conversationListInvalidated:
                     self.scheduleInvalidationRefetch(daemon: daemon)
                 default:
