@@ -628,18 +628,34 @@ export async function runDaemon(): Promise<void> {
       // falling back to the encrypted file store.
       if (cesResult.processManager) {
         const pm = cesResult.processManager;
+
+        // Snapshot the managed-proxy context and assistant ID at CES startup
+        // so the reconnect closure below never calls back into
+        // `resolveManagedProxyContext()`. That function reads the assistant
+        // API key via `getSecureKeyAsync()`, which — once `setCesClient()`
+        // has resolved the backend to CES RPC — routes the read through CES
+        // itself. During a reconnect the old transport is dead and a new
+        // one is being set up by this very closure, so the nested credential
+        // read recursively awaits its own in-flight reconnection and
+        // deadlocks until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. That
+        // 45-second stall delays every CES restart and causes dependent
+        // credential reads (e.g. Meet's STT provider resolution) to return
+        // `undefined` during the window. API key rotation uses the
+        // `updateAssistantApiKey` RPC on the live client, not a reconnect,
+        // so caching at startup is safe.
+        const startupProxyCtx = await resolveManagedProxyContext();
+        const startupAssistantId = getPlatformAssistantId();
+
         setCesReconnect(async () => {
           try {
             await pm.stop();
             const transport = await pm.start();
             const newClient = createCesClient(transport);
-            const proxyCtx = await resolveManagedProxyContext();
-            const assistantId = getPlatformAssistantId();
             const { accepted, reason } = await newClient.handshake({
-              ...(proxyCtx.assistantApiKey
-                ? { assistantApiKey: proxyCtx.assistantApiKey }
+              ...(startupProxyCtx.assistantApiKey
+                ? { assistantApiKey: startupProxyCtx.assistantApiKey }
                 : {}),
-              ...(assistantId ? { assistantId } : {}),
+              ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
             });
             if (accepted) {
               log.info("CES reconnection handshake accepted");

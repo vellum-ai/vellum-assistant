@@ -22,6 +22,8 @@ import type {
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
@@ -74,6 +76,18 @@ let _lastReconnectAttempt = 0;
 
 /** In-flight reconnection promise — concurrent callers share the same attempt. */
 let _reconnectInFlight: Promise<boolean> | undefined;
+
+/**
+ * Per-async-context flag set while we are running the user-registered
+ * `_cesReconnect` callback. Reentrant credential reads from within the
+ * callback (on the same async call chain) must not `await`
+ * `_reconnectInFlight` — that would await the caller's own reconnect and
+ * deadlock until `CREDENTIAL_OP_TIMEOUT_MS` (45s) fires. Using
+ * AsyncLocalStorage (rather than a module-level boolean) scopes the guard
+ * to the actual reentrant stack, so unrelated concurrent callers keep
+ * sharing the in-flight reconnect promise normally.
+ */
+const _reconnectContext = new AsyncLocalStorage<true>();
 
 /**
  * Set to true when a ces-http operation returns an unreachable result.
@@ -240,6 +254,15 @@ function tryFailoverToCesHttpBackend(
 async function attemptCesReconnection(): Promise<boolean> {
   if (!_cesReconnect) return false;
 
+  // Reentrancy guard. A nested credential read from inside the reconnect
+  // callback must not `await` our own in-flight promise — that would
+  // deadlock on the 45-second credential-op timeout. Report the reconnect
+  // as failed so the caller sees "unreachable" and falls back (env vars,
+  // dead-backend response) without blocking. Concurrent callers on other
+  // async chains don't see the ALS store, so they still share the
+  // in-flight promise normally.
+  if (_reconnectContext.getStore()) return false;
+
   // If a reconnection is already in flight, share it.
   if (_reconnectInFlight) return _reconnectInFlight;
 
@@ -249,7 +272,7 @@ async function attemptCesReconnection(): Promise<boolean> {
   _lastReconnectAttempt = Date.now();
   log.warn("Credential backend unavailable — attempting CES reconnection");
 
-  _reconnectInFlight = (async () => {
+  _reconnectInFlight = _reconnectContext.run(true, async () => {
     try {
       const newClient = await _cesReconnect!();
       if (newClient) {
@@ -262,7 +285,7 @@ async function attemptCesReconnection(): Promise<boolean> {
       log.warn({ err }, "CES reconnection failed");
     }
     return false;
-  })();
+  });
 
   try {
     return await _reconnectInFlight;
