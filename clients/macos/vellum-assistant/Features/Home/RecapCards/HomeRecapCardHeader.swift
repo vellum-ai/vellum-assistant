@@ -9,6 +9,7 @@ struct HomeRecapCardHeader: View {
     let iconColor: Color
     let title: String
     let subtitle: String?
+    var titleLineLimit: Int? = 1
     let showDismiss: Bool
     let onDismiss: (() -> Void)?
 
@@ -17,6 +18,7 @@ struct HomeRecapCardHeader: View {
         iconColor: Color = VColor.contentDisabled,
         title: String,
         subtitle: String? = nil,
+        titleLineLimit: Int? = 1,
         showDismiss: Bool = false,
         onDismiss: (() -> Void)? = nil
     ) {
@@ -24,6 +26,7 @@ struct HomeRecapCardHeader: View {
         self.iconColor = iconColor
         self.title = title
         self.subtitle = subtitle
+        self.titleLineLimit = titleLineLimit
         self.showDismiss = showDismiss
         self.onDismiss = onDismiss
     }
@@ -60,7 +63,7 @@ struct HomeRecapCardHeader: View {
             Text(title)
                 .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentEmphasized)
-                .lineLimit(1)
+                .lineLimit(titleLineLimit)
 
             if let subtitle {
                 Text(subtitle)
