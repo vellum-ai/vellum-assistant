@@ -52,6 +52,7 @@ struct HomeEmailPreviewCard: View {
             actionButtons
         }
         .recapCardGlass()
+        .recapCardMaxWidth()
     }
 
     // MARK: - Email Content Area

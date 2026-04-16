@@ -46,6 +46,7 @@ struct HomeImageCard: View {
             actionButtons
         }
         .recapCardGlass()
+        .recapCardMaxWidth()
     }
 
     // MARK: - Image area

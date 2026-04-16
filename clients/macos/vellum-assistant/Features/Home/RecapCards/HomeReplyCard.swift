@@ -34,6 +34,7 @@ struct HomeReplyCard: View {
                 .padding(.top, VSpacing.md)
         }
         .recapCardGlass()
+        .recapCardMaxWidth()
     }
 
     // MARK: - Header

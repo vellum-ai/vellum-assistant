@@ -51,7 +51,7 @@ struct HomeAuthCard: View {
             view.recapCardGlass(shape: Capsule())
         }
         .if(!isSimple) { view in
-            view.recapCardGlass()
+            view.recapCardGlass().recapCardMaxWidth()
         }
     }
 
