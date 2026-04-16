@@ -48,9 +48,7 @@ struct HomePermissionCard: View {
             actionButtons
         }
         .recapCardGlass()
-        .if(hasContent) { view in
-            view.recapCardMaxWidth()
-        }
+        .recapCardMaxWidth()
     }
 
     // MARK: - Header

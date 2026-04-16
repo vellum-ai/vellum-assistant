@@ -83,11 +83,17 @@ extension View {
         )
     }
 
-    /// Cap the view's width at `RecapCard.maxWidth` (528pt). The view fills
-    /// available width up to the cap and stops growing. Apply this to
-    /// recap cards (or their containers) that should expand to fill but
-    /// not exceed the standard home page card width.
+    /// Hug content but cap at `RecapCard.maxWidth` (528pt).
+    /// - When intrinsic content width is less than the cap, the view sizes
+    ///   to its content (compact cards stay compact).
+    /// - When intrinsic content would exceed the cap (e.g., a very long title
+    ///   or a child requesting `.frame(maxWidth: .infinity)`), the view caps
+    ///   at 528pt and content wraps/clips inside.
+    ///
+    /// The combination of `.frame(maxWidth:)` and `.fixedSize(horizontal:)`
+    /// is the canonical SwiftUI idiom for "intrinsic-or-bounded" sizing.
     func recapCardMaxWidth() -> some View {
         frame(maxWidth: RecapCard.maxWidth, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }

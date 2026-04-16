@@ -33,6 +33,7 @@ struct HomeAssistantCard: View {
             actionButtons
         }
         .recapCardGlass()
+        .recapCardMaxWidth()
     }
 
     // MARK: - Header
