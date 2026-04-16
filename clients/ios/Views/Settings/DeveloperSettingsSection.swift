@@ -271,6 +271,12 @@ private struct DeveloperSettingsSectionContent: View {
         // Clear QR-paired gateway config
         defaults.removeObject(forKey: UserDefaultsKeys.gatewayBaseURL)
 
+        // Clear legacy connection keys that ContentView.hasSavedSettings
+        // and AppDelegate.migrateToPairingV4IfNeeded also reference.
+        defaults.removeObject(forKey: "runtime_url")
+        defaults.removeObject(forKey: "gateway_host_id")
+        defaults.removeObject(forKey: "devLocalPairingEnabled")
+
         // Clear organization ID
         defaults.removeObject(forKey: "connectedOrganizationId")
 
@@ -279,7 +285,11 @@ private struct DeveloperSettingsSectionContent: View {
         ActorTokenManager.deleteAllCredentials()
         _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
 
-        // Rebuild the client so it picks up the cleared state
+        // Rebuild the client so it picks up the cleared state.
+        // Note: AuthManager.state is not reset here because this view
+        // doesn't hold a reference to it. ContentView re-runs
+        // authManager.checkSession() on appear, which will find no
+        // session token and transition to .unauthenticated.
         clientProvider.rebuildClient()
 
         // Return to onboarding by resetting the completion flag.
