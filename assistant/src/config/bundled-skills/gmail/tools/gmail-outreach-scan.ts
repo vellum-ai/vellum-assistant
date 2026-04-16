@@ -234,29 +234,60 @@ export async function run(
       .slice(0, maxSenders * 3);
 
     // Enrich with prior-reply signal: check if user has ever sent to each sender.
+    // Uses bounded concurrency (batches of 10) and AbortController to cancel
+    // in-flight requests when the time budget expires.
+    const ENRICHMENT_CONCURRENCY = 10;
     const priorReplyMap = new Map<string, boolean>();
     if (!rateLimited) {
       const enrichmentBudgetMs = Math.max(
         TIME_BUDGET_MS - (Date.now() - startTime),
         5_000,
       );
-      const replyChecks = sorted.map(async (s) => {
-        try {
-          const resp = await listMessages(
-            connection,
-            `from:me to:${s.email}`,
-            1,
-          );
-          priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
-        } catch {
-          // Non-fatal — default to safe direction (assume prior reply exists)
-          priorReplyMap.set(s.email, true);
+      const abortController = new AbortController();
+      const budgetTimer = setTimeout(
+        () => abortController.abort(),
+        enrichmentBudgetMs,
+      );
+
+      try {
+        // Process in waves to limit concurrency and stop on budget expiry
+        for (
+          let i = 0;
+          i < sorted.length && !abortController.signal.aborted;
+          i += ENRICHMENT_CONCURRENCY
+        ) {
+          const batch = sorted.slice(i, i + ENRICHMENT_CONCURRENCY);
+          const batchChecks = batch.map(async (s) => {
+            if (abortController.signal.aborted) return;
+            try {
+              const resp = await listMessages(
+                connection,
+                `from:me to:${s.email}`,
+                1,
+              );
+              priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
+            } catch {
+              // Non-fatal — default to safe direction (assume prior reply exists)
+              priorReplyMap.set(s.email, true);
+            }
+          });
+          await Promise.race([
+            Promise.all(batchChecks),
+            new Promise<void>((resolve) =>
+              abortController.signal.addEventListener(
+                "abort",
+                () => resolve(),
+                {
+                  once: true,
+                },
+              ),
+            ),
+          ]);
         }
-      });
-      await Promise.race([
-        Promise.all(replyChecks),
-        new Promise<void>((resolve) => setTimeout(resolve, enrichmentBudgetMs)),
-      ]);
+      } finally {
+        clearTimeout(budgetTimer);
+      }
+
       // Default any un-enriched senders to safe direction
       for (const s of sorted) {
         if (!priorReplyMap.has(s.email)) {
@@ -270,7 +301,12 @@ export async function run(
       }
     }
 
-    const capped = sorted.slice(0, maxSenders);
+    // Filter out senders with prior replies, then cap to maxSenders.
+    // This is the purpose of over-fetching (maxSenders * 3): enrich more
+    // candidates, discard those with existing replies, then take the top N.
+    const capped = sorted
+      .filter((s) => !priorReplyMap.get(s.email))
+      .slice(0, maxSenders);
     const senders = capped.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
