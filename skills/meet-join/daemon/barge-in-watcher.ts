@@ -341,10 +341,10 @@ export class MeetBargeInWatcher {
     if (event.confidence === undefined) return;
     if (event.confidence <= this.interimConfidenceThreshold) return;
 
-    // Drop chunks attributed to the bot itself. Both `speakerId` (preferred)
-    // and `speakerLabel` are checked — the bot is a silent listener so this
-    // should be vanishingly rare, but cheap defense-in-depth keeps us from
-    // firing on a mis-tagged echo of the bot's own audio.
+    // Drop chunks attributed to the bot itself via `speakerId`. The bot is a
+    // silent listener so this should be vanishingly rare, but cheap
+    // defense-in-depth keeps us from firing on a mis-tagged echo of the
+    // bot's own audio.
     if (
       this.botSpeakerId !== null &&
       event.speakerId !== undefined &&
