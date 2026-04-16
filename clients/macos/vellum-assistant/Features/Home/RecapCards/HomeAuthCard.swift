@@ -51,6 +51,7 @@ struct HomeAuthCard: View {
         .if(isSimple) { view in
             view
                 .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
+                .overlay(Capsule().strokeBorder(VColor.borderBase, lineWidth: 1))
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
@@ -58,6 +59,10 @@ struct HomeAuthCard: View {
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                         .fill(VColor.surfaceLift.opacity(0.1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                        .strokeBorder(VColor.borderBase, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
@@ -117,9 +122,7 @@ struct HomeAuthCard: View {
         HStack(spacing: VSpacing.xs) {
             authoriseButton
             denyButton
-            if showDismiss {
-                dismissButton
-            }
+            dismissButton
         }
     }
 
@@ -158,11 +161,12 @@ struct HomeAuthCard: View {
             onDismiss?()
         } label: {
             VIconView(.x, size: 12)
-                .foregroundStyle(VColor.contentSecondary)
-                .padding(VSpacing.xs)
+                .foregroundStyle(VColor.primaryBase)
+                .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
+                .frame(height: 32)
                 .background(
                     Capsule()
-                        .strokeBorder(VColor.borderBase, lineWidth: 1)
+                        .strokeBorder(VColor.borderElement, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
