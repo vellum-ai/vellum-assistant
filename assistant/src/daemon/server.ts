@@ -1397,6 +1397,7 @@ export class DaemonServer {
       .runAgentLoop(content, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
       })
       .finally(() => {
         if (

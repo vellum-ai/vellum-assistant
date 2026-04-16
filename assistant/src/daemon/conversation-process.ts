@@ -141,6 +141,7 @@ export interface ProcessConversationContext {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      callSite?: LLMCallSite;
     },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
