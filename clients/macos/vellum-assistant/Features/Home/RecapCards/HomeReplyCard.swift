@@ -44,6 +44,7 @@ struct HomeReplyCard: View {
             icon: .messageCircle,
             title: title,
             subtitle: threadName,
+            titleLineLimit: nil,
             showDismiss: showDismiss,
             onDismiss: onDismiss
         )
