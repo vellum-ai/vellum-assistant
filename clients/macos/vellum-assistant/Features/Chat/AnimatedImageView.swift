@@ -64,23 +64,27 @@ struct AnimatedImageView: View {
                 let nativeWidth = CGFloat(cgImage.width) / displayScale
                 let nativeHeight = CGFloat(cgImage.height) / displayScale
                 // Use definite dimensions to avoid _FlexFrameLayout inside
-                // LazyVStack cells. aspectRatio + .fit computes the correct
-                // size; we just need to cap the proposal. See LUM-944.
-                let cappedWidth = min(nativeWidth, maxDimension)
-                let scale = cappedWidth / max(nativeWidth, 1)
-                let cappedHeight = nativeHeight * scale
+                // LazyVStack cells. Cap both width and height (same logic as
+                // gifSize) so portrait images are bounded too. See LUM-944.
+                let dimensionScale = min(maxDimension / max(nativeWidth, 1), maxDimension / max(nativeHeight, 1), 1.0)
+                let cappedWidth = nativeWidth * dimensionScale
+                let cappedHeight = nativeHeight * dimensionScale
                 Image(decorative: cgImage, scale: displayScale)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: cappedWidth, height: cappedHeight)
             } else if let image = loadedImage {
-                // Fallback when CGImage extraction fails. Use widthCap to
-                // avoid _FlexFrameLayout inside LazyVStack cells. See LUM-944.
+                // Fallback when CGImage extraction fails. Cap both dimensions
+                // using definite frame to avoid _FlexFrameLayout. See LUM-944.
+                let size = image.size
+                let fallbackScale = (size.width > 0 && size.height > 0)
+                    ? min(maxDimension / size.width, maxDimension / size.height, 1.0)
+                    : 1.0
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .widthCap(maxDimension)
+                    .frame(width: size.width * fallbackScale, height: size.height * fallbackScale)
             } else {
                 VIconView(.image, size: 24)
                     .foregroundStyle(VColor.contentTertiary)
