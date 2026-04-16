@@ -2092,11 +2092,37 @@ public typealias ModelInfoMessage = ModelInfo
 
 // MARK: - Equatable conformance for generated types
 // Added here (not in GeneratedAPITypes.swift) because generated files must not
-// be edited manually. All stored properties are already Equatable, so Swift
-// auto-synthesizes the conformance.
+// be edited manually. Swift only auto-synthesizes Equatable when the
+// conformance is declared in the same file as the type, so the `==` operators
+// below are implemented by hand.
 
-extension CatalogModel: Equatable {}
-extension ModelInfo: Equatable {}
+extension CatalogModel: Equatable {
+    public static func == (lhs: CatalogModel, rhs: CatalogModel) -> Bool {
+        lhs.id == rhs.id && lhs.displayName == rhs.displayName
+    }
+}
+
+extension ProviderCatalogEntry: Equatable {
+    public static func == (lhs: ProviderCatalogEntry, rhs: ProviderCatalogEntry) -> Bool {
+        lhs.id == rhs.id
+            && lhs.displayName == rhs.displayName
+            && lhs.models == rhs.models
+            && lhs.defaultModel == rhs.defaultModel
+            && lhs.apiKeyUrl == rhs.apiKeyUrl
+            && lhs.apiKeyPlaceholder == rhs.apiKeyPlaceholder
+    }
+}
+
+extension ModelInfo: Equatable {
+    public static func == (lhs: ModelInfo, rhs: ModelInfo) -> Bool {
+        lhs.type == rhs.type
+            && lhs.model == rhs.model
+            && lhs.provider == rhs.provider
+            && lhs.configuredProviders == rhs.configuredProviders
+            && lhs.availableModels == rhs.availableModels
+            && lhs.allProviders == rhs.allProviders
+    }
+}
 
 // MARK: - Vercel API Config Messages
 
