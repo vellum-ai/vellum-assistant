@@ -253,6 +253,21 @@ export class ConversationGraphMemory {
   }
 
   /**
+   * Re-register cached node IDs with the InContextTracker after compaction
+   * WITHOUT modifying messages. Use this at post-agent-loop compaction sites
+   * where the memory block already survives on the original user message
+   * (since `<memory __injected>` is not stripped by stripInjectionsForCompaction).
+   *
+   * Calling reinjectCachedMemory at these sites would inject a duplicate
+   * onto the last user message — which after tool calls is a tool_result,
+   * not the original user message.
+   */
+  retrackCachedNodes(): void {
+    if (this.lastInjectedNodeIds.length === 0) return;
+    this.tracker.add(this.lastInjectedNodeIds);
+  }
+
+  /**
    * Main entry point — called on every turn before the LLM sees the messages.
    *
    * Dispatches to the appropriate retrieval mode:

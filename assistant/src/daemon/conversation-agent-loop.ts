@@ -1204,8 +1204,7 @@ export async function runAgentLoopImpl(
         mode: currentInjectionMode,
       });
       if (isTrustedActor && currentInjectionMode !== "minimal") {
-        const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
-        runMessages = memResult.runMessages;
+        ctx.graphMemory.retrackCachedNodes();
       }
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
@@ -1428,8 +1427,7 @@ export async function runAgentLoopImpl(
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
-          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
-          runMessages = memResult.runMessages;
+          ctx.graphMemory.retrackCachedNodes();
         }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -1556,9 +1554,7 @@ export async function runAgentLoopImpl(
               mode: currentInjectionMode,
             });
             if (isTrustedActor && currentInjectionMode !== "minimal") {
-              const memResult =
-                ctx.graphMemory.reinjectCachedMemory(runMessages);
-              runMessages = memResult.runMessages;
+              ctx.graphMemory.retrackCachedNodes();
             }
             preRepairMessages = runMessages;
             preRunHistoryLength = runMessages.length;
@@ -1681,8 +1677,7 @@ export async function runAgentLoopImpl(
             mode: currentInjectionMode,
           });
           if (isTrustedActor && currentInjectionMode !== "minimal") {
-            const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
-            runMessages = memResult.runMessages;
+            ctx.graphMemory.retrackCachedNodes();
           }
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
