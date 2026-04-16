@@ -46,7 +46,7 @@ When adding a new dependency:
 
 ### GitHub Actions
 
-All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a full `vX.Y.Z` release tag (e.g. `actions/checkout@v6.0.2`). Never use a bare major tag like `@v6` — that's a floating reference and silently pulls in new releases. To upgrade, look up the new release tag for the currently-pinned major and replace it. Avoid bumping major versions in the same PR as a pin-refresh; treat major upgrades as separate, explicit changes.
+All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
 
 ### Swift SPM
 
