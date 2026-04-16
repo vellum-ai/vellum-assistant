@@ -24,6 +24,7 @@
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
+    "drizzle-kit": "0.30.6",
     "drizzle-orm": "0.45.2",
     "file-type": "21.3.0",
     "minimatch": "10.2.4",
@@ -34,7 +35,6 @@
   },
   "devDependencies": {
     "@types/bun": "1.3.9",
-    "drizzle-kit": "0.30.6",
     "eslint": "10.0.0",
     "knip": "5.83.1",
     "prettier": "3.8.1",
