@@ -222,6 +222,9 @@ jobs:
           cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
           cd .. && bun install --frozen-lockfile
 
+      - name: Sync feature flag registry
+        run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
+
       - name: Check OpenAPI spec is up to date
         run: bun run generate:openapi -- --check
 
