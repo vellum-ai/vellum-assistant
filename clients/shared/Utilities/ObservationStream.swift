@@ -60,21 +60,23 @@ public struct ObservationValues<Value: Equatable & Sendable>: AsyncSequence, Sen
 /// ```
 ///
 /// The sequence yields the current value immediately, then yields again each time
-/// the tracked property changes to a different `Equatable` value. The internal
-/// observation loop runs in an unstructured `Task` (non-isolated). In Swift 5
-/// language mode this is safe because the Observation framework's registrar uses
-/// internal locking. If the project migrates to Swift 6, the `getValue` closure
-/// may need explicit `@MainActor` isolation.
+/// the tracked property changes to a different `Equatable` value. The `getValue`
+/// closure is called on the caller's actor (the internal `Task` inherits actor
+/// context), so it is safe to read `@MainActor @Observable` properties directly.
+/// The closure is intentionally non-`@Sendable` because `@Observable` macro
+/// synthesizes main-actor-isolated getters that cannot be called from a `@Sendable`
+/// context. If the project migrates to Swift 6 language mode, the closure may
+/// need explicit `@MainActor` annotation.
 ///
 /// **Cancellation:** When the consuming task is cancelled, `next()` returns `nil`
 /// promptly, the `for await` loop exits, and all captured references are released.
 /// See `ObservationValues` for details on why this is necessary.
 ///
 /// - Parameter getValue: A closure that reads one or more `@Observable` properties.
-///   Must be safe to call repeatedly on the caller's actor.
+///   Called on the caller's actor; must be safe to call repeatedly.
 /// - Returns: An ``ObservationValues`` async sequence of deduplicated values.
 public func observationStream<Value: Equatable & Sendable>(
-    _ getValue: @Sendable @escaping () -> Value
+    _ getValue: @escaping () -> Value
 ) -> ObservationValues<Value> {
     // Shared box so `ObservationValues.Iterator.next()` can finish the continuation
     // from outside the stream when the consuming task is cancelled.
