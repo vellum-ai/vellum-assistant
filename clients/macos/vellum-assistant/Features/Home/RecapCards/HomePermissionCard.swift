@@ -46,20 +46,23 @@ struct HomePermissionCard: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .lineLimit(nil)
 
-            Divider()
-
-            Text(toolActionDescription)
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(nil)
-
             showDetailsRow
+
+            if isExpanded {
+                Divider()
+
+                Text(toolActionDescription)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(nil)
+            }
         }
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .fill(VColor.surfaceOverlay)
         )
+        .animation(.easeInOut(duration: 0.2), value: isExpanded)
     }
 
     // MARK: - Show Details toggle
