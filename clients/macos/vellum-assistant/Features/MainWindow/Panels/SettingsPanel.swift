@@ -187,10 +187,7 @@ struct SettingsPanel: View {
                         .background { OverlayScrollerStyle() }
                 }
                 .scrollContentBackground(.hidden)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
-                }
+                .background { FocusDismissBackground() }
             }
             .frame(maxWidth: .infinity)
         }
@@ -800,5 +797,21 @@ struct OverlayScrollerStyle: NSViewRepresentable {
         return view
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Transparent AppKit background that resigns the key window's first responder
+/// when the user clicks on empty space. Works at the NSView level so it doesn't
+/// interfere with SwiftUI gesture handling on child interactive elements
+/// (buttons, text fields, dropdowns).
+struct FocusDismissBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> FocusDismissNSView { FocusDismissNSView() }
+    func updateNSView(_ nsView: FocusDismissNSView, context: Context) {}
+
+    final class FocusDismissNSView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder(nil)
+            super.mouseDown(with: event)
+        }
+    }
 }
 
