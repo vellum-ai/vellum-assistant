@@ -58,6 +58,19 @@ public final class SettingsStore: ObservableObject {
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
 
+    // MARK: - Per-Call-Site LLM Overrides
+
+    /// Catalog of every LLM call site, merged with whatever overrides the
+    /// user has configured under `llm.callSites.<id>` in the workspace
+    /// config. Order matches `CallSiteCatalog.all` so the UI renders a
+    /// stable list grouped by `CallSiteDomain`.
+    ///
+    /// Seeded from the static catalog so the picker has every row available
+    /// before the first daemon fetch completes. Replaced by
+    /// `loadCallSiteOverrides(config:)` once the daemon reports the
+    /// authoritative config.
+    @Published var callSiteOverrides: [CallSiteOverride] = CallSiteCatalog.all
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -3023,6 +3036,199 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    // MARK: - Per-Call-Site Override Read / Write
+
+    /// Number of entries in `callSiteOverrides` that have at least one
+    /// explicit override (`provider`, `model`, or `profile`). Useful for
+    /// rendering a badge on the overrides settings entry.
+    var overridesCount: Int {
+        callSiteOverrides.lazy.filter { $0.hasOverride }.count
+    }
+
+    /// Reads `llm.callSites.<id>` from the workspace config dictionary,
+    /// merges every entry against `CallSiteCatalog.all`, and replaces
+    /// `callSiteOverrides`. Catalog entries missing from the config map to
+    /// "no override" (all fields `nil`), preserving display order.
+    ///
+    /// Unknown call-site IDs in the config (e.g. ones added on a newer
+    /// daemon) are silently ignored — the catalog is the source of truth
+    /// for what the UI can render.
+    func loadCallSiteOverrides(config: [String: Any]) {
+        let llm = config["llm"] as? [String: Any]
+        let callSitesRaw = (llm?["callSites"] as? [String: Any]) ?? [:]
+        var byId: [String: (provider: String?, model: String?, profile: String?)] = [:]
+        for (id, raw) in callSitesRaw {
+            guard CallSiteCatalog.validIds.contains(id),
+                  let entry = raw as? [String: Any] else { continue }
+            let provider = (entry["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let model = (entry["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let profile = (entry["profile"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            byId[id] = (provider: provider, model: model, profile: profile)
+        }
+        self.callSiteOverrides = CallSiteCatalog.all.map { entry in
+            var merged = entry
+            if let raw = byId[entry.id] {
+                merged.provider = raw.provider
+                merged.model = raw.model
+                merged.profile = raw.profile
+            } else {
+                merged.provider = nil
+                merged.model = nil
+                merged.profile = nil
+            }
+            return merged
+        }
+    }
+
+    /// Persists an override for a single call site at
+    /// `llm.callSites.<id>.{provider,model,profile}`. Nil arguments are
+    /// omitted from the patch payload — passing `provider: nil` does
+    /// **not** clear an existing provider override; use
+    /// `clearCallSiteOverride(_:)` for that.
+    ///
+    /// The local `callSiteOverrides` cache is updated optimistically so
+    /// SwiftUI views reflect the change immediately.
+    @discardableResult
+    func setCallSiteOverride(
+        _ id: String,
+        provider: String? = nil,
+        model: String? = nil,
+        profile: String? = nil
+    ) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("setCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            if let provider { callSiteOverrides[index].provider = provider }
+            if let model { callSiteOverrides[index].model = model }
+            if let profile { callSiteOverrides[index].profile = profile }
+        }
+        var entry: [String: Any] = [:]
+        if let provider { entry["provider"] = provider }
+        if let model { entry["model"] = model }
+        if let profile { entry["profile"] = profile }
+        let payload: [String: Any] = ["llm": ["callSites": [id: entry]]]
+        let task = Task {
+            let success = await settingsClient.patchConfig(payload)
+            if !success {
+                log.error("Failed to patch config for llm.callSites.\(id, privacy: .public)")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Clears the override for a single call site by writing `null` to
+    /// `llm.callSites.<id>` itself, which the Zod fragment treats as
+    /// "absent" and the resolver falls back to `llm.default`.
+    ///
+    /// We null the entire entry rather than just `provider`/`model`/`profile`
+    /// because `LLMCallSiteConfig` supports additional leaves
+    /// (`maxTokens`, `effort`, `speed`, `temperature`, `thinking`,
+    /// `contextWindow`) that may have been set via manual config edits or
+    /// other clients. Clearing only the three Settings-UI-managed fields
+    /// would leave hidden overrides applied — the user couldn't truly
+    /// reset the call site.
+    @discardableResult
+    func clearCallSiteOverride(_ id: String) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("clearCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            callSiteOverrides[index].provider = nil
+            callSiteOverrides[index].model = nil
+            callSiteOverrides[index].profile = nil
+        }
+        let payload: [String: Any] = [
+            "llm": ["callSites": [id: NSNull()]],
+        ]
+        let task = Task {
+            let success = await settingsClient.patchConfig(payload)
+            if !success {
+                log.error("Failed to patch config to clear llm.callSites.\(id, privacy: .public)")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Batch update of every entry in `overrides`. Each entry's
+    /// `provider`/`model`/`profile` is written verbatim; `nil` fields are
+    /// emitted as JSON null so the daemon clears them via the same
+    /// deep-merge mechanism as `clearCallSiteOverride(_:)`.
+    ///
+    /// Useful for "reset all overrides" or "apply preset" actions that
+    /// touch many call sites in a single round trip. The local
+    /// `callSiteOverrides` cache is replaced so SwiftUI views reflect
+    /// the new state immediately.
+    @discardableResult
+    func setCallSiteOverrides(_ overrides: [CallSiteOverride]) -> Task<Bool, Never> {
+        let validOverrides = overrides.filter { CallSiteCatalog.validIds.contains($0.id) }
+        // Preserve catalog order in the local cache so SwiftUI lists stay stable.
+        // Use `uniquingKeysWith:` (last-write-wins) instead of
+        // `uniqueKeysWithValues:` to tolerate duplicate IDs from external
+        // input — the latter traps at runtime on collisions.
+        let overrideById = Dictionary(
+            validOverrides.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
+        callSiteOverrides = CallSiteCatalog.all.map { entry in
+            var merged = entry
+            if let provided = overrideById[entry.id] {
+                merged.provider = provided.provider
+                merged.model = provided.model
+                merged.profile = provided.profile
+            } else {
+                merged.provider = nil
+                merged.model = nil
+                merged.profile = nil
+            }
+            return merged
+        }
+        var callSitesPayload: [String: Any] = [:]
+        for entry in validOverrides {
+            // Emit explicit JSON null for absent fields so the daemon's
+            // deep-merge clears them rather than leaving stale values in
+            // place. Build the dict with NSNull placeholders, then
+            // overwrite with the real string values when present — this
+            // avoids the Optional-to-Any nil-flattening trap.
+            var rawEntry: [String: Any] = [
+                "provider": NSNull(),
+                "model": NSNull(),
+                "profile": NSNull(),
+            ]
+            if let provider = entry.provider { rawEntry["provider"] = provider }
+            if let model = entry.model { rawEntry["model"] = model }
+            if let profile = entry.profile { rawEntry["profile"] = profile }
+            callSitesPayload[entry.id] = rawEntry
+        }
+        // Align remote with local: any catalog entry NOT in `validOverrides`
+        // is locally cleared above (provider/model/profile -> nil), so the
+        // PATCH must explicitly clear those entries on the daemon as well.
+        // Without this, omitted entries would appear cleared in the UI but
+        // the daemon would retain their previous values, and the stale
+        // values would "reappear" on the next config sync.
+        //
+        // Null the entire `callSites.<id>` entry (rather than just the three
+        // Settings-managed fields) so any other leaves an entry might have
+        // — `maxTokens`, `effort`, `speed`, `thinking`, `contextWindow` —
+        // are cleared too. Same rationale as `clearCallSiteOverride`.
+        for entry in CallSiteCatalog.all where callSitesPayload[entry.id] == nil {
+            callSitesPayload[entry.id] = NSNull()
+        }
+        let payload: [String: Any] = ["llm": ["callSites": callSitesPayload]]
+        let task = Task {
+            let success = await settingsClient.patchConfig(payload)
+            if !success {
+                log.error("Failed to patch config for batch llm.callSites update (\(validOverrides.count, privacy: .public) entries)")
+            }
+            return success
+        }
+        return task
+    }
+
     /// Persists the selected TTS provider to the daemon config so synthesis
     /// routes through the correct backend. The canonical config path is
     /// `services.tts.provider`.
@@ -3812,6 +4018,7 @@ public final class SettingsStore: ObservableObject {
         Self.applyHostBrowserCdpInspectConfig(config, into: self)
 
         loadServiceModes(config: config)
+        loadCallSiteOverrides(config: config)
 
         // Persist enabledSince when it was defaulted so subsequent loads
         // produce a deterministic timestamp.
