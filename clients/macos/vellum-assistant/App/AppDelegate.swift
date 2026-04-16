@@ -540,7 +540,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Set up menu bar and hotkeys early so they work regardless of auth state.
-        setupMenuBar()
+        // setupMenuBar() is deferred to the next main-actor turn because
+        // NSStatusBar.system.statusItem(withLength:) performs a synchronous
+        // Mach IPC roundtrip to SystemUIServer that blocks for 1–2+ seconds
+        // on cold launch (LUM-895). Deferring via Task { @MainActor in }
+        // pays the IPC cost during an idle run-loop iteration after
+        // applicationDidFinishLaunching returns — the same pattern used by
+        // SavePanelWarmup (LUM-763). The status item is not user-interactable
+        // until the run loop starts processing events, so there is no
+        // functional regression. patchAppMenuTitles(), installFileMenuDelegate(),
+        // and setupHotKey() do not depend on the status item.
+        Task { @MainActor in
+            self.setupMenuBar()
+        }
         patchAppMenuTitles()
         installFileMenuDelegate()
         setupHotKey()
