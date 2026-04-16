@@ -208,6 +208,8 @@ class IOSConversationStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     /// Task running the SSE subscribe loop for daemon messages.
     private var subscribeTask: Task<Void, Never>?
+    /// Debounce task for conversation_list_invalidated refetch.
+    private var invalidationRefetchTask: Task<Void, Never>?
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Per-domain generation counters for observation loops. Each observation type
@@ -506,6 +508,8 @@ class IOSConversationStore: ObservableObject {
                     }
                     self.isLoadingInitialConversations = false
                     self.saveConnectedCache()
+                case .conversationListInvalidated:
+                    self.scheduleInvalidationRefetch(daemon: daemon)
                 default:
                     break
                 }
@@ -519,6 +523,9 @@ class IOSConversationStore: ObservableObject {
             conversationListGeneration += 1
             sendPageOneConversationList(daemon: daemon)
         }
+
+        invalidationRefetchTask?.cancel()
+        invalidationRefetchTask = nil
 
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .sink { [weak self, weak daemon] _ in
@@ -544,6 +551,20 @@ class IOSConversationStore: ObservableObject {
                 self.sendPageOneConversationList(daemon: daemon)
             }
             .store(in: &cancellables)
+    }
+
+    /// Trailing-edge debounce for conversation_list_invalidated events.
+    /// Cancels any pending refetch and schedules a new one after 250ms,
+    /// reusing the existing page-1 merge path.
+    private func scheduleInvalidationRefetch(daemon: GatewayConnectionManager) {
+        invalidationRefetchTask?.cancel()
+        invalidationRefetchTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.conversationListOffset = 0
+            self.conversationListGeneration += 1
+            self.sendPageOneConversationList(daemon: daemon)
+        }
     }
 
     /// Capture the current generation as expected and send a page-1 conversation-list request.
@@ -608,6 +629,8 @@ class IOSConversationStore: ObservableObject {
         // are no longer processed. setupDaemonCallbacks will start a new loop.
         subscribeTask?.cancel()
         subscribeTask = nil
+        invalidationRefetchTask?.cancel()
+        invalidationRefetchTask = nil
 
         connectionManager = newClient
         eventStreamClient = newEventStreamClient
