@@ -134,6 +134,7 @@ async function exchangeCodeForTokens(
       bodyFormat === "json"
         ? "application/json"
         : "application/x-www-form-urlencoded",
+    Accept: "application/json",
   };
 
   if (config.clientSecret && authMethod === "client_secret_basic") {
@@ -814,6 +815,7 @@ export async function refreshOAuth2Token(
       bodyFormat === "json"
         ? "application/json"
         : "application/x-www-form-urlencoded",
+    Accept: "application/json",
   };
 
   if (clientSecret && authMethod === "client_secret_basic") {
