@@ -39,7 +39,7 @@ export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
 };
 
 /** Internal ports exposed by each service's Dockerfile. */
-export const ASSISTANT_INTERNAL_PORT = 3001;
+export const ASSISTANT_INTERNAL_PORT = 7821;
 export const GATEWAY_INTERNAL_PORT = 7830;
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
