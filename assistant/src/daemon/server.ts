@@ -578,6 +578,27 @@ export class DaemonServer {
     }
   }
 
+  /**
+   * Sync the current IDENTITY.md name to the platform Assistant record
+   * without broadcasting to connected clients.  Used at startup to close
+   * the gap where a pre-existing IDENTITY.md name was never PATCHed to
+   * the platform because the file-watcher only fires on *changes*.
+   */
+  private syncIdentityToPlatform(): void {
+    try {
+      const identityPath = getWorkspacePromptPath("IDENTITY.md");
+      const content = existsSync(identityPath)
+        ? readFileSync(identityPath, "utf-8")
+        : "";
+      const fields = parseIdentityFields(content);
+      if (fields.name) {
+        syncIdentityNameToPlatform(fields.name);
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to sync identity to platform at startup");
+    }
+  }
+
   private broadcastConfigChanged(): void {
     this.broadcast({ type: "config_changed" });
   }
@@ -841,6 +862,13 @@ export class DaemonServer {
       () => this.broadcastConfigChanged(),
       () => this.broadcastFeatureFlagsChanged(),
     );
+
+    // Sync the current IDENTITY.md name to the platform record on every
+    // daemon start.  The ConfigWatcher only fires on file *changes*, so
+    // an assistant whose IDENTITY.md already contains a name before boot
+    // would never get its name synced — leaving the platform record at
+    // the default "New Assistant".  This startup call closes that gap.
+    this.syncIdentityToPlatform();
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
