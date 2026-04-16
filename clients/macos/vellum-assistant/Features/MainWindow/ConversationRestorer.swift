@@ -426,7 +426,7 @@ final class ConversationRestorer {
             while self.delegate?.isLoadingMoreConversations == true, paginationWaitAttempts < 20 {
                 paginationWaitAttempts += 1
                 try? await Task.sleep(nanoseconds: 250_000_000)
-                guard let self, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
             }
             self.fetchConversationListTask?.cancel()
             self.fetchConversationList()
