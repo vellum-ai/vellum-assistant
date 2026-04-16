@@ -228,11 +228,22 @@ public enum VFont {
     }()
 
     public static let nsMonoBold: NSFont = {
-        NSFontManager.shared.convert(nsMono, toHaveTrait: .boldFontMask)
+        let base = NSFont(name: "DMMono-Medium", size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+        let descriptor = base.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
+            ]]
+        ])
+        return NSFont(descriptor: descriptor, size: 13) ?? base
     }()
 
     public static let nsMonoItalic: NSFont = {
-        NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
+        // Synthetic italic via horizontal shear. tan(12°) matches the standard
+        // oblique angle AppKit applies when no native italic variant exists.
+        var transform = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+        return CTFontCreateCopyWithAttributes(nsMono as CTFont, 13, &transform, nil) as NSFont
     }()
 
     @MainActor
@@ -326,10 +337,6 @@ public enum VFont {
     ///
     /// Safe to call from any thread — uses only CoreText (thread-safe).
     /// Called by `FontWarmupCoordinator` during off-main warmup.
-    ///
-    /// **Note:** `nsMonoBold` and `nsMonoItalic` are excluded because they use
-    /// `NSFontManager.shared` which must be accessed on the main thread.
-    /// Use `prewarmNSFontManagerTokens()` on MainActor for those.
     public static func prewarmForAppLaunch() {
         // SwiftUI Font tokens
         _ = brandMedium
@@ -359,22 +366,9 @@ public enum VFont {
         _ = nsBodyMediumDefault
         _ = nsBodySmallDefault
         _ = nsMono
-        // NOTE: nsMonoBold and nsMonoItalic are intentionally excluded here.
-        // They use NSFontManager.shared.convert() which requires the main thread.
-        // See prewarmNSFontManagerTokens() instead.
+        _ = nsMonoBold
+        _ = nsMonoItalic
         #endif
     }
 
-    #if os(macOS)
-    /// Prewarms font tokens that depend on `NSFontManager.shared`.
-    ///
-    /// **Must be called on the main thread** — `NSFontManager` is an AppKit class
-    /// without documented thread-safety guarantees.
-    /// Called by `FontWarmupCoordinator` on `MainActor` before marking ready.
-    @MainActor
-    public static func prewarmNSFontManagerTokens() {
-        _ = nsMonoBold
-        _ = nsMonoItalic
-    }
-    #endif
 }
