@@ -50,24 +50,14 @@ struct HomeAuthCard: View {
         .padding(VSpacing.sm)
         .if(isSimple) { view in
             view
-                .background(.ultraThinMaterial, in: Capsule())
                 .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
-                .overlay(Capsule().strokeBorder(VColor.auxWhite.opacity(0.5), lineWidth: 1))
                 .clipShape(Capsule())
         }
         .if(!isSimple) { view in
             view
                 .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                )
-                .background(
                     RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                         .fill(VColor.surfaceLift.opacity(0.1))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                        .strokeBorder(VColor.auxWhite.opacity(0.5), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         }
@@ -137,7 +127,7 @@ struct HomeAuthCard: View {
         } label: {
             Text("Authorise")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundStyle(VColor.auxWhite)
+                .foregroundStyle(VColor.contentInset)
                 .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
                 .frame(height: 32)
                 .background(Capsule().fill(VColor.primaryBase))
@@ -152,7 +142,7 @@ struct HomeAuthCard: View {
         } label: {
             Text("Deny")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundStyle(VColor.auxWhite)
+                .foregroundStyle(VColor.contentInset)
                 .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
                 .frame(height: 32)
                 .background(Capsule().fill(VColor.systemNegativeStrong))
