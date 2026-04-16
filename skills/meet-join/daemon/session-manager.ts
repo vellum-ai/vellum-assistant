@@ -79,6 +79,10 @@ import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
+  type BargeInCanceller,
+  MeetBargeInWatcher,
+} from "./barge-in-watcher.js";
+import {
   type ChatOpportunityDecision,
   type ChatOpportunityDetectorStats,
   type ChatOpportunityLLMAsk,
@@ -294,6 +298,13 @@ interface ActiveSession extends MeetSession {
    * `leave()` so no orphan stream outlives the container.
    */
   ttsBridge: MeetTtsBridgeLike;
+  /**
+   * Barge-in watcher for this meeting — auto-cancels in-flight TTS when
+   * a non-bot speaker takes the floor while the bot is mid-utterance.
+   * Started in `join()` immediately after the session record is in place
+   * and torn down in `leave()` before the dispatcher is unregistered.
+   */
+  bargeInWatcher: MeetBargeInWatcherLike;
 }
 
 /**
@@ -366,6 +377,17 @@ export interface MeetTtsBridgeLike {
   activeStreamCount(): number;
 }
 
+/**
+ * Thin interface for the barge-in watcher surface the session manager
+ * uses. Lets tests swap in a fake to observe `start`/`stop` without
+ * spinning up the dispatcher + assistant-event-hub subscriptions. The
+ * real {@link MeetBargeInWatcher} satisfies this naturally.
+ */
+export interface MeetBargeInWatcherLike {
+  start(): void;
+  stop(): void;
+}
+
 /** Arguments passed to {@link MeetSessionManagerDeps.consentMonitorFactory}. */
 export interface MeetConsentMonitorFactoryArgs {
   meetingId: string;
@@ -390,6 +412,12 @@ export interface MeetTtsBridgeFactoryArgs {
   meetingId: string;
   botBaseUrl: string;
   botApiToken: string;
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.bargeInWatcherFactory}. */
+export interface MeetBargeInWatcherFactoryArgs {
+  meetingId: string;
+  sessionManager: BargeInCanceller;
 }
 
 /**
@@ -493,6 +521,16 @@ export interface MeetSessionManagerDeps {
    */
   ttsBridgeFactory?: (args: MeetTtsBridgeFactoryArgs) => MeetTtsBridgeLike;
   /**
+   * Override the barge-in watcher factory. Default constructs a
+   * {@link MeetBargeInWatcher} that subscribes to the meeting's
+   * dispatcher and the {@link assistantEventHub} for `meet.speaking_*`
+   * events. Tests can inject a fake to observe `start`/`stop` without
+   * spinning up the subscription stack.
+   */
+  bargeInWatcherFactory?: (
+    args: MeetBargeInWatcherFactoryArgs,
+  ) => MeetBargeInWatcherLike;
+  /**
    * Override the function the session manager calls to wake the agent
    * loop when the detector fires an opportunity. Default routes through
    * the runtime-level {@link wakeAgentForOpportunity} using the
@@ -547,6 +585,8 @@ class MeetSessionManagerImpl {
         defaultChatOpportunityDetectorFactory,
       ttsBridgeFactory:
         deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
+      bargeInWatcherFactory:
+        deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
     };
 
@@ -592,6 +632,11 @@ class MeetSessionManagerImpl {
       }
       try {
         void session.ttsBridge.cancelAll();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        session.bargeInWatcher.stop();
       } catch {
         /* best-effort */
       }
@@ -883,6 +928,16 @@ class MeetSessionManagerImpl {
       botApiToken,
     });
 
+    // Barge-in watcher — auto-cancels in-flight TTS when a non-bot speaker
+    // takes the floor mid-utterance. Subscribes to the dispatcher and the
+    // assistant-event-hub for `meet.speaking_*` lifecycle. Constructed
+    // before the session record is in place so the field is non-null on
+    // first read; `start()` runs below alongside the other subscribers.
+    const bargeInWatcher = this.deps.bargeInWatcherFactory({
+      meetingId,
+      sessionManager: this,
+    });
+
     const startedAt = Date.now();
     const session: ActiveSession = {
       meetingId,
@@ -901,6 +956,7 @@ class MeetSessionManagerImpl {
       storageWriter,
       chatOpportunityDetector,
       ttsBridge,
+      bargeInWatcher,
     };
     this.sessions.set(meetingId, session);
 
@@ -965,6 +1021,12 @@ class MeetSessionManagerImpl {
     // Chat-opportunity detector subscribes to the same dispatcher. Skipped
     // entirely when `proactiveChat.enabled === false` (detector is null).
     chatOpportunityDetector?.start();
+
+    // Barge-in watcher subscribes to the dispatcher (for speaker.change /
+    // transcript.chunk / participant.change) and the assistant-event-hub
+    // (for `meet.speaking_*` lifecycle). Auto-cancels in-flight TTS when
+    // a non-bot speaker takes the floor.
+    bargeInWatcher.start();
 
     // Max-meeting-minutes hard cap. Using setTimeout keeps this compatible
     // with Bun's fake-timer harness for tests.
@@ -1032,6 +1094,19 @@ class MeetSessionManagerImpl {
       log.warn(
         { err, meetingId },
         "MeetChatOpportunityDetector.dispose threw during leave — continuing teardown",
+      );
+    }
+
+    // Stop the barge-in watcher before we cancel any in-flight TTS so the
+    // synthetic `meet.speaking_ended` events emitted by `cancelAll` below
+    // don't trigger any dispatcher work in the watcher. Also clears any
+    // pending debounced cancel that hasn't fired yet.
+    try {
+      session.bargeInWatcher.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetBargeInWatcher.stop threw during leave — continuing teardown",
       );
     }
 
@@ -1419,6 +1494,11 @@ class MeetSessionManagerImpl {
             /* best-effort */
           }
           try {
+            lingering.bargeInWatcher.stop();
+          } catch {
+            /* best-effort */
+          }
+          try {
             await lingering.ttsBridge.cancelAll();
           } catch {
             /* best-effort */
@@ -1638,6 +1718,20 @@ function defaultTtsBridgeFactory(
     },
   };
   return new MeetTtsBridge(bridgeArgs, bridgeDeps);
+}
+
+/**
+ * Default {@link MeetBargeInWatcher} factory — wires the watcher to the
+ * production dispatcher + assistant-event-hub. Tests can inject a fake
+ * via {@link MeetSessionManagerDeps.bargeInWatcherFactory}.
+ */
+function defaultBargeInWatcherFactory(
+  args: MeetBargeInWatcherFactoryArgs,
+): MeetBargeInWatcherLike {
+  return new MeetBargeInWatcher({
+    meetingId: args.meetingId,
+    sessionManager: args.sessionManager,
+  });
 }
 
 /**
