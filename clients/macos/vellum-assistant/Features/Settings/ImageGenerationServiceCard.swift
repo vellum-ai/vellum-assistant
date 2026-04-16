@@ -22,6 +22,7 @@ struct ImageGenerationServiceCard: View {
     @State private var initialModel: String = ""
     /// Whether the image generation provider has a stored API key (fetched per-component).
     @State private var imageGenHasKey = false
+    @FocusState private var isApiKeyFocused: Bool
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
@@ -130,7 +131,8 @@ struct ImageGenerationServiceCard: View {
             hasKey: imageGenHasKey,
             text: $apiKeyText,
             emptyPlaceholder: "Enter your Gemini API key",
-            errorMessage: store.imageGenKeySaveError
+            errorMessage: store.imageGenKeySaveError,
+            isFocused: $isApiKeyFocused
         )
         .disabled(store.imageGenKeySaving)
     }
@@ -167,6 +169,8 @@ struct ImageGenerationServiceCard: View {
                 showToast("Gemini API key saved", .success)
             })
         }
+
+        isApiKeyFocused = false
 
         let modeChanged = draftMode != store.imageGenMode
         let pendingMode = modeChanged ? store.setImageGenMode(draftMode) : nil

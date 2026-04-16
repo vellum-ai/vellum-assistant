@@ -34,6 +34,7 @@ struct InferenceServiceCard: View {
     @State private var isSyncingProviderFromStore = false
     /// Whether the current provider has a stored API key (fetched per-component).
     @State private var providerHasKey = false
+    @FocusState private var isApiKeyFocused: Bool
 
     // MARK: - Provider Helpers
 
@@ -338,7 +339,8 @@ struct InferenceServiceCard: View {
                 if let p = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !p.isEmpty { return p }
                 return "Enter your API key"
             }(),
-            errorMessage: store.apiKeySaveError
+            errorMessage: store.apiKeySaveError,
+            isFocused: $isApiKeyFocused
         )
         .disabled(store.apiKeySaving)
     }
@@ -415,6 +417,8 @@ struct InferenceServiceCard: View {
                 showToast("\(displayName) API key saved", .success)
             })
         }
+
+        isApiKeyFocused = false
 
         // Await the mode and provider patches before writing the model so the
         // daemon's read-modify-write cycle for the model doesn't overwrite them.
