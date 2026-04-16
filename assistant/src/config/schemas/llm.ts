@@ -116,31 +116,13 @@ export const ContextWindowSchema = z.object({
 });
 export type ContextWindow = z.infer<typeof ContextWindowSchema>;
 
-/**
- * Manual deep-partial helper for `ContextWindowSchema`.
- *
- * Zod 4 dropped `ZodObject.deepPartial()`. This helper walks a single level
- * of nested ZodObject shapes and rebuilds them with every leaf marked
- * `.optional()`, which is the exact recursion depth `ContextWindowSchema`
- * needs (one level of nesting via `overflowRecovery`).
- */
-function deepPartialObject(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  schema: z.ZodObject<any>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): z.ZodObject<any> {
-  const newShape: Record<string, z.ZodTypeAny> = {};
-  for (const [key, value] of Object.entries(schema.shape)) {
-    if (value instanceof z.ZodObject) {
-      newShape[key] = deepPartialObject(value).optional();
-    } else {
-      newShape[key] = (value as z.ZodTypeAny).optional();
-    }
-  }
-  return z.object(newShape);
-}
-
-const ContextWindowDeepPartialSchema = deepPartialObject(ContextWindowSchema);
+// Zod 4 dropped `ZodObject.deepPartial()`. ContextWindowSchema has a single
+// level of nesting (`overflowRecovery`), so we make both levels optional
+// explicitly — clearer than a generic walker and avoids tripping the readonly
+// `shape` typing that LSPs flag with TS2542.
+const ContextWindowDeepPartialSchema = ContextWindowSchema.partial().extend({
+  overflowRecovery: ContextOverflowRecoverySchema.partial().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Pricing overrides
@@ -223,7 +205,7 @@ export const LLMSchema = z
       if (siteConfig?.profile == null) continue;
       if (!profileNames.has(siteConfig.profile)) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["callSites", siteId, "profile"],
           message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" is not defined in llm.profiles`,
         });
