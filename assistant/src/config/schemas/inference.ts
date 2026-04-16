@@ -42,7 +42,7 @@ export const SpeedSchema = z
   })
   .default("standard")
   .describe(
-    'Inference speed mode — "fast" enables higher output token throughput on supported models (Opus 4.6) at premium pricing',
+    'Inference speed mode — "fast" enables higher output token throughput on supported models (Opus 4.6, Opus 4.7) at premium pricing',
   );
 
 export type Speed = z.infer<typeof SpeedSchema>;

@@ -12,6 +12,7 @@ All known models by provider, so you can interpret model IDs from config:
 
 | Provider | Model ID | Display Name |
 |----------|----------|--------------|
+| Anthropic | `claude-opus-4-7` | Claude Opus 4.7 |
 | Anthropic | `claude-opus-4-6` | Claude Opus 4.6 |
 | Anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
 | Anthropic | `claude-haiku-4-5-20251001` | Claude Haiku 4.5 |
