@@ -289,11 +289,13 @@ extension AppDelegate {
     }
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
+    /// Reads the precomputed `cachedDisplayName` so this runs on every
+    /// connection-status change without recomputing the display string.
     private func menuBarTooltip() -> String {
         let activator = PTTActivator.cached
         let name = Self.appName
         guard activator.kind != .none else { return name }
-        return "\(name) — hold \(activator.displayName) to talk"
+        return "\(name) — hold \(PTTActivator.cachedDisplayName) to talk"
     }
 
     func configureMenuBarIcon(_ button: NSStatusBarButton) {
