@@ -1,8 +1,19 @@
 #if DEBUG
 import SwiftUI
+import VellumAssistantShared
 
 struct HomeGallerySection: View {
     var filter: String?
+
+    /// Register this gallery section with the shared gallery router.
+    static func registerInGallery() {
+        ComponentGalleryView.externalOverviewFactories["home"] = {
+            AnyView(HomeGallerySection())
+        }
+        ComponentGalleryView.externalComponentPageFactories["home"] = { componentID in
+            AnyView(HomeGallerySection.componentPage(componentID))
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {

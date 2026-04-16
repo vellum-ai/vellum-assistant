@@ -177,6 +177,11 @@ enum GalleryPage: Hashable {
 // MARK: - Gallery View
 
 struct ComponentGalleryView: View {
+    /// Registry for platform-specific gallery overview sections (e.g. macOS-only Home components).
+    nonisolated(unsafe) static var externalOverviewFactories: [String: () -> AnyView] = [:]
+    /// Registry for platform-specific gallery component detail pages.
+    nonisolated(unsafe) static var externalComponentPageFactories: [String: (String) -> AnyView] = [:]
+
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
@@ -371,7 +376,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection()
         case .display: DisplayGallerySection()
         case .feedback: FeedbackGallerySection()
-        case .home: HomeGallerySection()
+        case .home:
+            if let factory = ComponentGalleryView.externalOverviewFactories["home"] {
+                factory()
+            }
         case .icons: IconsGallerySection()
         case .inputs: InputsGallerySection()
         case .layout: LayoutGallerySection()
@@ -388,7 +396,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection.componentPage(componentID)
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
-        case .home: HomeGallerySection.componentPage(componentID)
+        case .home:
+            if let factory = ComponentGalleryView.externalComponentPageFactories["home"] {
+                factory(componentID)
+            }
         case .icons: IconsGallerySection.componentPage(componentID)
         case .inputs: InputsGallerySection.componentPage(componentID)
         case .layout: LayoutGallerySection.componentPage(componentID)
