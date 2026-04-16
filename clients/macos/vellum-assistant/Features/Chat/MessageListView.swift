@@ -105,6 +105,10 @@ struct MessageListView: View {
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
+    /// Filtered viewport height used by the latest-turn spacer layout.
+    /// Only viewport changes feed the content view — scroll offset and content
+    /// height stay out of the layout diff path.
+    @State var viewportHeight: CGFloat = .infinity
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
@@ -134,6 +138,11 @@ struct MessageListView: View {
                     Spacer(minLength: 0)
                 }
                 .frame(width: widths.scrollSurfaceWidth)
+                // In the inverted scroll, short content gravity-pulls to the
+                // visual bottom. Pin it to the pre-flip bottom (= visual top)
+                // so the first message always starts at the top of the viewport.
+                .frame(minHeight: viewportHeight.isFinite ? viewportHeight : nil,
+                       alignment: .bottom)
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
@@ -156,6 +165,7 @@ struct MessageListView: View {
                 scrollState.cancelAll()
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                viewportHeight = .infinity
                 highlightedMessageId = nil
             }
             .onChange(of: isSending) {
@@ -163,6 +173,9 @@ struct MessageListView: View {
             }
             .onChange(of: messages.count) {
                 handleMessagesCountChanged()
+            }
+            .onChange(of: messagesRevision) {
+                handleMessagesRevisionChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
             .onChange(of: activePendingRequestId) {

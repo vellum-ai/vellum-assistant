@@ -19,6 +19,11 @@ final class MessageListScrollState {
     /// Whether scroll indicators should be temporarily hidden.
     private(set) var scrollIndicatorsHidden: Bool = false
 
+    /// The newest non-queued user message that anchors the pinned latest-turn
+    /// section. The spacer layout keeps this row at the top of the viewport
+    /// while newer assistant content grows below it.
+    var pinnedLatestTurnAnchorMessageId: UUID?
+
     // MARK: - Geometry (not observed, updated by scroll handler)
 
     @ObservationIgnored var scrollContentHeight: CGFloat = 0
@@ -167,10 +172,12 @@ final class MessageListScrollState {
         // to prevent cross-conversation bleed-through.
         ScrollGeometryUpdateDispatcher.shared.cancel(for: self)
         currentConversationId = conversationId
+        pinnedLatestTurnAnchorMessageId = nil
         lastMessageId = nil
         scrollContentHeight = 0
         scrollContainerHeight = 0
         lastContentOffsetY = 0
+        viewportHeight = .infinity
         showScrollToLatest = false
         anchorSetTime = nil
         anchorTimeoutTask?.cancel()
@@ -204,10 +211,12 @@ final class MessageListScrollState {
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
         isPaginationInFlight = false
+        pinnedLatestTurnAnchorMessageId = nil
         lastMessageId = nil
         scrollContentHeight = 0
         scrollContainerHeight = 0
         lastContentOffsetY = 0
+        viewportHeight = .infinity
         showScrollToLatest = false
         scrollIndicatorsHidden = false
         lastPaginationCompletedAt = .distantPast

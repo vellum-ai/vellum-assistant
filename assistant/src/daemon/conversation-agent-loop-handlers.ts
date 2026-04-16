@@ -64,6 +64,8 @@ export interface EventHandlerState {
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
   exchangeOutputTokens: number;
+  /** Input tokens from the most recent LLM API call (overwritten, not accumulated). */
+  lastCallInputTokens: number;
   /** Number of actual LLM API calls within this exchange. */
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
@@ -135,6 +137,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
     exchangeOutputTokens: 0,
+    lastCallInputTokens: 0,
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
@@ -833,6 +836,7 @@ export function handleUsage(
   state.exchangeProviderName = providerName;
   state.exchangeLlmCallCount += 1;
   state.exchangeInputTokens += event.inputTokens;
+  state.lastCallInputTokens = event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;

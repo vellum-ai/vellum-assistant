@@ -194,10 +194,6 @@ import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import {
-  handleMeetInternalEvents,
-  MEET_INTERNAL_EVENTS_PATH_RE,
-} from "./routes/meet-internal.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
@@ -232,6 +228,7 @@ import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
+import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -1064,27 +1061,12 @@ export class RuntimeHttpServer {
       return await handleGuardianRefresh(req);
     }
 
-    // Meet-bot event ingress (subprocess → daemon). Handled before JWT
-    // auth because the bot presents a per-meeting bearer token minted by
-    // the session manager, not a daemon-minted JWT. The route handler
-    // validates the token against `MeetSessionEventRouter.resolveBotApiToken`
-    // — see the comment block in `routes/meet-internal.ts` explaining why
-    // this endpoint does not violate CLAUDE.md's "No New Daemon HTTP Port
-    // Consumers" rule (the bot is an assistant-spawned subprocess, not an
-    // out-of-process CLI tool or sibling service).
-    const meetInternalMatch = path.match(MEET_INTERNAL_EVENTS_PATH_RE);
-    if (meetInternalMatch && req.method === "POST") {
-      let meetingId: string;
-      try {
-        meetingId = decodeURIComponent(meetInternalMatch[1]);
-      } catch {
-        return httpError(
-          "BAD_REQUEST",
-          "Malformed percent-encoding in URL path parameter",
-          400,
-        );
-      }
-      return await handleMeetInternalEvents(req, meetingId);
+    // Skill-registered routes (e.g. meet-bot event ingress). Handled before
+    // JWT auth because skills may use their own auth (e.g. per-meeting bearer
+    // tokens minted by a session manager).
+    const skillMatch = matchSkillRoute(path, req.method);
+    if (skillMatch) {
+      return await skillMatch.route.handler(req, skillMatch.match);
     }
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
@@ -1616,6 +1598,9 @@ export class RuntimeHttpServer {
           : {}),
       groupId: displayMeta?.groupId ?? null,
       ...(forkParent ? { forkParent } : {}),
+      ...(conversation.archivedAt != null
+        ? { archivedAt: conversation.archivedAt }
+        : {}),
     };
   }
 

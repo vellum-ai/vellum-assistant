@@ -31,7 +31,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -48,7 +48,7 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.selection = nil },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onSelectConversation: { conversationId in
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
@@ -106,7 +106,7 @@ extension MainWindowView {
             )
         case .intelligence:
             IntelligencePanel(
-                onClose: { windowState.selection = nil },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onInvokeSkill: { skill in
                     let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
@@ -571,7 +571,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
+            SettingsPanel(onClose: { windowState.navigateBackOrDismiss() }, store: settingsStore, connectionManager: connectionManager, conversationManager: conversationManager, authManager: authManager, assistantFeatureFlagStore: assistantFeatureFlagStore, showToast: { msg, style in windowState.showToast(message: msg, style: style) }, onEnableIntegration: {
                     conversationManager.openConversation(
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
@@ -581,7 +581,6 @@ extension MainWindowView {
                     } else {
                         windowState.selection = nil
                     }
-                    windowState.dismissOverlay()
                 })
         case .logsAndUsage:
             LogsAndUsagePanel(
@@ -589,7 +588,7 @@ extension MainWindowView {
                 connectionManager: connectionManager,
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 usageDashboardStore: usageDashboardStore,
-                onClose: { windowState.dismissOverlay() },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onSelectConversation: { conversationId in
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
@@ -637,7 +636,7 @@ extension MainWindowView {
             )
         case .intelligence:
             IntelligencePanel(
-                onClose: { windowState.dismissOverlay() },
+                onClose: { windowState.navigateBackOrDismiss() },
                 onInvokeSkill: { skill in
                     let vm = conversationManager.openConversation(message: "Use the \(skill.name) skill") { vm in
                         vm.pendingSkillInvocation = SkillInvocationData(
@@ -680,22 +679,6 @@ extension MainWindowView {
         case .home:
             homePanelView(onDismiss: { windowState.dismissOverlay() })
         }
-    }
-
-    /// Consistent X close button for panel overlays.
-    func panelDismissAction() {
-        // Avatar customization → back to originating panel; everything else → dismiss overlay
-        if case .panel(.avatarCustomization) = windowState.selection {
-            windowState.selection = .panel(windowState.avatarCustomizationReturnPanel)
-        } else {
-            windowState.dismissOverlay()
-        }
-    }
-
-    var panelDismissButton: some View {
-        VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, action: panelDismissAction)
-            .padding(.top, VSpacing.lg)
-            .padding(.trailing, VSpacing.lg)
     }
 
     // MARK: - Dynamic Workspace

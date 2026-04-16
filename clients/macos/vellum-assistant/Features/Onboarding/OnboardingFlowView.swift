@@ -44,7 +44,7 @@ struct OnboardingFlowView: View {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             if isShowingPreChat {
-                PreChatOnboardingFlow(initialAssistantName: state.assistantName) { context in
+                PreChatOnboardingFlow { context in
                     state.preChatContext = context
                     // Update assistant name if user changed it during pre-chat
                     if let newName = context?.assistantName, !newName.isEmpty, newName != state.assistantName {
@@ -295,6 +295,7 @@ struct OnboardingFlowView: View {
                     guard !Task.isCancelled else { return }
                     guard state.hatchCompleted else { return }
                     if preChatOnboardingEnabled {
+                        PreChatOnboardingState.clearPersistedState()
                         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
                             isShowingPreChat = true
                         }

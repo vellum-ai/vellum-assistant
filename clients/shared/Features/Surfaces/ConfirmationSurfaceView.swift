@@ -2,7 +2,6 @@ import SwiftUI
 
 public struct ConfirmationSurfaceView: View {
     public let data: ConfirmationSurfaceData
-    public let actions: [SurfaceActionButton]
     public let showCardChrome: Bool
     public let onAction: (String) -> Void
 
@@ -13,30 +12,19 @@ public struct ConfirmationSurfaceView: View {
 
     @State private var selectedAction: SelectedAction?
 
-    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
+    public init(data: ConfirmationSurfaceData, showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
         self.data = data
-        self.actions = actions
         self.showCardChrome = showCardChrome
         self.onAction = onAction
     }
 
     /// The action ID to emit when the user cancels.
-    /// Uses the first server-provided action ID if exactly 2 actions are defined, otherwise defaults to "cancel".
-    private var cancelActionId: String {
-        if actions.count == 2 {
-            return actions[0].id
-        }
-        return "cancel"
-    }
+    /// Always "cancel" — the visible label is controlled by `data.cancelLabel`.
+    private var cancelActionId: String { "cancel" }
 
     /// The action ID to emit when the user confirms.
-    /// Uses the second server-provided action ID if exactly 2 actions are defined, otherwise defaults to "confirm".
-    private var confirmActionId: String {
-        if actions.count == 2 {
-            return actions[1].id
-        }
-        return "confirm"
-    }
+    /// Always "confirm" — the visible label is controlled by `data.confirmLabel`.
+    private var confirmActionId: String { "confirm" }
 
     public var body: some View {
         Group {

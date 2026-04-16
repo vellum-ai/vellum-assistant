@@ -728,6 +728,11 @@ public struct ConversationHostAccessUpdatedMessage: Decodable, Sendable {
     public let hostAccess: Bool
 }
 
+/// Server push — tells clients their sidebar conversation list is stale.
+public struct ConversationListInvalidatedMessage: Decodable, Sendable {
+    public let reason: String
+}
+
 /// Conversation title update push message emitted after first-turn auto-titling.
 /// Backed by generated `ConversationTitleUpdated`.
 public typealias ConversationTitleUpdatedMessage = ConversationTitleUpdated
@@ -2257,6 +2262,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationHostAccessUpdated(ConversationHostAccessUpdatedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
+    case conversationListInvalidated(ConversationListInvalidatedMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
@@ -2749,6 +2755,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_conversation_created":
             let message = try TaskRunConversationCreated(from: decoder)
             self = .taskRunConversationCreated(message)
+        case "conversation_list_invalidated":
+            let message = try ConversationListInvalidatedMessage(from: decoder)
+            self = .conversationListInvalidated(message)
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)

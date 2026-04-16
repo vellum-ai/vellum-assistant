@@ -418,6 +418,24 @@ extension AppDelegate {
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
                 NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
             } catch {
+                if let bootstrapError = error as? LocalBootstrapError,
+                   case .existingRegistrationConflict(let existing, let organizationId) = bootstrapError {
+                    let didRetire = await self.presentExistingRegistrationConflict(
+                        existing: existing,
+                        organizationId: organizationId
+                    )
+                    if didRetire {
+                        log.info("Retired conflicting assistant — retrying local bootstrap")
+                        self.ensureLocalAssistantApiKey()
+                        return
+                    }
+                    log.info("User cancelled conflict retire; abandoning local bootstrap")
+                    self.localBootstrapDidComplete = true
+                    SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
+                    NotificationCenter.default.post(name: .localBootstrapCompleted, object: nil)
+                    return
+                }
+
                 log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
@@ -428,6 +446,40 @@ extension AppDelegate {
                     copyableDetail: error.localizedDescription
                 )
             }
+        }
+    }
+
+    /// Returns true iff the user confirmed and the retire succeeded (caller should retry bootstrap).
+    @MainActor
+    private func presentExistingRegistrationConflict(
+        existing: PlatformAssistant,
+        organizationId: String
+    ) async -> Bool {
+        let label = existing.name ?? existing.id
+        let alert = NSAlert()
+        alert.messageText = "Another Assistant Is Already Registered"
+        alert.informativeText = "\"\(label)\" is currently registered to your account. Retire it to register this assistant in its place."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Retire & Continue")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return false
+        }
+        do {
+            try await AuthService.shared.retireSelfHostedLocalAssistant(
+                platformAssistantId: existing.id,
+                organizationId: organizationId
+            )
+            return true
+        } catch {
+            log.error("Failed to retire conflicting assistant: \(error.localizedDescription)")
+            let failureAlert = NSAlert()
+            failureAlert.messageText = "Could Not Retire Assistant"
+            failureAlert.informativeText = error.localizedDescription
+            failureAlert.alertStyle = .warning
+            failureAlert.addButton(withTitle: "OK")
+            failureAlert.runModal()
+            return false
         }
     }
 
@@ -663,9 +715,17 @@ extension AppDelegate {
             replacement = await client.forceRemoveActiveAssistant()
         }
 
+        finalizePostRetire(replacement: replacement)
+        return true
+    }
+
+    /// Post-retire orchestration shared between the explicit retire flow and
+    /// the remote-retire-detected flow: either switch to the replacement
+    /// assistant or tear down the app and show onboarding.
+    func finalizePostRetire(replacement: LockfileAssistant?) {
         if let replacement {
             performSwitchAssistant(to: replacement)
-            return true
+            return
         }
 
         // No assistants left — tear down fully and show onboarding
@@ -745,7 +805,23 @@ extension AppDelegate {
         }
 
         showOnboarding()
-        return true
+    }
+
+    /// Respond to `.managedAssistantRetiredRemotely`: the platform has no
+    /// record of our active managed assistant. Force-remove its lockfile
+    /// entry (platform deregistration is best-effort and will no-op on 404)
+    /// and run the shared post-retire flow.
+    func handleManagedAssistantRetiredRemotely() {
+        guard let activeId = LockfileAssistant.loadActiveAssistantId() else {
+            log.info("managedAssistantRetiredRemotely: no active assistant — ignoring")
+            return
+        }
+        log.warning("Managed assistant '\(activeId, privacy: .public)' no longer exists on platform — cleaning up local state")
+        Task { @MainActor in
+            let client = AssistantManagementClient.create()
+            let replacement = await client.forceRemoveActiveAssistant()
+            finalizePostRetire(replacement: replacement)
+        }
     }
 
     // MARK: - Uninstall

@@ -57,9 +57,8 @@ struct TranscriptRenderModel: Equatable {
 
     /// Whether the assistant has an active turn in progress (sending,
     /// thinking, streaming, tool running, or awaiting confirmation).
-    /// Gates the expanded min-height frame on the last assistant cell so
-    /// that idle conversations render at natural height and don't push
-    /// content above the viewport.
+    /// Used by the view layer to decide whether the latest-turn section
+    /// should render active-turn affordances and status content.
     let isActiveTurn: Bool
 }
 
@@ -109,8 +108,8 @@ struct TranscriptRowModel: Equatable, Identifiable {
     let isAnchoredThinkingRow: Bool
 
     /// When true, this row is a synthetic placeholder for the thinking
-    /// indicator — no real message content. The thinking indicator renders
-    /// inside the ForEach so it shares the same minHeight wrapper that
-    /// will later hold the real assistant message.
+    /// indicator — no real message content. The placeholder keeps stable
+    /// row identity so the latest-turn response cluster can swap from
+    /// thinking state to a real assistant message without a container jump.
     var isThinkingPlaceholder: Bool = false
 }

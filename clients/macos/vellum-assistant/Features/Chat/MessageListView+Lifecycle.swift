@@ -67,7 +67,16 @@ extension MessageListView {
     func handleSendingChanged() {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
-        if !isSending {
+        if isSending {
+            // Only pin on genuine user sends, not confirmation resumes.
+            // When the assistant resumes from awaiting_confirmation,
+            // isSending flips true but no new user bubble was added.
+            let isConfirmationResume = scrollState.lastActivityPhaseWhenIdle == "awaiting_confirmation"
+            if !isConfirmationResume,
+               let latestUserMessageId = latestPinnedTurnAnchorCandidateId(in: messages) {
+                scrollState.pinnedLatestTurnAnchorMessageId = latestUserMessageId
+            }
+        } else {
             // Capture the activity phase at the moment sending stops.
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
             // First-message detection.
@@ -76,6 +85,16 @@ extension MessageListView {
                 UserDefaults.standard.set(true, forKey: "hasEverSentMessage")
             }
         }
+    }
+
+    func handleMessagesRevisionChanged() {
+        // Queued-turn handoff updates message status without changing count.
+        // Re-check the pin anchor so it advances to the dequeued user message.
+        guard conversationId == scrollState.currentConversationId,
+              isSending,
+              let candidate = latestPinnedTurnAnchorCandidateId(in: messages),
+              candidate != scrollState.pinnedLatestTurnAnchorMessageId else { return }
+        scrollState.pinnedLatestTurnAnchorMessageId = candidate
     }
 
     func handleMessagesCountChanged() {
@@ -112,6 +131,15 @@ extension MessageListView {
                 return
             }
         }
+        // Safety net: MessageSendCoordinator publishes the new user message
+        // before flipping `isSending = true`, so count changes can arrive
+        // first. Only pin when the newest visible message is a real user send.
+        if let latestVisibleMessage = paginatedVisibleMessages.last,
+           scrollState.lastMessageId != nil,
+           latestVisibleMessage.id != scrollState.lastMessageId,
+           isPinnedLatestTurnAnchorCandidate(latestVisibleMessage) {
+            scrollState.pinnedLatestTurnAnchorMessageId = latestVisibleMessage.id
+        }
         // --- Update lastMessageId ---
         if let lastId = paginatedVisibleMessages.last?.id {
             scrollState.lastMessageId = lastId
@@ -139,6 +167,7 @@ extension MessageListView {
         // Reset view-local state.
         resizeScrollTask?.cancel()
         resizeScrollTask = nil
+        viewportHeight = .infinity
         highlightedMessageId = nil
         scrollState.highlightDismissTask?.cancel()
         scrollState.highlightDismissTask = nil
@@ -193,6 +222,18 @@ extension MessageListView {
                 scrollState.anchorTimeoutTask = nil
             }
         }
+    }
+
+    // MARK: - Latest-turn pinning
+
+    func latestPinnedTurnAnchorCandidateId(in messages: [ChatMessage]) -> UUID? {
+        messages.last(where: isPinnedLatestTurnAnchorCandidate(_:))?.id
+    }
+
+    func isPinnedLatestTurnAnchorCandidate(_ message: ChatMessage) -> Bool {
+        guard message.role == .user else { return false }
+        if case .queued = message.status { return false }
+        return true
     }
 
     // MARK: - Confirmation focus

@@ -135,6 +135,16 @@ export class ContextWindowManager {
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
   }
 
+  /**
+   * Provider key for the local token estimator. Wrapper providers (e.g.
+   * OpenRouter routing to `anthropic/*`) override `tokenEstimationProvider`
+   * so image/PDF sizing uses the same rules as the upstream API instead of
+   * the generic `base64/4` fallback.
+   */
+  private get estimationProviderName(): string {
+    return this.provider.tokenEstimationProvider ?? this.provider.name;
+  }
+
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
   private get systemPrompt(): string {
     if (this._resolvedSystemPrompt !== undefined) {
@@ -162,7 +172,7 @@ export class ContextWindowManager {
     if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.provider.name,
+        providerName: this.estimationProviderName,
         toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
@@ -194,7 +204,7 @@ export class ContextWindowManager {
     const previousEstimatedInputTokens =
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.provider.name,
+        providerName: this.estimationProviderName,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -277,7 +287,7 @@ export class ContextWindowManager {
       const didTruncate = truncatedCount > 0;
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
-            providerName: this.provider.name,
+            providerName: this.estimationProviderName,
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
@@ -349,7 +359,7 @@ export class ContextWindowManager {
       projectedMessages,
       this.systemPrompt,
       {
-        providerName: this.provider.name,
+        providerName: this.estimationProviderName,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -478,7 +488,7 @@ export class ContextWindowManager {
       compactedMessages,
       this.systemPrompt,
       {
-        providerName: this.provider.name,
+        providerName: this.estimationProviderName,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -564,7 +574,7 @@ export class ContextWindowManager {
         COMPACTION_TOOL_RESULT_MAX_CHARS,
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
-        providerName: this.provider.name,
+        providerName: this.estimationProviderName,
         toolTokenBudget: this.toolTokenBudget,
       });
     };
@@ -633,7 +643,7 @@ export class ContextWindowManager {
     );
 
     const estimateBlockTokens = (b: ContentBlock): number =>
-      estimateContentBlockTokens(b, { providerName: this.provider.name });
+      estimateContentBlockTokens(b, { providerName: this.estimationProviderName });
 
     let totalTokens = 0;
     for (const block of blocks) {

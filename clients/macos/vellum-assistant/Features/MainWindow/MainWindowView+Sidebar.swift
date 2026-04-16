@@ -48,8 +48,6 @@ extension MainWindowView {
     }
 
     /// All non-schedule/non-background conversations for the collapsed sidebar switcher.
-    /// Flat count regardless of custom group membership. Excludes auto-analysis
-    /// conversations, which live in the dedicated "Reflections" section.
     var regularConversations: [ConversationModel] {
         conversationManager.visibleConversations.filter {
             !$0.isScheduleConversation
@@ -57,13 +55,6 @@ extension MainWindowView {
                 && !$0.isChannelConversation
                 && !$0.isAutoAnalysisConversation
         }
-    }
-
-    /// Presentation split between the main conversation sections and the
-    /// "Reflections" section (auto-analysis conversations). Computed once
-    /// per render so both the filtered groups and the reflections list agree.
-    var reflectionsPresentation: ReflectionsSidebarPresentation {
-        ReflectionsSidebarPresentation(conversations: conversationManager.visibleConversations)
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.
@@ -194,7 +185,10 @@ extension MainWindowView {
                 ? .subGroups(grouper: { $0.source })
                 : .items
         let subGroupLabelProvider: ((String, [ConversationModel]) -> String)? = isBackground
-            ? { key, _ in key.prefix(1).uppercased() + key.dropFirst() }
+            ? { key, _ in
+                if key == "auto-analysis" { return "Reflections" }
+                return String(key.prefix(1).uppercased() + key.dropFirst())
+            }
             : nil
         let expandedSubGroups: Binding<Set<String>>? = isScheduled
             ? Binding(get: { sidebar.expandedScheduleGroups }, set: { sidebar.expandedScheduleGroups = $0 })
@@ -328,15 +322,7 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            // Strip auto-analysis conversations from every main section — they
-            // render separately under the Reflections section below.
-            let groupEntries = conversationManager.sidebarGroupEntries.map { entry in
-                SidebarGroupEntry(
-                    id: entry.id,
-                    group: entry.group,
-                    conversations: entry.conversations.filter { !$0.isAutoAnalysisConversation }
-                )
-            }
+            let groupEntries = conversationManager.sidebarGroupEntries
             let systemEntries = groupEntries.filter { $0.group.isSystemGroup }
             let customEntries = groupEntries.filter { !$0.group.isSystemGroup }
 
@@ -350,25 +336,6 @@ extension MainWindowView {
                 ForEach(customEntries) { entry in
                     makeSectionView(group: entry.group, conversations: entry.conversations)
                 }
-            }
-
-            // Reflections section — rendered beneath the main conversation
-            // groups when any auto-analysis conversations exist. When the
-            // `auto-analyze` assistant flag is off, the backend never emits
-            // `source == "auto-analysis"`, so this section stays hidden and
-            // the sidebar looks identical to its pre-feature state.
-            let reflections = reflectionsPresentation.reflections
-            if !reflections.isEmpty {
-                SidebarReflectionsSection(
-                    conversations: reflections,
-                    isExpanded: sidebar.expandedSections.contains(ReflectionsSidebarSectionId.id),
-                    showAll: sidebar.showAllInSection.contains(ReflectionsSidebarSectionId.id),
-                    maxCollapsed: 5,
-                    selectedConversationId: conversationManager.activeConversationId,
-                    onToggleExpand: { sidebar.toggleSection(ReflectionsSidebarSectionId.id) },
-                    onToggleShowAll: { sidebar.toggleShowAll(ReflectionsSidebarSectionId.id) },
-                    makeRow: { makeSidebarRow(conversation: $0) }
-                )
             }
 
             // Pagination fallback sentinel: when every section fits within its
@@ -608,24 +575,16 @@ extension MainWindowView {
             // MARK: Conversation Section (collapsed)
             let switcher = CollapsedConversationSwitcherPresentation(
                 regularConversations: regularConversations,
-                activeConversationId: conversationManager.activeConversationId,
-                hasReflectionConversations: !reflectionsPresentation.reflections.isEmpty
+                activeConversationId: conversationManager.activeConversationId
             )
             if switcher.showsSwitcher {
                 Button {
                     showConversationSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        Group {
-                            switch switcher.badge {
-                            case .count(let text):
-                                Text(text)
-                                    .font(.system(size: 11, weight: .semibold))
-                            case .reflectionIcon:
-                                VIconView(.sparkles, size: 12)
-                            }
-                        }
-                        .foregroundStyle(VColor.primaryBase)
+                        Text(switcher.badgeText)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(VColor.primaryBase)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)

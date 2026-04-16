@@ -1,5 +1,5 @@
 # Use debian as base image
-FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS builder
+FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS builder
 
 WORKDIR /app
 
@@ -20,8 +20,6 @@ ENV PATH="/root/.bun/bin:${PATH}"
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
-COPY packages/meet-contracts ./packages/meet-contracts
-
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile
@@ -30,7 +28,7 @@ RUN cd /app/assistant && bun install --frozen-lockfile
 COPY assistant ./assistant
 
 # Final stage
-FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
+FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
 
 WORKDIR /app/assistant
 

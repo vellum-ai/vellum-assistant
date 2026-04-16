@@ -68,6 +68,17 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
+## GitHub Actions Allowlist
+
+This repository uses a **GitHub Actions allowlist** — only pre-approved actions can run in workflows. The allowlist is managed at https://github.com/vellum-ai/vellum-assistant/settings/actions.
+
+When adding or changing a `uses:` step in any `.github/workflows/*.yml` file (e.g. a new action, or bumping an existing action to a new major version), you **must** also add the action to the allowlist. If you don't, CI and release workflows will fail with a permissions error.
+
+**Checklist for workflow changes:**
+1. Before merging, verify every `uses:` reference in your diff is already on the allowlist.
+2. If a new action is needed, request that a repo admin add it at the settings URL above.
+3. Include this in PR descriptions when adding new actions so reviewers know the allowlist needs updating.
+
 ## Keep Docs Up to Date
 
 - **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
@@ -125,6 +136,10 @@ All LLM calls must go through the provider abstraction — use `getConfiguredPro
 
 Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimized'`) instead of hardcoded model IDs. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
+## Skill Isolation
+
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. Guard test: `skill-meet-isolation.test.ts`. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
+
 ## Tooling Direction
 
 New non-skill tool registrations are strongly discouraged — prefer skills instead. See `assistant/src/tools/AGENTS.md` for rationale, approved CES exceptions, and alternatives.
@@ -147,11 +162,17 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 ## Multi-Instance Path Invariant
 
-The assistant daemon resolves its root directory as `join(homedir(), ".vellum")` via the internal `vellumRoot()` helper. Root-level paths (PID file, platform token, daemon stderr log, protected directory) always resolve under `~/.vellum/`. Remaining root-level files are being migrated to the workspace directory or removed entirely — see the phase plan in the repo for details.
+The assistant daemon's root directory is **per-instance**. `vellumRoot()` in `assistant/src/util/platform.ts` reads `BASE_DATA_DIR` — set by the CLI on every daemon and gateway spawn — and returns `join(BASE_DATA_DIR, ".vellum")`. When `BASE_DATA_DIR` is unset (containerized deployments, manual test invocations outside the CLI-spawn lifecycle), it falls back to `join(homedir(), ".vellum")`. Every root-level path (PID file, `.env`, `runtime-port`, `protected/` — with its `keys.enc`, `trust.json`, `capability-token-secret`, `credentials/`, etc. — daemon stderr log) and the workspace directory itself derive from this helper, so a single fix cascades through every consumer.
 
-The CLI (`cli/src/lib/local.ts`) still sets `BASE_DATA_DIR` when spawning named local instances. This is a legacy mechanism slated for removal — the CLI should be migrated to pass `VELLUM_WORKSPACE_DIR` (and any future per-instance env vars) instead of `BASE_DATA_DIR`. Until that migration is complete, the CLI constructs instance-scoped paths directly (e.g. `join(instanceDir, ".vellum", ...)`) rather than relying on the daemon's path helpers.
+New local hatches allocate `instanceDir` under `$XDG_DATA_HOME/vellum/assistants/<name>/` (or `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` in non-production environments), and the daemon for that instance writes everything under `<instanceDir>/.vellum/`. Existing production lockfile entries that were created before this change may have `instanceDir = homedir()`; the read path honors whatever is stored in `resources.instanceDir`, so those assistants continue to live at `~/.vellum/` with no on-disk migration.
 
-In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `vellumRoot()`. The workspace volume is shared between the assistant and gateway containers.
+`BASE_DATA_DIR` is the **canonical per-instance signal** the daemon consumes — it is not legacy and is not slated for removal. The CLI sets it in `cli/src/lib/local.ts` on every local daemon/gateway spawn, sourced from `resources.instanceDir` in the lockfile entry. The gateway (`gateway/src/paths.ts:getRootDir`) reads the same variable, so the daemon and gateway always agree on the root.
+
+Note that the CLI still writes the authoritative `vellum.pid` (and `gateway.pid`, `ngrok.pid`) for each instance externally from its own process at `<instanceDir>/.vellum/vellum.pid` during spawn. The daemon also writes its own `vellumRoot()/vellum.pid` via `getPidPath()`. These paths are identical under `BASE_DATA_DIR`, so there is no divergence in practice — the CLI-written PID is the one consulted for lifecycle commands.
+
+**XDG-shared config files** (platform-token, device-id, guardian tokens) are environment-scoped on both the CLI and daemon sides via `getXdgVellumConfigDirName()` in `assistant/src/util/platform.ts`: production resolves to `$XDG_CONFIG_HOME/vellum/`, non-production to `$XDG_CONFIG_HOME/vellum-<env>/` (for the seed environments `dev`, `staging`, `test`, `local`; unknown values fall back to `vellum` for safety). The Swift client's `VellumPaths.current.configDir` mirrors the same convention so every writer of these files agrees on the location.
+
+In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`) and `GATEWAY_SECURITY_DIR` points at the gateway's security volume. Docker mode does not set `BASE_DATA_DIR`, so the two resolution paths do not conflict — containerized deployments keep using the workspace/security-volume conventions and ignore the per-instance override. Code that needs the workspace path must use `getWorkspaceDir()` rather than assuming it lives under `vellumRoot()`.
 
 ## Qdrant Port Override
 
@@ -159,15 +180,15 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Docker Volume Architecture
 
-Docker instances use four dedicated volumes with strict per-service access boundaries, plus one host bind-mount for the Meet subsystem. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+Docker instances use five dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
 
-| Volume / bind | Mount path | Access | Contents |
+| Volume | Mount path | Access | Contents |
 |---|---|---|---|
 | **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs, `.backups/`, `.backup.key` |
 | **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
-| **Docker socket** (host bind-mount, not a named volume) | `/var/run/docker.sock` | Assistant: read-write | Host Docker Engine API — used by the Meet subsystem to spawn sibling bot containers. |
+| **Inner dockerd data** (`<name>-dockerd-data`) | `/var/lib/docker` | Assistant only | Docker image cache and container state for the inner `dockerd` running inside the assistant container (Docker-in-Docker model for Meet). Persists the pulled meet-bot image across assistant restarts. |
 
 The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
 
@@ -175,10 +196,17 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads and writes trust rules via the gateway's HTTP trust API — it has no direct filesystem access to `trust.json`. The gateway reads `trust.json` from `/gateway-security/trust.json`.
 - **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
-- **Meet bots are sibling containers, not nested.** The daemon uses `/var/run/docker.sock` to instruct the host's Docker engine to spawn them. This grants the daemon effective root on the host — acceptable for single-user local deployments, not for managed/multi-tenant mode. Managed/hosted mode is explicitly out of scope for this Docker-socket approach; future managed Meet support needs a different spawn model (see [`vellum-assistant-platform`](../vellum-assistant-platform)).
+- **Meet bots are nested (Docker-in-Docker) in Docker mode.** The assistant container runs its own `dockerd` instance under an init supervisor and spawns meet-bot containers against that inner engine. The assistant container itself runs `--privileged` (or with `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`) so the inner dockerd can create network namespaces and mount overlay filesystems. In **bare-metal mode** (assistant running directly on the host), Meet bots are **sibling** containers on the host's Docker engine — the daemon connects to the host's Docker API directly. The assistant auto-detects which mode it is in and picks the correct engine.
 - The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
 
-**Meet workspace-volume discovery**: Meet-bot sibling containers need to mount the same workspace volume as the assistant so transcripts, audio, and other meeting artifacts land on the shared per-instance volume. The assistant discovers the volume name at runtime by parsing `/proc/self/mountinfo` (see `assistant/src/meet/workspace-volume.ts`). The CLI also passes `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as a belt-and-suspenders hint so the workspace-volume helper can fall back when mountinfo yields nothing (e.g. on storage drivers with non-standard layouts).
+**Bare-metal vs Docker-mode bot spawning:**
+
+- **Bare-metal mode** (assistant process runs directly on the user's machine): Meet bots are **sibling containers** launched against the host's Docker Engine. The host's `docker ps` lists every active bot alongside any other containers the user runs. If the assistant process crashes or is killed, orphan bot containers can linger on the host — the meet-bot image's built-in max-meeting-minutes timeout is the safety net that eventually terminates them, and the assistant also cleans up on graceful shutdown.
+- **Docker mode (Docker-in-Docker)**: Meet bots are **nested containers** inside the assistant container's own `dockerd`. The *host's* `docker ps` shows only the assistant/gateway/CES containers — meet-bots are invisible at that level and only appear to `docker ps` run inside the assistant container. Bot lifecycle is tied to the assistant: if the assistant container (or the pod it lives in) dies, the inner `dockerd` dies with it and every bot container is torn down automatically, so orphans are impossible.
+
+**Security tradeoff for Docker mode:** The Docker-in-Docker model requires the assistant container to run with `--privileged`, or at minimum `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`, so the inner `dockerd` can configure cgroups, overlay mounts, and container networking. This is acceptable for single-user local deployments. Managed/hosted deployments that run on Kubernetes must configure Pod Security Admission (or an equivalent admission controller) to allow this privilege level on the assistant pod, or swap in a different bot spawn model (e.g. a Kubernetes job runner). Managed Meet support is out of scope for the Docker-in-Docker approach — see [`vellum-assistant-platform`](../vellum-assistant-platform).
+
+**Meet bot workspace mounts**: Bot containers receive a host-path bind of `<daemon-workspace>/meets/<id>/sockets` and `<daemon-workspace>/meets/<id>/out`. In Docker mode (DinD), these paths live inside the assistant container and are visible to the inner `dockerd` as regular host paths. In bare-metal mode they live on the user's machine and are bound into sibling bot containers by the host's Docker engine. There is no volume-name discovery — the Phase 1.8 subpath-mount mechanism (which parsed `/proc/self/mountinfo` and used a `VELLUM_WORKSPACE_VOLUME_NAME` env hint) was removed in Phase 1.10.
 
 **Backup paths in Docker mode**: The backup system stores local snapshots at `VELLUM_BACKUP_DIR` (default: `/workspace/.backups/`) and the encryption key at `VELLUM_BACKUP_KEY_PATH` (default: `/workspace/.backup.key`) on the workspace volume. This means workspace volume destruction loses both data and backups. For stronger isolation, a dedicated backup volume could be added in a future iteration.
 
@@ -233,11 +261,28 @@ Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Nod
 
 **Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 
-## No New Daemon HTTP Port Consumers
+## CLI ↔ Daemon Communication
 
-Do not introduce new callers of the daemon's internal HTTP port from CLI commands or other out-of-process code. The daemon HTTP API is an internal surface consumed by the gateway and native clients — CLI commands run **in-process** and must use the service/store layer directly (see `assistant/src/cli/AGENTS.md`).
+**The Unix domain socket IPC (`assistant-cli.sock`) is the preferred method
+of inter-process communication between CLI commands and the running daemon.**
+Both file-based signals (`signals/` directory + `ConfigWatcher`) and the
+daemon HTTP port are deprecated for new CLI-to-daemon interactions.
 
-When you need to publish events to connected clients (e.g. `open_url`, `avatar_updated`) from code running inside the daemon process, import and call the `assistantEventHub` singleton directly rather than adding a new HTTP endpoint. For CLI commands (which run in-process but may not share the daemon's singleton context), use the file-based signal pattern: write a JSON `ServerMessage` to `signals/emit-event` via `getSignalsDir()` — the daemon's `ConfigWatcher` picks it up and publishes via `assistantEventHub`. See `assistant/src/cli/commands/platform/connect.ts` for an example.
+New commands that need to invoke daemon-side state (conversations, wake,
+in-memory lookups) should use the `cliIpcCall()` helper from
+`assistant/src/ipc/cli-client.ts` and add a new route file in
+`assistant/src/ipc/routes/`, then register it in
+`assistant/src/ipc/routes/index.ts`. The `CliIpcServer` constructor
+auto-registers all routes from the index.
+
+The IPC protocol is newline-delimited JSON over the Unix domain socket:
+- Request:  `{ "id": string, "method": string, "params"?: object }`
+- Response: `{ "id": string, "result"?: unknown, "error"?: string }`
+
+When you need to publish events to connected clients (e.g. `open_url`,
+`avatar_updated`) from code running inside the daemon process, import and
+call the `assistantEventHub` singleton directly rather than adding a new
+HTTP endpoint.
 
 ## See Also
 

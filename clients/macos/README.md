@@ -248,7 +248,7 @@ cd assistant && bun run src/index.ts daemon start
 
 The app will auto-reconnect if the assistant process restarts.
 
-> **Multi-instance note:** The default data directory is `~/.vellum/`. When multiple instances are configured via the lockfile, paths resolve to the instance-specific directory instead. See `LockfileAssistant` for resolution logic.
+> **Multi-instance note:** Every local assistant has its own data directory at `<resources.instanceDir>/.vellum/`, stored in the lockfile entry. New production hatches allocate `instanceDir` under `~/.local/share/vellum/assistants/<name>/`; existing legacy entries with `instanceDir = ~` continue to resolve to `~/.vellum/`. Non-production environments use `~/.local/share/vellum-<env>/assistants/<name>/`. See `LockfileAssistant` and `clients/shared/Utilities/VellumPaths.swift` for resolution logic.
 
 ---
 

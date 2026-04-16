@@ -173,6 +173,33 @@ class AssistantManagementClient {
         return nil
     }
 
+    /// How a backend should react when its underlying retire operation
+    /// throws. See ``retireFailurePolicy(for:)``.
+    enum RetireFailurePolicy {
+        /// Swallow the error and auto-clean local state. Used for managed
+        /// (cloud-hosted) assistants whose cloud instance may have been
+        /// torn down even when the CLI reports failure — reconnecting to a
+        /// dead platform assistant strands the user on an unreachable /
+        /// permanently-loading screen (LUM-755).
+        case autoCleanAndFindReplacement
+        /// Re-throw the error so the caller can prompt the user with a
+        /// Force Remove / Cancel alert. Used for local assistants whose
+        /// daemon may still be running after a CLI failure.
+        case rethrow
+    }
+
+    /// Decide how to recover from a retire failure for the given assistant.
+    ///
+    /// - Important: This encodes the LUM-755 invariant: a managed retire
+    ///   failure must NOT show the Force Remove / Cancel alert and must
+    ///   NOT reconnect to the (possibly dead) platform assistant. A prior
+    ///   refactor (#24927 / #24959) collapsed this branch and regressed the
+    ///   fix — the name and unit test are the forcing function that keeps
+    ///   it from happening again. Don't inline this logic.
+    static func retireFailurePolicy(for assistant: LockfileAssistant?) -> RetireFailurePolicy {
+        return (assistant?.isManaged == true) ? .autoCleanAndFindReplacement : .rethrow
+    }
+
     /// Force-removes the active assistant's lockfile entry, clears the
     /// active ID, and returns the best remaining assistant to switch to.
     /// Used by the "Force Remove" UI path when `retire()` fails.

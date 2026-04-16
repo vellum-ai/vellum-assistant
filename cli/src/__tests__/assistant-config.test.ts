@@ -474,3 +474,127 @@ describe("legacy migration via loadAllAssistants", () => {
     );
   });
 });
+
+describe("env-scoped lockfile and migration", () => {
+  test("migrateLegacyEntry uses env-scoped multi-instance dir in non-prod", () => {
+    // GIVEN VELLUM_ENVIRONMENT=dev and an XDG_DATA_HOME override
+    const prevEnv = process.env.VELLUM_ENVIRONMENT;
+    const prevXdg = process.env.XDG_DATA_HOME;
+    const xdgDataHome = mkdtempSync(join(tmpdir(), "cli-xdg-data-"));
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_DATA_HOME = xdgDataHome;
+    try {
+      // AND a legacy local entry with no resources
+      const entry: Record<string, unknown> = {
+        assistantId: "dev-bot",
+        runtimeUrl: "http://localhost:7830",
+        cloud: "local",
+      };
+
+      // WHEN we migrate it
+      const changed = migrateLegacyEntry(entry);
+
+      // THEN resources.instanceDir points at the env-scoped multi-instance dir
+      expect(changed).toBe(true);
+      const resources = entry.resources as Record<string, unknown>;
+      expect(resources.instanceDir).toBe(
+        join(xdgDataHome, "vellum-dev", "assistants", "dev-bot"),
+      );
+    } finally {
+      if (prevEnv !== undefined) {
+        process.env.VELLUM_ENVIRONMENT = prevEnv;
+      } else {
+        delete process.env.VELLUM_ENVIRONMENT;
+      }
+      if (prevXdg !== undefined) {
+        process.env.XDG_DATA_HOME = prevXdg;
+      } else {
+        delete process.env.XDG_DATA_HOME;
+      }
+      rmSync(xdgDataHome, { recursive: true, force: true });
+    }
+  });
+
+  test("readLockfile/writeLockfile use $XDG_CONFIG_HOME/vellum-<env>/lockfile.json in non-prod", () => {
+    // The env package's xdgConfigHome() reads process.env.XDG_CONFIG_HOME
+    // fresh on every call, so redirecting via that env var works without
+    // mocking `os`. We temporarily unset VELLUM_LOCKFILE_DIR so the env
+    // package falls through to getConfigDir(env).
+    const prevEnv = process.env.VELLUM_ENVIRONMENT;
+    const prevXdgConfig = process.env.XDG_CONFIG_HOME;
+    const prevLockDir = process.env.VELLUM_LOCKFILE_DIR;
+    const xdgConfigHome = mkdtempSync(join(tmpdir(), "cli-xdg-config-"));
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    try {
+      // WHEN we save an assistant entry (which triggers writeLockfile)
+      saveAssistantEntry({
+        assistantId: "dev-env-bot",
+        runtimeUrl: "http://localhost:7830",
+        cloud: "local",
+      });
+
+      // THEN the lockfile lives at the env-scoped XDG config path
+      const expectedPath = join(xdgConfigHome, "vellum-dev", "lockfile.json");
+      const raw = JSON.parse(readFileSync(expectedPath, "utf-8"));
+      expect(raw.assistants).toHaveLength(1);
+      expect(raw.assistants[0].assistantId).toBe("dev-env-bot");
+
+      // AND readLockfile reads it back via loadAllAssistants()
+      const all = loadAllAssistants();
+      expect(all).toHaveLength(1);
+      expect(all[0].assistantId).toBe("dev-env-bot");
+    } finally {
+      if (prevEnv !== undefined) {
+        process.env.VELLUM_ENVIRONMENT = prevEnv;
+      } else {
+        delete process.env.VELLUM_ENVIRONMENT;
+      }
+      if (prevXdgConfig !== undefined) {
+        process.env.XDG_CONFIG_HOME = prevXdgConfig;
+      } else {
+        delete process.env.XDG_CONFIG_HOME;
+      }
+      if (prevLockDir !== undefined) {
+        process.env.VELLUM_LOCKFILE_DIR = prevLockDir;
+      }
+      rmSync(xdgConfigHome, { recursive: true, force: true });
+    }
+  });
+
+  test("production lockfile path is unchanged — uses .vellum.lock.json", () => {
+    // With VELLUM_ENVIRONMENT unset, the env package resolves production,
+    // whose canonical lockfile filename is `.vellum.lock.json`. This test
+    // uses the existing VELLUM_LOCKFILE_DIR=testDir override to route the
+    // lockfile to a scratch directory but verifies the FILENAME matches
+    // the production convention (not the non-prod "lockfile.json").
+    const prevEnv = process.env.VELLUM_ENVIRONMENT;
+    delete process.env.VELLUM_ENVIRONMENT;
+    try {
+      // Clear any existing lockfile from earlier tests
+      try {
+        rmSync(join(testDir, ".vellum.lock.json"));
+      } catch {
+        // ignore
+      }
+
+      saveAssistantEntry({
+        assistantId: "prod-bot",
+        runtimeUrl: "http://localhost:7830",
+        cloud: "local",
+      });
+
+      // The file should land at testDir/.vellum.lock.json — the production
+      // filename — rather than testDir/lockfile.json.
+      const prodPath = join(testDir, ".vellum.lock.json");
+      const raw = JSON.parse(readFileSync(prodPath, "utf-8"));
+      expect(raw.assistants).toHaveLength(1);
+      expect(raw.assistants[0].assistantId).toBe("prod-bot");
+    } finally {
+      if (prevEnv !== undefined) {
+        process.env.VELLUM_ENVIRONMENT = prevEnv;
+      }
+    }
+  });
+});

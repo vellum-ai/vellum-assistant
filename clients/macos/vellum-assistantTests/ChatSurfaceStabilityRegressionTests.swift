@@ -101,16 +101,16 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         ))
 
         let model2 = project(messages: messages, isSending: true, isThinking: true)
-        XCTAssertEqual(model2.rows.count, messages.count,
-                       "New user message must appear in projection")
+        XCTAssertEqual(model2.rows.count, messages.count + 1,
+                       "New user message plus the thinking placeholder must appear in projection")
         XCTAssertTrue(model2.hasUserMessage)
+        XCTAssertTrue(model2.shouldShowThinkingIndicator,
+                      "A new user send while the assistant is still busy should show the standalone thinking placeholder")
 
         // The scroll state must handle the send scenario without issues.
         let scrollState = MessageListScrollState()
         // After a send, scroll-to-latest should be hidden (user is at bottom).
-        scrollState.scrollContentHeight = 1000
-        scrollState.scrollContainerHeight = 800
-        scrollState.lastContentOffsetY = 200  // at bottom
+        scrollState.lastContentOffsetY = 0  // inverted scroll: 0 = visual bottom
         scrollState.updateScrollToLatest()
         XCTAssertFalse(scrollState.showScrollToLatest,
                        "Send must not show scroll-to-latest when at bottom")
@@ -140,7 +140,7 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
                       "Must show scroll-to-latest when far from bottom")
 
         // User scrolls back to bottom.
-        scrollState.lastContentOffsetY = 4200  // 0pt from bottom
+        scrollState.lastContentOffsetY = 0  // inverted scroll: 0 = visual bottom
         scrollState.updateScrollToLatest()
         XCTAssertFalse(scrollState.showScrollToLatest,
                        "Must hide scroll-to-latest when at bottom")
@@ -365,9 +365,7 @@ final class ChatSurfaceStabilityRegressionTests: XCTestCase {
         appendStreamingAssistantMessage(to: &messages, text: "Streaming...")
 
         let scrollState = MessageListScrollState()
-        scrollState.scrollContentHeight = 2000
-        scrollState.scrollContainerHeight = 800
-        scrollState.lastContentOffsetY = 1200  // at bottom
+        scrollState.lastContentOffsetY = 0  // inverted scroll: 0 = visual bottom
         scrollState.updateScrollToLatest()
 
         let controller = ComposerController(

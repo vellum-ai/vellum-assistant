@@ -96,7 +96,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           messages: openaiMessages,
           stream: true as const,
           stream_options: { include_usage: true },
-          ...this.extraCreateParams,
+          ...this.buildExtraCreateParams(options),
         };
 
       if (maxTokens) {
@@ -280,6 +280,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
         abortReason ? { cause: error, abortReason } : { cause: error },
       );
     }
+  }
+
+  /**
+   * Hook for subclasses to inject request-specific extra params. Defaults to
+   * the static `extraCreateParams` set on the constructor; subclasses (e.g.
+   * OpenRouter) can override to build params dynamically from `options`.
+   */
+  protected buildExtraCreateParams(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    return this.extraCreateParams;
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */

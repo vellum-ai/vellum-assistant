@@ -7,6 +7,7 @@ import {
   setBroadcastToAllClients,
 } from "../acp/index.js";
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import type { AgentEvent } from "../agent/loop.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -25,6 +26,7 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { CliIpcServer } from "../ipc/cli-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -40,12 +42,19 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
+import {
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
+import {
+  registerDefaultWakeResolver,
+  type WakeTarget,
+} from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -292,6 +301,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
+  private cliIpc = new CliIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.
   // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
@@ -570,6 +580,22 @@ export class DaemonServer {
     }
   }
 
+  /** Best-effort sync of the IDENTITY.md name to the platform record. */
+  private syncIdentityToPlatform(): void {
+    try {
+      const identityPath = getWorkspacePromptPath("IDENTITY.md");
+      const content = existsSync(identityPath)
+        ? readFileSync(identityPath, "utf-8")
+        : "";
+      const fields = parseIdentityFields(content);
+      if (fields.name) {
+        syncIdentityNameToPlatform(fields.name);
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to sync identity to platform at startup");
+    }
+  }
+
   private broadcastConfigChanged(): void {
     this.broadcast({ type: "config_changed" });
   }
@@ -779,6 +805,30 @@ export class DaemonServer {
       return { accepted: true };
     });
 
+    // Install the default resolver for `wakeAgentForOpportunity()` so
+    // internal subsystems (e.g. the Meet chat-opportunity detector wired
+    // up in `MeetSessionManager`) can invoke it without having to build
+    // a `WakeTarget` adapter themselves. The adapter wraps a live
+    // `Conversation` fetched from the in-memory map / hydrated from the
+    // DB, exposing only the narrow surface the wake helper needs.
+    registerDefaultWakeResolver(async (conversationId) => {
+      try {
+        const conversation = await this.getOrCreateConversation(conversationId);
+        return conversationToWakeTarget(conversation);
+      } catch (err) {
+        log.warn(
+          { err, conversationId },
+          "agent-wake default resolver: failed to hydrate conversation",
+        );
+        return null;
+      }
+    });
+
+    // Start the CLI IPC server. Built-in methods (wake_conversation) are
+    // registered by the constructor; CLI commands connect to this socket to
+    // invoke daemon-side operations that require in-process state.
+    this.cliIpc.start();
+
     // Wire the launchConversation helper to daemon-side state so
     // handleSurfaceAction can spawn conversations through it.
     registerLaunchConversationDeps({
@@ -814,6 +864,8 @@ export class DaemonServer {
       () => this.broadcastFeatureFlagsChanged(),
     );
 
+    this.syncIdentityToPlatform();
+
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
@@ -830,6 +882,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
+    this.cliIpc.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;
@@ -1647,4 +1700,232 @@ function extractConversationId(msg: ServerMessage): string | undefined {
     return record.conversationId as string;
   }
   return undefined;
+}
+
+/**
+ * Translate a raw {@link AgentEvent} from the agent loop into the
+ * corresponding {@link ServerMessage} wire frame. The normal user-turn
+ * path does this via the full state-aware handler in
+ * `conversation-agent-loop-handlers.ts`; the wake path has no tool
+ * accounting, title generation, or activity-state tracking to worry
+ * about, so we only need the subset that produces client-visible
+ * frames. Events that have no client-visible wire shape (usage, error,
+ * preview/input-json deltas, etc.) are dropped — they produce no UI.
+ *
+ * Keeping this translator co-located with the wake adapter preserves
+ * the runtime/daemon layering: `runtime/agent-wake.ts` never imports
+ * `message-protocol.ts` or wire shapes, and the daemon owns all
+ * translation from agent-loop semantics to client frames.
+ */
+function translateAgentEventToServerMessage(
+  event: AgentEvent,
+  conversationId: string,
+): ServerMessage | null {
+  switch (event.type) {
+    case "text_delta":
+      return {
+        type: "assistant_text_delta",
+        text: event.text,
+        conversationId,
+      };
+    case "thinking_delta":
+      return {
+        type: "assistant_thinking_delta",
+        thinking: event.thinking,
+        conversationId,
+      };
+    case "tool_use":
+      return {
+        type: "tool_use_start",
+        toolName: event.name,
+        input: event.input,
+        conversationId,
+        toolUseId: event.id,
+      };
+    case "tool_use_preview_start":
+      return {
+        type: "tool_use_preview_start",
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        conversationId,
+      };
+    case "tool_output_chunk":
+      return {
+        type: "tool_output_chunk",
+        chunk: event.chunk,
+        conversationId,
+        toolUseId: event.toolUseId,
+      };
+    case "tool_result": {
+      const imageBlocks = event.contentBlocks?.filter(
+        (b): b is Extract<typeof b, { type: "image" }> => b.type === "image",
+      );
+      const imageDataList = imageBlocks?.length
+        ? imageBlocks.map((b) => b.source.data)
+        : undefined;
+      return {
+        type: "tool_result",
+        toolName: "",
+        result: event.content,
+        isError: event.isError,
+        diff: event.diff,
+        status: event.status,
+        conversationId,
+        imageData: imageDataList?.[0],
+        imageDataList,
+        toolUseId: event.toolUseId,
+      };
+    }
+    case "server_tool_start":
+      return {
+        type: "tool_use_start",
+        toolName: event.name,
+        input: event.input,
+        conversationId,
+        toolUseId: event.toolUseId,
+      };
+    case "server_tool_complete": {
+      let resultText = "";
+      if (Array.isArray(event.content) && event.content.length > 0) {
+        resultText = (event.content as unknown[])
+          .filter(
+            (r): r is { type: string; title: string; url: string } =>
+              typeof r === "object" &&
+              r != null &&
+              (r as { type?: string }).type === "web_search_result",
+          )
+          .map((r) => `${r.title}\n${r.url}`)
+          .join("\n\n");
+      }
+      return {
+        type: "tool_result",
+        toolName: "web_search",
+        result: resultText,
+        isError: event.isError,
+        conversationId,
+        toolUseId: event.toolUseId,
+      };
+    }
+    case "message_complete":
+      return {
+        type: "message_complete",
+        conversationId,
+      };
+    // No wire frame for these — usage/error/input_json_delta are either
+    // server-internal (accounting/classification) or app-only debug
+    // streams the client doesn't surface for wake-originated turns.
+    case "input_json_delta":
+    case "usage":
+    case "error":
+      return null;
+  }
+}
+
+/**
+ * Adapt a live {@link Conversation} to the narrow {@link WakeTarget}
+ * surface expected by `wakeAgentForOpportunity()`. Kept here so the
+ * runtime-level wake helper stays decoupled from the heavyweight
+ * conversation class (see `registerDefaultWakeResolver` above).
+ *
+ * Routing notes:
+ *   - `emitAgentEvent` dispatches via `broadcastToAllClients` rather
+ *     than `sendToClient`. Several signal-injected paths reset
+ *     `sendToClient` to a no-op in their `finally` blocks (see the
+ *     `updateClient(() => {}, true)` calls in `persistAndProcessMessage`
+ *     / `processMessage`), so a wake fired on such a conversation would
+ *     find a silent sink. `broadcastToAllClients` is wired to
+ *     `this.broadcast(msg)` at construction time and always reaches the
+ *     hub, regardless of which sender the most-recent user turn left
+ *     behind.
+ *   - `persistTailMessage` mirrors the canonical user-turn handlers
+ *     (`handleMessageComplete` / the tool-result block in
+ *     `conversation-agent-loop-handlers.ts`): builds channel/interface
+ *     metadata via `provenanceFromTrustContext` plus the live turn
+ *     channel/interface contexts, persists with metadata, and syncs the
+ *     resulting row to the disk view so wake-produced messages appear
+ *     in the on-disk transcript and carry provenance tags.
+ *   - `drainQueue` delegates to the conversation so any user messages
+ *     queued while the wake was running are processed. The wake helper
+ *     calls this in its finally AFTER `markProcessing(false)`; the
+ *     order matters because `enqueueMessage` only queues when
+ *     `processing === true`.
+ */
+function conversationToWakeTarget(conversation: Conversation): WakeTarget {
+  return {
+    conversationId: conversation.conversationId,
+    agentLoop: conversation.agentLoop,
+    getMessages: () => conversation.getMessages(),
+    pushMessage: (msg) => {
+      conversation.messages.push(msg);
+    },
+    emitAgentEvent: (event) => {
+      const frame = translateAgentEventToServerMessage(
+        event,
+        conversation.conversationId,
+      );
+      if (!frame) return;
+      // Prefer `broadcastToAllClients` (wired to the hub at construction
+      // time and always live) over `sendToClient` (which several
+      // signal-injected paths reset to `() => {}` in their finally
+      // blocks). Fall back to `sendToClient` when the broadcaster is
+      // missing (e.g. in tests that construct a Conversation directly).
+      if (conversation.broadcastToAllClients) {
+        conversation.broadcastToAllClients(frame);
+      } else {
+        conversation.sendToClient(frame);
+      }
+    },
+    isProcessing: () => conversation.isProcessing(),
+    markProcessing: (on) => {
+      conversation.processing = on;
+    },
+    persistTailMessage: async (message) => {
+      // Build metadata that mirrors the canonical handlers in
+      // `conversation-agent-loop-handlers.ts`. If the live turn channel
+      // / interface contexts are missing (a wake can fire on a
+      // conversation that has never run a user turn), fall back to the
+      // conversation's origin channel/interface defaults (`"vellum"`)
+      // so persisted rows still carry valid channel/interface ids.
+      const turnChannelCtx = conversation.getTurnChannelContext();
+      const turnInterfaceCtx = conversation.getTurnInterfaceContext();
+      const metadata: Record<string, unknown> = {
+        ...provenanceFromTrustContext(conversation.trustContext),
+        userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
+        assistantMessageChannel:
+          turnChannelCtx?.assistantMessageChannel ?? "vellum",
+        userMessageInterface:
+          turnInterfaceCtx?.userMessageInterface ?? "vellum",
+        assistantMessageInterface:
+          turnInterfaceCtx?.assistantMessageInterface ?? "vellum",
+      };
+      const persisted = await addMessage(
+        conversation.conversationId,
+        message.role,
+        JSON.stringify(message.content),
+        metadata,
+      );
+      // Sync the persisted row to the disk view so wake-produced
+      // messages appear in the on-disk transcript and tools that read
+      // from disk (e.g. `messages.jsonl`-based diagnostics) see them.
+      // Mirrors the `syncMessageToDisk(...)` calls in the canonical
+      // handlers — best-effort because a sync failure must not strand
+      // the in-memory tail.
+      try {
+        const convRow = getConversation(conversation.conversationId);
+        if (convRow) {
+          syncMessageToDisk(
+            conversation.conversationId,
+            persisted.id,
+            convRow.createdAt,
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, conversationId: conversation.conversationId },
+          "wake adapter: syncMessageToDisk failed (non-fatal)",
+        );
+      }
+    },
+    drainQueue: () => conversation.drainQueue(),
+  };
 }

@@ -20,7 +20,11 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
-import { getDeprecatedDir, getWorkspaceHooksDir } from "../util/platform.js";
+import {
+  getDeprecatedDir,
+  getProtectedDir,
+  getWorkspaceHooksDir,
+} from "../util/platform.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -962,11 +966,17 @@ function isActorTokenSigningKeyPath(
   if (!filePath) return false;
   const cwd = workingDir ?? process.cwd();
   const resolvedPath = resolve(cwd, filePath);
-  const signingKeyPaths = [
-    join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-    join(getDeprecatedDir(), "actor-token-signing-key"),
-    resolve(cwd, "deprecated", "actor-token-signing-key"),
-  ];
+  // Include both the per-instance protected dir AND the legacy global
+  // ~/.vellum/protected path so upgraded machines with a host-wide signing
+  // key still classify reads as High risk.
+  const signingKeyPaths = Array.from(
+    new Set([
+      join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
+      join(getProtectedDir(), "actor-token-signing-key"),
+      join(getDeprecatedDir(), "actor-token-signing-key"),
+      resolve(cwd, "deprecated", "actor-token-signing-key"),
+    ]),
+  );
   return signingKeyPaths.includes(resolvedPath);
 }
 

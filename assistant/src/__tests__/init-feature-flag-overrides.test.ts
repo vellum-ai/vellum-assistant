@@ -1,102 +1,45 @@
 /**
- * Tests for initFeatureFlagOverrides() — the async gateway fetch that
+ * Tests for initFeatureFlagOverrides() — the async IPC call that
  * pre-populates the feature flag cache before CLI program construction.
+ *
+ * Uses the shared mock-gateway-ipc utility (installed in test-preload.ts)
+ * which mocks node:net so no test connects to a real gateway socket.
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import {
+  mockGatewayIpc,
+  resetMockGatewayIpc,
+} from "../__tests__/mock-gateway-ipc.js";
 import {
   clearFeatureFlagOverridesCache,
   initFeatureFlagOverrides,
   isAssistantFeatureFlagEnabled,
 } from "../config/assistant-feature-flags.js";
-import * as tokenService from "../runtime/auth/token-service.js";
-import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
-
-const VALID_HEX_KEY = "ab".repeat(32);
 
 beforeEach(() => {
   clearFeatureFlagOverridesCache();
-  tokenService._resetSigningKeyForTesting();
-
-  // Set up a signing key so mintEdgeRelayToken() works
-  process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
-  tokenService.initAuthSigningKey(tokenService.resolveSigningKey());
+  resetMockGatewayIpc();
 });
 
 afterEach(() => {
-  resetMockFetch();
   clearFeatureFlagOverridesCache();
-  tokenService._resetSigningKeyForTesting();
-  delete process.env.ACTOR_TOKEN_SIGNING_KEY;
+  resetMockGatewayIpc();
 });
 
 describe("initFeatureFlagOverrides", () => {
-  it("populates cache from gateway fetch response", async () => {
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      {
-        body: {
-          flags: [
-            {
-              key: "foo-enabled",
-              enabled: true,
-              label: "Foo",
-              defaultEnabled: false,
-              description: "",
-            },
-            {
-              key: "bar-enabled",
-              enabled: true,
-              label: "Bar",
-              defaultEnabled: true,
-              description: "",
-            },
-          ],
-        },
-        status: 200,
-      },
-    );
+  it("populates cache from gateway IPC response", async () => {
+    mockGatewayIpc({ "foo-enabled": true, "bar-enabled": true });
 
     await initFeatureFlagOverrides();
 
     const config = {} as any;
     expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
     expect(isAssistantFeatureFlagEnabled("bar-enabled", config)).toBe(true);
-
-    // Verify fetch was called with correct URL and auth header
-    const calls = getMockFetchCalls();
-    expect(calls.length).toBe(1);
-    expect(calls[0].path).toContain("/v1/feature-flags");
-    const headers = calls[0].init.headers as Record<string, string> | undefined;
-    expect(headers).toHaveProperty("Authorization");
   });
 
-  it("sends a valid Bearer JWT in the Authorization header", async () => {
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      { body: { flags: [] }, status: 200 },
-    );
-
-    await initFeatureFlagOverrides();
-
-    const calls = getMockFetchCalls();
-    expect(calls.length).toBe(1);
-    const headers = calls[0].init.headers as Record<string, string> | undefined;
-    const authHeader = headers?.Authorization;
-
-    expect(authHeader).toBeDefined();
-    expect(authHeader).toMatch(/^Bearer /);
-
-    // Verify it's a valid JWT (three dot-separated base64url segments)
-    const token = authHeader!.replace("Bearer ", "");
-    const parts = token.split(".");
-    expect(parts.length).toBe(3);
-  });
-
-  it("falls back gracefully when gateway is unreachable", async () => {
-    mockFetch("/v1/feature-flags", { method: "GET" }, { status: 500 });
+  it("falls back gracefully when gateway socket is unavailable", async () => {
+    mockGatewayIpc(null, { error: true });
 
     // Should not throw
     await initFeatureFlagOverrides();
@@ -106,56 +49,20 @@ describe("initFeatureFlagOverrides", () => {
     expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
   });
 
-  it("falls back gracefully on non-OK HTTP status", async () => {
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      { body: "Unauthorized", status: 401 },
-    );
+  it("respects false values from gateway IPC", async () => {
+    mockGatewayIpc({ "gated-feature": true, "disabled-feature": false });
 
     await initFeatureFlagOverrides();
 
-    // Undeclared flags default to true without overrides
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
-  });
-
-  it("initializes signing key lazily when not yet set", async () => {
-    // Reset signing key to simulate fresh CLI subprocess
-    tokenService._resetSigningKeyForTesting();
-    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
-
-    expect(tokenService.isSigningKeyInitialized()).toBe(false);
-
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      {
-        body: {
-          flags: [{ key: "expected-enabled", enabled: true }],
-        },
-        status: 200,
-      },
-    );
-
-    await initFeatureFlagOverrides();
-
-    // Signing key should have been initialized during the fetch
-    expect(tokenService.isSigningKeyInitialized()).toBe(true);
-
-    // And the flag should be resolved correctly
-    const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("expected-enabled", config)).toBe(
-      true,
+    expect(isAssistantFeatureFlagEnabled("gated-feature", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("disabled-feature", config)).toBe(
+      false,
     );
   });
 
   it("does not cache empty gateway response", async () => {
-    mockFetch(
-      "/v1/feature-flags",
-      { method: "GET" },
-      { body: { flags: [] }, status: 200 },
-    );
+    mockGatewayIpc({});
 
     await initFeatureFlagOverrides();
 
@@ -163,5 +70,24 @@ describe("initFeatureFlagOverrides", () => {
     // a cached empty map)
     const config = {} as any;
     expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
+  });
+
+  it("does not re-fetch when cache is already populated", async () => {
+    mockGatewayIpc({ "first-call": true });
+
+    await initFeatureFlagOverrides();
+
+    // Change what IPC would return — if the guard is broken and init
+    // re-fetches, "first-call" would flip to false.
+    resetMockGatewayIpc();
+    mockGatewayIpc({ "first-call": false, "second-call": true });
+
+    await initFeatureFlagOverrides();
+
+    const config = {} as any;
+    // first-call must still be true (from the cached first fetch)
+    expect(isAssistantFeatureFlagEnabled("first-call", config)).toBe(true);
+    // second-call should not be in the cache since init was a no-op
+    expect(isAssistantFeatureFlagEnabled("second-call", config)).toBe(true); // defaults to true (undeclared)
   });
 });

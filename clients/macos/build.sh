@@ -140,26 +140,6 @@ MODULE_CACHE_FLAGS="-Xswiftc -module-cache-path -Xswiftc $SPM_MODULE_CACHE -Xcc 
 
 BUNDLE_ID="com.vellum.vellum-assistant"
 APP_NAME="vellum-assistant"
-# Read the dock display name persisted by the running app (assistant name),
-# falling back to "Vellum" if not set. Can be overridden via env var.
-_DOCK_LABEL_FILE="$HOME/.vellum/.dock-display-name"
-if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
-    _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
-    # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
-    # that would produce invalid Info.plist XML or break file paths.
-    if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
-        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
-        BUNDLE_DISPLAY_NAME="Vellum"
-    else
-        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
-    fi
-fi
-BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
-APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
-CONTENTS="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS/MacOS"
-RESOURCES_DIR="$CONTENTS/Resources"
-FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_VERSION="3.17.0"
 KATA_KERNEL_ARCHIVE_URL="${KATA_KERNEL_ARCHIVE_URL:-https://github.com/kata-containers/kata-containers/releases/download/$KATA_KERNEL_VERSION/kata-static-$KATA_KERNEL_VERSION-arm64.tar.xz}"
 # When bumping KATA_KERNEL_VERSION, update both SHAs:
@@ -170,7 +150,6 @@ KATA_KERNEL_SHA256="67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af
 KATA_KERNEL_CACHE_DIR="${KATA_KERNEL_CACHE_DIR:-$SCRIPT_DIR/.container-cache/kata-$KATA_KERNEL_VERSION-arm64}"
 KATA_KERNEL_ARCHIVE_PATH="$KATA_KERNEL_CACHE_DIR/kata.tar.xz"
 KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
-KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
@@ -245,6 +224,7 @@ ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
+CES_SRC_DIR="$SCRIPT_DIR/../../credential-executor"
 
 # Chrome extension allowlist IDs injected into compiled binaries as a fallback
 # for packaged runs where repo-relative `meta/browser-extension/...` paths are
@@ -317,15 +297,22 @@ build_bun_binary() {
 }
 
 # ---------------------------------------------------------------------------
-# install_shared_packages — install node_modules for every package under
-# packages/. assistant/, cli/, gateway/, etc. reference these via file: deps
-# that point at TypeScript source, so the packages need their own node_modules
-# for transitive deps (e.g. zod) to resolve during tsc/bun build. Must run
-# before any build_bun_binary invocation, from any build mode.
+# install_shared_packages — install node_modules for every first-party package
+# that the assistant/cli/gateway binaries import from. They reference these via
+# file: deps (or direct relative imports) that point at TypeScript source, so
+# the packages need their own node_modules for transitive deps (e.g. zod) to
+# resolve during tsc/bun build. Must run before any build_bun_binary invocation,
+# from any build mode.
 # ---------------------------------------------------------------------------
 install_shared_packages() {
     command -v bun &>/dev/null || return 0
-    for pkg_dir in "$SCRIPT_DIR"/../../packages/*/; do
+    local repo_root="$SCRIPT_DIR/../.."
+    local pkg_dirs=("$repo_root"/packages/*/)
+    # The daemon imports MeetServiceSchema from skills/meet-join/config-schema.ts
+    # and the meet-join contracts, so the skill needs node_modules for `zod` to
+    # resolve during the bundle step.
+    pkg_dirs+=("$repo_root/skills/meet-join/")
+    for pkg_dir in "${pkg_dirs[@]}"; do
         [ -f "${pkg_dir}package.json" ] || continue
         (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
     done
@@ -348,6 +335,7 @@ build_binaries() {
     (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
         (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     fi
@@ -400,6 +388,10 @@ build_binaries() {
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway" &
+    pids+=($!)
+
+    SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
+        "$SCRIPT_DIR/ces-bin" "credential-executor" &
     pids+=($!)
 
     if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
@@ -482,7 +474,7 @@ bundle_kata_kernel() {
 if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
     case "$CMD" in
         test)                          VELLUM_ENVIRONMENT="test" ;;
-        run)                           VELLUM_ENVIRONMENT="local" ;;
+        run)                           VELLUM_ENVIRONMENT="dev" ;;
         release|release-application)
             # Staging releases have a prerelease suffix in DISPLAY_VERSION
             # (e.g. "0.6.0-staging.3"); clean semver means production.
@@ -492,7 +484,7 @@ if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
                 VELLUM_ENVIRONMENT="production"
             fi
             ;;
-        *)                             VELLUM_ENVIRONMENT="local" ;;
+        *)                             VELLUM_ENVIRONMENT="dev" ;;
     esac
 fi
 export VELLUM_ENVIRONMENT
@@ -545,7 +537,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -590,7 +582,7 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
         fi
     fi
 fi
@@ -603,6 +595,38 @@ case "$VELLUM_ENVIRONMENT" in
     *)          BUNDLE_ID="com.vellum.vellum-assistant-${VELLUM_ENVIRONMENT}" ;;
 esac
 echo "BUNDLE_ID=$BUNDLE_ID"
+
+# ---------------------------------------------------------------------------
+# Resolve dock display name from the environment-scoped XDG config directory.
+# Mirrors VellumPaths.configDir (Swift) and getConfigDir() (TS):
+#   production  → $XDG_CONFIG_HOME/vellum/dock-display-name
+#   <env>       → $XDG_CONFIG_HOME/vellum-<env>/dock-display-name
+# ---------------------------------------------------------------------------
+_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+case "$VELLUM_ENVIRONMENT" in
+    production) _VELLUM_CONFIG_DIR="$_XDG_CONFIG_HOME/vellum" ;;
+    *)          _VELLUM_CONFIG_DIR="$_XDG_CONFIG_HOME/vellum-${VELLUM_ENVIRONMENT}" ;;
+esac
+_DOCK_LABEL_FILE="$_VELLUM_CONFIG_DIR/dock-display-name"
+if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
+    _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
+    # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
+    # that would produce invalid Info.plist XML or break file paths.
+    if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
+        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
+        BUNDLE_DISPLAY_NAME="Vellum"
+    else
+        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+    fi
+fi
+BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
+APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
+CONTENTS="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS/MacOS"
+RESOURCES_DIR="$CONTENTS/Resources"
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
+KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
+echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
 
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
@@ -796,6 +820,32 @@ if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     fi
 fi
 
+# Auto-build credential-executor (CES) binary if missing or stale.
+# The compiled binary is bundled alongside the daemon in Contents/MacOS/ so
+# the packaged app can locate it without requiring a separate install.
+CES_BIN_NEEDS_BUILD=false
+if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CES_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$CES_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/ces-bin/credential-executor" -print -quit 2>/dev/null)" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    elif [ "$CES_SRC_DIR/package.json" -nt "$SCRIPT_DIR/ces-bin/credential-executor" ] || \
+         [ "$CES_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+        CES_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$CES_BIN_NEEDS_BUILD" = true ]; then
+    build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
+        "$SCRIPT_DIR/ces-bin" "credential-executor"
+fi
+
+# Also rebuild if CES binary changed or newly added
+if [ -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
+    if [ ! -f "$MACOS_DIR/credential-executor" ] || [ "$SCRIPT_DIR/ces-bin/credential-executor" -nt "$MACOS_DIR/credential-executor" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Auto-build Chrome native messaging helper binary if missing or stale
 # and bun is available. This is the binary Chrome spawns via
 # chrome.runtime.connectNative("com.vellum.daemon") — see
@@ -883,6 +933,18 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-gateway"
     else
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled credential-executor (CES) binary (if available).
+    # The daemon locates this via `dirname(process.execPath)` — see
+    # getLocalBinarySearchPaths() in assistant/src/credential-execution/executable-discovery.ts.
+    CES_BIN="$SCRIPT_DIR/ces-bin/credential-executor"
+    if [ -f "$CES_BIN" ]; then
+        echo "Bundling credential-executor binary..."
+        cp "$CES_BIN" "$MACOS_DIR/credential-executor"
+        chmod +x "$MACOS_DIR/credential-executor"
+    else
+        echo "No credential-executor binary at $CES_BIN — skipping (dev mode)"
     fi
 
     # Copy bundled Chrome native messaging helper binary (if available).
@@ -1381,6 +1443,13 @@ if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
     echo "Chrome native messaging helper binary signed"
 fi
 
+# Sign credential-executor (CES) binary
+if [ -f "$MACOS_DIR/credential-executor" ]; then
+    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${CES_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
+    echo "credential-executor binary signed"
+fi
+
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
 
 # Sign any additional regular files directly under Contents/MacOS.
@@ -1393,6 +1462,7 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
         ! -name "vellum-chrome-native-host" \
+        ! -name "credential-executor" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
@@ -1459,28 +1529,13 @@ if [ "$CMD" = "run" ]; then
         done
     fi
 
-    # Kill existing instance if running (SIGTERM for clean shutdown)
-    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
-        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
-        # Wait for clean exit (max 1 second)
-        for i in {1..10}; do
-            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
-            sleep 0.1
-        done
-    fi
-    pkill -x "vellum-assistant" 2>/dev/null || true
-    sleep 0.3
-
-    # The kill block above only terminates the same-display-name instance,
-    # so any sibling bundle built from this project under a different
-    # `BUNDLE_DISPLAY_NAME` would survive and race against us — they share
-    # bundle ID, lockfile, identity cache, and UserDefaults but hold
-    # separate in-memory state. We identify siblings by reading each
-    # candidate process's `Contents/Info.plist` and matching against our
-    # `$BUNDLE_ID` rather than name-matching, so an unrelated third-party
-    # app that happens to be called "Vellum" (the ebook formatter at
-    # vellum.pub, for example) is correctly ignored.
-    other_vellum=""
+    # Kill any running instance that shares our bundle ID (SIGTERM for
+    # clean shutdown). We match by reading each candidate's Info.plist
+    # rather than by process name, so a production app
+    # (com.vellum.vellum-assistant) is never killed by a dev build
+    # (com.vellum.vellum-assistant-dev), and vice versa. An unrelated
+    # third-party app named "Vellum" (e.g. vellum.pub) is also ignored.
+    _kill_targets=""
     while IFS= read -r line; do
         pid=${line%% *}
         exe_path=${line#* }
@@ -1491,23 +1546,21 @@ if [ "$CMD" = "run" ]; then
         bundle_root=${exe_path%/Contents/MacOS/*}
         other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
         [ "$other_id" = "$BUNDLE_ID" ] || continue
-        [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
-        other_vellum+="$pid $exe_path"$'\n'
+        _kill_targets+="$pid $exe_path"$'\n'
     done < <(ps -ax -o pid=,comm=)
-    other_vellum=${other_vellum%$'\n'}
+    _kill_targets=${_kill_targets%$'\n'}
 
-    if [ -n "$other_vellum" ]; then
-        echo ""
-        echo "Killing sibling process(es) from this project (bundle ID $BUNDLE_ID):"
-        echo "$other_vellum" | sed 's/^/  /'
-        echo "$other_vellum" | awk '{print $1}' | xargs kill 2>/dev/null || true
-        # Give them a moment to exit
+    if [ -n "$_kill_targets" ]; then
+        echo "Stopping existing instance(s) (bundle ID $BUNDLE_ID):"
+        echo "$_kill_targets" | sed 's/^/  /'
+        echo "$_kill_targets" | awk '{print $1}' | xargs kill 2>/dev/null || true
+        # Wait for clean exit (max 2 seconds)
         for i in {1..20}; do
             still_running=false
             while IFS= read -r pid_line; do
-                sib_pid=${pid_line%% *}
-                kill -0 "$sib_pid" 2>/dev/null && still_running=true && break
-            done <<< "$other_vellum"
+                _pid=${pid_line%% *}
+                kill -0 "$_pid" 2>/dev/null && still_running=true && break
+            done <<< "$_kill_targets"
             $still_running || break
             sleep 0.1
         done
@@ -1515,7 +1568,7 @@ if [ "$CMD" = "run" ]; then
         # ID so we never SIGKILL a PID that was reused by an unrelated
         # process since the original snapshot.
         if $still_running; then
-            echo "Force-killing remaining sibling process(es)..."
+            echo "Force-killing remaining instance(s)..."
             survivors=""
             while IFS= read -r line; do
                 pid=${line%% *}
@@ -1527,7 +1580,6 @@ if [ "$CMD" = "run" ]; then
                 bundle_root=${exe_path%/Contents/MacOS/*}
                 other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
                 [ "$other_id" = "$BUNDLE_ID" ] || continue
-                [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
                 survivors+="$pid "
             done < <(ps -ax -o pid=,comm=)
             if [ -n "$survivors" ]; then
@@ -1701,12 +1753,31 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     echo ""
     echo "Installing to /Applications..."
 
-    # Kill running instance before replacing
-    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null 2>&1; then
-        echo "Stopping running $BUNDLE_DISPLAY_NAME..."
-        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+    # Kill running instance before replacing (scoped to our bundle ID so
+    # a dev build doesn't kill production or vice versa).
+    _install_targets=""
+    while IFS= read -r line; do
+        pid=${line%% *}
+        exe_path=${line#* }
+        case "$exe_path" in
+            */Contents/MacOS/*) ;;
+            *) continue ;;
+        esac
+        bundle_root=${exe_path%/Contents/MacOS/*}
+        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+        [ "$other_id" = "$BUNDLE_ID" ] || continue
+        _install_targets+="$pid "
+    done < <(ps -ax -o pid=,comm=)
+    _install_targets=${_install_targets% }
+    if [ -n "$_install_targets" ]; then
+        echo "Stopping running $BUNDLE_DISPLAY_NAME (bundle ID $BUNDLE_ID)..."
+        echo "$_install_targets" | xargs kill 2>/dev/null || true
         for i in {1..10}; do
-            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
+            all_gone=true
+            for _pid in $_install_targets; do
+                kill -0 "$_pid" 2>/dev/null && all_gone=false && break
+            done
+            $all_gone && break
             sleep 0.1
         done
     fi

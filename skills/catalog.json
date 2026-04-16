@@ -212,8 +212,7 @@
         "vellum": {
           "display-name": "Meet Join"
         }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
+      }
     },
     {
       "id": "notion",

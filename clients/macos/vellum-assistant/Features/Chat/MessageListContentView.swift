@@ -10,14 +10,14 @@ private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "Layou
 /// Inner rendering view that owns the expensive `LazyVStack` + `ForEach`.
 ///
 /// `Equatable` + `.equatable()` prevents body re-evaluation when only the
-/// outer `MessageListView`'s lifecycle properties (`@Binding`, `@State`,
-/// `@Observable` reads) change. The outer view's body is cheap — it creates
-/// this struct and applies scroll/lifecycle modifiers. This view's body is
-/// expensive — it drives `LazyStack.measureEstimates` over all visible cells.
+/// outer `MessageListView`'s lifecycle properties (`@Binding`, `@State`) change.
+/// The outer view's body is cheap — it creates this struct and applies
+/// scroll/lifecycle modifiers. This view's body is expensive — it drives
+/// `LazyStack.measureEstimates` over all visible cells.
 ///
-/// Closures and `@Observable` references (`scrollState`) are intentionally
-/// skipped in `==` — closures are never equal, and `@Observable` objects are
-/// identity-stable. Only data properties that affect rendered output are
+/// Closures are intentionally skipped in `==` — closures are never equal.
+/// `subagentDetailStore` is identity-compared because the instance is stable
+/// across render passes. Only data properties that affect rendered output are
 /// compared.
 ///
 /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
@@ -45,6 +45,8 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.viewportHeight == rhs.viewportHeight
+            && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
     }
 
     // MARK: - Data properties (compared in ==)
@@ -68,10 +70,8 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
-
-    // MARK: - @Observable references (not compared in ==; reads occur in closures or child views)
-
-    let scrollState: MessageListScrollState
+    let viewportHeight: CGFloat
+    let pinnedLatestTurnAnchorMessageId: UUID?
 
     // MARK: - Closures (skipped in ==)
 
@@ -93,12 +93,17 @@ struct MessageListContentView: View, Equatable {
 
     // MARK: - Thinking indicator helpers
 
-    private var effectiveBubbleMaxWidth: CGFloat {
+    fileprivate var effectiveBubbleMaxWidth: CGFloat {
         layoutMetrics.bubbleMaxWidth
     }
 
+    fileprivate var showsStandaloneLatestEdgeActivity: Bool {
+        (state.isStreamingWithoutText && !state.canInlineProcessing)
+            || (isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing)
+    }
+
     @ViewBuilder
-    private func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
+    fileprivate func thinkingIndicatorRow(hasUserMessage: Bool) -> some View {
         HStack(spacing: VSpacing.sm) {
             TypingIndicatorView()
             let label = !hasEverSentMessage && hasUserMessage
@@ -117,7 +122,7 @@ struct MessageListContentView: View, Equatable {
     }
 
     @ViewBuilder
-    private func compactingIndicatorRow() -> some View {
+    fileprivate func compactingIndicatorRow() -> some View {
         RunningIndicator(
             label: "Compacting context\u{2026}",
             showIcon: false
@@ -127,15 +132,64 @@ struct MessageListContentView: View, Equatable {
         .transition(.opacity)
     }
 
+    @ViewBuilder
+    fileprivate func latestEdgeSentinel(isFlipped: Bool = true) -> some View {
+        Color.clear.frame(height: 1)
+            .id("scroll-bottom-anchor")
+            .if(isFlipped) { view in
+                view.flipped()
+            }
+    }
+
+    @ViewBuilder
+    fileprivate func latestEdgeActivityRow(isFlipped: Bool = true) -> some View {
+        if state.isStreamingWithoutText && !state.canInlineProcessing {
+            HStack {
+                TypingIndicatorView()
+                Spacer()
+            }
+            .frame(width: effectiveBubbleMaxWidth)
+            .id("streaming-without-text-indicator")
+            .transition(.opacity)
+            .if(isFlipped) { view in
+                view.flipped()
+            }
+        } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+            compactingIndicatorRow()
+                .if(isFlipped) { view in
+                    view.flipped()
+                }
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func orphanSubagentRow(_ subagent: SubagentInfo, isFlipped: Bool = true) -> some View {
+        HStack(spacing: 0) {
+            SubagentEventsReader(
+                store: subagentDetailStore,
+                subagent: subagent,
+                onAbort: { onAbortSubagent?(subagent.id) },
+                onTap: { onSubagentTap?(subagent.id) }
+            )
+            Spacer(minLength: 0)
+        }
+        .id("subagent-\(subagent.id)")
+        .transition(.opacity)
+        .if(isFlipped) { view in
+            view.flipped()
+        }
+    }
+
     // MARK: - Transcript row rendering
 
     /// Renders a single transcript row (either a real message cell or the
     /// synthetic thinking placeholder).
     @ViewBuilder
-    private func transcriptRow(
+    fileprivate func transcriptRow(
         row: TranscriptRowModel,
         isUnanchoredThinking: Bool,
-        thinkingLabel: String
+        thinkingLabel: String,
+        isFlipped: Bool = true
     ) -> some View {
         Group {
             if row.isThinkingPlaceholder {
@@ -201,7 +255,40 @@ struct MessageListContentView: View, Equatable {
                 .equatable()
             }
         }
-        .flipped()  // Flip each row back so content reads correctly in inverted scroll
+        .if(isFlipped) { view in
+            view.flipped()
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func queuedMarkerRow(count: Int, isFlipped: Bool = true) -> some View {
+        QueuedMessagesMarker(count: count)
+            .if(isFlipped) { view in
+                view.flipped()
+            }
+    }
+
+    @ViewBuilder
+    fileprivate func transcriptItemView(
+        _ item: TranscriptItem,
+        rowsByMessageId: [UUID: TranscriptRowModel],
+        isUnanchoredThinking: Bool,
+        thinkingLabel: String,
+        isFlipped: Bool = true
+    ) -> some View {
+        switch item {
+        case .queuedMarker(let count):
+            queuedMarkerRow(count: count, isFlipped: isFlipped)
+        case .message(let message):
+            if let row = rowsByMessageId[message.id] {
+                transcriptRow(
+                    row: row,
+                    isUnanchoredThinking: isUnanchoredThinking,
+                    thinkingLabel: thinkingLabel,
+                    isFlipped: isFlipped
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -236,46 +323,6 @@ struct MessageListContentView: View, Equatable {
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-            // ── Coordinate TOP = Visual BOTTOM (near latest messages) ──
-            // In the inverted scroll, the first items in the LazyVStack appear
-            // at the visual bottom. Place current-activity indicators here.
-
-            Color.clear.frame(height: 1)
-                .id("scroll-bottom-anchor")
-                .flipped()
-
-            if state.isStreamingWithoutText && !state.canInlineProcessing {
-                HStack {
-                    TypingIndicatorView()
-                    Spacer()
-                }
-                .frame(width: effectiveBubbleMaxWidth)
-                .id("streaming-without-text-indicator")
-                .transition(.opacity)
-                .flipped()
-            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                compactingIndicatorRow()
-                    .flipped()
-            }
-
-            ForEach(state.orphanSubagents) { subagent in
-                // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
-                HStack(spacing: 0) {
-                    SubagentEventsReader(
-                        store: subagentDetailStore,
-                        subagent: subagent,
-                        onAbort: { onAbortSubagent?(subagent.id) },
-                        onTap: { onSubagentTap?(subagent.id) }
-                    )
-                    Spacer(minLength: 0)
-                }
-                    .id("subagent-\(subagent.id)")
-                    .transition(.opacity)
-                    .flipped()
-            }
-
-            // ── Messages ──
-
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
@@ -291,28 +338,57 @@ struct MessageListContentView: View, Equatable {
                 uniqueKeysWithValues: state.rows.map { ($0.message.id, $0) }
             )
             let displayedItems = TranscriptItems.build(from: state.rows.map(\.message))
-            ForEach(displayedItems.reversed()) { item in
-                switch item {
-                case .queuedMarker(let count):
-                    QueuedMessagesMarker(count: count)
-                        .flipped()
-                case .message(let message):
-                    // Safe: every displayed message originates from `state.rows`
-                    // so `rowsByMessageId[message.id]` is always present.
-                    if let row = rowsByMessageId[message.id] {
-                        transcriptRow(
-                            row: row,
-                            isUnanchoredThinking: isUnanchoredThinking,
-                            thinkingLabel: thinkingLabel
-                        )
-                    }
+            let pinnedTurnPartition = PinnedLatestTurnPartition.split(
+                displayedItems: displayedItems,
+                pinnedLatestTurnAnchorMessageId: pinnedLatestTurnAnchorMessageId
+            )
+
+            if let anchorMessage = pinnedTurnPartition.anchorMessage,
+               let anchorRow = rowsByMessageId[anchorMessage.id] {
+                PinnedLatestTurnSection(
+                    contentView: self,
+                    viewportHeight: viewportHeight,
+                    partition: pinnedTurnPartition,
+                    rowsByMessageId: rowsByMessageId,
+                    anchorRow: anchorRow,
+                    isUnanchoredThinking: isUnanchoredThinking,
+                    thinkingLabel: thinkingLabel
+                )
+                .id("pinned-latest-turn-\(anchorMessage.id.uuidString)")
+
+                ForEach(pinnedTurnPartition.historyItems.reversed()) { item in
+                    transcriptItemView(
+                        item,
+                        rowsByMessageId: rowsByMessageId,
+                        isUnanchoredThinking: isUnanchoredThinking,
+                        thinkingLabel: thinkingLabel
+                    )
+                }
+            } else {
+                // ── Coordinate TOP = Visual BOTTOM (near latest messages) ──
+                // In the inverted scroll, the first items in the LazyVStack appear
+                // at the visual bottom. Place current-activity indicators here.
+                latestEdgeSentinel()
+                latestEdgeActivityRow()
+
+                ForEach(state.orphanSubagents) { subagent in
+                    orphanSubagentRow(subagent)
+                }
+
+                // ── Messages ──
+                ForEach(displayedItems.reversed()) { item in
+                    transcriptItemView(
+                        item,
+                        rowsByMessageId: rowsByMessageId,
+                        isUnanchoredThinking: isUnanchoredThinking,
+                        thinkingLabel: thinkingLabel
+                    )
                 }
             }
 
             // ── Coordinate BOTTOM = Visual TOP (near oldest messages) ──
             // In the inverted scroll, the last items in the LazyVStack appear
             // at the visual top. Place the page-loading indicator here.
-
             if isLoadingMoreMessages {
                 HStack {
                     Spacer()
@@ -330,5 +406,148 @@ struct MessageListContentView: View, Equatable {
         .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.xl,
                             bottom: VSpacing.md, trailing: VSpacing.xl))
         .environment(\.bubbleMaxWidth, layoutMetrics.bubbleMaxWidth)
+    }
+}
+
+// MARK: - Pinned Latest Turn
+
+struct LatestTurnSpacerCalculator {
+    static func spacerHeight(
+        viewportHeight: CGFloat,
+        anchorHeight: CGFloat,
+        responseHeight: CGFloat,
+        contentInsets: CGFloat = 0
+    ) -> CGFloat {
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return 0 }
+
+        let safeAnchorHeight = anchorHeight.isFinite ? max(0, anchorHeight) : 0
+        let safeResponseHeight = responseHeight.isFinite ? max(0, responseHeight) : 0
+        let safeInsets = contentInsets.isFinite ? max(0, contentInsets) : 0
+        return max(0, viewportHeight - safeAnchorHeight - safeResponseHeight - safeInsets)
+    }
+}
+
+struct PinnedLatestTurnPartition: Equatable {
+    let historyItems: [TranscriptItem]
+    let anchorMessage: ChatMessage?
+    let responseItems: [TranscriptItem]
+
+    static func split(
+        displayedItems: [TranscriptItem],
+        pinnedLatestTurnAnchorMessageId: UUID?
+    ) -> PinnedLatestTurnPartition {
+        guard let pinnedLatestTurnAnchorMessageId,
+              let anchorIndex = displayedItems.firstIndex(where: { item in
+                  guard case .message(let message) = item else { return false }
+                  return message.id == pinnedLatestTurnAnchorMessageId
+              }),
+              case .message(let anchorMessage) = displayedItems[anchorIndex],
+              anchorMessage.role == .user
+        else {
+            return PinnedLatestTurnPartition(
+                historyItems: displayedItems,
+                anchorMessage: nil,
+                responseItems: []
+            )
+        }
+
+        let historyItems = Array(displayedItems[..<anchorIndex])
+        let responseItems = anchorIndex < displayedItems.index(before: displayedItems.endIndex)
+            ? Array(displayedItems[displayedItems.index(after: anchorIndex)...])
+            : []
+        return PinnedLatestTurnPartition(
+            historyItems: historyItems,
+            anchorMessage: anchorMessage,
+            responseItems: responseItems
+        )
+    }
+}
+
+private struct PinnedLatestTurnSection: View {
+    let contentView: MessageListContentView
+    let viewportHeight: CGFloat
+    let partition: PinnedLatestTurnPartition
+    let rowsByMessageId: [UUID: TranscriptRowModel]
+    let anchorRow: TranscriptRowModel
+    let isUnanchoredThinking: Bool
+    let thinkingLabel: String
+
+    @State private var anchorHeight: CGFloat = 0
+    @State private var responseHeight: CGFloat = 0
+
+    private var hasResponseContent: Bool {
+        contentView.showsStandaloneLatestEdgeActivity
+            || !contentView.state.orphanSubagents.isEmpty
+            || !partition.responseItems.isEmpty
+    }
+
+    /// Vertical content insets from the outer LazyVStack padding (top + bottom).
+    private static let contentVerticalInsets: CGFloat = VSpacing.md * 2
+
+    private var spacerHeight: CGFloat {
+        LatestTurnSpacerCalculator.spacerHeight(
+            viewportHeight: viewportHeight,
+            anchorHeight: anchorHeight,
+            responseHeight: responseHeight,
+            contentInsets: Self.contentVerticalInsets
+        )
+    }
+
+    var body: some View {
+        // Two flips (ScrollView + section) cancel out, so source order
+        // equals visual order: anchor at top, response below, spacer
+        // fills remaining viewport, sentinel marks the latest edge.
+        VStack(alignment: .leading, spacing: 0) {
+            contentView.transcriptRow(
+                row: anchorRow,
+                isUnanchoredThinking: isUnanchoredThinking,
+                thinkingLabel: thinkingLabel,
+                isFlipped: false
+            )
+            .id(anchorRow.id)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { newHeight in
+                if abs(anchorHeight - newHeight) > 0.5 {
+                    anchorHeight = newHeight
+                }
+            }
+
+            responseCluster
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    if abs(responseHeight - newHeight) > 0.5 {
+                        responseHeight = newHeight
+                    }
+                }
+
+            Color.clear.frame(height: spacerHeight)
+
+            contentView.latestEdgeSentinel(isFlipped: false)
+        }
+        .flipped()
+    }
+
+    @ViewBuilder
+    private var responseCluster: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            ForEach(partition.responseItems) { item in
+                contentView.transcriptItemView(
+                    item,
+                    rowsByMessageId: rowsByMessageId,
+                    isUnanchoredThinking: isUnanchoredThinking,
+                    thinkingLabel: thinkingLabel,
+                    isFlipped: false
+                )
+            }
+
+            ForEach(contentView.state.orphanSubagents) { subagent in
+                contentView.orphanSubagentRow(subagent, isFlipped: false)
+            }
+
+            contentView.latestEdgeActivityRow(isFlipped: false)
+        }
+        .padding(.top, hasResponseContent ? VSpacing.md : 0)
     }
 }

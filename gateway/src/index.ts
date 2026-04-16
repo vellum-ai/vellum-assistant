@@ -120,6 +120,7 @@ import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { GatewayIpcServer } from "./ipc/server.js";
+import { contactRoutes } from "./ipc/contact-handlers.js";
 import {
   featureFlagRoutes,
   getMergedFeatureFlags,
@@ -1773,7 +1774,10 @@ async function main() {
   configFileWatcher.start();
 
   // ── IPC server ──
-  const ipcServer = new GatewayIpcServer([...featureFlagRoutes]);
+  const ipcServer = new GatewayIpcServer([
+    ...featureFlagRoutes,
+    ...contactRoutes,
+  ]);
   ipcServer.start();
 
   const featureFlagWatcher = new FeatureFlagWatcher();

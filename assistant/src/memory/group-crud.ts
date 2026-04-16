@@ -25,6 +25,11 @@ export interface ConversationGroupRow {
 
 export function listGroups(): ConversationGroupRow[] {
   ensureGroupMigration();
+  // Migration markers are stored as rows in conversation_groups with a leading
+  // underscore (e.g. `_backfill_complete`). System groups use the `system:`
+  // prefix and custom groups use UUIDs, so no legitimate group id starts with
+  // `_`. GLOB treats `_` as literal (unlike LIKE), so `_*` matches any id
+  // whose first character is an underscore.
   const rows = rawAll<{
     id: string;
     name: string;
@@ -33,7 +38,7 @@ export function listGroups(): ConversationGroupRow[] {
     created_at: number;
     updated_at: number;
   }>(
-    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT IN ('_backfill_complete', '_backfill_all_complete', '_sort_shift_complete') ORDER BY sort_position ASC",
+    "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT GLOB '_*' ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
     id: r.id,

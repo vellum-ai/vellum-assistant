@@ -9,7 +9,8 @@ private let log = Logger(
 /// Renames the running .app bundle back to "Vellum" and relaunches.
 ///
 /// Development builds name the .app bundle after the active assistant
-/// (e.g. "Jarvis.app") via `build.sh` reading `~/.vellum/.dock-display-name`.
+/// (e.g. "Jarvis.app") via `build.sh` reading the env-scoped XDG
+/// `dock-display-name` file (e.g. `~/.config/vellum/dock-display-name`).
 /// When the last assistant is retired, the dock label should revert to
 /// "Vellum". Since `CFBundleDisplayName` is baked into Info.plist at build
 /// time and cannot be changed at runtime without breaking the code signature,

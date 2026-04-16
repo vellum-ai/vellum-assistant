@@ -1,23 +1,47 @@
 {
-  "version": 1,
-  "source": "https://simpleicons.org",
-  "logos": [
-    "airtable",
-    "asana",
-    "discord",
-    "dropbox",
-    "figma",
-    "github",
-    "google",
-    "hubspot",
-    "linear",
-    "notion",
-    "outlook",
-    "slack",
-    "slack_channel",
-    "spotify",
-    "telegram",
-    "todoist",
-    "twitter"
-  ]
+  "version": 2,
+  "sources": {
+    "simpleicons": {
+      "url": "https://simpleicons.org",
+      "license": "CC0-1.0",
+      "logos": [
+        "airtable",
+        "asana",
+        "discord",
+        "dropbox",
+        "google",
+        "hubspot",
+        "slack_channel",
+        "spotify",
+        "telegram",
+        "todoist",
+        "twitter"
+      ]
+    },
+    "thesvg": {
+      "url": "https://github.com/glincker/thesvg",
+      "license": "MIT (tooling), per-icon brand licenses (Fair Use for brand identification)",
+      "logos": [
+        "figma",
+        "github",
+        "gmail",
+        "google-calendar",
+        "google-docs",
+        "google-drive",
+        "google-sheets",
+        "jira",
+        "linear",
+        "notion",
+        "outlook",
+        "slack"
+      ]
+    },
+    "custom": {
+      "url": null,
+      "license": "Custom (internal)",
+      "logos": [
+        "other"
+      ]
+    }
+  }
 }

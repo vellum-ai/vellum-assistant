@@ -6,36 +6,37 @@ import {
   existsSync,
   mkdirSync,
 } from "fs";
-import { homedir } from "os";
 import { join, dirname } from "path";
 
-function getXdgConfigHome(): string {
-  return process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-}
+import { getLockfilePlatformBaseUrl } from "./assistant-config.js";
+import { getConfigDir } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 
 function getPlatformTokenPath(): string {
-  return join(getXdgConfigHome(), "vellum", "platform-token");
+  return join(getConfigDir(getCurrentEnvironment()), "platform-token");
 }
 
+/**
+ * Resolve the platform API base URL. Resolution order:
+ *   1. `platformBaseUrl` persisted on the lockfile by
+ *      {@link syncConfigToLockfile} when the active assistant was last
+ *      hatched/waked. This is the source of truth for "what URL does the
+ *      currently-active assistant target" — reading the workspace
+ *      `config.json` directly is incorrect for multi-instance and
+ *      non-production XDG layouts because the CLI process has no way to
+ *      know which instance to read from without first consulting the
+ *      lockfile anyway.
+ *   2. `VELLUM_PLATFORM_URL` env var (explicit override, e.g. in CI).
+ *   3. The current environment's seed URL (e.g. `https://dev-platform.vellum.ai`
+ *      for `VELLUM_ENVIRONMENT=dev`, `https://platform.vellum.ai` for prod).
+ *      This makes the CLI environment-aware when no lockfile entry exists yet.
+ */
 export function getPlatformUrl(): string {
-  let configUrl: string | undefined;
-  try {
-    const base = process.env.BASE_DATA_DIR?.trim() || homedir();
-    const configPath = join(base, ".vellum", "workspace", "config.json");
-    if (existsSync(configPath)) {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-        string,
-        unknown
-      >;
-      const val = (raw.platform as Record<string, unknown> | undefined)
-        ?.baseUrl;
-      if (typeof val === "string" && val.trim()) configUrl = val.trim();
-    }
-  } catch {
-    // Config not available — fall through
-  }
+  const lockfileUrl = getLockfilePlatformBaseUrl();
   return (
-    configUrl || process.env.VELLUM_PLATFORM_URL || "https://platform.vellum.ai"
+    lockfileUrl ||
+    process.env.VELLUM_PLATFORM_URL?.trim() ||
+    getCurrentEnvironment().platformUrl
   );
 }
 

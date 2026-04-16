@@ -51,14 +51,20 @@ For example, the signing key used for JWT auth between the daemon and gateway is
 
 The CLI creates and manages Docker volumes for containerized instances. See the root `AGENTS.md` § Docker Volume Architecture for the full volume layout.
 
-**Volume creation** (`hatch`): Creates four volumes per instance — workspace, gateway-security, ces-security, and socket. The legacy data volume is no longer created.
+**Volume creation** (`hatch`): Creates five volumes per instance — workspace, gateway-security, ces-security, socket, and dockerd-data (the last backs the inner Docker engine used for Meet; see below). The legacy data volume is no longer created.
 
 **Volume migration** (`wake`/`hatch`): On startup, existing instances that still have a legacy data volume are migrated. `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `lib/docker.ts` copy security files from the data volume to their respective security volumes. Migrations are idempotent and non-fatal.
 
 **Volume cleanup** (`retire`): All volumes (including the legacy data volume if it exists) are removed when an instance is retired.
 
-**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.
+**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only. The `dockerd-data` volume is mounted only on the assistant container.
 
-**Meet sibling-container support** (assistant container only): In addition to the named volumes above, the assistant container receives a host bind-mount of `/var/run/docker.sock:/var/run/docker.sock` so the Meet subsystem can spawn sibling Meet-bot containers on the host's Docker engine. The CLI also injects `VELLUM_WORKSPACE_VOLUME_NAME=<name>-workspace` as a hint so the assistant's workspace-volume helper can look up the volume by name without probing `/proc/self/mountinfo`. Both are wired in `serviceDockerRunArgs()` in `lib/docker.ts`.
+**Meet Docker-in-Docker support** (assistant container only): The assistant container runs an inner `dockerd` that hosts the Meet-bot containers as nested children. The CLI supports this by:
 
-Mounting the Docker socket grants the daemon effective root on the host — acceptable for single-user local deployments, not for managed/multi-tenant mode. Managed Meet support requires a different spawn model and is out of scope for this CLI.
+- Creating a dedicated `<name>-dockerd-data` volume mounted at `/var/lib/docker` so pulled images and container state persist across assistant restarts.
+- Running the assistant container with `--privileged` (or `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`) so the inner dockerd can configure cgroups, overlay mounts, and container networking.
+- No longer bind-mounting the host's `/var/run/docker.sock`; Meet-bot spawning happens entirely inside the assistant container.
+
+Both are wired in `serviceDockerRunArgs()` in `lib/docker.ts`.
+
+The privileged assistant container is acceptable for single-user local deployments. Managed/multi-tenant mode needs a different spawn model (e.g. a Kubernetes job runner) and is out of scope for this CLI.

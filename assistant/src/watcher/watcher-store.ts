@@ -222,6 +222,37 @@ export function completeWatcherPoll(
 }
 
 /**
+ * Skip a watcher poll: apply backoff to nextPollAt without incrementing
+ * consecutiveErrors. Used when a poll is skipped for a recoverable reason
+ * (e.g. credential health gate) that should NOT count toward the circuit
+ * breaker threshold.
+ */
+export function skipWatcherPoll(id: string, reason: string): void {
+  const db = getDb();
+  const watcher = db.select().from(watchers).where(eq(watchers.id, id)).get();
+  if (!watcher) return;
+
+  const now = Date.now();
+  // Use the same backoff formula but based on existing consecutiveErrors
+  // (which stays unchanged). Minimum backoff of 30s.
+  const backoff = Math.min(
+    30_000 * Math.pow(2, watcher.consecutiveErrors),
+    60 * 60 * 1000,
+  );
+
+  db.update(watchers)
+    .set({
+      status: "idle",
+      lastError: truncate(reason, 2000, ""),
+      lastPollAt: now,
+      nextPollAt: now + backoff,
+      updatedAt: now,
+    })
+    .where(eq(watchers.id, id))
+    .run();
+}
+
+/**
  * Record a poll error: increment consecutive errors, apply backoff.
  */
 export function failWatcherPoll(id: string, error: string): void {

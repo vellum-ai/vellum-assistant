@@ -49,7 +49,8 @@ final class MessageListTypographyRefreshTests: XCTestCase {
             configuredProviders: [],
             subagentDetailStore: SubagentDetailStore(),
             assistantStatusText: nil,
-            scrollState: MessageListScrollState()
+            viewportHeight: 600,
+            pinnedLatestTurnAnchorMessageId: nil
         )
     }
 

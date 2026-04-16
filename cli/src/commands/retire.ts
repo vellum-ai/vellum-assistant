@@ -100,7 +100,12 @@ async function retireVellum(
     headers: await authHeaders(token, runtimeUrl),
   });
 
-  if (!response.ok) {
+  // Treat 404 as success: the assistant is already gone from the platform
+  // (previously retired, deleted from the web UI, or retired from another
+  // device) so the caller's job is done. Falling through to the lockfile
+  // cleanup avoids leaving a stale entry that would otherwise wedge the
+  // macOS app in a permanent health-check loop.
+  if (!response.ok && response.status !== 404) {
     const body = await response.text();
     console.error(
       `Error: Platform retire failed (${response.status}): ${body}`,
@@ -108,7 +113,13 @@ async function retireVellum(
     process.exit(1);
   }
 
-  console.log("\u2705 Platform-hosted instance retired.");
+  if (response.status === 404) {
+    console.log(
+      "\u2705 Platform-hosted instance already retired (404) — cleaning up local state.",
+    );
+  } else {
+    console.log("\u2705 Platform-hosted instance retired.");
+  }
 }
 
 function parseSource(): string | undefined {

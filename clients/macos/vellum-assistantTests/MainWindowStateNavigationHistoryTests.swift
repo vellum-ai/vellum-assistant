@@ -89,6 +89,37 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(UserDefaults.standard.string(forKey: "lastActivePanel"))
     }
 
+    func testNavigateBackOrDismissUsesHistoryWhenAvailable() {
+        // GIVEN a conversation followed by Settings
+        let state = MainWindowState()
+        let convId = UUID()
+        state.selection = .conversation(convId)
+        state.selection = .panel(.settings)
+
+        // WHEN navigateBackOrDismiss is called
+        state.navigateBackOrDismiss()
+
+        // THEN it returns to the conversation via the history stack
+        XCTAssertEqual(state.selection, .conversation(convId))
+    }
+
+    func testNavigateBackOrDismissFallsThroughWhenHistoryEmpty() {
+        // GIVEN a panel restored on app restart (empty back stack)
+        let state = MainWindowState()
+        let convId = UUID()
+        state.persistentConversationId = convId
+        state.navigationHistory.withRecordingSuppressed {
+            state.selection = .panel(.settings)
+        }
+        XCTAssertTrue(state.navigationHistory.backStack.isEmpty)
+
+        // WHEN navigateBackOrDismiss is called
+        state.navigateBackOrDismiss()
+
+        // THEN it falls back to dismissOverlay, returning to persistentConversationId
+        XCTAssertEqual(state.selection, .conversation(convId))
+    }
+
     func testCloseDynamicPanelClearsState() {
         let state = MainWindowState()
         state.selection = .app("myapp")

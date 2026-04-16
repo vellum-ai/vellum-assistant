@@ -27,6 +27,13 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// pending-confirmation heuristics.
     var cardExpansionOverrides: [UUID: Bool] = [:]
 
+    // MARK: - Thinking Duration Persistence
+
+    /// Per-card thinking durations (in seconds) for the post-tool-completion
+    /// thinking phase. Keyed by the first tool call UUID in the group.
+    /// Persisted so the thinking row survives view recycling with correct timing.
+    var thinkingDurations: [UUID: TimeInterval] = [:]
+
     // MARK: - Rehydration Tracking
 
     /// Set of group IDs (first tool call UUID) for which rehydration has already
@@ -57,6 +64,11 @@ struct ProgressCardUIState: Equatable, Sendable {
             return override
         }
         return model.shouldAutoExpand
+    }
+
+    /// Returns the persisted thinking duration for the given card, or nil if none.
+    func thinkingDuration(for cardKey: UUID) -> TimeInterval? {
+        thinkingDurations[cardKey]
     }
 
     /// Whether rehydration has already been performed for the given group.
@@ -90,6 +102,11 @@ struct ProgressCardUIState: Equatable, Sendable {
         cardExpansionOverrides[cardKey] = expanded
     }
 
+    /// Stores the thinking duration for a completed card so it survives view recycling.
+    mutating func setThinkingDuration(for cardKey: UUID, duration: TimeInterval) {
+        thinkingDurations[cardKey] = duration
+    }
+
     /// Marks a group as having been rehydrated.
     mutating func markRehydrated(groupId: UUID) {
         rehydratedGroupIds.insert(groupId)
@@ -99,6 +116,7 @@ struct ProgressCardUIState: Equatable, Sendable {
     mutating func reset() {
         expandedStepIds.removeAll()
         cardExpansionOverrides.removeAll()
+        thinkingDurations.removeAll()
         rehydratedGroupIds.removeAll()
     }
 }

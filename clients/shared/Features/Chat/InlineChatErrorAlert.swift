@@ -127,19 +127,23 @@ public struct InlineChatErrorAlert: View {
                         Group {
                             if detailIsLong {
                                 ScrollView {
-                                    Text(details)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
+                                    HStack(spacing: 0) {
+                                        Text(details)
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(VColor.contentSecondary)
+                                            .textSelection(.enabled)
+                                        Spacer(minLength: 0)
+                                    }
                                 }
                                 .frame(height: 160)
                             } else {
-                                Text(details)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
+                                HStack(spacing: 0) {
+                                    Text(details)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .textSelection(.enabled)
+                                    Spacer(minLength: 0)
+                                }
                             }
                         }
                         .padding(.horizontal, VSpacing.sm)
@@ -170,8 +174,9 @@ public struct InlineChatErrorAlert: View {
             .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(accentColor.opacity(0.06))

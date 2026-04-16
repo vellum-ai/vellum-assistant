@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
 
+import { installGatewayIpcMock } from "../__tests__/mock-gateway-ipc.js";
 import { resetDb } from "../memory/db-connection.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
@@ -30,6 +31,10 @@ process.exitCode = 0;
 // parallel test processes all read/write the same ~/.vellum/protected/keys.enc,
 // causing races when one file deletes a key while another sets it.
 _setStorePath(join(testDir, "keys.enc"));
+
+// Mock gateway IPC so no test accidentally connects to a real gateway socket.
+// Tests that need to control IPC responses use mockGatewayIpc() / resetMockGatewayIpc().
+installGatewayIpcMock();
 
 // Force-close any DB connection inherited from the parent process (e.g. when
 // the test runner is spawned by the running assistant via a pre-push hook).

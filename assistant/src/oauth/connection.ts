@@ -11,6 +11,8 @@ export interface OAuthConnectionRequest {
    * use the same credential but different base URLs).
    */
   baseUrl?: string;
+  /** Optional abort signal to cancel the request. */
+  signal?: AbortSignal;
 }
 
 export interface OAuthConnectionResponse {

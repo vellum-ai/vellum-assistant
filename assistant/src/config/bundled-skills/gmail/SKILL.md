@@ -106,7 +106,7 @@ When searching Gmail, the query uses Gmail's search operators:
 
 When a user asks to declutter, clean up, or organize their email - start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning - but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables - the user already indicated they want to keep those.
+**CRITICAL**: Never call `gmail_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, call `gmail_preferences` with `action: "add_safelist"` to persist those senders. Before building the next cleanup table, call `gmail_preferences` with `action: "list"` and exclude safelisted senders from the table — the user already indicated they want to keep those.
 
 ### Workflow
 
@@ -135,19 +135,65 @@ When a user asks to declutter, clean up, or organize their email - start scannin
    - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
    - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?" If yes, use `schedule_create` to set up a monthly declutter check.
 
+### Cold Outreach Cleanup
+
+After the newsletter/promotions pass, offer to clean up cold outreach — unsolicited emails from senders without unsubscribe links. This catches sales pitches, recruiting spam, and mass outreach that newsletter filters miss.
+
+1. **Scan**: Call `gmail_outreach_scan` (default: last 90 days, senders without `List-Unsubscribe` headers). The scan includes a `has_prior_reply` flag per sender — true means the user has previously replied to that sender.
+2. **Filter out known contacts**: Exclude senders where `has_prior_reply: true` — these are conversations, not cold outreach. If the `contacts` skill is loaded, also cross-reference against Google Contacts and exclude matches.
+3. **Classify senders** using sample subjects, email domains, and message patterns. Categorize into:
+   - **Clear junk** (pre-select for archive): loan/LOC offers, generic SaaS pitches, mass marketing from unknown domains, senders with random/concatenated domain names
+   - **Sales outreach** (pre-select for archive): targeted product pitches with personalised subject lines ("Hi [name]", "for [company]"), outreach tool domains (apollo.io, outreach.io, lemlist.com, instantly.ai, etc.)
+   - **Potentially useful** (deselect / keep by default): recruiting, investor outreach, partnership proposals, vendor introductions that reference the user's specific product or role
+   - **Ambiguous** (deselect / keep by default): anything you're not confident about
+4. **Present as a table** following the same `ui_show` pattern as the newsletter workflow. Use two visual sections:
+   - Pre-selected rows: clear junk + sales outreach
+   - Deselected rows: potentially useful + ambiguous senders (user reviews these)
+   - **Caption**: "Cold outreach from the last 90 days (senders without unsubscribe links). Pre-selected senders look like spam or sales pitches. Deselected senders may be useful — review before archiving."
+5. **Archive on user action**: Same flow as newsletter cleanup — wait for surface action button click, then batch archive.
+
+**Key principle**: Not all cold outreach is unwanted. Recruiting, investor, and partnership emails can be valuable. When uncertain, default to keeping the sender (deselected) and let the user decide.
+
+### Large Inbox Handling
+
+When a scan returns `truncated: true` or `time_budget_exceeded: true`, the inbox has more messages than a single scan pass can cover. Split subsequent scans by date range to ensure full coverage:
+
+```
+Pass 1: in:inbox older_than:90d                     (oldest backlog)
+Pass 2: in:inbox newer_than:90d older_than:30d      (recent months)
+Pass 3: in:inbox newer_than:30d older_than:7d       (recent weeks)
+Pass 4: in:inbox newer_than:7d                      (this week)
+```
+
+Merge results from all passes before presenting the final table. Each pass covers a smaller window, reducing per-scan message count and avoiding timeouts. Only split when a scan actually reports truncation — most inboxes are handled fine in a single pass.
+
 ### Edge Cases
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured - don't offer to scan more. Tell the user: "Scanned [N] messages - here are your top senders."
-- **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue - the partial results are useful as-is.
+- **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured. Offer to run additional date-range passes to cover the remaining messages (see Large Inbox Handling above).
+- **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Offer to run additional date-range passes for uncovered periods.
+
+## Cleanup Preferences (Blocklist & Safelist)
+
+The `gmail_preferences` tool persists sender preferences across cleanup sessions:
+
+- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`).
+- **Safelist**: Sender emails the user explicitly deselected (chose to keep). Exclude these senders from future cleanup tables entirely.
+
+### Workflow integration
+
+1. **Before scanning**: Call `gmail_preferences` with `action: "list"`. If blocklisted senders exist, offer to auto-archive them first ("I have N previously archived senders — want me to clean those up first?"). Remove safelisted senders from scan results before presenting the table.
+2. **After archiving**: The blocklist is updated automatically when `gmail_archive` runs with `scan_id` + `sender_ids`.
+3. **After user deselects**: When the user deselects senders from a cleanup table, call `gmail_preferences` with `action: "add_safelist"` and the deselected sender emails.
+4. **User overrides**: If the user asks to stop blocking or stop keeping a sender, use `remove_blocklist` or `remove_safelist` accordingly.
 
 ## Scan ID
 
-Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context. `gmail_outreach_scan` is a pure data aggregation tool - it finds senders without List-Unsubscribe headers (potential cold outreach) and does not use LLM classification.
+Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context. `gmail_outreach_scan` finds senders without List-Unsubscribe headers (potential cold outreach) and enriches each sender with `has_prior_reply` (whether the user has ever sent an email to that address). Use this signal to filter out legitimate correspondents before classifying cold outreach.
 
 - Pass `scan_id` + `sender_ids` to `gmail_archive` instead of `message_ids`
-- Scan results expire after **30 minutes** - if archiving fails with an expiration error, re-run the scan
+- Scan results expire after **30 minutes**. When a scan expires (`resolved === null`), archiving automatically falls back to query-based archiving per sender. If sender IDs don't match the scan results (`resolved` is empty), the tool returns an error — re-run the scan to get fresh results.
 - Raw `message_ids` still work as a fallback for non-scan workflows
 
 ## Batch Operations

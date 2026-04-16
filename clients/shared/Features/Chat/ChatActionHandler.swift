@@ -1034,7 +1034,7 @@ final class ChatActionHandler {
                 // attachments survive the secret-ingress redirect.
                 if let blockedUserMessage = capturedBlockedMessage, !blockedUserMessage.attachments.isEmpty {
                     vm.secretBlockedAttachments = blockedUserMessage.attachments.compactMap { att in
-                        guard !att.data.isEmpty || att.filePath != nil else { return nil }
+                        guard !att.data.isEmpty || att.filePath != nil || att.rawData != nil else { return nil }
                         return UserMessageAttachment(
                             filename: att.filename,
                             mimeType: att.mimeType,
@@ -1042,7 +1042,8 @@ final class ChatActionHandler {
                             extractedText: nil,
                             sizeBytes: att.sizeBytes,
                             thumbnailData: att.thumbnailData?.base64EncodedString(),
-                            filePath: att.filePath
+                            filePath: att.filePath,
+                            rawData: att.rawData
                         )
                     }
                 }

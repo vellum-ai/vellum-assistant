@@ -1,4 +1,5 @@
 import XCTest
+@testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
 final class TranscriptItemsTests: XCTestCase {
@@ -147,5 +148,68 @@ final class TranscriptItemsTests: XCTestCase {
     func test_displayId_missingMessageId_returnsNil() {
         let messages = [userMessage(text: "hi")]
         XCTAssertNil(TranscriptItems.displayId(for: UUID(), in: messages))
+    }
+
+    // MARK: - Pinned latest turn partition
+
+    func test_pinnedLatestTurnPartition_splitsAtPinnedUserMessage() {
+        let olderAssistant = assistantMessage(text: "Older")
+        let anchorUser = userMessage(text: "Anchor")
+        let responseAssistant = assistantMessage(text: "Response")
+        let displayedItems = TranscriptItems.build(from: [olderAssistant, anchorUser, responseAssistant])
+
+        let partition = PinnedLatestTurnPartition.split(
+            displayedItems: displayedItems,
+            pinnedLatestTurnAnchorMessageId: anchorUser.id
+        )
+
+        XCTAssertEqual(partition.historyItems, [.message(olderAssistant)])
+        XCTAssertEqual(partition.anchorMessage, anchorUser)
+        XCTAssertEqual(partition.responseItems, [.message(responseAssistant)])
+    }
+
+    func test_pinnedLatestTurnPartition_missingAnchorFallsBackToFlatHistory() {
+        let olderAssistant = assistantMessage(text: "Older")
+        let anchorUser = userMessage(text: "Anchor")
+        let displayedItems = TranscriptItems.build(from: [olderAssistant, anchorUser])
+
+        let partition = PinnedLatestTurnPartition.split(
+            displayedItems: displayedItems,
+            pinnedLatestTurnAnchorMessageId: UUID()
+        )
+
+        XCTAssertEqual(partition.historyItems, displayedItems)
+        XCTAssertNil(partition.anchorMessage)
+        XCTAssertTrue(partition.responseItems.isEmpty)
+    }
+
+    func test_pinnedLatestTurnPartition_responseIncludesPlaceholderAndQueueMarker() {
+        let olderAssistant = assistantMessage(text: "Older")
+        let anchorUser = userMessage(text: "Anchor")
+        let responseAssistant = assistantMessage(text: "Response")
+        let placeholder = ChatMessage(
+            id: UUID(uuidString: "00000000-0000-0000-0000-FFFFFFFFFFFF")!,
+            role: .assistant,
+            text: ""
+        )
+        let displayedItems: [TranscriptItem] = [
+            .message(olderAssistant),
+            .message(anchorUser),
+            .message(responseAssistant),
+            .message(placeholder),
+            .queuedMarker(count: 1),
+        ]
+
+        let partition = PinnedLatestTurnPartition.split(
+            displayedItems: displayedItems,
+            pinnedLatestTurnAnchorMessageId: anchorUser.id
+        )
+
+        XCTAssertEqual(partition.historyItems, [.message(olderAssistant)])
+        XCTAssertEqual(partition.anchorMessage, anchorUser)
+        XCTAssertEqual(
+            partition.responseItems,
+            [.message(responseAssistant), .message(placeholder), .queuedMarker(count: 1)]
+        )
     }
 }

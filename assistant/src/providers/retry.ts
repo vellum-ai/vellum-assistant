@@ -26,6 +26,13 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "fireworks",
 ]);
 
+/**
+ * Providers that consume the `thinking` config. Anthropic uses it directly on
+ * the wire; OpenRouter translates it into its unified `reasoning` parameter so
+ * users can control extended thinking on Anthropic models served via OpenRouter.
+ */
+const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter"]);
+
 /** Patterns that indicate a transient streaming corruption from the SDK. */
 const RETRYABLE_STREAM_PATTERNS = [
   "Unexpected event order",
@@ -79,7 +86,7 @@ function normalizeSendMessageOptions(
   const hasIntent = config.modelIntent !== undefined;
 
   const needsThinkingStrip =
-    providerName !== "anthropic" && config.thinking !== undefined;
+    !THINKING_AWARE_PROVIDERS.has(providerName) && config.thinking !== undefined;
   const needsEffortStrip =
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
   const needsSpeedStrip =
@@ -98,8 +105,12 @@ function normalizeSendMessageOptions(
   const nextConfig: Record<string, unknown> = { ...config };
   delete nextConfig.modelIntent;
 
-  // thinking is Anthropic-specific; strip it for other providers
-  if (providerName !== "anthropic" && nextConfig.thinking !== undefined) {
+  // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
+  // signal for its unified reasoning parameter. Strip it for other providers.
+  if (
+    !THINKING_AWARE_PROVIDERS.has(providerName) &&
+    nextConfig.thinking !== undefined
+  ) {
     delete nextConfig.thinking;
   }
 

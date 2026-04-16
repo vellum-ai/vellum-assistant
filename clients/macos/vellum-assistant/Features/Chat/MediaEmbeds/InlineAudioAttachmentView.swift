@@ -90,23 +90,25 @@ struct InlineAudioAttachmentView: View {
             playPauseButton
 
             // Center: filename + progress bar
-            VStack(alignment: .leading, spacing: 3) {
-                Text(attachment.filename)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                if let failure {
-                    Text(failure.userMessage)
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(attachment.filename)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
-                } else {
-                    progressBar
+                        .truncationMode(.middle)
+
+                    if let failure {
+                        Text(failure.userMessage)
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
+                    } else {
+                        progressBar
+                    }
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Right: time display or save button
             if isHovering && (failure == nil || localFileURL != nil || cachedFileURL != nil) {

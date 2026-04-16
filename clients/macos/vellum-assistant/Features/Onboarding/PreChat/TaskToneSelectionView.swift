@@ -10,6 +10,7 @@ struct TaskToneSelectionView: View {
 
     // MARK: - Callbacks
 
+    var onBack: (() -> Void)?
     var onContinue: () -> Void
     var onSkip: () -> Void
 
@@ -17,12 +18,7 @@ struct TaskToneSelectionView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var showCharacters = false
-
-    private static let welcomeCharacters: NSImage? = {
-        guard let url = ResourceBundle.bundle.url(forResource: "welcome-characters", withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
-    }()
+    @State private var hoveredTask: String?
 
     // MARK: - Task Categories
 
@@ -56,13 +52,37 @@ struct TaskToneSelectionView: View {
     // MARK: - Body
 
     var body: some View {
+        VStack(spacing: 0) {
         // Header
-        Text("What do you work on most?")
-            .font(VFont.titleLarge)
-            .foregroundStyle(VColor.contentDefault)
+        ZStack(alignment: .leading) {
+            Text("What do you want help with?")
+                .font(VFont.titleLarge)
+                .foregroundStyle(VColor.contentDefault)
+                .frame(maxWidth: .infinity)
+
+            if let onBack {
+                Button {
+                    onBack()
+                } label: {
+                    VIconView(.chevronLeft, size: 16)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("Back")
+                .padding(.leading, VSpacing.xxl)
+            }
+        }
+        .opacity(showTitle ? 1 : 0)
+        .offset(y: showTitle ? 0 : 8)
+        .padding(.bottom, VSpacing.sm)
+
+        Text("Choose anything that applies to you")
+            .font(VFont.bodyMediumLighter)
+            .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
-            .padding(.bottom, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xl)
 
         // Content
         VStack(spacing: VSpacing.xl) {
@@ -107,7 +127,7 @@ struct TaskToneSelectionView: View {
                     onContinue()
                 }
 
-                VButton(label: "I'll set this up later", style: .ghost) {
+                VButton(label: "I'll set this up later", style: .ghost, tintColor: VColor.contentTertiary) {
                     onSkip()
                 }
             }
@@ -116,33 +136,15 @@ struct TaskToneSelectionView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
+            withAnimation(VAnimation.slow.delay(0.1)) {
                 showTitle = true
             }
-            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+            withAnimation(VAnimation.slow.delay(0.3)) {
                 showContent = true
             }
         }
 
         Spacer()
-
-        // Characters footer (same pattern as other onboarding steps)
-        if let characters = Self.welcomeCharacters {
-            Image(nsImage: characters)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: 0,
-                    bottomLeadingRadius: VRadius.window,
-                    bottomTrailingRadius: VRadius.window,
-                    topTrailingRadius: 0
-                ))
-                .opacity(showCharacters ? 1 : 0)
-                .offset(y: showCharacters ? 0 : 30)
-                .animation(.easeOut(duration: 0.6).delay(0.5), value: showCharacters)
-                .onAppear { showCharacters = true }
-                .accessibilityHidden(true)
         }
     }
 
@@ -189,15 +191,20 @@ struct TaskToneSelectionView: View {
             .padding(VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : VColor.surfaceLift)
+                    .fill(isSelected ? VColor.primaryBase.opacity(0.08) : (hoveredTask == category.id ? VColor.surfaceBase : VColor.surfaceLift))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : VColor.surfaceBase, lineWidth: 1)
+                            .stroke(isSelected ? VColor.primaryBase.opacity(0.3) : (hoveredTask == category.id ? VColor.borderElement : VColor.surfaceBase), lineWidth: 1)
                     )
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointerCursor(onHover: { hovering in
+            withAnimation(VAnimation.fast) {
+                hoveredTask = hovering ? category.id : nil
+            }
+        })
         .accessibilityLabel(category.label)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(.isToggle)

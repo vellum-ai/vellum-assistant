@@ -16,16 +16,6 @@ export const DEFAULT_GATEWAY_PORT = 7830;
 export const DEFAULT_QDRANT_PORT = 6333;
 export const DEFAULT_CES_PORT = 8090;
 
-/**
- * Lockfile candidate filenames, checked in priority order.
- * `.vellum.lock.json` is the current name; `.vellum.lockfile.json` is the
- * legacy name kept for backwards compatibility with older installs.
- */
-export const LOCKFILE_NAMES = [
-  ".vellum.lock.json",
-  ".vellum.lockfile.json",
-] as const;
-
 export const VALID_REMOTE_HOSTS = [
   "local",
   "gcp",

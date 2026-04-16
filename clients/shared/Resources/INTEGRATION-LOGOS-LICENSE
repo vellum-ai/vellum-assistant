@@ -1,11 +1,15 @@
-The integration logos in this directory are sourced from Simple Icons
-(https://github.com/simple-icons/simple-icons) and are licensed under
-CC0 1.0 Universal.
+The integration logos in this directory are sourced from two libraries:
 
-See https://creativecommons.org/publicdomain/zero/1.0/ for the full
-CC0 1.0 Universal legal text, and
-https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md
-for the Simple Icons license.
+1. Simple Icons (https://github.com/simple-icons/simple-icons)
+   Licensed under CC0 1.0 Universal.
+   See https://creativecommons.org/publicdomain/zero/1.0/
+
+2. theSVG (https://github.com/glincker/thesvg)
+   Tooling licensed under MIT. Individual brand icons carry their own
+   licenses (CC0-1.0, MIT, or Fair Use for brand identification).
+   See https://github.com/glincker/thesvg/blob/main/LEGAL.md
+
+See integration-logos-manifest.json for which logos come from which source.
 
 Brand icons are trademarks of their respective owners. Usage of these
 icons does not imply endorsement by the respective brands.

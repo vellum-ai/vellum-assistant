@@ -76,6 +76,10 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "openrouter",
     displayName: "OpenRouter",
     models: [
+      // Anthropic
+      { id: "anthropic/claude-opus-4.6", displayName: "Claude Opus 4.6" },
+      { id: "anthropic/claude-sonnet-4.6", displayName: "Claude Sonnet 4.6" },
+      { id: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku 4.5" },
       // xAI
       { id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta" },
       { id: "x-ai/grok-4", displayName: "Grok 4" },

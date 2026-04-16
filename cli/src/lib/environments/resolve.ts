@@ -30,7 +30,7 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  *   - `VELLUM_PLATFORM_URL` overrides `platformUrl`
  *   - `VELLUM_ASSISTANT_PLATFORM_URL` overrides `assistantPlatformUrl`
  *   - `VELLUM_LOCKFILE_DIR` overrides `lockfileDirOverride` (legacy e2e
- *     test hook used by `cli/src/lib/assistant-config.ts:getLockfileDir`)
+ *     test hook)
  *
  * This function should be the single entrypoint for environment resolution.
  * No other code should drive off `VELLUM_ENVIRONMENT` directly.
@@ -41,9 +41,24 @@ export function getCurrentEnvironment(
   const name = resolveEnvironmentName(override);
   const seed = SEEDS[name];
   if (!seed) {
-    throw new Error(
-      `unknown environment "${name}"; add it to cli/src/lib/environments/seeds.ts and rebuild, or wait for the future file-based context layer`,
-    );
+    if (name !== DEFAULT_ENVIRONMENT_NAME) {
+      // Warn on stderr instead of throwing, to match the silent-fallback
+      // behavior in assistant/src/util/platform.ts:getXdgVellumConfigDirName
+      // and clients/shared/App/VellumEnvironment.swift:current. Those two
+      // silently fall back to production; the CLI should agree so all three
+      // writers don't end up in disjoint states on a typo.
+      process.stderr.write(
+        `warning: unknown environment "${name}"; falling back to "${DEFAULT_ENVIRONMENT_NAME}". ` +
+          `Add it to cli/src/lib/environments/seeds.ts and rebuild if this was intentional.\n`,
+      );
+    }
+    const fallback = SEEDS[DEFAULT_ENVIRONMENT_NAME];
+    if (!fallback) {
+      throw new Error(
+        `fatal: default environment "${DEFAULT_ENVIRONMENT_NAME}" missing from seed table — this is a build error`,
+      );
+    }
+    return { ...fallback };
   }
 
   const resolved: EnvironmentDefinition = { ...seed };

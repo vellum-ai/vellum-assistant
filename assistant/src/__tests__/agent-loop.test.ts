@@ -1708,4 +1708,127 @@ describe("AgentLoop", () => {
     // Turn 4 should NOT have the nudge (exceeded limit)
     expect(hasRetryNudge(4)).toBe(false);
   });
+
+  // Empty response retry — model returns no text and no tool_use after tool results
+  test("retries once when model returns empty response after tool results", async () => {
+    const emptyResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "end_turn",
+    };
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      emptyResponse, // First response after tool result: empty
+      textResponse("Here is what I found in the file."), // Retry response: has text
+    ]);
+
+    const toolExecutor = async () => ({
+      content: "file contents here",
+      isError: false,
+    });
+
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // Provider should be called 3 times: initial, empty response, retry
+    expect(calls).toHaveLength(3);
+
+    // The retry call should include the nudge message
+    const retryMessages = calls[2].messages;
+    const lastMsg = retryMessages[retryMessages.length - 1];
+    expect(lastMsg.role).toBe("user");
+    expect(
+      lastMsg.content.some(
+        (b) =>
+          b.type === "text" &&
+          "text" in b &&
+          (b as { text: string }).text.includes("previous response was empty"),
+      ),
+    ).toBe(true);
+
+    // Final history should have the successful text response
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant).toBeDefined();
+    expect(lastAssistant!.content).toEqual([
+      { type: "text", text: "Here is what I found in the file." },
+    ]);
+
+    // message_complete emitted for tool_use response + retry text response (not the empty one)
+    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    expect(messageCompletes).toHaveLength(2);
+  });
+
+  test("gives up after max empty response retries", async () => {
+    const emptyResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "end_turn",
+    };
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      emptyResponse, // First response after tool result: empty
+      emptyResponse, // Retry also empty — should give up
+    ]);
+
+    const toolExecutor = async () => ({
+      content: "file contents here",
+      isError: false,
+    });
+
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // Provider called 3 times: initial, empty, retry (also empty)
+    expect(calls).toHaveLength(3);
+
+    // message_complete: tool_use response + final empty response (retry exhausted)
+    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    expect(messageCompletes).toHaveLength(2);
+
+    // The last assistant message in history is the empty one
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant).toBeDefined();
+    expect(lastAssistant!.content).toEqual([]);
+  });
+
+  test("does not retry empty response on first turn (no prior tool use)", async () => {
+    const emptyResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "end_turn",
+    };
+
+    const { provider, calls } = createMockProvider([emptyResponse]);
+
+    const loop = new AgentLoop(provider, "system");
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // Should NOT retry — this is the first turn with no tool use history
+    expect(calls).toHaveLength(1);
+    expect(history).toHaveLength(2); // user + empty assistant
+  });
 });

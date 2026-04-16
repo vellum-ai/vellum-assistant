@@ -948,7 +948,10 @@ paths:
     post:
       operationId: attachments_post
       summary: Upload attachment
-      description: Upload an attachment as base64 data or file path reference.
+      description:
+        Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data
+        (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query
+        params).
       tags:
         - attachments
       responses:
@@ -2746,6 +2749,24 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/archive:
+    post:
+      operationId: conversations_by_id_archive_post
+      summary: Archive a conversation
+      description:
+        Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but
+        preserved for search and recall.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/cancel:
     post:
       operationId: conversations_by_id_cancel_post
@@ -2864,6 +2885,22 @@ paths:
       operationId: conversations_by_id_regenerate_post
       summary: Regenerate response
       description: Re-run the assistant for the last user message in a conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/conversations/{id}/unarchive:
+    post:
+      operationId: conversations_by_id_unarchive_post
+      summary: Unarchive a conversation
+      description: Restore an archived conversation back to the default sidebar.
       tags:
         - conversations
       responses:

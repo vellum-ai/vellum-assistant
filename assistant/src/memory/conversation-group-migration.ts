@@ -59,11 +59,9 @@ export function ensureGroupMigration(): void {
 
   // 3. Seed system groups.
   //
-  // `system:reflections` holds rolling auto-analysis conversations. It is an
-  // internal continuity surface — clients that don't filter on `source` can
-  // hide this group from their main list. It is parked at a high
-  // `sort_position` so it never displaces user-visible groups in the
-  // ordering; the value just has to be deterministic.
+  // `system:reflections` is a legacy group kept for backward compatibility
+  // with existing installations. New auto-analysis conversations are assigned
+  // to `system:background`; the migration in step 6 moves existing ones.
   const now = Math.floor(Date.now() / 1000);
   rawExec(`
     INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
@@ -216,6 +214,33 @@ export function ensureGroupMigration(): void {
     } catch (err) {
       rawExec("ROLLBACK");
       log.error({ err }, "system:all backfill transaction failed, rolled back");
+      throw err;
+    }
+  }
+
+  // 6. One-time migration: move auto-analysis conversations from system:reflections to system:background
+  const reflectionsMigrateDone = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_reflections_to_background_complete'",
+  );
+
+  if (!reflectionsMigrateDone) {
+    try {
+      rawExec("BEGIN");
+
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:background'
+        WHERE group_id = 'system:reflections'
+      `);
+
+      rawExec(`
+        INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+        VALUES ('_reflections_to_background_complete', '_reflections_to_background_complete', -1, TRUE)
+      `);
+
+      rawExec("COMMIT");
+    } catch (err) {
+      rawExec("ROLLBACK");
+      log.error({ err }, "reflections-to-background migration failed, rolled back");
       throw err;
     }
   }

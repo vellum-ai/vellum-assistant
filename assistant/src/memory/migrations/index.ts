@@ -165,6 +165,7 @@ export {
   downNormalizeUserFileByPrincipal,
   migrateNormalizeUserFileByPrincipal,
 } from "./220-normalize-user-file-by-principal.js";
+export { migrateConversationsArchivedAt } from "./221-conversations-archived-at.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -177,6 +177,17 @@ public final class MainWindowState: ObservableObject {
         selection = newSelection
     }
 
+    /// Navigate back through history, falling back to `dismissOverlay()` when
+    /// the back stack is empty (e.g. panel restored on app restart via
+    /// `restoreLastActivePanel()` which suppresses history recording).
+    func navigateBackOrDismiss() {
+        if navigationHistory.canGoBack {
+            navigateBack()
+        } else {
+            dismissOverlay()
+        }
+    }
+
     func navigateBack() {
         guard let destination = navigationHistory.popBack(
             currentSelection: selection,

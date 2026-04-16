@@ -1,5 +1,14 @@
 #if os(macOS)
+import ObjectiveC
 import SwiftUI
+
+// MARK: - Associated-object key for transparency cache
+
+/// Key used by `objc_setAssociatedObject` to attach a cached transparency
+/// result directly to an `NSImage` instance. This avoids repeated CGContext
+/// allocations when the same image is passed to multiple `VAvatarImage` inits
+/// (e.g. during SwiftUI body re-evaluation).
+private var transparencyCacheKey: UInt8 = 0
 
 /// Reusable avatar image that adapts its clip shape based on image transparency.
 /// Images with transparent backgrounds render unclipped so the full artwork
@@ -14,8 +23,17 @@ public struct VAvatarImage: View {
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
 
-    /// Cached transparency result to avoid expensive bitmap analysis on every render.
+    /// Whether the source image has a transparent background, computed once at init.
     private let isTransparent: Bool
+
+    /// Alpha byte value at or above which a pixel is considered opaque.
+    /// Derived from `ceil(0.95 * 255) = 243`.
+    static let alphaOpaqueThreshold: UInt8 = 243
+
+    /// Maximum dimension for the sampling CGContext. Images larger than this
+    /// are downsampled before pixel inspection — we only need 8 sample points,
+    /// so full-resolution rendering is unnecessary.
+    static let maxSamplingDimension = 64
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
@@ -25,62 +43,117 @@ public struct VAvatarImage: View {
         self.isTransparent = Self.imageHasTransparency(image)
     }
 
-    /// Initializer that accepts a precomputed transparency flag, avoiding the expensive
-    /// bitmap analysis in `imageHasTransparency`. Use this in animated render paths
-    /// where the view is rebuilt frequently (e.g. scale/opacity animations) and the
-    /// underlying image doesn't change between frames.
-    public init(image: NSImage, size: CGFloat, isTransparent: Bool, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
-        self.image = image
-        self.size = size
-        self.borderColor = borderColor
-        self.showBorder = showBorder
-        self.isTransparent = isTransparent
+    public var body: some View {
+        if isTransparent {
+            baseImage
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            baseImage
+                .aspectRatio(contentMode: .fill)
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .overlay {
+                    if showBorder {
+                        Circle()
+                            .strokeBorder(borderColor, lineWidth: 1)
+                    }
+                }
+                .accessibilityHidden(true)
+        }
     }
 
-    public var body: some View {
+    private var baseImage: some View {
         Image(nsImage: image)
             .interpolation(.none)
             .resizable()
-            .aspectRatio(contentMode: isTransparent ? .fit : .fill)
-            .frame(width: size, height: size)
-            .clipShape(isTransparent ? AnyShape(RoundedRectangle(cornerRadius: 0)) : AnyShape(Circle()))
-            .overlay {
-                if showBorder && !isTransparent {
-                    Circle()
-                        .strokeBorder(borderColor, lineWidth: 1)
-                }
-            }
-            .accessibilityHidden(true)
     }
 
     /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
-    /// Public so callers in animated render paths can precompute the result once
-    /// (e.g. in `@State` + `.task {}`) and pass it to the `isTransparent:` initializer.
-    public static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
+    ///
+    /// Results are cached on the `NSImage` instance via `objc_setAssociatedObject`,
+    /// so repeated calls with the same image (e.g. during SwiftUI body re-evaluation)
+    /// return immediately without allocating a CGContext.
+    ///
+    /// For images larger than ``maxSamplingDimension``, the CGContext is created at
+    /// a downsampled resolution — only 8 sample points are needed, so full-resolution
+    /// rendering is unnecessary.
+    static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
+        // Return cached result if available.
+        if let cached = objc_getAssociatedObject(nsImage, &transparencyCacheKey) as? Bool {
+            return cached
+        }
+
+        let result = computeTransparency(nsImage)
+        objc_setAssociatedObject(nsImage, &transparencyCacheKey, result, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return result
+    }
+
+    /// Core transparency detection logic, separated from caching for testability.
+    private static func computeTransparency(_ nsImage: NSImage) -> Bool {
+        guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
         }
 
-        // If the image doesn't even have an alpha channel, it's fully opaque.
-        guard bitmap.hasAlpha else { return false }
+        // If the pixel format has no alpha channel, the image is fully opaque.
+        let alphaInfo = cgImage.alphaInfo
+        switch alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return false
+        default:
+            break
+        }
 
-        // Sample corners and edges — if any sampled pixel is transparent,
-        // the image has a transparent background.
-        let width = bitmap.pixelsWide
-        let height = bitmap.pixelsHigh
-        guard width > 0, height > 0 else { return false }
+        let sourceWidth = cgImage.width
+        let sourceHeight = cgImage.height
+        guard sourceWidth > 0, sourceHeight > 0 else { return false }
 
+        // Downsample large images — we only need 8 sample points.
+        let maxDim = maxSamplingDimension
+        let width: Int
+        let height: Int
+        if sourceWidth > maxDim || sourceHeight > maxDim {
+            let scale = Double(maxDim) / Double(max(sourceWidth, sourceHeight))
+            width = max(1, Int(Double(sourceWidth) * scale))
+            height = max(1, Int(Double(sourceHeight) * scale))
+        } else {
+            width = sourceWidth
+            height = sourceHeight
+        }
+
+        // Draw into a known-layout 32-bit BGRA context so we can read alpha
+        // bytes at predictable offsets regardless of the source pixel format.
+        let bytesPerRow = width * 4
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else { return false }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return false }
+        let pixels = data.bindMemory(to: UInt32.self, capacity: width * height)
+
+        // Sample corners and edge midpoints (8 points).
         let samplePoints: [(Int, Int)] = [
-            (0, 0), (width - 1, 0),                     // top corners
-            (0, height - 1), (width - 1, height - 1),   // bottom corners
-            (width / 2, 0), (width / 2, height - 1),    // top/bottom center
-            (0, height / 2), (width - 1, height / 2),   // left/right center
+            (0, 0), (width - 1, 0),
+            (0, height - 1), (width - 1, height - 1),
+            (width / 2, 0), (width / 2, height - 1),
+            (0, height / 2), (width - 1, height / 2),
         ]
 
+        // In BGRA-little-endian layout the alpha byte is bits 24-31.
         for (x, y) in samplePoints {
-            guard let color = bitmap.colorAt(x: x, y: y) else { continue }
-            if color.alphaComponent < 0.95 {
+            let pixel = pixels[y * width + x]
+            let alpha = UInt8((pixel >> 24) & 0xFF)
+            if alpha < alphaOpaqueThreshold {
                 return true
             }
         }

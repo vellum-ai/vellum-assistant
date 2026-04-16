@@ -36,7 +36,8 @@ final class ThreadWindowManager {
                 settingsStore: services.settingsStore,
                 ambientAgent: services.ambientAgent,
                 connectionManager: services.connectionManager,
-                eventStreamClient: services.connectionManager.eventStreamClient
+                eventStreamClient: services.connectionManager.eventStreamClient,
+                zoomManager: services.zoomManager
             )
             return false
         }
@@ -64,7 +65,8 @@ final class ThreadWindowManager {
             settingsStore: services.settingsStore,
             ambientAgent: services.ambientAgent,
             connectionManager: services.connectionManager,
-            eventStreamClient: services.connectionManager.eventStreamClient
+            eventStreamClient: services.connectionManager.eventStreamClient,
+            zoomManager: services.zoomManager
         )
 
         threadWindows[conversationLocalId] = threadWindow

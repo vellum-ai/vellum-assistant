@@ -493,6 +493,42 @@ export function validateAttachmentUpload(
 }
 
 // ---------------------------------------------------------------------------
+// Binary upload helper (multipart / octet-stream)
+// ---------------------------------------------------------------------------
+
+/**
+ * Write raw bytes to the staging directory and register as a file-backed
+ * attachment. Used by the multipart/form-data and application/octet-stream
+ * upload paths.
+ *
+ * @param filename  Original filename from the client
+ * @param mimeType  MIME type of the file
+ * @param bytes     Raw file content
+ * @returns The stored attachment record
+ */
+export function uploadAttachmentFromBytes(
+  filename: string,
+  mimeType: string,
+  bytes: Uint8Array,
+): StoredAttachment {
+  const dir = join(getWorkspaceDir(), "data", "attachments");
+  mkdirSync(dir, { recursive: true });
+
+  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const stagingFilename = `${Date.now()}-${uuid().slice(0, 8)}-${sanitized}`;
+  const stagedPath = join(dir, stagingFilename);
+
+  writeFileSync(stagedPath, bytes);
+
+  return uploadFileBackedAttachment(
+    filename,
+    mimeType,
+    stagedPath,
+    bytes.length,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // File-backed attachment storage (avoids reading large files into memory)
 // ---------------------------------------------------------------------------
 
