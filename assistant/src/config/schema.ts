@@ -318,34 +318,13 @@ export const AssistantConfigSchema = z
     // continue to behave identically. No callers consume this yet — PRs 5+
     // migrate call sites to read through the resolver. PR 19 removes the
     // legacy keys once adoption is complete.
-    llm: LLMSchema.default({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-        maxTokens: 64000,
-        effort: "max",
-        speed: "standard",
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    }),
+    //
+    // Default values live on each leaf inside `LLMSchema` (see
+    // `schemas/llm.ts`), so `LLMSchema.parse({})` returns a fully-populated
+    // object. This matches the pattern used by sibling schemas above and
+    // ensures the loader's leaf-deletion recovery path can repair a partially
+    // invalid `llm` block without falling back to `cloneDefaultConfig()`.
+    llm: LLMSchema.default(LLMSchema.parse({})),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),

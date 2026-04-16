@@ -270,9 +270,7 @@ describe("AssistantConfigSchema", () => {
         },
       },
     };
-    expect(() => AssistantConfigSchema.parse(input)).toThrow(
-      /missing-profile/,
-    );
+    expect(() => AssistantConfigSchema.parse(input)).toThrow(/missing-profile/);
   });
 
   test("legacy top-level inference keys still parse alongside the new llm block", () => {
@@ -298,6 +296,37 @@ describe("AssistantConfigSchema", () => {
     // legacy top-level keys until the migration in PR 4 backfills it).
     expect(result.llm.default.provider).toBe("anthropic");
     expect(result.llm.default.model).toBe("claude-opus-4-6");
+  });
+
+  test("partial llm config (empty `llm: {}`) doesn't trigger full config reset", () => {
+    // Regression guard: previously LLMConfigBase had no schema-level defaults,
+    // so any `llm: {}` block would fail validation and the loader's recovery
+    // path would fall through to `cloneDefaultConfig()`, discarding unrelated
+    // valid settings (like a custom `maxTokens`). With leaf-level defaults,
+    // `llm: {}` parses cleanly and the user's other settings are preserved.
+    const result = AssistantConfigSchema.parse({
+      maxTokens: 32000,
+      llm: {},
+    });
+    expect(result.maxTokens).toBe(32000);
+    expect(result.llm.default.provider).toBe("anthropic");
+    expect(result.llm.default.model).toBe("claude-opus-4-6");
+    expect(result.llm.default.maxTokens).toBe(64000);
+  });
+
+  test("llm.default with one missing field still parses (defaults applied)", () => {
+    // A user can override a single field of `llm.default` without specifying
+    // the rest — schema-level defaults fill in everything that wasn't set.
+    const result = AssistantConfigSchema.parse({
+      llm: { default: { model: "claude-haiku-4-5" } },
+    });
+    expect(result.llm.default.model).toBe("claude-haiku-4-5");
+    expect(result.llm.default.provider).toBe("anthropic");
+    expect(result.llm.default.maxTokens).toBe(64000);
+    expect(result.llm.default.thinking).toEqual({
+      enabled: true,
+      streamThinking: true,
+    });
   });
 
   test("applies rollout defaults for dynamic budget", () => {
