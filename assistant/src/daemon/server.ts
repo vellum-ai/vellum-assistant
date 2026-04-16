@@ -1,8 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { z } from "zod";
-
 import {
   disposeAcpSessionManager,
   getAcpSessionManager,
@@ -55,7 +53,6 @@ import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
   registerDefaultWakeResolver,
-  wakeAgentForOpportunity,
   type WakeTarget,
 } from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -827,19 +824,9 @@ export class DaemonServer {
       }
     });
 
-    // Start the CLI IPC server and register methods. CLI commands
-    // (e.g. `assistant conversations wake`) connect to this socket to
+    // Start the CLI IPC server. Built-in methods (wake_conversation) are
+    // registered by the constructor; CLI commands connect to this socket to
     // invoke daemon-side operations that require in-process state.
-    const WakeConversationParams = z.object({
-      conversationId: z.string().min(1),
-      hint: z.string().min(1),
-      source: z.string().default("cli"),
-    });
-    this.cliIpc.registerMethod("wake_conversation", async (params) => {
-      const { conversationId, hint, source } =
-        WakeConversationParams.parse(params);
-      return wakeAgentForOpportunity({ conversationId, hint, source });
-    });
     this.cliIpc.start();
 
     // Wire the launchConversation helper to daemon-side state so

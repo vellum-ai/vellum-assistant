@@ -20,6 +20,7 @@ import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { cliIpcRoutes } from "./routes/index.js";
 
 const log = getLogger("cli-ipc-server");
 
@@ -59,12 +60,10 @@ export class CliIpcServer {
   private methods = new Map<string, IpcMethodHandler>();
   private socketPath: string;
 
-  constructor(routes?: IpcRoute[]) {
+  constructor() {
     this.socketPath = getCliSocketPath();
-    if (routes) {
-      for (const route of routes) {
-        this.methods.set(route.method, route.handler);
-      }
+    for (const route of cliIpcRoutes) {
+      this.methods.set(route.method, route.handler);
     }
   }
 
@@ -232,3 +231,4 @@ export class CliIpcServer {
 export function getCliSocketPath(): string {
   return join(getWorkspaceDir(), "assistant-cli.sock");
 }
+
