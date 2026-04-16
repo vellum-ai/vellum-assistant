@@ -281,6 +281,44 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Publish DMG to dev-latest release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          DEV_VERSION="${{ steps.version.outputs.dev_version }}"
+          SHORT_SHA="${{ steps.version.outputs.short_sha }}"
+          DMG_SRC="clients/macos/vellum-assistant-${DEV_VERSION}.dmg"
+          DMG_DEST="vellum-assistant.dmg"
+
+          # Copy to the well-known filename used by the download page
+          cp "$DMG_SRC" "$DMG_DEST"
+
+          # Create or update the dev-latest release
+          if gh release view dev-latest &>/dev/null; then
+            gh release upload dev-latest "$DMG_DEST" --clobber
+            gh release edit dev-latest \
+              --title "Dev Build ${DEV_VERSION}" \
+              --notes "Latest dev build from main at ${SHORT_SHA}.
+
+          **Version:** ${DEV_VERSION}
+          **Commit:** [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+
+          > This build is code-signed but **not notarized**. On first launch, right-click the app and select Open." \
+              --prerelease
+          else
+            gh release create dev-latest "$DMG_DEST" \
+              --title "Dev Build ${DEV_VERSION}" \
+              --notes "Latest dev build from main at ${SHORT_SHA}.
+
+          **Version:** ${DEV_VERSION}
+          **Commit:** [${SHORT_SHA}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+
+          > This build is code-signed but **not notarized**. On first launch, right-click the app and select Open." \
+              --prerelease
+          fi
+
+          echo "Published DMG to dev-latest release"
+
       - name: Cleanup keychain
         if: always()
         run: |
