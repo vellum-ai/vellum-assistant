@@ -1529,28 +1529,13 @@ if [ "$CMD" = "run" ]; then
         done
     fi
 
-    # Kill existing instance if running (SIGTERM for clean shutdown)
-    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
-        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
-        # Wait for clean exit (max 1 second)
-        for i in {1..10}; do
-            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
-            sleep 0.1
-        done
-    fi
-    pkill -x "vellum-assistant" 2>/dev/null || true
-    sleep 0.3
-
-    # The kill block above only terminates the same-display-name instance,
-    # so any sibling bundle built from this project under a different
-    # `BUNDLE_DISPLAY_NAME` would survive and race against us — they share
-    # bundle ID, lockfile, identity cache, and UserDefaults but hold
-    # separate in-memory state. We identify siblings by reading each
-    # candidate process's `Contents/Info.plist` and matching against our
-    # `$BUNDLE_ID` rather than name-matching, so an unrelated third-party
-    # app that happens to be called "Vellum" (the ebook formatter at
-    # vellum.pub, for example) is correctly ignored.
-    other_vellum=""
+    # Kill any running instance that shares our bundle ID (SIGTERM for
+    # clean shutdown). We match by reading each candidate's Info.plist
+    # rather than by process name, so a production app
+    # (com.vellum.vellum-assistant) is never killed by a dev build
+    # (com.vellum.vellum-assistant-dev), and vice versa. An unrelated
+    # third-party app named "Vellum" (e.g. vellum.pub) is also ignored.
+    _kill_targets=""
     while IFS= read -r line; do
         pid=${line%% *}
         exe_path=${line#* }
@@ -1561,23 +1546,21 @@ if [ "$CMD" = "run" ]; then
         bundle_root=${exe_path%/Contents/MacOS/*}
         other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
         [ "$other_id" = "$BUNDLE_ID" ] || continue
-        [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
-        other_vellum+="$pid $exe_path"$'\n'
+        _kill_targets+="$pid $exe_path"$'\n'
     done < <(ps -ax -o pid=,comm=)
-    other_vellum=${other_vellum%$'\n'}
+    _kill_targets=${_kill_targets%$'\n'}
 
-    if [ -n "$other_vellum" ]; then
-        echo ""
-        echo "Killing sibling process(es) from this project (bundle ID $BUNDLE_ID):"
-        echo "$other_vellum" | sed 's/^/  /'
-        echo "$other_vellum" | awk '{print $1}' | xargs kill 2>/dev/null || true
-        # Give them a moment to exit
+    if [ -n "$_kill_targets" ]; then
+        echo "Stopping existing instance(s) (bundle ID $BUNDLE_ID):"
+        echo "$_kill_targets" | sed 's/^/  /'
+        echo "$_kill_targets" | awk '{print $1}' | xargs kill 2>/dev/null || true
+        # Wait for clean exit (max 2 seconds)
         for i in {1..20}; do
             still_running=false
             while IFS= read -r pid_line; do
-                sib_pid=${pid_line%% *}
-                kill -0 "$sib_pid" 2>/dev/null && still_running=true && break
-            done <<< "$other_vellum"
+                _pid=${pid_line%% *}
+                kill -0 "$_pid" 2>/dev/null && still_running=true && break
+            done <<< "$_kill_targets"
             $still_running || break
             sleep 0.1
         done
@@ -1585,7 +1568,7 @@ if [ "$CMD" = "run" ]; then
         # ID so we never SIGKILL a PID that was reused by an unrelated
         # process since the original snapshot.
         if $still_running; then
-            echo "Force-killing remaining sibling process(es)..."
+            echo "Force-killing remaining instance(s)..."
             survivors=""
             while IFS= read -r line; do
                 pid=${line%% *}
@@ -1597,7 +1580,6 @@ if [ "$CMD" = "run" ]; then
                 bundle_root=${exe_path%/Contents/MacOS/*}
                 other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
                 [ "$other_id" = "$BUNDLE_ID" ] || continue
-                [ "$exe_path" != "$bundle_root/Contents/MacOS/$BUNDLE_DISPLAY_NAME" ] || continue
                 survivors+="$pid "
             done < <(ps -ax -o pid=,comm=)
             if [ -n "$survivors" ]; then
@@ -1771,12 +1753,31 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     echo ""
     echo "Installing to /Applications..."
 
-    # Kill running instance before replacing
-    if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null 2>&1; then
-        echo "Stopping running $BUNDLE_DISPLAY_NAME..."
-        pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true
+    # Kill running instance before replacing (scoped to our bundle ID so
+    # a dev build doesn't kill production or vice versa).
+    _install_targets=""
+    while IFS= read -r line; do
+        pid=${line%% *}
+        exe_path=${line#* }
+        case "$exe_path" in
+            */Contents/MacOS/*) ;;
+            *) continue ;;
+        esac
+        bundle_root=${exe_path%/Contents/MacOS/*}
+        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+        [ "$other_id" = "$BUNDLE_ID" ] || continue
+        _install_targets+="$pid "
+    done < <(ps -ax -o pid=,comm=)
+    _install_targets=${_install_targets% }
+    if [ -n "$_install_targets" ]; then
+        echo "Stopping running $BUNDLE_DISPLAY_NAME (bundle ID $BUNDLE_ID)..."
+        echo "$_install_targets" | xargs kill 2>/dev/null || true
         for i in {1..10}; do
-            pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null || break
+            all_gone=true
+            for _pid in $_install_targets; do
+                kill -0 "$_pid" 2>/dev/null && all_gone=false && break
+            done
+            $all_gone && break
             sleep 0.1
         done
     fi
