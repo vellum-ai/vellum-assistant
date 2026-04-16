@@ -21,7 +21,7 @@ struct ContentView: View {
         _conversationStore = StateObject(wrappedValue: IOSConversationStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
-    private enum Tab { case chats, things, settings }
+    private enum Tab { case chats, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -193,14 +193,6 @@ struct ContentView: View {
                 .tag(Tab.chats)
                 .tabItem {
                     Label { Text("Chats") } icon: { VIconView(.messageSquare, size: 12) }
-                }
-
-            ThingsTabView(onConnectTapped: navigateToConnectSettings)
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.things)
-                .tabItem {
-                    Label { Text("Library") } icon: { VIconView(.layoutGrid, size: 12) }
                 }
 
             SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, conversationStore: conversationStore)

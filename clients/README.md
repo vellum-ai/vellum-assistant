@@ -37,7 +37,6 @@ clients/
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
 │   │   ├── Intelligence/      # Skills and contacts views (InstalledSkills, Contacts)
-│   │   ├── Things/            # Apps, shared apps, and documents views
 │   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist
@@ -144,7 +143,6 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
-- ✅ Library — local apps grid with pin/share/bundle, shared apps with fork, searchable documents list
 - ✅ Settings parity — Models & Services, Privacy permissions, Channels & Guardian sections
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).

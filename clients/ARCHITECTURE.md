@@ -710,17 +710,6 @@ Stores use `[weak self]` in all `Task` closures and background subscriptions. Pl
 
 ## iOS Feature Flows
 
-### Things Tab (M8-M9)
-
-The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
-
-| View | File | Purpose |
-|------|------|---------|
-| `ThingsView` | `ios/Views/Things/ThingsView.swift` | Segmented container switching between My Apps, Shared, and Documents |
-| `AppsGridView` | `ios/Views/Things/AppsGridView.swift` | 2-column LazyVGrid of local apps with pin, share, bundle, and delete context menu actions |
-| `SharedAppsListView` | `ios/Views/Things/SharedAppsListView.swift` | List of shared apps with detail sheet for fork/delete |
-| `DocumentsListView` | `ios/Views/Things/DocumentsListView.swift` | Searchable, sortable document list |
-
 ### Settings Parity (M7)
 
 New settings sections brought to iOS for feature parity with macOS:

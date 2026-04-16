@@ -26,7 +26,6 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
-- Library — local apps grid with pin/share/bundle, shared apps with fork, searchable/sortable documents list
 - Settings parity — Models & Services (model selection, API key management), Privacy (system permission status), Channels & Guardian (guardian status, channel trust)
 
 ---
