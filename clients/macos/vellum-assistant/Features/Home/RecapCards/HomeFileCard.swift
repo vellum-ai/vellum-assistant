@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Recap card displaying a file reference with name and size.
-/// Uses `HomeRecapCardView` as the outer container, `HomeRecapCardHeader`
+/// Uses `HomeRecapCardHeader`
 /// for the icon + title row, and `HomeLinkFileRow` for the file info.
 struct HomeFileCard: View {
     let title: String
@@ -29,22 +29,27 @@ struct HomeFileCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: VSpacing.md) {
-                HomeRecapCardHeader(
-                    icon: .file,
-                    title: title,
-                    subtitle: threadName,
-                    showDismiss: showDismiss,
-                    onDismiss: onDismiss
-                )
+        VStack(spacing: VSpacing.md) {
+            HomeRecapCardHeader(
+                icon: .file,
+                title: title,
+                subtitle: threadName,
+                showDismiss: showDismiss,
+                onDismiss: onDismiss
+            )
 
-                HomeLinkFileRow(
-                    icon: .file,
-                    fileName: fileName,
-                    fileSize: fileSize
-                )
-            }
+            HomeLinkFileRow(
+                icon: .file,
+                fileName: fileName,
+                fileSize: fileSize
+            )
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 }

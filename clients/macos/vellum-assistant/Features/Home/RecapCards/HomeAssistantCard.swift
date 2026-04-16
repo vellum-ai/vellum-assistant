@@ -29,20 +29,25 @@ struct HomeAssistantCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: VSpacing.md) {
-                HomeRecapCardHeader(
-                    icon: .circleUser,
-                    iconColor: VColor.contentSecondary,
-                    title: title,
-                    subtitle: threadName,
-                    showDismiss: showDismiss,
-                    onDismiss: onDismiss
-                )
+        VStack(spacing: VSpacing.md) {
+            HomeRecapCardHeader(
+                icon: .circleUser,
+                iconColor: VColor.contentSecondary,
+                title: title,
+                subtitle: threadName,
+                showDismiss: showDismiss,
+                onDismiss: onDismiss
+            )
 
-                actionButtons
-            }
+            actionButtons
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Action buttons

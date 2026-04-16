@@ -38,21 +38,26 @@ struct HomeEmailPreviewCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: VSpacing.lg) {
-                HomeRecapCardHeader(
-                    icon: .mail,
-                    title: title,
-                    subtitle: threadName,
-                    showDismiss: showDismiss,
-                    onDismiss: onDismiss
-                )
+        VStack(spacing: VSpacing.lg) {
+            HomeRecapCardHeader(
+                icon: .mail,
+                title: title,
+                subtitle: threadName,
+                showDismiss: showDismiss,
+                onDismiss: onDismiss
+            )
 
-                emailContentArea
+            emailContentArea
 
-                actionButtons
-            }
+            actionButtons
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Email Content Area

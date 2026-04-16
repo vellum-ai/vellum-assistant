@@ -28,13 +28,18 @@ struct HomeReplyCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: 0) {
-                header
-                composerBar
-                    .padding(.top, VSpacing.md)
-            }
+        VStack(spacing: 0) {
+            header
+            composerBar
+                .padding(.top, VSpacing.md)
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Header

@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Recap card displaying a large image preview with Save and Open in Finder
-/// action buttons. Uses `HomeRecapCardView` as the outer container and
+/// action buttons. Uses
 /// `HomeRecapCardHeader` for the icon + title row.
 struct HomeImageCard: View {
     let title: String
@@ -32,21 +32,26 @@ struct HomeImageCard: View {
     }
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: VSpacing.md) {
-                HomeRecapCardHeader(
-                    icon: .image,
-                    title: title,
-                    subtitle: threadName,
-                    showDismiss: showDismiss,
-                    onDismiss: onDismiss
-                )
+        VStack(spacing: VSpacing.md) {
+            HomeRecapCardHeader(
+                icon: .image,
+                title: title,
+                subtitle: threadName,
+                showDismiss: showDismiss,
+                onDismiss: onDismiss
+            )
 
-                imageArea
+            imageArea
 
-                actionButtons
-            }
+            actionButtons
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Image area

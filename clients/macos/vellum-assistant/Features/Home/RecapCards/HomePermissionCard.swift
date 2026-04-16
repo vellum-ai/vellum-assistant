@@ -18,21 +18,26 @@ struct HomePermissionCard: View {
     @State private var isExpanded = false
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                HomeRecapCardHeader(
-                    icon: .shieldAlert,
-                    title: title,
-                    subtitle: threadName,
-                    showDismiss: showDismiss,
-                    onDismiss: onDismiss
-                )
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HomeRecapCardHeader(
+                icon: .shieldAlert,
+                title: title,
+                subtitle: threadName,
+                showDismiss: showDismiss,
+                onDismiss: onDismiss
+            )
 
-                contentArea
+            contentArea
 
-                actionButtons
-            }
+            actionButtons
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Content area

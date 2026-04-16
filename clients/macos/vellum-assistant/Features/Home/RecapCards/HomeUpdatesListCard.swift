@@ -25,12 +25,17 @@ struct HomeUpdatesListCard: View {
     // MARK: - Body
 
     var body: some View {
-        HomeRecapCardView {
-            VStack(spacing: VSpacing.lg) {
-                headerRow
-                updatesList
-            }
+        VStack(spacing: VSpacing.lg) {
+            headerRow
+            updatesList
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                .fill(VColor.surfaceLift.opacity(0.1))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Header Row

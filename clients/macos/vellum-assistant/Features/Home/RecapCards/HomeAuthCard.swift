@@ -32,19 +32,36 @@ struct HomeAuthCard: View {
         self.onDismiss = onDismiss
     }
 
+    private var isSimple: Bool {
+        subtitle == nil && attachment == nil
+    }
+
     var body: some View {
-        HomeRecapCardView {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                headerRow
-                if let attachment {
-                    HomeLinkFileRow(
-                        icon: .file,
-                        fileName: attachment.fileName,
-                        fileSize: attachment.fileSize
-                    )
-                }
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            headerRow
+            if let attachment {
+                HomeLinkFileRow(
+                    icon: .file,
+                    fileName: attachment.fileName,
+                    fileSize: attachment.fileSize
+                )
             }
         }
+        .padding(VSpacing.md)
+        .if(isSimple) { view in
+            view
+                .background(Capsule().fill(VColor.surfaceLift.opacity(0.1)))
+                .clipShape(Capsule())
+        }
+        .if(!isSimple) { view in
+            view
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
+                        .fill(VColor.surfaceLift.opacity(0.1))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
+        }
+        .vShadow(VShadow.md)
     }
 
     // MARK: - Header
