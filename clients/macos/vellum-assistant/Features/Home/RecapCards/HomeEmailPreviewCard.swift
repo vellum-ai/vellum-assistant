@@ -9,7 +9,7 @@ struct HomeEmailPreviewCard: View {
     let threadName: String?
     let toAddress: String
     let subject: String
-    let body: String
+    let bodyText: String
     let showDismiss: Bool
     let onSend: () -> Void
     let onRework: () -> Void
@@ -20,7 +20,7 @@ struct HomeEmailPreviewCard: View {
         threadName: String? = nil,
         toAddress: String,
         subject: String,
-        body: String,
+        bodyText: String,
         showDismiss: Bool = false,
         onSend: @escaping () -> Void,
         onRework: @escaping () -> Void,
@@ -30,7 +30,7 @@ struct HomeEmailPreviewCard: View {
         self.threadName = threadName
         self.toAddress = toAddress
         self.subject = subject
-        self.body = body
+        self.bodyText = bodyText
         self.showDismiss = showDismiss
         self.onSend = onSend
         self.onRework = onRework
@@ -90,7 +90,7 @@ struct HomeEmailPreviewCard: View {
 
     private var bodySection: some View {
         HStack {
-            Text(body)
+            Text(bodyText)
                 .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
