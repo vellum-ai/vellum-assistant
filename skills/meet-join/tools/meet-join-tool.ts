@@ -34,6 +34,7 @@ import type {
   ToolExecutionResult,
 } from "../../../assistant/src/tools/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
+import { getMeetConfig } from "../meet-config.js";
 import { MeetSessionManager } from "../daemon/session-manager.js";
 
 const log = getLogger("meet-join-tool");
@@ -135,7 +136,8 @@ class MeetJoinTool implements Tool {
     //    manager — keeping the substitution in the tool lets the config
     //    value remain a template (stable across renames) while the bot
     //    sees a human-readable greeting.
-    const rawTemplate = config.services.meet.consentMessage;
+    const meetConfig = getMeetConfig();
+    const rawTemplate = meetConfig.consentMessage;
     const assistantName = getAssistantName() ?? DEFAULT_ASSISTANT_NAME;
     const consentMessage = substituteAssistantName(rawTemplate, assistantName);
 

@@ -17,9 +17,9 @@ Skills wire into the assistant through registries:
 - **Routes**: `registerSkillRoute()` in `assistant/src/runtime/skill-route-registry.ts`
 - **Shutdown**: `registerShutdownHook()` in `assistant/src/daemon/shutdown-registry.ts`
 
-The assistant owns its own copy of `MeetServiceSchema` in
-`assistant/src/config/schemas/meet.ts` for config composition. The skill's
-`config-schema.ts` is the skill-internal copy.
+The meet skill owns its config schema (`config-schema.ts`) and reads its
+configuration from `$VELLUM_WORKSPACE_DIR/config/meet.json` via `meet-config.ts`.
+The assistant's global `config.json` does not contain meet configuration.
 
 The complete allowlist and enforcement live in
 `assistant/src/__tests__/skill-meet-isolation.test.ts`. A guard test scans the

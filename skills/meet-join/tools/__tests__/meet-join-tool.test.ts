@@ -71,13 +71,9 @@ mock.module(
   }),
 );
 
-mock.module("../../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      meet: {
-        consentMessage: consentTemplate,
-      },
-    },
+mock.module("../../meet-config.js", () => ({
+  getMeetConfig: () => ({
+    consentMessage: consentTemplate,
   }),
 }));
 

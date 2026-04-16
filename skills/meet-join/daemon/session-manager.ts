@@ -77,6 +77,7 @@ import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver
 import type { TtsProvider } from "../../../assistant/src/tts/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
+import { getMeetConfig } from "../meet-config.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
   type BargeInCanceller,
@@ -685,8 +686,7 @@ class MeetSessionManagerImpl {
       { url },
     );
 
-    const config = getConfig();
-    const meet = config.services.meet;
+    const meet = getMeetConfig();
 
     const workspaceDir = this.deps.getWorkspaceDir();
     const meetingDir = join(workspaceDir, "meets", meetingId);

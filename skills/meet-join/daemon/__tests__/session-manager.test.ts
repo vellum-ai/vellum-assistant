@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,7 +18,6 @@ import {
   test,
 } from "bun:test";
 
-import { invalidateConfigCache } from "../../../../assistant/src/config/loader.js";
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
@@ -1403,47 +1408,47 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   }
 
   /**
-   * Writes a `config.json` to the test workspace and invalidates the
-   * config cache so `getConfig()` picks up the override. Paired with
-   * an `afterEach` that tears the file down and invalidates again —
-   * the rest of the file relies on schema defaults, so leaving an
-   * override in place would poison subsequent tests.
+   * Writes a `config/meet.json` to the test workspace so
+   * `getMeetConfig()` picks up the override. Paired with an
+   * `afterEach` that tears the file down — the rest of the file
+   * relies on schema defaults, so leaving an override in place
+   * would poison subsequent tests.
    */
   function overrideProactiveChatConfig(
     workspace: string,
     enabled: boolean,
   ): void {
-    const configPath = join(workspace, "config.json");
+    const configDir = join(workspace, "config");
+    mkdirSync(configDir, { recursive: true });
+    const meetConfigPath = join(configDir, "meet.json");
     writeFileSync(
-      configPath,
+      meetConfigPath,
       JSON.stringify(
         {
-          services: {
-            meet: {
-              proactiveChat: {
-                enabled,
-              },
-            },
+          proactiveChat: {
+            enabled,
           },
         },
         null,
         2,
       ),
     );
-    invalidateConfigCache();
   }
 
   afterEach(() => {
-    // Reset any config override so other describe blocks see schema defaults.
-    invalidateConfigCache();
+    // Remove any meet config override so other describe blocks see schema defaults.
+    const meetConfigPath = join(preloadWorkspace, "config", "meet.json");
+    if (existsSync(meetConfigPath)) {
+      rmSync(meetConfigPath);
+    }
   });
 
   test("join constructs detector with effectiveJoinName, proactiveChat config, and wake callback", async () => {
     // Point config writes at the preload workspace (which
-    // `getConfig()` reads via `VELLUM_WORKSPACE_DIR`) while the
+    // `getMeetConfig()` reads via `VELLUM_WORKSPACE_DIR`) while the
     // manager uses `workspaceDir` for its per-meeting directory
     // staging. The two don't have to match — session manager reads
-    // `services.meet.*` via `getConfig()` (preload dir) and uses
+    // meet config via `getMeetConfig()` (preload dir) and uses
     // `deps.getWorkspaceDir` for disk layout (test-local override).
     overrideProactiveChatConfig(preloadWorkspace, true);
 
