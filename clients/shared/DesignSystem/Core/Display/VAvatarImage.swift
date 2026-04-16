@@ -13,6 +13,12 @@ private var transparencyCacheKey: UInt8 = 0
 /// Reusable avatar image that adapts its clip shape based on image transparency.
 /// Images with transparent backgrounds render unclipped so the full artwork
 /// (ears, antennae, etc.) is visible. Opaque images render in a circle.
+///
+/// Transparency detection is CPU-bound (CGContext allocation + `CGContext.draw`
+/// + pixel sampling) and is **never run synchronously** during SwiftUI view
+/// initialization. Doing so has blocked the main thread in production — see
+/// LUM-915. Instead, `isTransparent` is a `@State` value seeded from the
+/// associated-object cache and refreshed via `.task(id:)` on a detached task.
 public struct VAvatarImage: View {
     public let image: NSImage
     public let size: CGFloat
@@ -23,8 +29,15 @@ public struct VAvatarImage: View {
     /// Whether to show a subtle border around the avatar.
     public var showBorder: Bool = true
 
-    /// Whether the source image has a transparent background, computed once at init.
-    private let isTransparent: Bool
+    /// Whether the source image has a transparent background.
+    ///
+    /// Seeded synchronously from the associated-object cache when available —
+    /// this is an O(1) `objc_getAssociatedObject` lookup, not a pixel scan.
+    /// On a cache miss, defaults to `false` (circle-clip) and is refreshed on
+    /// the next frame by the async `.task` below. Defaulting to opaque keeps
+    /// opaque images (the common case) rendered correctly from frame 1; the
+    /// rare transparent cache-miss resolves within one frame of task dispatch.
+    @State private var isTransparent: Bool
 
     /// Alpha byte value at or above which a pixel is considered opaque.
     /// Derived from `ceil(0.95 * 255) = 243`.
@@ -40,27 +53,32 @@ public struct VAvatarImage: View {
         self.size = size
         self.borderColor = borderColor
         self.showBorder = showBorder
-        self.isTransparent = Self.imageHasTransparency(image)
+        let cached = objc_getAssociatedObject(image, &transparencyCacheKey) as? Bool
+        self._isTransparent = State(initialValue: cached ?? false)
     }
 
     public var body: some View {
-        if isTransparent {
-            baseImage
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        } else {
-            baseImage
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
-                .clipShape(Circle())
-                .overlay {
-                    if showBorder {
-                        Circle()
-                            .strokeBorder(borderColor, lineWidth: 1)
+        Group {
+            if isTransparent {
+                baseImage
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+            } else {
+                baseImage
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+                    .overlay {
+                        if showBorder {
+                            Circle()
+                                .strokeBorder(borderColor, lineWidth: 1)
+                        }
                     }
-                }
-                .accessibilityHidden(true)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: ObjectIdentifier(image)) {
+            await refreshTransparencyOffMain()
         }
     }
 
@@ -70,33 +88,89 @@ public struct VAvatarImage: View {
             .resizable()
     }
 
-    /// Detect whether an NSImage contains transparent pixels by sampling its bitmap.
+    /// Refreshes `isTransparent` without blocking the main thread.
     ///
-    /// Results are cached on the `NSImage` instance via `objc_setAssociatedObject`,
-    /// so repeated calls with the same image (e.g. during SwiftUI body re-evaluation)
-    /// return immediately without allocating a CGContext.
+    /// - Hits the associated-object cache synchronously on the main actor
+    ///   (O(1), no pixel work) and returns early on a hit.
+    /// - On a cache miss, extracts the `CGImage` on the main actor — NSImage
+    ///   is not thread-safe, per
+    ///   [Apple docs](https://developer.apple.com/documentation/appkit/nsimage) —
+    ///   then offloads the CGContext allocation, `CGContext.draw`, and alpha
+    ///   sampling to a detached background task. `CGImage` is thread-safe and
+    ///   crosses the actor boundary cleanly.
     ///
-    /// For images larger than ``maxSamplingDimension``, the CGContext is created at
-    /// a downsampled resolution — only 8 sample points are needed, so full-resolution
-    /// rendering is unnecessary.
+    /// This matches the pattern used by `OffscreenPreviewCapture.encodeOffMain`
+    /// and the `@MainActor Isolation Boundaries` guidance in
+    /// `clients/AGENTS.md`: keep state on the main actor, offload only the
+    /// CPU-bound work.
+    @MainActor
+    private func refreshTransparencyOffMain() async {
+        if let cached = objc_getAssociatedObject(image, &transparencyCacheKey) as? Bool {
+            if isTransparent != cached {
+                isTransparent = cached
+            }
+            return
+        }
+
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            if isTransparent != false {
+                isTransparent = false
+            }
+            return
+        }
+
+        let computed = await Task.detached(priority: .userInitiated) {
+            Self.computeTransparencyFromCGImage(cgImage)
+        }.value
+
+        guard !Task.isCancelled else { return }
+
+        objc_setAssociatedObject(
+            image,
+            &transparencyCacheKey,
+            computed,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        if isTransparent != computed {
+            isTransparent = computed
+        }
+    }
+
+    /// Synchronous transparency check preserved for unit tests.
+    ///
+    /// **Do not call from view code.** The CGContext allocation + pixel draw
+    /// is CPU-bound and has blocked the main thread in production (LUM-915).
+    /// Production code must use the async `.task` path on `VAvatarImage`.
+    /// Results are cached on the `NSImage` instance via
+    /// `objc_setAssociatedObject` so tests that call this twice still observe
+    /// caching behavior.
     static func imageHasTransparency(_ nsImage: NSImage) -> Bool {
-        // Return cached result if available.
         if let cached = objc_getAssociatedObject(nsImage, &transparencyCacheKey) as? Bool {
             return cached
         }
 
-        let result = computeTransparency(nsImage)
-        objc_setAssociatedObject(nsImage, &transparencyCacheKey, result, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return result
-    }
-
-    /// Core transparency detection logic, separated from caching for testability.
-    private static func computeTransparency(_ nsImage: NSImage) -> Bool {
         guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             return false
         }
 
-        // If the pixel format has no alpha channel, the image is fully opaque.
+        let result = computeTransparencyFromCGImage(cgImage)
+        objc_setAssociatedObject(
+            nsImage,
+            &transparencyCacheKey,
+            result,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        return result
+    }
+
+    /// Core pixel-sampling logic. Takes a `CGImage` rather than an `NSImage`
+    /// so it can run on any thread — `CGImage` is thread-safe, `NSImage` is
+    /// not.
+    ///
+    /// - Returns `false` in O(1) when the pixel format has no alpha channel.
+    /// - Otherwise draws into a downsampled 32-bit BGRA context and checks
+    ///   the alpha byte at the 4 corners + 4 edge midpoints (8 points total).
+    private static func computeTransparencyFromCGImage(_ cgImage: CGImage) -> Bool {
         let alphaInfo = cgImage.alphaInfo
         switch alphaInfo {
         case .none, .noneSkipFirst, .noneSkipLast:
