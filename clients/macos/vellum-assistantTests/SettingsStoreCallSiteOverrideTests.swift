@@ -221,7 +221,7 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
 
     // MARK: - Single-entry clear
 
-    func testClearCallSiteOverrideEmitsNullLeavesAndClearsLocalCache() {
+    func testClearCallSiteOverrideNullsEntireEntryAndClearsLocalCache() {
         _ = store.setCallSiteOverride(
             "memoryRetrieval",
             provider: "openai",
@@ -232,12 +232,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         _ = store.clearCallSiteOverride("memoryRetrieval")
         waitForPatchCount(2)
 
+        // The whole `callSites.<id>` entry is nulled (not just provider/
+        // model/profile leaves) so any other config leaves the entry might
+        // have — maxTokens, effort, speed, thinking, contextWindow — get
+        // cleared too. Per Codex PR #26128 cycle 2 P2.
         let sites = lastCallSitesPatch()
-        let memory = sites?["memoryRetrieval"] as? [String: Any]
-        XCTAssertNotNil(memory)
-        XCTAssertTrue(memory?["provider"] is NSNull)
-        XCTAssertTrue(memory?["model"] is NSNull)
-        XCTAssertTrue(memory?["profile"] is NSNull)
+        XCTAssertNotNil(sites?["memoryRetrieval"])
+        XCTAssertTrue(sites?["memoryRetrieval"] is NSNull)
 
         let cached = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
         XCTAssertNil(cached?.provider)
@@ -410,18 +411,14 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
         XCTAssertTrue(watch?["profile"] is NSNull)
 
         // And it must include null-clears for the two pre-populated entries
-        // so the daemon's view matches the (now-cleared) local cache.
-        let memory = sites?["memoryRetrieval"] as? [String: Any]
-        XCTAssertNotNil(memory, "PATCH must include null-clear for memoryRetrieval")
-        XCTAssertTrue(memory?["provider"] is NSNull)
-        XCTAssertTrue(memory?["model"] is NSNull)
-        XCTAssertTrue(memory?["profile"] is NSNull)
+        // so the daemon's view matches the (now-cleared) local cache. The
+        // whole entry is nulled (not just provider/model/profile leaves) per
+        // PR #26128 cycle 2 fix — clears any other leaves the entry may have.
+        XCTAssertNotNil(sites?["memoryRetrieval"], "PATCH must include null-clear for memoryRetrieval")
+        XCTAssertTrue(sites?["memoryRetrieval"] is NSNull)
 
-        let commit = sites?["commitMessage"] as? [String: Any]
-        XCTAssertNotNil(commit, "PATCH must include null-clear for commitMessage")
-        XCTAssertTrue(commit?["provider"] is NSNull)
-        XCTAssertTrue(commit?["model"] is NSNull)
-        XCTAssertTrue(commit?["profile"] is NSNull)
+        XCTAssertNotNil(sites?["commitMessage"], "PATCH must include null-clear for commitMessage")
+        XCTAssertTrue(sites?["commitMessage"] is NSNull)
 
         // Stronger invariant: the set of IDs PATCHed must equal the full
         // catalog. Anything less re-creates the divergence bug.

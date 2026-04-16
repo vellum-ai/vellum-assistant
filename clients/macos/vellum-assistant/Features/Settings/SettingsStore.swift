@@ -3119,18 +3119,17 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
-    /// Clears the override for a single call site by writing
-    /// `{ provider: null, model: null, profile: null }` to
-    /// `llm.callSites.<id>`. The daemon's PATCH handler uses
-    /// `deepMergeOverwrite`, which assigns `null` leaves rather than
-    /// deleting the key, so the on-disk shape becomes
-    /// `{ "llm": { "callSites": { "<id>": { "provider": null, ... } } } }`.
+    /// Clears the override for a single call site by writing `null` to
+    /// `llm.callSites.<id>` itself, which the Zod fragment treats as
+    /// "absent" and the resolver falls back to `llm.default`.
     ///
-    /// The Zod fragment schema treats `null` as equivalent to "absent" for
-    /// these optional fields (parsed as `undefined`), which is what the
-    /// resolver consumes. If a true key-deletion semantic is needed in
-    /// the future, a dedicated DELETE endpoint should be added — see
-    /// the PR body for the proposed follow-up.
+    /// We null the entire entry rather than just `provider`/`model`/`profile`
+    /// because `LLMCallSiteConfig` supports additional leaves
+    /// (`maxTokens`, `effort`, `speed`, `temperature`, `thinking`,
+    /// `contextWindow`) that may have been set via manual config edits or
+    /// other clients. Clearing only the three Settings-UI-managed fields
+    /// would leave hidden overrides applied — the user couldn't truly
+    /// reset the call site.
     @discardableResult
     func clearCallSiteOverride(_ id: String) -> Task<Bool, Never> {
         guard CallSiteCatalog.validIds.contains(id) else {
@@ -3142,12 +3141,9 @@ public final class SettingsStore: ObservableObject {
             callSiteOverrides[index].model = nil
             callSiteOverrides[index].profile = nil
         }
-        let entry: [String: Any] = [
-            "provider": NSNull(),
-            "model": NSNull(),
-            "profile": NSNull(),
+        let payload: [String: Any] = [
+            "llm": ["callSites": [id: NSNull()]],
         ]
-        let payload: [String: Any] = ["llm": ["callSites": [id: entry]]]
         let task = Task {
             let success = await settingsClient.patchConfig(payload)
             if !success {
@@ -3214,13 +3210,13 @@ public final class SettingsStore: ObservableObject {
         // Without this, omitted entries would appear cleared in the UI but
         // the daemon would retain their previous values, and the stale
         // values would "reappear" on the next config sync.
-        let nullClear: [String: Any] = [
-            "provider": NSNull(),
-            "model": NSNull(),
-            "profile": NSNull(),
-        ]
+        //
+        // Null the entire `callSites.<id>` entry (rather than just the three
+        // Settings-managed fields) so any other leaves an entry might have
+        // — `maxTokens`, `effort`, `speed`, `thinking`, `contextWindow` —
+        // are cleared too. Same rationale as `clearCallSiteOverride`.
         for entry in CallSiteCatalog.all where callSitesPayload[entry.id] == nil {
-            callSitesPayload[entry.id] = nullClear
+            callSitesPayload[entry.id] = NSNull()
         }
         let payload: [String: Any] = ["llm": ["callSites": callSitesPayload]]
         let task = Task {
