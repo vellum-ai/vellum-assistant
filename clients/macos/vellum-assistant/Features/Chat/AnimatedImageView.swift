@@ -63,20 +63,24 @@ struct AnimatedImageView: View {
                 // preventing the upscale blur that Image(nsImage:) causes.
                 let nativeWidth = CGFloat(cgImage.width) / displayScale
                 let nativeHeight = CGFloat(cgImage.height) / displayScale
+                // Use definite dimensions to avoid _FlexFrameLayout inside
+                // LazyVStack cells. aspectRatio + .fit computes the correct
+                // size; we just need to cap the proposal. See LUM-944.
+                let cappedWidth = min(nativeWidth, maxDimension)
+                let scale = cappedWidth / max(nativeWidth, 1)
+                let cappedHeight = nativeHeight * scale
                 Image(decorative: cgImage, scale: displayScale)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(
-                        maxWidth: min(nativeWidth, maxDimension),
-                        maxHeight: min(nativeHeight, maxDimension)
-                    )
+                    .frame(width: cappedWidth, height: cappedHeight)
             } else if let image = loadedImage {
-                // Fallback when CGImage extraction fails
+                // Fallback when CGImage extraction fails. Use widthCap to
+                // avoid _FlexFrameLayout inside LazyVStack cells. See LUM-944.
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: maxDimension, maxHeight: maxDimension)
+                    .widthCap(maxDimension)
             } else {
                 VIconView(.image, size: 24)
                     .foregroundStyle(VColor.contentTertiary)
