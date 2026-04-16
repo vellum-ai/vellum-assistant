@@ -642,6 +642,11 @@ class IOSConversationStore: ObservableObject {
             guard generation == self.conversationListGeneration else { return }
             self.lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
             self.isLoadingInitialConversations = false
+            // Clear the load-more flag too; a manual refresh that races with an in-flight
+            // `loadMoreConversations` would otherwise leave the store stuck with the footer
+            // spinner visible and further pagination blocked by the early-return guard in
+            // `loadMoreConversations`.
+            self.isLoadingMoreConversations = false
         }
     }
 
@@ -657,8 +662,12 @@ class IOSConversationStore: ObservableObject {
 
         // Reset pagination so the full first page is refetched and bump the
         // generation so any in-flight responses from earlier sends are ignored.
+        // Clear the load-more flag as well; any in-flight `loadMoreConversations`
+        // response will be discarded by the generation guard, so leaving the flag
+        // set would permanently block further pagination.
         conversationListOffset = 0
         hasMoreConversations = false
+        isLoadingMoreConversations = false
         conversationListGeneration += 1
         let currentGeneration = conversationListGeneration
 
