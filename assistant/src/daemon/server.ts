@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import {
   disposeAcpSessionManager,
   getAcpSessionManager,
@@ -26,6 +28,7 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { CliIpcServer } from "../ipc/cli-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -52,6 +55,7 @@ import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
   registerDefaultWakeResolver,
+  wakeAgentForOpportunity,
   type WakeTarget,
 } from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -300,6 +304,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
+  private cliIpc = new CliIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.
   // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
@@ -811,8 +816,7 @@ export class DaemonServer {
     // DB, exposing only the narrow surface the wake helper needs.
     registerDefaultWakeResolver(async (conversationId) => {
       try {
-        const conversation =
-          await this.getOrCreateConversation(conversationId);
+        const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
         log.warn(
@@ -822,6 +826,21 @@ export class DaemonServer {
         return null;
       }
     });
+
+    // Start the CLI IPC server and register methods. CLI commands
+    // (e.g. `assistant conversations wake`) connect to this socket to
+    // invoke daemon-side operations that require in-process state.
+    const WakeConversationParams = z.object({
+      conversationId: z.string().min(1),
+      hint: z.string().min(1),
+      source: z.string().default("cli"),
+    });
+    this.cliIpc.registerMethod("wake_conversation", async (params) => {
+      const { conversationId, hint, source } =
+        WakeConversationParams.parse(params);
+      return wakeAgentForOpportunity({ conversationId, hint, source });
+    });
+    this.cliIpc.start();
 
     // Wire the launchConversation helper to daemon-side state so
     // handleSurfaceAction can spawn conversations through it.
@@ -876,6 +895,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
+    this.cliIpc.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;
