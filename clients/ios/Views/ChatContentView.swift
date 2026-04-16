@@ -56,20 +56,21 @@ func makeOnForkFromMessageAction(
 func resolvePendingChatAnchor(
     daemonMessageId: String,
     displayedMessages: [ChatMessage],
-    displayedMessageCount: Int
+    displayedMessageCount: Int,
+    isShowAllMode: Bool
 ) -> PendingChatAnchorResolution? {
     guard let messageIndex = displayedMessages.firstIndex(where: { $0.daemonMessageId == daemonMessageId }) else {
         return nil
     }
 
-    let visibleCount = displayedMessageCount == Int.max
+    let visibleCount = isShowAllMode
         ? displayedMessages.count
         : min(displayedMessageCount, displayedMessages.count)
     let visibleStartIndex = max(0, displayedMessages.count - visibleCount)
 
     return PendingChatAnchorResolution(
         localMessageId: displayedMessages[messageIndex].id,
-        requiresExpandedWindow: displayedMessageCount != Int.max && messageIndex < visibleStartIndex
+        requiresExpandedWindow: !isShowAllMode && messageIndex < visibleStartIndex
     )
 }
 
@@ -77,12 +78,14 @@ func nextPendingChatAnchorSearchStep(
     daemonMessageId: String,
     displayedMessages: [ChatMessage],
     displayedMessageCount: Int,
+    isShowAllMode: Bool,
     hasMoreMessages: Bool
 ) -> PendingChatAnchorSearchStep {
     guard let resolution = resolvePendingChatAnchor(
         daemonMessageId: daemonMessageId,
         displayedMessages: displayedMessages,
-        displayedMessageCount: displayedMessageCount
+        displayedMessageCount: displayedMessageCount,
+        isShowAllMode: isShowAllMode
     ) else {
         return hasMoreMessages ? .loadOlderPage : .consume
     }
@@ -818,11 +821,13 @@ struct ChatContentView: View {
                     daemonMessageId: pendingAnchorDaemonMessageId,
                     displayedMessages: viewModel.displayedMessages,
                     displayedMessageCount: viewModel.displayedMessageCount,
+                    isShowAllMode: viewModel.isShowAllMode,
                     hasMoreMessages: viewModel.hasMoreMessages
                 ) {
                 case let .scroll(localMessageId, requiresExpandedWindow):
                     if requiresExpandedWindow {
-                        viewModel.displayedMessageCount = Int.max
+                        viewModel.isShowAllMode = true
+                        viewModel.displayedMessageCount = viewModel.displayedMessages.count
                         try? await Task.sleep(nanoseconds: 50_000_000)
                         guard !Task.isCancelled else { return }
                         continue

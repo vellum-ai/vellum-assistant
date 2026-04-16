@@ -17,12 +17,24 @@ public final class ChatPaginationState {
 
     // MARK: - Display window
 
+    /// Upper bound on the number of items passed to the ForEach.
+    /// When the conversation has more messages than this, the view
+    /// only renders a sliding suffix of this many items.
+    public static let maxPaginatedWindowSize = 200
+
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
     /// Grows by `messagePageSize` each time the user scrolls to the top.
-    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
-    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
+    /// When `isShowAllMode` is true the window tracks the full message count
+    /// so new incoming messages are included automatically.
     public var displayedMessageCount: Int = messagePageSize
+
+    /// When true, the display window auto-tracks the full message count so
+    /// new incoming messages don't collapse visible history back to a suffix.
+    /// Separate from `displayedMessageCount` to avoid using `Int.max` as a
+    /// sentinel — which conflated "don't shrink" (behavioral) with "how many
+    /// items" (sizing) and made the ForEach item count unbounded.
+    public var isShowAllMode: Bool = false
 
     /// True while a previous-page load is in progress (brief async delay for UX).
     public var isLoadingMoreMessages: Bool = false
@@ -57,9 +69,9 @@ public final class ChatPaginationState {
     /// True when either:
     ///   1. There are locally loaded messages outside the current display suffix, OR
     ///   2. The daemon has older pages available to fetch.
-    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
+    /// In show-all mode, local messages are fully visible so only daemon pages apply.
     public var hasMoreMessages: Bool {
-        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+        (!isShowAllMode && displayedMessageCount < displayedMessages.count) || hasMoreHistory
     }
 
     // MARK: - Visible Messages Cache
@@ -131,8 +143,11 @@ public final class ChatPaginationState {
     /// (pagination expand, reset) without re-running the visibility filter.
     func recomputePaginatedSuffix() {
         let visible = displayedMessages
-        if displayedMessageCount < visible.count {
-            paginatedVisibleMessages = Array(visible.suffix(displayedMessageCount))
+        let effectiveCount = isShowAllMode
+            ? min(visible.count, Self.maxPaginatedWindowSize)
+            : displayedMessageCount
+        if effectiveCount < visible.count {
+            paginatedVisibleMessages = Array(visible.suffix(effectiveCount))
         } else {
             paginatedVisibleMessages = visible
         }
@@ -156,10 +171,15 @@ public final class ChatPaginationState {
             try? await Task.sleep(nanoseconds: 150_000_000)
             let next = displayedMessageCount + Self.messagePageSize
             let total = displayedMessages.count
-            // When all messages fit within the expanded window, switch to show-all mode
-            // (Int.max) so future incoming messages don't shrink the visible history back
+            // When all messages fit within the expanded window, switch to show-all
+            // mode so future incoming messages don't shrink the visible history back
             // to a suffix window — the regression described in the parent PR.
-            displayedMessageCount = next >= total ? Int.max : next
+            if next >= total {
+                isShowAllMode = true
+                displayedMessageCount = total
+            } else {
+                displayedMessageCount = next
+            }
             recomputePaginatedSuffix()
             isLoadingMoreMessages = false
             return true
@@ -199,6 +219,7 @@ public final class ChatPaginationState {
 
     /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
         historyCursor = nil
         hasMoreHistory = false

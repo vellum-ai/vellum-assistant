@@ -827,6 +827,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
+    public var isShowAllMode: Bool {
+        get { paginationState.isShowAllMode }
+        set {
+            paginationState.isShowAllMode = newValue
+            paginationState.recomputeVisibleMessages(from: messageManager.messages)
+        }
+    }
+
     public var isLoadingMoreMessages: Bool {
         get { paginationState.isLoadingMoreMessages }
         set { paginationState.isLoadingMoreMessages = newValue }
@@ -2112,13 +2120,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
             // Expand the display window by the number of messages prepended so
-            // the user sees them immediately. Use Int.max if no more pages exist.
+            // the user sees them immediately. Enter show-all mode when no more
+            // daemon pages exist so new incoming messages stay visible.
             if hasMore {
-                displayedMessageCount = displayedMessageCount == Int.max
-                    ? Int.max
-                    : displayedMessageCount + chatMessages.count
+                if !isShowAllMode {
+                    displayedMessageCount = displayedMessageCount + chatMessages.count
+                }
             } else {
-                displayedMessageCount = Int.max
+                isShowAllMode = true
+                displayedMessageCount = mergedMessages.count
             }
             self.paginationState.loadMoreTimeoutTask?.cancel()
             self.paginationState.loadMoreTimeoutTask = nil

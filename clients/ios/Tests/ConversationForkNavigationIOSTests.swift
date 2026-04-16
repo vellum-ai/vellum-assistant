@@ -66,7 +66,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let expandedResolution = resolvePendingChatAnchor(
             daemonMessageId: "msg-oldest",
             displayedMessages: displayedMessages,
-            displayedMessageCount: 2
+            displayedMessageCount: 2,
+            isShowAllMode: false
         )
         XCTAssertEqual(
             expandedResolution,
@@ -79,7 +80,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         let visibleResolution = resolvePendingChatAnchor(
             daemonMessageId: "msg-newest",
             displayedMessages: displayedMessages,
-            displayedMessageCount: 2
+            displayedMessageCount: 2,
+            isShowAllMode: false
         )
         XCTAssertEqual(
             visibleResolution,
@@ -93,7 +95,8 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             resolvePendingChatAnchor(
                 daemonMessageId: "msg-missing",
                 displayedMessages: displayedMessages,
-                displayedMessageCount: 2
+                displayedMessageCount: 2,
+                isShowAllMode: false
             )
         )
     }
@@ -108,6 +111,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
                 daemonMessageId: "msg-newest",
                 displayedMessages: displayedMessages,
                 displayedMessageCount: 1,
+                isShowAllMode: false,
                 hasMoreMessages: true
             ),
             .scroll(localMessageId: newest.id, requiresExpandedWindow: false)
@@ -118,6 +122,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
                 daemonMessageId: "msg-missing",
                 displayedMessages: displayedMessages,
                 displayedMessageCount: 1,
+                isShowAllMode: false,
                 hasMoreMessages: true
             ),
             .loadOlderPage
@@ -128,6 +133,7 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
                 daemonMessageId: "msg-missing",
                 displayedMessages: displayedMessages,
                 displayedMessageCount: 1,
+                isShowAllMode: false,
                 hasMoreMessages: false
             ),
             .consume
