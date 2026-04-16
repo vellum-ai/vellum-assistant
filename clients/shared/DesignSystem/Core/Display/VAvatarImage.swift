@@ -112,10 +112,14 @@ public struct VAvatarImage: View {
             return
         }
 
+        // Cache miss. Reset to the opaque default synchronously so a stale
+        // transparent value from a previous image (when `@State` is preserved
+        // across an image swap) does not persist while the detached scan runs.
+        if isTransparent != false {
+            isTransparent = false
+        }
+
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            if isTransparent != false {
-                isTransparent = false
-            }
             return
         }
 
