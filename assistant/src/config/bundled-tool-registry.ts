@@ -77,6 +77,7 @@ import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js"
 import * as gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
 import * as gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
+import * as gmailPreferencesTool from "./bundled-skills/gmail/tools/gmail-preferences-tool.js";
 import * as gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
 import * as gmailSenderDigest from "./bundled-skills/gmail/tools/gmail-sender-digest.js";
 import * as gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
@@ -275,6 +276,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-vacation.ts", gmailVacation],
   ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
   ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
+  ["gmail:tools/gmail-preferences-tool.ts", gmailPreferencesTool],
 
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],

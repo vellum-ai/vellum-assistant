@@ -175,6 +175,7 @@ export interface ConversationRow {
   isAutoTitle: number;
   scheduleJobId: string | null;
   lastMessageAt: number | null;
+  archivedAt: number | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -202,6 +203,7 @@ export const parseConversation = createRowMapper<
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
+  archivedAt: "archivedAt",
 });
 
 export interface MessageRow {

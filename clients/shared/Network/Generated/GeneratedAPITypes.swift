@@ -3564,8 +3564,9 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let isPinned: Bool?
     public let groupId: String?
     public let forkParent: ConversationForkParent?
+    public let archivedAt: Int?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil, archivedAt: Int? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3583,6 +3584,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.isPinned = isPinned
         self.groupId = groupId
         self.forkParent = forkParent
+        self.archivedAt = archivedAt
     }
 }
 

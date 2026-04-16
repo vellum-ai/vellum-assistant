@@ -85,12 +85,7 @@ export async function run(
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
       let listResp;
       try {
-        listResp = await listMessages(
-          connection,
-          query,
-          pageSize,
-          pageToken,
-        );
+        listResp = await listMessages(connection, query, pageSize, pageToken);
       } catch (e) {
         if (isRateLimitError(e)) {
           rateLimited = true;
@@ -233,35 +228,55 @@ export async function run(
       }
     }
 
-    // Sort by message count desc, take top N
+    // Sort by message count desc — over-fetch before enrichment, cap after
     const sorted = [...senderMap.values()]
       .sort((a, b) => b.messageCount - a.messageCount)
-      .slice(0, maxSenders);
+      .slice(0, maxSenders * 3);
 
     // Enrich with prior-reply signal: check if user has ever sent to each sender.
-    // Fire all checks in parallel (each is a lightweight maxResults:1 list call).
     const priorReplyMap = new Map<string, boolean>();
-    const replyChecks = sorted.map(async (s) => {
-      try {
-        const resp = await listMessages(
-          connection,
-          `from:me to:${s.email}`,
-          1,
-        );
-        priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
-      } catch {
-        // Non-fatal — default to unknown (false)
-        priorReplyMap.set(s.email, false);
+    if (!rateLimited) {
+      const enrichmentBudgetMs = Math.max(
+        TIME_BUDGET_MS - (Date.now() - startTime),
+        5_000,
+      );
+      const replyChecks = sorted.map(async (s) => {
+        try {
+          const resp = await listMessages(
+            connection,
+            `from:me to:${s.email}`,
+            1,
+          );
+          priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
+        } catch {
+          // Non-fatal — default to safe direction (assume prior reply exists)
+          priorReplyMap.set(s.email, true);
+        }
+      });
+      await Promise.race([
+        Promise.all(replyChecks),
+        new Promise<void>((resolve) => setTimeout(resolve, enrichmentBudgetMs)),
+      ]);
+      // Default any un-enriched senders to safe direction
+      for (const s of sorted) {
+        if (!priorReplyMap.has(s.email)) {
+          priorReplyMap.set(s.email, true);
+        }
       }
-    });
-    await Promise.all(replyChecks);
+    } else {
+      // Rate limited — default all to safe direction
+      for (const s of sorted) {
+        priorReplyMap.set(s.email, true);
+      }
+    }
 
-    const senders = sorted.map((s) => ({
+    const capped = sorted.slice(0, maxSenders);
+    const senders = capped.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
       email: s.email,
       message_count: s.messageCount,
-      has_prior_reply: priorReplyMap.get(s.email) ?? false,
+      has_prior_reply: priorReplyMap.get(s.email) ?? true,
       newest_message_id: s.newestMessageId,
       oldest_date: s.oldestDate,
       newest_date: s.newestDate,
@@ -271,7 +286,7 @@ export async function run(
 
     // Store message IDs server-side to keep them out of LLM context
     const scanId = storeScanResult(
-      sorted.map((s) => ({
+      capped.map((s) => ({
         id: Buffer.from(s.email).toString("base64url"),
         messageIds: s.messageIds,
         newestMessageId: s.newestMessageId,

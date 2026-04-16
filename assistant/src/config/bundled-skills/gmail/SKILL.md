@@ -193,7 +193,7 @@ The `gmail_preferences` tool persists sender preferences across cleanup sessions
 Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context. `gmail_outreach_scan` finds senders without List-Unsubscribe headers (potential cold outreach) and enriches each sender with `has_prior_reply` (whether the user has ever sent an email to that address). Use this signal to filter out legitimate correspondents before classifying cold outreach.
 
 - Pass `scan_id` + `sender_ids` to `gmail_archive` instead of `message_ids`
-- Scan results expire after **30 minutes** - if archiving fails with an expiration error, re-run the scan
+- Scan results expire after **30 minutes**. When a scan expires (`resolved === null`), archiving automatically falls back to query-based archiving per sender. If sender IDs don't match the scan results (`resolved` is empty), the tool returns an error — re-run the scan to get fresh results.
 - Raw `message_ids` still work as a fallback for non-scan workflows
 
 ## Batch Operations

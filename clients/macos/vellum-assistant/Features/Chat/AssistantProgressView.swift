@@ -290,9 +290,9 @@ struct AssistantProgressView: View {
                     startDate = Date()
                 }
             }
-            // Reset thinking anchor when tools resume in a multi-wave run
-            // (tools complete → think → more tools → think → complete).
-            if newPhase == .toolRunning || newPhase == .streamingCode {
+            // Reset thinking anchor only when tools actually resume (not on streamingCode,
+            // which can fire from lingering code previews after tools complete).
+            if newPhase == .toolRunning {
                 thinkingAfterToolsStartDate = nil
                 thinkingAfterToolsEndDate = nil
             }

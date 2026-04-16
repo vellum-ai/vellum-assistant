@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -157,6 +158,12 @@ describe("MeetSessionManager.join", () => {
       getWorkspaceDir: () => workspaceDir,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
+      // Force the display-name resolver to return null so the JOIN_NAME
+      // assertion below is deterministic — without this override the real
+      // `getAssistantName()` reads `IDENTITY.md` from whatever workspace
+      // happens to be on disk (the user's real `~/.vellum/workspace/` if
+      // no preload is wired), which would leak into the assertion.
+      resolveAssistantDisplayName: () => null,
     });
 
     const session = await manager.join({
@@ -214,9 +221,8 @@ describe("MeetSessionManager.join", () => {
     expect(runOpts.env.MEETING_ID).toBe("m1");
     // `services.meet.joinName` is null by default → session manager falls
     // back to the assistant display name, then to MEET_JOIN_NAME_FALLBACK.
-    // In this test, `resolveAssistantDisplayName` is not overridden, so
-    // the real `getAssistantName()` returns null (no IDENTITY.md) and we
-    // land on the hard fallback.
+    // The test wires `resolveAssistantDisplayName: () => null` above, so
+    // we land on the hard fallback regardless of what `IDENTITY.md` says.
     expect(runOpts.env.JOIN_NAME).toBe("AI Assistant");
     // `{assistantName}` is substituted in the session manager using the
     // same effective name that `JOIN_NAME` resolves to.
@@ -1228,16 +1234,28 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   // unset — fall back to a locally-managed tmp dir so the tests are
   // runnable from either directory (CLAUDE.md expects scoped tests
   // to work from their containing package).
-  const createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
-  const preloadWorkspace =
-    process.env.VELLUM_WORKSPACE_DIR ??
-    mkdtempSync(join(tmpdir(), "meet-session-manager-pchat-"));
-  if (createdLocalWorkspace) {
-    // `getConfig()` resolves its workspace from the env var, so point
-    // it at the tmp dir we just created. Scoped to this describe block
-    // — other blocks rely on schema defaults and don't need the override.
-    process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
-  }
+  //
+  // The fallback is wired via `beforeAll` (rather than describe-body
+  // scope) so the env-var override is set only while this block is
+  // executing — Bun evaluates describe bodies synchronously at module
+  // load, so a body-scoped `process.env` mutation would leak into
+  // every other describe in this file. `afterAll` tears it back down
+  // so the next file (or a later block, if any are added below) sees
+  // the original environment.
+  let preloadWorkspace: string;
+  let createdLocalWorkspace: boolean;
+
+  beforeAll(() => {
+    createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
+    preloadWorkspace =
+      process.env.VELLUM_WORKSPACE_DIR ??
+      mkdtempSync(join(tmpdir(), "meet-session-manager-pchat-"));
+    if (createdLocalWorkspace) {
+      // `getConfig()` resolves its workspace from the env var, so point
+      // it at the tmp dir we just created.
+      process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
+    }
+  });
 
   afterAll(() => {
     if (createdLocalWorkspace) {
