@@ -140,7 +140,14 @@ jobs:
                 (cd "$SKILL_DIR/$sub" && bun install && bun test)
               fi
             done
-            # Run remaining meet-join tests with per-file process isolation
+            # Run remaining meet-join tests with per-file process isolation.
+            # Tests must run from assistant/ (not repo root) because the repo-root
+            # test-preload.ts guard blocks `bun test` invocations there.
+            # Paths are converted to ../skills/meet-join/... relative to assistant/.
+            cd assistant && bun install --frozen-lockfile
+            cd ../packages/ces-contracts && bun install --frozen-lockfile
+            cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
+            cd ../..
             TEST_FILES=$(find "$SKILL_DIR" \
               -path "$SKILL_DIR/bot" -prune -o \
               -path "$SKILL_DIR/contracts" -prune -o \
@@ -150,8 +157,10 @@ jobs:
               echo "Running meet-join tests with per-file isolation..."
               FAIL=0
               for tf in $TEST_FILES; do
+                # Convert repo-root-relative path to assistant-relative path
+                REL_PATH="../$tf"
                 echo "  Testing $tf ..."
-                if ! bun test "$tf"; then
+                if ! (cd assistant && bun test "$REL_PATH"); then
                   FAIL=1
                 fi
               done
