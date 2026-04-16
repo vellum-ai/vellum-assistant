@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -8,7 +9,7 @@ import VellumAssistantShared
 /// and a close button in the top-right corner.
 struct ImageLightboxOverlay: View {
     @ObservedObject var windowState: MainWindowState
-    @FocusState private var isFocused: Bool
+    @State private var escapeMonitor: Any?
 
     private var lightbox: ImageLightboxState? { windowState.imageLightbox }
 
@@ -32,23 +33,25 @@ struct ImageLightboxOverlay: View {
                 }
 
                 // Close button (top-right)
-                closeButton
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(VSpacing.lg)
+                VStack {
+                    HStack {
+                        Spacer()
+                        closeButton
+                    }
+                    Spacer()
+                }
+                .padding(VSpacing.lg)
 
                 // Floating toolbar (bottom)
-                lightboxToolbar(lightbox)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, VSpacing.xl)
+                VStack {
+                    Spacer()
+                    lightboxToolbar(lightbox)
+                }
+                .padding(.bottom, VSpacing.xl)
             }
             .environment(\.colorScheme, .dark)
-            .focusable()
-            .focused($isFocused)
-            .onKeyPress(.escape) {
-                dismiss()
-                return .handled
-            }
-            .onAppear { isFocused = true }
+            .onAppear { installEscapeMonitor() }
+            .onDisappear { removeEscapeMonitor() }
             .transition(.opacity.animation(VAnimation.standard))
         }
     }
@@ -130,4 +133,20 @@ struct ImageLightboxOverlay: View {
         }
     }
 
+    // MARK: - Escape Key Monitor
+
+    private func installEscapeMonitor() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event } // 53 = Escape
+            dismiss()
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
+    }
 }
