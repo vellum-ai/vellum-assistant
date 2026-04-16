@@ -132,14 +132,12 @@ export type ProviderEvent =
 
 export interface SendMessageConfig {
   model?: string;
-  modelIntent?: ModelIntent;
   /**
-   * Opt-in routing through the unified LLM call-site resolver. When set,
-   * `RetryProvider` resolves provider/model/maxTokens/effort/speed/temperature/
-   * thinking/contextWindow via `resolveCallSiteConfig(callSite, config.llm)`
-   * instead of consulting `modelIntent`. Both fields may coexist; `callSite`
-   * wins when present, and the legacy `modelIntent` path is preserved for
-   * unmigrated callers.
+   * LLM call-site identifier. `RetryProvider` resolves
+   * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+   * via `resolveCallSiteConfig(callSite, config.llm)`. Required for any new
+   * caller; the legacy `modelIntent`-based fallback was removed in PR 19 of
+   * the unify-llm-callsites plan.
    */
   callSite?: LLMCallSite;
   effort?: "low" | "medium" | "high" | "max";

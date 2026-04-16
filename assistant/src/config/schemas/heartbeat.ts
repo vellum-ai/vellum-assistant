@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { SpeedSchema } from "./inference.js";
-
 export const HeartbeatConfigSchema = z
   .object({
     enabled: z
@@ -14,9 +12,6 @@ export const HeartbeatConfigSchema = z
       .positive("heartbeat.intervalMs must be a positive integer")
       .default(6 * 3_600_000)
       .describe("Time between heartbeat checks in milliseconds"),
-    speed: SpeedSchema.default("standard").describe(
-      "Inference speed mode for heartbeat conversations — defaults to standard to avoid inheriting the global fast mode multiplier",
-    ),
     activeHoursStart: z
       .number({ error: "heartbeat.activeHoursStart must be a number" })
       .int("heartbeat.activeHoursStart must be an integer")

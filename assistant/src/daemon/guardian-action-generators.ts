@@ -18,8 +18,8 @@ import type {
 /**
  * Create the daemon-owned guardian action copy generator that resolves
  * providers and calls `provider.sendMessage` to generate guardian action
- * copy text. Uses `latency-optimized` model intent since these are
- * time-sensitive voice responses.
+ * copy text. Uses the `guardianQuestionCopy` call site so model selection
+ * tracks the unified `llm.callSites` configuration.
  *
  * This keeps all provider awareness in the daemon lifecycle, away from
  * the runtime composer.
@@ -29,7 +29,7 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
     const config = loadConfig();
     let provider;
     try {
-      provider = getProvider(config.services.inference.provider);
+      provider = getProvider(config.llm.default.provider);
     } catch {
       return null;
     }
@@ -52,7 +52,7 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
       {
         config: {
           max_tokens: options.maxTokens ?? GUARDIAN_ACTION_COPY_MAX_TOKENS,
-          modelIntent: "latency-optimized",
+          callSite: "guardianQuestionCopy",
         },
         signal: AbortSignal.timeout(
           options.timeoutMs ?? GUARDIAN_ACTION_COPY_TIMEOUT_MS,
@@ -131,7 +131,7 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
     const config = loadConfig();
-    const provider = getProvider(config.services.inference.provider);
+    const provider = getProvider(config.llm.default.provider);
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,
@@ -146,7 +146,7 @@ export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpC
       {
         config: {
           max_tokens: FOLLOWUP_CONVERSATION_MAX_TOKENS,
-          modelIntent: "latency-optimized",
+          callSite: "guardianQuestionCopy",
         },
         signal: AbortSignal.timeout(FOLLOWUP_CONVERSATION_TIMEOUT_MS),
       },

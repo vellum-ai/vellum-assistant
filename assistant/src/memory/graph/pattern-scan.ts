@@ -141,7 +141,7 @@ export async function runPatternScan(
     return result;
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("patternScan");
   if (!provider) {
     throw new BackendUnavailableError("Provider unavailable for pattern scan");
   }

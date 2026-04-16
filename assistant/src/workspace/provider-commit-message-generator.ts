@@ -14,7 +14,6 @@ export type LLMFallbackReason =
   | "missing_provider_api_key"
   | "breaker_open"
   | "insufficient_budget"
-  | "missing_fast_model"
   | "provider_not_initialized"
   | "timeout"
   | "provider_error"
@@ -40,19 +39,13 @@ Rules:
 - Total output must be under 300 characters
 - If you cannot determine a meaningful message, respond with exactly: FALLBACK`;
 
-const PROVIDER_DEFAULT_FAST_MODELS: Record<string, string> = {
-  anthropic: "claude-haiku-4-5-20251001",
-  openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
-};
-
 // Providers that can be initialized without an API key (e.g., Ollama runs locally)
 const KEYLESS_PROVIDERS = new Set(["ollama"]);
 
 const deterministicProvider = new DefaultCommitMessageProvider();
 
 function getProviderCandidates(config: ReturnType<typeof getConfig>): string[] {
-  return [config.services.inference.provider];
+  return [config.llm.default.provider];
 }
 
 function buildDeterministicResult(
@@ -118,22 +111,22 @@ export class ProviderCommitMessageGenerator {
     // 3. selected-provider API key preflight (except keyless providers)
     // 4. breaker_open
     // 5. insufficient_budget
-    // 6. missing_fast_model
-    // 7. call provider → timeout / provider_error / invalid_output
+    // 6. call provider → timeout / provider_error / invalid_output
     // ──────────────────────────────────────────────────────────────────
 
     // Step 1: Feature gate
     if (!llmConfig.enabled) {
       return buildDeterministicResult(context, "disabled");
     }
-    if (!llmConfig.useConfiguredProvider) {
-      return buildDeterministicResult(context, "disabled");
-    }
 
-    // Step 2: Resolve configured provider.
-    // If nothing is resolvable, differentiate likely missing-key cases from
-    // true registry/init failures.
-    const resolved = await resolveConfiguredProvider();
+    // Step 2: Resolve configured provider via the commit-message call site,
+    // so model + maxTokens + temperature come from `llm.callSites.commitMessage`
+    // (with `llm.default` as the fallback). Operational fields (`enabled`,
+    // `timeoutMs`, `breaker`, `maxFilesInPrompt`, `maxDiffBytes`,
+    // `minRemainingTurnBudgetMs`) remain on `workspaceGit.commitMessageLLM`
+    // and are read above. If nothing is resolvable, differentiate likely
+    // missing-key cases from true registry/init failures.
+    const resolved = await resolveConfiguredProvider("commitMessage");
     if (!resolved) {
       const candidates = getProviderCandidates(config);
       const hasAnyKeylessCandidate = candidates.some((name) =>
@@ -153,7 +146,7 @@ export class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, "missing_provider_api_key");
       }
       log.debug(
-        { provider: config.services.inference.provider },
+        { provider: config.llm.default.provider },
         "Provider not initialized; falling back to deterministic",
       );
       return buildDeterministicResult(context, "provider_not_initialized");
@@ -200,23 +193,7 @@ export class ProviderCommitMessageGenerator {
       }
     }
 
-    // Step 5: Fast model preflight — resolve before any provider call
-    const fastModel =
-      llmConfig.providerFastModelOverrides[providerName] ??
-      PROVIDER_DEFAULT_FAST_MODELS[providerName];
-
-    if (!fastModel) {
-      log.debug(
-        {
-          provider: providerName,
-          configuredProvider: config.services.inference.provider,
-        },
-        "No fast model resolvable for provider; falling back to deterministic",
-      );
-      return buildDeterministicResult(context, "missing_fast_model");
-    }
-
-    // Step 6 + 7: Call the provider
+    // Step 5: Call the provider
     try {
       // Build prompt
       const fileList = options.changedFiles
@@ -263,19 +240,13 @@ export class ProviderCommitMessageGenerator {
           {
             signal: ac.signal,
             config: {
-              // `callSite` lets the provider resolve `max_tokens` and
-              // `temperature` from `llm.callSites.commitMessage` (populated by
-              // the workspace migration from the legacy
-              // `workspaceGit.commitMessageLLM.{maxTokens,temperature}` keys).
-              // Operational fields (`enabled`, `timeoutMs`, `breaker`,
-              // `maxFilesInPrompt`, `maxDiffBytes`, `minRemainingTurnBudgetMs`)
-              // remain on `workspaceGit.commitMessageLLM` and are read above.
+              // `callSite` lets the provider resolve model, max_tokens, and
+              // temperature from `llm.callSites.commitMessage` (with
+              // `llm.default` as the fallback). Operational fields
+              // (`enabled`, `timeoutMs`, `breaker`, `maxFilesInPrompt`,
+              // `maxDiffBytes`, `minRemainingTurnBudgetMs`) remain on
+              // `workspaceGit.commitMessageLLM` and are read above.
               callSite: "commitMessage",
-              // `fastModel` overrides the resolver's `model` because commit
-              // message generation enforces its own provider-specific fast
-              // model selection (see `PROVIDER_DEFAULT_FAST_MODELS` and
-              // `providerFastModelOverrides`).
-              model: fastModel,
             },
           },
         );

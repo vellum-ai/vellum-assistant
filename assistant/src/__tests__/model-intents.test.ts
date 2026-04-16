@@ -5,45 +5,6 @@ import {
   isModelIntent,
   resolveModelIntent,
 } from "../providers/model-intents.js";
-import { RetryProvider } from "../providers/retry.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-} from "../providers/types.js";
-
-const DUMMY_MESSAGES: Message[] = [
-  { role: "user", content: [{ type: "text", text: "hello" }] },
-];
-
-function makeResponse(model: string): ProviderResponse {
-  return {
-    content: [{ type: "text", text: "ok" }],
-    model,
-    usage: {
-      inputTokens: 1,
-      outputTokens: 1,
-    },
-    stopReason: "end_turn",
-  };
-}
-
-function makeProvider(
-  name: string,
-  onCall: (options: SendMessageOptions | undefined) => void,
-): Provider {
-  return {
-    name,
-    async sendMessage(_messages, _tools, _systemPrompt, options) {
-      onCall(options);
-      const config = options?.config as Record<string, unknown> | undefined;
-      return makeResponse(
-        (config?.model as string | undefined) ?? "default-model",
-      );
-    },
-  };
-}
 
 describe("model intents", () => {
   test("validates model intent strings", () => {
@@ -77,45 +38,8 @@ describe("model intents", () => {
   });
 });
 
-describe("RetryProvider model intent normalization", () => {
-  test("translates modelIntent into concrete model and strips modelIntent key", async () => {
-    let seen: SendMessageOptions | undefined;
-    const wrapped = new RetryProvider(
-      makeProvider("anthropic", (options) => {
-        seen = options;
-      }),
-    );
-
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: {
-        modelIntent: "quality-optimized",
-        max_tokens: 123,
-      },
-    });
-
-    const config = seen?.config as Record<string, unknown>;
-    expect(config.model).toBe("claude-opus-4-7");
-    expect(config.modelIntent).toBeUndefined();
-    expect(config.max_tokens).toBe(123);
-  });
-
-  test("explicit model override wins over modelIntent", async () => {
-    let seen: SendMessageOptions | undefined;
-    const wrapped = new RetryProvider(
-      makeProvider("openai", (options) => {
-        seen = options;
-      }),
-    );
-
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: {
-        model: "custom-model-v1",
-        modelIntent: "latency-optimized",
-      },
-    });
-
-    const config = seen?.config as Record<string, unknown>;
-    expect(config.model).toBe("custom-model-v1");
-    expect(config.modelIntent).toBeUndefined();
-  });
-});
+// `RetryProvider`'s legacy `modelIntent` normalization path was removed in
+// PR 19 of the unify-llm-callsites plan. The remaining `resolveModelIntent`
+// helper lives in `providers/model-intents.ts` for use by the workspace
+// migration's snapshot table — see `workspace/migrations/038-unify-llm-
+// callsite-configs.ts`.

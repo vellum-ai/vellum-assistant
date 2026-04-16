@@ -51,8 +51,6 @@ export interface ProvidersConfig {
   services: {
     inference: {
       mode: "managed" | "your-own";
-      provider: string;
-      model: string;
     };
     "image-generation": {
       mode: "managed" | "your-own";
@@ -64,12 +62,18 @@ export interface ProvidersConfig {
       provider: string;
     };
   };
+  llm: {
+    default: {
+      provider: string;
+      model: string;
+    };
+  };
   timeouts?: { providerStreamTimeoutSec?: number };
 }
 
 function resolveModel(config: ProvidersConfig, providerName: string): string {
-  const inferenceProvider = config.services.inference.provider;
-  const inferenceModel = config.services.inference.model;
+  const inferenceProvider = config.llm.default.provider;
+  const inferenceModel = config.llm.default.model;
   if (inferenceProvider === providerName) {
     // If a non-Anthropic provider is selected with the untouched global default
     // model, use a provider-appropriate fallback instead.
@@ -203,7 +207,7 @@ export async function initializeProviders(
 
   // Ollama (keyless provider — always init when configured or key present)
   const ollamaKey = await getProviderKeyAsync("ollama");
-  if (config.services.inference.provider === "ollama" || ollamaKey) {
+  if (config.llm.default.provider === "ollama" || ollamaKey) {
     const model = resolveModel(config, "ollama");
     registerProvider(
       "ollama",

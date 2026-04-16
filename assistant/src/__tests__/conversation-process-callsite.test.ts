@@ -46,22 +46,33 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      maxInputTokens: 100000,
-      thresholdTokens: 80000,
-      preserveRecentMessages: 6,
-      summaryModel: "mock-model",
-      maxSummaryTokens: 512,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    llm: {
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     daemon: {
@@ -74,8 +85,6 @@ mock.module("../config/loader.js", () => ({
     services: {
       inference: {
         mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
       },
       "image-generation": {
         mode: "your-own",

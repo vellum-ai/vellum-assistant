@@ -211,7 +211,7 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    let provider = getProvider(appConfig.services.inference.provider);
+    let provider = getProvider(appConfig.llm.default.provider);
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(
@@ -247,7 +247,7 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = appConfig.maxTokens;
+    const maxTokens = appConfig.llm.default.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     const memoryPolicy: ConversationMemoryPolicy = isFork

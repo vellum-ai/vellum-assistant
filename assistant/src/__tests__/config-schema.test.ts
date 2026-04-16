@@ -81,9 +81,11 @@ function writeConfig(obj: unknown): void {
 describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.services.inference.provider).toBe("anthropic");
-    expect(result.services.inference.model).toBe("claude-opus-4-6");
+    // services.inference now carries only `mode`; provider/model live under
+    // llm.default.{provider,model} (see PR 19 of unify-llm-callsites).
     expect(result.services.inference.mode).toBe("your-own");
+    expect(result.llm.default.provider).toBe("anthropic");
+    expect(result.llm.default.model).toBe("claude-opus-4-6");
     expect(result.services["image-generation"].provider).toBe("gemini");
     expect(result.services["image-generation"].model).toBe(
       "gemini-3.1-flash-image-preview",
@@ -93,12 +95,12 @@ describe("AssistantConfigSchema", () => {
       "inference-provider-native",
     );
     expect(result.services["web-search"].mode).toBe("your-own");
-    expect(result.maxTokens).toBe(64000);
-    expect(result.thinking).toEqual({
+    expect(result.llm.default.maxTokens).toBe(64000);
+    expect(result.llm.default.thinking).toEqual({
       enabled: true,
       streamThinking: true,
     });
-    expect(result.contextWindow).toEqual({
+    expect(result.llm.default.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
       targetBudgetRatio: 0.3,
@@ -134,11 +136,9 @@ describe("AssistantConfigSchema", () => {
 
   test("accepts valid complete config", () => {
     const input = {
-      services: {
-        inference: { provider: "openai", model: "gpt-4" },
+      llm: {
+        default: { provider: "openai" as const, model: "gpt-4", maxTokens: 4096 },
       },
-      maxTokens: 4096,
-      thinking: { enabled: true },
       timeouts: {
         shellDefaultTimeoutSec: 30,
         shellMaxTimeoutSec: 300,
@@ -154,10 +154,10 @@ describe("AssistantConfigSchema", () => {
       auditLog: { retentionDays: 30 },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.services.inference.provider).toBe("openai");
-    expect(result.services.inference.model).toBe("gpt-4");
-    expect(result.maxTokens).toBe(4096);
-    expect(result.thinking.enabled).toBe(true);
+    expect(result.llm.default.provider).toBe("openai");
+    expect(result.llm.default.model).toBe("gpt-4");
+    expect(result.llm.default.maxTokens).toBe(4096);
+    expect(result.llm.default.thinking.enabled).toBe(true);
     expect(result.secretDetection.action).toBe("block");
   });
 
@@ -273,27 +273,32 @@ describe("AssistantConfigSchema", () => {
     expect(() => AssistantConfigSchema.parse(input)).toThrow(/missing-profile/);
   });
 
-  test("legacy top-level inference keys still parse alongside the new llm block", () => {
-    // Backward compatibility: configs that set the legacy top-level keys
-    // (maxTokens, effort, speed, thinking, contextWindow, services.inference)
-    // continue to parse correctly. PR 19 removes these once adoption is done.
+  test("legacy top-level inference keys are ignored after PR 19 cleanup", () => {
+    // The legacy keys (top-level maxTokens, effort, speed, thinking,
+    // contextWindow, services.inference.{provider,model}) were removed in PR
+    // 19. Configs that still carry them parse cleanly because Zod strips
+    // unknown fields, and migration 039 erases them from the on-disk file
+    // entirely.
     const input = {
       services: {
-        inference: { provider: "openai" as const, model: "gpt-4" },
+        inference: { provider: "openai", model: "gpt-4" },
       },
       maxTokens: 8000,
-      effort: "medium" as const,
-      speed: "fast" as const,
+      effort: "medium",
+      speed: "fast",
       thinking: { enabled: false, streamThinking: false },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.services.inference.provider).toBe("openai");
-    expect(result.maxTokens).toBe(8000);
-    expect(result.effort).toBe("medium");
-    expect(result.speed).toBe("fast");
-    expect(result.thinking.enabled).toBe(false);
-    // The new llm block falls back to its own defaults (independent of the
-    // legacy top-level keys until the migration in PR 4 backfills it).
+    expect((result as Record<string, unknown>).maxTokens).toBeUndefined();
+    expect((result as Record<string, unknown>).effort).toBeUndefined();
+    expect((result as Record<string, unknown>).speed).toBeUndefined();
+    expect((result as Record<string, unknown>).thinking).toBeUndefined();
+    expect(
+      (result.services.inference as Record<string, unknown>).provider,
+    ).toBeUndefined();
+    expect(
+      (result.services.inference as Record<string, unknown>).model,
+    ).toBeUndefined();
     expect(result.llm.default.provider).toBe("anthropic");
     expect(result.llm.default.model).toBe("claude-opus-4-6");
   });
@@ -302,16 +307,15 @@ describe("AssistantConfigSchema", () => {
     // Regression guard: previously LLMConfigBase had no schema-level defaults,
     // so any `llm: {}` block would fail validation and the loader's recovery
     // path would fall through to `cloneDefaultConfig()`, discarding unrelated
-    // valid settings (like a custom `maxTokens`). With leaf-level defaults,
-    // `llm: {}` parses cleanly and the user's other settings are preserved.
+    // valid settings (like a custom `llm.default.maxTokens`). With leaf-level
+    // defaults, `llm: {}` parses cleanly and the user's other settings are
+    // preserved.
     const result = AssistantConfigSchema.parse({
-      maxTokens: 32000,
-      llm: {},
+      llm: { default: { maxTokens: 32000 } },
     });
-    expect(result.maxTokens).toBe(32000);
+    expect(result.llm.default.maxTokens).toBe(32000);
     expect(result.llm.default.provider).toBe("anthropic");
     expect(result.llm.default.model).toBe("claude-opus-4-6");
-    expect(result.llm.default.maxTokens).toBe(64000);
   });
 
   test("llm.default with one missing field still parses (defaults applied)", () => {
@@ -416,34 +420,38 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { inference: { provider: "invalid" } },
+      llm: { default: { provider: "invalid" } },
     });
     expect(result.success).toBe(false);
   });
 
-  test("rejects negative maxTokens", () => {
-    const result = AssistantConfigSchema.safeParse({ maxTokens: -100 });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.some((i) => i.path.includes("maxTokens")),
-      ).toBe(true);
-    }
-  });
-
-  test("rejects non-integer maxTokens", () => {
-    const result = AssistantConfigSchema.safeParse({ maxTokens: 3.14 });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.some((i) => i.path.includes("maxTokens")),
-      ).toBe(true);
-    }
-  });
-
-  test("rejects string maxTokens", () => {
+  test("rejects negative llm.default.maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
-      maxTokens: "not-a-number",
+      llm: { default: { maxTokens: -100 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects non-integer llm.default.maxTokens", () => {
+    const result = AssistantConfigSchema.safeParse({
+      llm: { default: { maxTokens: 3.14 } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects string llm.default.maxTokens", () => {
+    const result = AssistantConfigSchema.safeParse({
+      llm: { default: { maxTokens: "not-a-number" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -469,7 +477,7 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid thinking config", () => {
     const result = AssistantConfigSchema.safeParse({
-      thinking: { enabled: "yes" },
+      llm: { default: { thinking: { enabled: "yes" } } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -479,16 +487,21 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects contextWindow targetBudgetRatio >= compactThreshold", () => {
     const result = AssistantConfigSchema.safeParse({
-      contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+      llm: {
+        default: {
+          contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+        },
+      },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(
         result.error.issues.some(
           (issue) =>
-            issue.path.join(".") === "contextWindow.targetBudgetRatio" &&
+            issue.path.join(".") ===
+              "llm.default.contextWindow.targetBudgetRatio" &&
             issue.message.includes(
-              "must be less than contextWindow.compactThreshold",
+              "must be less than llm.default.contextWindow.compactThreshold",
             ),
         ),
       ).toBe(true);
@@ -498,7 +511,11 @@ describe("AssistantConfigSchema", () => {
   test("rejects overflowRecovery safetyMarginRatio out of (0,1) range", () => {
     for (const bad of [0, 1, -0.1, 1.5]) {
       const result = AssistantConfigSchema.safeParse({
-        contextWindow: { overflowRecovery: { safetyMarginRatio: bad } },
+        llm: {
+          default: {
+            contextWindow: { overflowRecovery: { safetyMarginRatio: bad } },
+          },
+        },
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -513,8 +530,12 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid overflowRecovery interactiveLatestTurnCompression", () => {
     const result = AssistantConfigSchema.safeParse({
-      contextWindow: {
-        overflowRecovery: { interactiveLatestTurnCompression: "explode" },
+      llm: {
+        default: {
+          contextWindow: {
+            overflowRecovery: { interactiveLatestTurnCompression: "explode" },
+          },
+        },
       },
     });
     expect(result.success).toBe(false);
@@ -529,8 +550,12 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid overflowRecovery nonInteractiveLatestTurnCompression", () => {
     const result = AssistantConfigSchema.safeParse({
-      contextWindow: {
-        overflowRecovery: { nonInteractiveLatestTurnCompression: "nope" },
+      llm: {
+        default: {
+          contextWindow: {
+            overflowRecovery: { nonInteractiveLatestTurnCompression: "nope" },
+          },
+        },
       },
     });
     expect(result.success).toBe(false);
@@ -601,7 +626,7 @@ describe("AssistantConfigSchema", () => {
       "ollama",
     ] as const) {
       const result = AssistantConfigSchema.safeParse({
-        services: { inference: { provider } },
+        llm: { default: { provider } },
       });
       expect(result.success).toBe(true);
     }
@@ -618,13 +643,19 @@ describe("AssistantConfigSchema", () => {
 
   test("provides helpful error messages", () => {
     const result = AssistantConfigSchema.safeParse({
-      maxTokens: -1,
+      llm: { default: { maxTokens: -1 } },
       secretDetection: { action: "explode" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map((i) => i.message);
-      expect(messages.some((m) => m.includes("positive"))).toBe(true);
+      // The llm.default.maxTokens validation rejects -1 with a "Too small"
+      // / "expected number to be >0" message from Zod's default issue text.
+      expect(
+        messages.some(
+          (m) => m.includes("positive") || /expected number to be >0/i.test(m),
+        ),
+      ).toBe(true);
       expect(
         messages.some(
           (m) =>
@@ -688,11 +719,7 @@ describe("AssistantConfigSchema", () => {
       enrichmentMaxRetries: 2,
       commitMessageLLM: {
         enabled: false,
-        useConfiguredProvider: true,
-        providerFastModelOverrides: {},
         timeoutMs: 600,
-        maxTokens: 120,
-        temperature: 0.2,
         maxFilesInPrompt: 30,
         maxDiffBytes: 12000,
         minRemainingTurnBudgetMs: 1000,
@@ -746,11 +773,7 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     const llm = result.workspaceGit.commitMessageLLM;
     expect(llm.enabled).toBe(false);
-    expect(llm.useConfiguredProvider).toBe(true);
-    expect(llm.providerFastModelOverrides).toEqual({});
     expect(llm.timeoutMs).toBe(600);
-    expect(llm.maxTokens).toBe(120);
-    expect(llm.temperature).toBe(0.2);
     expect(llm.maxFilesInPrompt).toBe(30);
     expect(llm.maxDiffBytes).toBe(12000);
     expect(llm.minRemainingTurnBudgetMs).toBe(1000);
@@ -759,13 +782,6 @@ describe("AssistantConfigSchema", () => {
   test("rejects negative commitMessageLLM.timeoutMs", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { commitMessageLLM: { timeoutMs: -1 } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects commitMessageLLM.temperature > 2", () => {
-    const result = AssistantConfigSchema.safeParse({
-      workspaceGit: { commitMessageLLM: { temperature: 2.5 } },
     });
     expect(result.success).toBe(false);
   });
@@ -784,14 +800,12 @@ describe("AssistantConfigSchema", () => {
         commitMessageLLM: {
           enabled: true,
           timeoutMs: 1000,
-          temperature: 0.5,
           breaker: { openAfterFailures: 5 },
         },
       },
     });
     expect(result.workspaceGit.commitMessageLLM.enabled).toBe(true);
     expect(result.workspaceGit.commitMessageLLM.timeoutMs).toBe(1000);
-    expect(result.workspaceGit.commitMessageLLM.temperature).toBe(0.5);
     expect(result.workspaceGit.commitMessageLLM.breaker.openAfterFailures).toBe(
       5,
     );
@@ -801,18 +815,18 @@ describe("AssistantConfigSchema", () => {
     );
   });
 
-  test("rejects commitMessageLLM.temperature < 0", () => {
-    const result = AssistantConfigSchema.safeParse({
-      workspaceGit: { commitMessageLLM: { temperature: -0.1 } },
+  test("ignores legacy commitMessageLLM.{maxTokens,temperature} keys", () => {
+    // PR 19 removed maxTokens/temperature from the schema; Zod silently
+    // strips them on parse. Migration 039 erases them from disk so they
+    // don't accumulate over time.
+    const result = AssistantConfigSchema.parse({
+      workspaceGit: {
+        commitMessageLLM: { maxTokens: 200, temperature: 0.5 },
+      },
     });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects non-integer commitMessageLLM.maxTokens", () => {
-    const result = AssistantConfigSchema.safeParse({
-      workspaceGit: { commitMessageLLM: { maxTokens: 3.5 } },
-    });
-    expect(result.success).toBe(false);
+    const cm = result.workspaceGit.commitMessageLLM as Record<string, unknown>;
+    expect(cm.maxTokens).toBeUndefined();
+    expect(cm.temperature).toBeUndefined();
   });
 
   // ── Calls config ────────────────────────────────────────────────────
@@ -971,16 +985,13 @@ describe("AssistantConfigSchema", () => {
     ).toBeUndefined();
   });
 
-  test("accepts optional calls.model", () => {
+  test("legacy calls.model key is stripped after PR 19 cleanup", () => {
+    // calls.model moved to llm.callSites.callAgent.model in PR 4 and the
+    // legacy field was removed in PR 19. Zod silently strips unknown keys.
     const result = AssistantConfigSchema.parse({
       calls: { model: "claude-haiku-4-5-20251001" },
     });
-    expect(result.calls.model).toBe("claude-haiku-4-5-20251001");
-  });
-
-  test("calls.model is undefined by default", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.calls.model).toBeUndefined();
+    expect((result.calls as Record<string, unknown>).model).toBeUndefined();
   });
 
   // ── Caller identity config ────────────────────────────────────────
@@ -2106,28 +2117,27 @@ describe("loadConfig with schema validation", () => {
   // intermittently trigger unhandled ENOENT in CI if the directory is removed.
   test("loads valid config", () => {
     writeConfig({
-      services: {
-        inference: { provider: "openai", model: "gpt-4" },
+      llm: {
+        default: { provider: "openai", model: "gpt-4", maxTokens: 4096 },
       },
-      maxTokens: 4096,
     });
     const config = loadConfig();
-    expect(config.services.inference.provider).toBe("openai");
-    expect(config.services.inference.model).toBe("gpt-4");
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.provider).toBe("openai");
+    expect(config.llm.default.model).toBe("gpt-4");
+    expect(config.llm.default.maxTokens).toBe(4096);
   });
 
   test("applies defaults for missing fields", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.services.inference.provider).toBe("anthropic");
-    expect(config.services.inference.model).toBe("claude-opus-4-6");
-    expect(config.maxTokens).toBe(64000);
-    expect(config.thinking).toEqual({
+    expect(config.llm.default.provider).toBe("anthropic");
+    expect(config.llm.default.model).toBe("claude-opus-4-6");
+    expect(config.llm.default.maxTokens).toBe(64000);
+    expect(config.llm.default.thinking).toEqual({
       enabled: true,
       streamThinking: true,
     });
-    expect(config.contextWindow).toEqual({
+    expect(config.llm.default.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
       targetBudgetRatio: 0.3,
@@ -2145,16 +2155,16 @@ describe("loadConfig with schema validation", () => {
 
   test("falls back to default for invalid provider", () => {
     writeConfig({
-      services: { inference: { provider: "invalid-provider" } },
+      llm: { default: { provider: "invalid-provider" } },
     });
     const config = loadConfig();
-    expect(config.services.inference.provider).toBe("anthropic");
+    expect(config.llm.default.provider).toBe("anthropic");
   });
 
   test("falls back to default for invalid maxTokens", () => {
-    writeConfig({ maxTokens: -100 });
+    writeConfig({ llm: { default: { maxTokens: -100 } } });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(64000);
+    expect(config.llm.default.maxTokens).toBe(64000);
   });
 
   test("falls back to defaults for invalid nested values", () => {
@@ -2169,23 +2179,26 @@ describe("loadConfig with schema validation", () => {
 
   test("preserves valid fields when other fields are invalid", () => {
     writeConfig({
-      services: {
-        inference: { provider: "openai", model: "gpt-4" },
+      llm: {
+        default: {
+          provider: "openai",
+          model: "gpt-4",
+          maxTokens: -1,
+          thinking: { enabled: true },
+        },
       },
-      maxTokens: -1,
-      thinking: { enabled: true },
     });
     const config = loadConfig();
-    expect(config.services.inference.provider).toBe("openai");
-    expect(config.services.inference.model).toBe("gpt-4");
-    expect(config.thinking.enabled).toBe(true);
-    expect(config.maxTokens).toBe(64000);
+    expect(config.llm.default.provider).toBe("openai");
+    expect(config.llm.default.model).toBe("gpt-4");
+    expect(config.llm.default.thinking.enabled).toBe(true);
+    expect(config.llm.default.maxTokens).toBe(64000);
   });
 
   test("handles no config file", () => {
     const config = loadConfig();
-    expect(config.services.inference.provider).toBe("anthropic");
-    expect(config.maxTokens).toBe(64000);
+    expect(config.llm.default.provider).toBe("anthropic");
+    expect(config.llm.default.maxTokens).toBe(64000);
   });
 
   test("partial nested objects get defaults for missing fields", () => {
@@ -2206,11 +2219,15 @@ describe("loadConfig with schema validation", () => {
 
   test("falls back for invalid contextWindow relationship", () => {
     writeConfig({
-      contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+      llm: {
+        default: {
+          contextWindow: { targetBudgetRatio: 0.8, compactThreshold: 0.8 },
+        },
+      },
     });
     const config = loadConfig();
-    expect(config.contextWindow.targetBudgetRatio).toBe(0.3);
-    expect(config.contextWindow.compactThreshold).toBe(0.8);
+    expect(config.llm.default.contextWindow.targetBudgetRatio).toBe(0.3);
+    expect(config.llm.default.contextWindow.compactThreshold).toBe(0.8);
   });
 
   test("falls back for invalid rateLimit values", () => {
@@ -2271,13 +2288,13 @@ describe("loadConfig with schema validation", () => {
     // Only activeHoursStart is set. The superRefine must emit the issue so
     // the loader's delete-and-retry can strip the set field; otherwise the
     // mismatch persists and the config falls back to full defaults (which
-    // would reset maxTokens below to 64000).
+    // would reset llm.default.maxTokens below to 64000).
     writeConfig({
-      maxTokens: 4096,
+      llm: { default: { maxTokens: 4096 } },
       filing: { activeHoursStart: 8 },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.filing.activeHoursStart).toBeNull();
     expect(config.filing.activeHoursEnd).toBeNull();
   });
@@ -2285,13 +2302,13 @@ describe("loadConfig with schema validation", () => {
   test("recovers from partial heartbeat.activeHours without wiping unrelated fields", () => {
     // activeHoursStart is explicitly nulled while activeHoursEnd defaults to
     // 22 — a mismatch. Dual-emit strips both sides; both defaults restore
-    // (8, 22). maxTokens is unaffected.
+    // (8, 22). llm.default.maxTokens is unaffected.
     writeConfig({
-      maxTokens: 4096,
+      llm: { default: { maxTokens: 4096 } },
       heartbeat: { activeHoursStart: null },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2299,14 +2316,14 @@ describe("loadConfig with schema validation", () => {
   test("recovers from heartbeat.activeHours null-mismatch where explicit value equals opposite default", () => {
     // { start: null, end: 8 } — single-emit on the null side would strip
     // start, the default 8 would restore it, and the equal-hours check would
-    // fire, cascading to a full defaults reset that wipes maxTokens.
+    // fire, cascading to a full defaults reset that wipes llm.default.maxTokens.
     // Dual-emit strips both sides in one pass.
     writeConfig({
-      maxTokens: 4096,
+      llm: { default: { maxTokens: 4096 } },
       heartbeat: { activeHoursStart: null, activeHoursEnd: 8 },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2314,11 +2331,11 @@ describe("loadConfig with schema validation", () => {
   test("recovers from heartbeat.activeHours null-mismatch on the end side", () => {
     // { start: 22, end: null } — same cascade class as above, mirrored.
     writeConfig({
-      maxTokens: 4096,
+      llm: { default: { maxTokens: 4096 } },
       heartbeat: { activeHoursStart: 22, activeHoursEnd: null },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2327,13 +2344,13 @@ describe("loadConfig with schema validation", () => {
     // { start: 22, end: 22 } — both equal to the default for end. Single-emit
     // on one path would strip one side, the default would recreate the
     // equal-hours mismatch, and the loader would fall back to full defaults,
-    // wiping maxTokens. Dual-emit strips both sides at once.
+    // wiping llm.default.maxTokens. Dual-emit strips both sides at once.
     writeConfig({
-      maxTokens: 4096,
+      llm: { default: { maxTokens: 4096 } },
       heartbeat: { activeHoursStart: 22, activeHoursEnd: 22 },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(4096);
+    expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
   });
@@ -2342,14 +2359,14 @@ describe("loadConfig with schema validation", () => {
     // activeHoursStart === activeHoursEnd is invalid (empty window). Filing's
     // defaults are null/null, so single-emit on one path would strip one side
     // and the null default would recreate a mismatch — cascading to a full
-    // defaults reset that wipes maxTokens. Dual-emit strips both sides so
-    // both defaults restore to null.
+    // defaults reset that wipes llm.default.maxTokens. Dual-emit strips both
+    // sides so both defaults restore to null.
     writeConfig({
-      maxTokens: 1234,
+      llm: { default: { maxTokens: 1234 } },
       filing: { activeHoursStart: 5, activeHoursEnd: 5 },
     });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(1234);
+    expect(config.llm.default.maxTokens).toBe(1234);
     expect(config.filing.activeHoursStart).toBeNull();
     expect(config.filing.activeHoursEnd).toBeNull();
   });
@@ -2369,7 +2386,7 @@ describe("loadConfig with schema validation", () => {
     expect(
       (config.calls.voice as Record<string, unknown>).ttsProvider,
     ).toBeUndefined();
-    expect(config.calls.model).toBeUndefined();
+    expect((config.calls as Record<string, unknown>).model).toBeUndefined();
     expect(config.calls.callerIdentity).toEqual({
       allowPerCallOverride: true,
     });

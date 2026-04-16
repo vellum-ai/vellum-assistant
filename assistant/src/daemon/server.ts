@@ -1033,7 +1033,7 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getProvider(config.services.inference.provider);
+        let provider = getProvider(config.llm.default.provider);
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
@@ -1046,7 +1046,8 @@ export class DaemonServer {
 
         const systemPrompt =
           storedOptions?.systemPromptOverride ?? buildSystemPrompt();
-        const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
+        const maxTokens =
+          storedOptions?.maxResponseTokens ?? config.llm.default.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
         // Resolve the shared CES client (may still be initializing).
@@ -1065,7 +1066,6 @@ export class DaemonServer {
           sharedCesClient,
           storedOptions?.speed,
           undefined,
-          storedOptions?.modelIntent,
           storedOptions?.modelOverride,
         );
         newConversation.updateClient(sendToClient, true);
@@ -1438,9 +1438,9 @@ export class DaemonServer {
       messageCount: conversation.getMessages().length,
       inputTokens: conversation.usageStats.inputTokens,
       outputTokens: conversation.usageStats.outputTokens,
-      maxInputTokens: config.contextWindow.maxInputTokens,
-      model: config.services.inference.model,
-      provider: config.services.inference.provider,
+      maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+      model: config.llm.default.model,
+      provider: config.llm.default.provider,
       estimatedCost: conversation.usageStats.estimatedCost,
       userMessageInterface: serverInterfaceCtx?.userMessageInterface,
     };

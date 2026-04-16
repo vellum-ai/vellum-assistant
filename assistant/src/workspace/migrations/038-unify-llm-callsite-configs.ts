@@ -279,131 +279,22 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
-  down(workspaceDir: string): void {
-    const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
-
-    let config: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      config = raw as Record<string, unknown>;
-    } catch {
-      return;
-    }
-
-    const llm = readObject(config.llm);
-    if (llm === null) return;
-
-    // ── Reverse llm.default → top-level + services.inference ──────────
-    const defaultBlock = readObject(llm.default);
-    if (defaultBlock !== null) {
-      const services = ensureObj(config, "services");
-      const inference = ensureObj(services, "inference");
-      const provider = readString(defaultBlock.provider);
-      if (provider !== undefined) {
-        inference.provider = provider;
-      }
-      const model = readString(defaultBlock.model);
-      if (model !== undefined) {
-        inference.model = model;
-      }
-      const maxTokens = readPositiveInt(defaultBlock.maxTokens);
-      if (maxTokens !== undefined) {
-        config.maxTokens = maxTokens;
-      }
-      const effort = readEnum(defaultBlock.effort, EFFORT_VALUES);
-      if (effort !== undefined) {
-        config.effort = effort;
-      }
-      const speed = readEnum(defaultBlock.speed, SPEED_VALUES);
-      if (speed !== undefined) {
-        config.speed = speed;
-      }
-      const thinking = readObject(defaultBlock.thinking);
-      if (thinking !== null) {
-        config.thinking = thinking;
-      }
-      const contextWindow = readObject(defaultBlock.contextWindow);
-      if (contextWindow !== null) {
-        config.contextWindow = contextWindow;
-      }
-    }
-
-    // ── Reverse llm.callSites → scattered keys ────────────────────────
-    const callSites = readObject(llm.callSites) ?? {};
-
-    const heartbeatAgent = readObject(callSites.heartbeatAgent);
-    if (heartbeatAgent !== null) {
-      const speed = readEnum(heartbeatAgent.speed, SPEED_VALUES);
-      if (speed !== undefined) {
-        const heartbeat = ensureObj(config, "heartbeat");
-        heartbeat.speed = speed;
-      }
-    }
-
-    const filingAgent = readObject(callSites.filingAgent);
-    if (filingAgent !== null) {
-      const speed = readEnum(filingAgent.speed, SPEED_VALUES);
-      if (speed !== undefined) {
-        const filing = ensureObj(config, "filing");
-        filing.speed = speed;
-      }
-    }
-
-    const analyzeConversation = readObject(callSites.analyzeConversation);
-    if (analyzeConversation !== null) {
-      const provider = readString(analyzeConversation.provider);
-      const model = readString(analyzeConversation.model);
-      const recombined =
-        provider !== undefined && model !== undefined
-          ? `${provider}/${model}`
-          : (model ?? undefined);
-      if (recombined !== undefined) {
-        const analysis = ensureObj(config, "analysis");
-        analysis.modelOverride = recombined;
-      }
-    }
-
-    const callAgent = readObject(callSites.callAgent);
-    if (callAgent !== null) {
-      const model = readString(callAgent.model);
-      if (model !== undefined) {
-        const calls = ensureObj(config, "calls");
-        calls.model = model;
-      }
-    }
-
-    const commitMessage = readObject(callSites.commitMessage);
-    if (commitMessage !== null) {
-      const cmMaxTokens = readPositiveInt(commitMessage.maxTokens);
-      const cmTemperature = readTemperature(commitMessage.temperature);
-      if (cmMaxTokens !== undefined || cmTemperature !== undefined) {
-        const workspaceGit = ensureObj(config, "workspaceGit");
-        const commitMessageLLM = ensureObj(workspaceGit, "commitMessageLLM");
-        if (cmMaxTokens !== undefined) {
-          commitMessageLLM.maxTokens = cmMaxTokens;
-        }
-        if (cmTemperature !== undefined) {
-          commitMessageLLM.temperature = cmTemperature;
-        }
-      }
-    }
-    // Note: `conversationSummarization`, `emptyStateGreeting`,
-    // `notificationDecision`, and `preferenceExtraction` were derived from
-    // `modelIntent` keys — `down()` intentionally does not synthesize a
-    // reverse intent (we only have a resolved model, not the intent that
-    // produced it). Callers reading those legacy keys after a rollback will
-    // fall back to schema defaults.
-
-    // ── Reverse llm.pricingOverrides → top-level pricingOverrides ─────
-    if (Array.isArray(llm.pricingOverrides)) {
-      config.pricingOverrides = llm.pricingOverrides;
-    }
-
-    delete config.llm;
-
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  /**
+   * Documented no-op since PR 19 of the unify-llm-callsites plan.
+   *
+   * The legacy keys that this migration consolidates (`services.inference.
+   * {provider,model}`, top-level `maxTokens`/`effort`/`speed`/`thinking`/
+   * `contextWindow`/`pricingOverrides`, `heartbeat.speed`, `filing.speed`,
+   * `analysis.modelIntent`/`modelOverride`, `memory.summarization.modelIntent`,
+   * `notifications.decisionModelIntent`, `ui.greetingModelIntent`,
+   * `calls.model`, and `workspaceGit.commitMessageLLM.{maxTokens,temperature}`)
+   * were removed from `AssistantConfigSchema` in PR 19. Re-creating them in
+   * `down()` would have no effect on the running daemon (no code reads them
+   * any more), so a rollback that needs to undo this migration must instead
+   * roll back the application binary to a build that predates PR 19.
+   */
+  down(_workspaceDir: string): void {
+    // Forward-only after PR 19. See comment above.
   },
 };
 
@@ -508,19 +399,4 @@ function readTemperature(value: unknown): number | undefined {
     value <= 2
     ? value
     : undefined;
-}
-
-function ensureObj(
-  parent: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  if (
-    !(key in parent) ||
-    parent[key] == null ||
-    typeof parent[key] !== "object" ||
-    Array.isArray(parent[key])
-  ) {
-    parent[key] = {};
-  }
-  return parent[key] as Record<string, unknown>;
 }

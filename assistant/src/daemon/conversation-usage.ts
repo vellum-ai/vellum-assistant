@@ -109,7 +109,7 @@ function resolveStructuredPricing(
       providerName,
       model,
       usage,
-      config.pricingOverrides,
+      config.llm.pricingOverrides,
     );
   } catch (err) {
     log.warn({ err, model, providerName }, "Failed to resolve usage pricing");

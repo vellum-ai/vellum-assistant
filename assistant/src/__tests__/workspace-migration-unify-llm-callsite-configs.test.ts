@@ -692,57 +692,31 @@ describe("038-unify-llm-callsite-configs migration", () => {
     expect("pricingOverrides" in llm).toBe(false);
   });
 
-  // ─── down() rollback ───────────────────────────────────────────────────
+  // ─── down() — documented no-op since PR 19 ──────────────────────────
 
-  test("down() reverses a migrated config to original shape", () => {
+  test("down() is a no-op since PR 19 cleanup", () => {
+    // PR 19 of the unify-llm-callsites plan removed the legacy keys from
+    // `AssistantConfigSchema`, so re-creating them in `down()` would have
+    // no effect on the running daemon. The migration's `down()` is now a
+    // documented no-op — it leaves the config exactly as it found it,
+    // whether the `llm` block is present or absent.
     const original = {
-      services: { inference: { provider: "openai", model: "gpt-5.4" } },
+      services: { inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" } },
       maxTokens: 32000,
-      effort: "high",
-      speed: "standard",
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: { maxInputTokens: 150000 },
-      heartbeat: { speed: "fast" },
-      filing: { speed: "fast" },
-      analysis: { modelOverride: "anthropic/claude-opus-4-6" },
-      workspaceGit: {
-        commitMessageLLM: { maxTokens: 200, temperature: 0.4 },
-      },
-      calls: { model: "gpt-5.4-nano" },
-      pricingOverrides: [
-        {
+      llm: {
+        default: {
           provider: "openai",
-          modelPattern: "gpt-5.4",
-          inputPer1M: 1,
-          outputPer1M: 2,
+          model: "gpt-5.4",
+          maxTokens: 32000,
         },
-      ],
+      },
     };
     writeConfig(original);
-
-    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
-    // Sanity: llm block exists after run()
-    expect((readConfig() as { llm?: unknown }).llm).toBeDefined();
 
     unifyLlmCallSiteConfigsMigration.down(workspaceDir);
 
     const config = readConfig();
-    // The llm block must be removed.
-    expect("llm" in config).toBe(false);
-    // Every original scalar/object key that had a reverse mapping must be
-    // restored to its original value.
-    expect(config.services).toEqual(original.services);
-    expect(config.maxTokens).toBe(original.maxTokens);
-    expect(config.effort).toBe(original.effort);
-    expect(config.speed).toBe(original.speed);
-    expect(config.thinking).toEqual(original.thinking);
-    expect(config.contextWindow).toEqual(original.contextWindow);
-    expect(config.heartbeat).toEqual(original.heartbeat);
-    expect(config.filing).toEqual(original.filing);
-    expect(config.analysis).toEqual(original.analysis);
-    expect(config.workspaceGit).toEqual(original.workspaceGit);
-    expect(config.calls).toEqual(original.calls);
-    expect(config.pricingOverrides).toEqual(original.pricingOverrides);
+    expect(config).toEqual(original);
   });
 
   test("down() is a no-op when llm block is absent", () => {

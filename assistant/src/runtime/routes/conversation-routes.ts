@@ -1929,9 +1929,9 @@ export async function handleSendMessage(
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    model: config.llm.default.model,
+    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: sourceInterface,
   };
@@ -2181,7 +2181,7 @@ async function generateLlmSuggestion(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     systemPrompt,
-    { config: { modelIntent: "latency-optimized" } },
+    { config: { callSite: "conversationStarters" } },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -2300,7 +2300,7 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("conversationStarters");
     if (provider) {
       try {
         // Deduplicate concurrent requests

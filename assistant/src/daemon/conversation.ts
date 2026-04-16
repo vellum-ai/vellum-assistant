@@ -63,8 +63,7 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
-import type { Message, ModelIntent } from "../providers/types.js";
+import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
@@ -339,7 +338,6 @@ export class Conversation {
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
     cacheTtl?: "5m" | "1h",
-    modelIntent?: ModelIntent,
     modelOverride?: string,
   ) {
     this.conversationId = conversationId;
@@ -425,7 +423,7 @@ export class Conversation {
     );
 
     const config = getConfig();
-    this.streamThinking = config.thinking.streamThinking ?? false;
+    this.streamThinking = config.llm.default.thinking.streamThinking ?? false;
 
     // CES (Credential Execution Service) — use the shared server-level client.
     // The CES sidecar accepts exactly one bootstrap connection, so the
@@ -442,13 +440,10 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
-    // If an explicit modelOverride is supplied, use it verbatim. Otherwise,
-    // if modelIntent is set, resolve it against the active provider's
-    // intent → model mapping. The AgentLoop passes the resulting string
-    // through to `providerConfig.model` on every turn.
-    const resolvedModel: string | undefined =
-      modelOverride ??
-      (modelIntent ? resolveModelIntent(provider.name, modelIntent) : undefined);
+    // If an explicit modelOverride is supplied, use it verbatim. Otherwise
+    // leave the model unset and let `RetryProvider`'s call-site resolver pick
+    // it up from `llm.default` / `llm.callSites.<id>` on every turn.
+    const resolvedModel: string | undefined = modelOverride;
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
@@ -478,16 +473,17 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
-    const resolvedSpeed = speedOverride ?? config.speed;
+    const resolvedSpeed = speedOverride ?? config.llm.default.speed;
+    const llmDefault = config.llm.default;
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
       {
         maxTokens,
-        maxInputTokens: config.contextWindow.maxInputTokens,
-        thinking: config.thinking,
-        effort: config.effort,
+        maxInputTokens: llmDefault.contextWindow.maxInputTokens,
+        thinking: llmDefault.thinking,
+        effort: llmDefault.effort,
         ...(fastModeEnabled && resolvedSpeed === "fast"
           ? { speed: resolvedSpeed }
           : {}),
@@ -501,7 +497,7 @@ export class Conversation {
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
-      config: config.contextWindow,
+      config: llmDefault.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 

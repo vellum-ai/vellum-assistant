@@ -28,7 +28,7 @@ export async function classifyInteraction(
     return "text_qa";
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("interactionClassifier");
   if (!provider) {
     log.warn(
       "No configured provider available, falling back to heuristic classification",

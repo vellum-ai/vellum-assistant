@@ -239,13 +239,6 @@ import {
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
-import {
-  ContextWindowConfigSchema,
-  EffortSchema,
-  ModelPricingOverrideSchema,
-  SpeedSchema,
-  ThinkingConfigSchema,
-} from "./schemas/inference.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
 import { LLMSchema } from "./schemas/llm.js";
@@ -277,18 +270,6 @@ import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
-    maxTokens: z
-      .number({ error: "maxTokens must be a number" })
-      .int("maxTokens must be an integer")
-      .positive("maxTokens must be a positive integer")
-      .default(64000)
-      .describe("Maximum number of output tokens per LLM response"),
-    effort: EffortSchema,
-    speed: SpeedSchema,
-    thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
-    contextWindow: ContextWindowConfigSchema.default(
-      ContextWindowConfigSchema.parse({}),
-    ),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
@@ -306,18 +287,9 @@ export const AssistantConfigSchema = z
     logFile: LogFileConfigSchema.default(
       LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
     ),
-    pricingOverrides: z
-      .array(ModelPricingOverrideSchema)
-      .default([])
-      .describe(
-        "Custom pricing overrides for specific provider/model combinations",
-      ),
-    // Unified LLM configuration block. Defaults mirror the legacy top-level
-    // inference settings (services.inference, maxTokens, effort, speed,
-    // thinking, contextWindow) so existing configs without an `llm` block
-    // continue to behave identically. No callers consume this yet — PRs 5+
-    // migrate call sites to read through the resolver. PR 19 removes the
-    // legacy keys once adoption is complete.
+    // Unified LLM configuration block. The unique source of truth for
+    // provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+    // and pricing overrides for every call site in the assistant.
     //
     // Default values live on each leaf inside `LLMSchema` (see
     // `schemas/llm.ts`), so `LLMSchema.parse({})` returns a fully-populated
@@ -378,30 +350,29 @@ export const AssistantConfigSchema = z
       ),
   })
   .superRefine((config, ctx) => {
+    const llmContextWindow = config.llm?.default?.contextWindow;
     if (
-      config.contextWindow?.targetBudgetRatio != null &&
-      config.contextWindow?.compactThreshold != null &&
-      config.contextWindow.targetBudgetRatio >=
-        config.contextWindow.compactThreshold
+      llmContextWindow?.targetBudgetRatio != null &&
+      llmContextWindow?.compactThreshold != null &&
+      llmContextWindow.targetBudgetRatio >= llmContextWindow.compactThreshold
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetBudgetRatio"],
+        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+          "llm.default.contextWindow.targetBudgetRatio must be less than llm.default.contextWindow.compactThreshold",
       });
     }
     if (
-      config.contextWindow?.targetBudgetRatio != null &&
-      config.contextWindow?.summaryBudgetRatio != null &&
-      config.contextWindow.targetBudgetRatio <=
-        config.contextWindow.summaryBudgetRatio
+      llmContextWindow?.targetBudgetRatio != null &&
+      llmContextWindow?.summaryBudgetRatio != null &&
+      llmContextWindow.targetBudgetRatio <= llmContextWindow.summaryBudgetRatio
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetBudgetRatio"],
+        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+          "llm.default.contextWindow.targetBudgetRatio must be greater than llm.default.contextWindow.summaryBudgetRatio",
       });
     }
     const segmentation = config.memory?.segmentation;

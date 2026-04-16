@@ -81,7 +81,7 @@ async function rerankAndDedup(
   if (candidates.length <= maxNodes) return candidates;
 
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("memoryRetrieval");
     if (!provider) return candidates.slice(0, maxNodes);
 
     // Numbered listing for the LLM: index + age + full content
@@ -180,7 +180,7 @@ async function dedupForTurn(
   query: string,
 ): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("memoryRetrieval");
     if (!provider)
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
@@ -273,7 +273,7 @@ async function dedupCrossCategory(
   maxNodes: number,
 ): Promise<ScoredNode[]> {
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("memoryRetrieval");
     if (!provider) return candidates.slice(0, maxNodes);
 
     const now = Date.now();

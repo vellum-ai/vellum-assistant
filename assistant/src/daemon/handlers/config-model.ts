@@ -3,7 +3,10 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import { setServiceField } from "../../config/raw-config-utils.js";
+import {
+  setLlmDefaultField,
+  setServiceField,
+} from "../../config/raw-config-utils.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
 import {
@@ -48,10 +51,10 @@ export interface ModelInfo {
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
-  const provider = config.services.inference.provider;
+  const provider = config.llm.default.provider;
 
   return {
-    model: config.services.inference.model,
+    model: config.llm.default.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
     availableModels: PROVIDER_CATALOG.find((p) => p.id === provider)?.models,
@@ -102,12 +105,12 @@ export async function setModel(
   const resolvedProvider =
     explicitProvider ??
     MODEL_TO_PROVIDER[modelId] ??
-    current.services.inference.provider;
+    current.llm.default.provider;
 
   // Auto-reset model when provider changes and current modelId doesn't
   // belong to the new provider's catalog.
   if (
-    resolvedProvider !== current.services.inference.provider &&
+    resolvedProvider !== current.llm.default.provider &&
     !isModelInCatalog(resolvedProvider, modelId)
   ) {
     modelId = getProviderDefaultModel(resolvedProvider);
@@ -115,8 +118,8 @@ export async function setModel(
 
   // No-op guard: skip expensive reinitialization when nothing changed
   if (
-    modelId === current.services.inference.model &&
-    resolvedProvider === current.services.inference.provider
+    modelId === current.llm.default.model &&
+    resolvedProvider === current.llm.default.provider
   ) {
     return await getModelInfo();
   }
@@ -129,8 +132,8 @@ export async function setModel(
 
   // Use raw config to avoid persisting env-var API keys to disk
   const raw = loadRawConfig();
-  setServiceField(raw, "inference", "model", modelId);
-  setServiceField(raw, "inference", "provider", resolvedProvider);
+  setLlmDefaultField(raw, "model", modelId);
+  setLlmDefaultField(raw, "provider", resolvedProvider);
 
   // Suppress the file watcher callback — setModel already does
   // the full reload sequence; a redundant watcher-triggered reload
