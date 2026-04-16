@@ -537,6 +537,7 @@ const INTERNAL_ENDPOINTS = [
   "internal/twilio/voice-webhook",
   "internal/twilio/status",
   "internal/twilio/connect-action",
+  "internal/twilio/sms",
   "internal/oauth/callback",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {

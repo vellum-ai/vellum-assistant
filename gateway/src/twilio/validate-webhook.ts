@@ -7,7 +7,12 @@ import { verifyTwilioSignature } from "./verify.js";
 
 const log = getLogger("twilio-validate");
 
-type TwilioWebhookKind = "voice" | "status" | "connect-action" | "unknown";
+type TwilioWebhookKind =
+  | "voice"
+  | "status"
+  | "connect-action"
+  | "sms"
+  | "unknown";
 
 type SignatureUrlCandidateSource =
   | "configured_ingress"
@@ -38,6 +43,10 @@ function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
 
   if (pathname === "/webhooks/twilio/connect-action") {
     return "connect-action";
+  }
+
+  if (pathname === "/webhooks/twilio/sms") {
+    return "sms";
   }
 
   return "unknown";

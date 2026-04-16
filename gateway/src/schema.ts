@@ -450,6 +450,71 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/sms": {
+        post: {
+          summary: "Twilio SMS webhook",
+          description:
+            "Receives inbound Twilio SMS webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime's channel inbound pipeline.",
+          operationId: "twilioSmsWebhook",
+          security: [{ TwilioSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "SMS webhook processed",
+            },
+            "403": {
+              description: "Twilio signature validation failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Webhook payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/whatsapp": {
         get: {
           summary: "WhatsApp webhook verification",

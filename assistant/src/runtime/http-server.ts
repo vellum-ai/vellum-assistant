@@ -35,6 +35,10 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
+import {
+  handleSmsWebhook,
+  type SmsHandlerDeps,
+} from "../calls/twilio-sms-handler.js";
 import { parseChannelId } from "../channels/types.js";
 import {
   getGatewayInternalBaseUrl,
@@ -2107,6 +2111,23 @@ export class RuntimeHttpServer {
             body: formBody,
           });
           return handleConnectAction(fakeReq);
+        },
+      },
+      {
+        endpoint: "internal/twilio/sms",
+        method: "POST",
+        handler: async ({ req }) => {
+          const smsDeps: SmsHandlerDeps = {
+            assistantId,
+            processMessage: this.processMessage,
+            approvalCopyGenerator: this.approvalCopyGenerator,
+            approvalConversationGenerator: this.approvalConversationGenerator,
+            guardianActionCopyGenerator: this.guardianActionCopyGenerator,
+            guardianFollowUpConversationGenerator:
+              this.guardianFollowUpConversationGenerator,
+            getHeartbeatService: this.getHeartbeatService,
+          };
+          return handleSmsWebhook(req, smsDeps);
         },
       },
 
