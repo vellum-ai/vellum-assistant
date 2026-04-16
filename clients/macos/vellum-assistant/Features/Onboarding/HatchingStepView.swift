@@ -450,10 +450,10 @@ struct HatchingStepView: View {
     private func buildOnboardingConfigValues() -> [String: String] {
         var configValues: [String: String] = [:]
         if !state.selectedProvider.isEmpty {
-            configValues["services.inference.provider"] = state.selectedProvider
+            configValues["llm.default.provider"] = state.selectedProvider
         }
         if !state.selectedModel.isEmpty {
-            configValues["services.inference.model"] = state.selectedModel
+            configValues["llm.default.model"] = state.selectedModel
         }
         if managedSignInEnabled && !state.skippedAuth {
             configValues["services.inference.mode"] = "managed"
