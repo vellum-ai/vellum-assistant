@@ -420,13 +420,18 @@ extension AppDelegate {
                     ))
                 case .appFilesChanged(let msg):
                     self.refreshAppsCache()
-                    // WebView reload is handled by the separate ui_surface_update
-                    // message which triggers updateNSView → reloadGeneration →
-                    // loadHTMLString with fresh compiled HTML. Calling
-                    // webView.reload() here would replay stale inline HTML for
-                    // surfaces loaded via loadHTMLString (isInlineFallback),
-                    // racing with the correct ui_surface_update path.
-                    _ = msg
+                    // Client-created surfaces (opened via sidebar/app grid)
+                    // aren't in the daemon's conversation surfaceState, so the
+                    // daemon's ui_surface_update never reaches them. Re-fetch
+                    // the compiled HTML and update the surface directly.
+                    if self.surfaceManager.surfaceAppIds.values.contains(msg.appId) {
+                        Task {
+                            guard let result = await AppsClient().openApp(id: msg.appId) else { return }
+                            await MainActor.run {
+                                self.surfaceManager.refreshAppSurface(appId: msg.appId, html: result.html)
+                            }
+                        }
+                    }
                 case .uiLayoutConfig(let msg):
                     self.mainWindow?.windowState.applyLayoutConfig(msg)
 

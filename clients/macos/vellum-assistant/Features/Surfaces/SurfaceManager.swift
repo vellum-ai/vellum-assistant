@@ -397,6 +397,55 @@ final class SurfaceManager {
         log.info("Updated surface: id=\(message.surfaceId)")
     }
 
+    // MARK: - App Refresh
+
+    /// Refresh the displayed surface for an app with freshly compiled HTML.
+    /// Called when `app_files_changed` arrives and the affected app has an
+    /// active surface. Updates the in-memory surface state and notifies the
+    /// view layer so `updateNSView` picks up the new HTML via `reloadGeneration`.
+    func refreshAppSurface(appId: String, html: String) {
+        for (surfaceId, trackedAppId) in surfaceAppIds {
+            guard trackedAppId == appId else { continue }
+            guard let existing = activeSurfaces[surfaceId] else { continue }
+            guard case .dynamicPage(let dpData) = existing.data else { continue }
+
+            let updatedData = DynamicPageSurfaceData(
+                html: html,
+                width: dpData.width,
+                height: dpData.height,
+                appId: dpData.appId,
+                dirName: dpData.dirName,
+                appType: dpData.appType,
+                preview: dpData.preview,
+                reloadGeneration: (dpData.reloadGeneration ?? 0) + 1,
+                status: dpData.status
+            )
+
+            let updated = Surface(
+                id: existing.id,
+                conversationId: existing.conversationId,
+                type: existing.type,
+                title: existing.title,
+                data: .dynamicPage(updatedData),
+                actions: existing.actions
+            )
+
+            activeSurfaces[surfaceId] = updated
+
+            if workspaceRoutedSurfaces.contains(surfaceId) {
+                NotificationCenter.default.post(
+                    name: .updateDynamicWorkspace,
+                    object: nil,
+                    userInfo: ["surface": updated]
+                )
+            } else {
+                viewModels[surfaceId]?.surface = updated
+            }
+
+            log.info("Refreshed app surface: surfaceId=\(surfaceId, privacy: .public) appId=\(appId, privacy: .public)")
+        }
+    }
+
     // MARK: - Dismiss
 
     func dismissSurface(_ message: UiSurfaceDismissMessage) {
