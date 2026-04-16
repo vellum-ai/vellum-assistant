@@ -56,7 +56,8 @@ struct HomeGallerySection: View {
                         HomeAuthCard(
                             title: "Authorise $42.00 payment",
                             onAuthorise: {},
-                            onDeny: {}
+                            onDeny: {},
+                            onDismiss: {}
                         )
 
                         Divider().background(VColor.borderBase)
@@ -69,7 +70,6 @@ struct HomeGallerySection: View {
                             title: "Authorise $128.50 payment",
                             subtitle: "Invoice #2024-0391",
                             attachment: (fileName: "invoice-2024-0391.pdf", fileSize: "245 KB"),
-                            showDismiss: true,
                             onAuthorise: {},
                             onDeny: {},
                             onDismiss: {}
