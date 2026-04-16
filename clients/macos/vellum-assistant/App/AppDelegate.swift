@@ -157,12 +157,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var avatarChangeObserver: NSObjectProtocol?
     /// Cached circular avatar image for the menu bar icon. Invalidated only
     /// when `AvatarAppearanceManager.avatarDidChangeNotification` fires, so
-    /// connection-status changes, pulse ticks, and thinking-state toggles
-    /// reuse the cached image instead of re-resolving the avatar getter chain.
+    /// connection-status changes and thinking-state toggles reuse the cached
+    /// image instead of re-resolving the avatar getter chain.
     var cachedMenuBarAvatar: NSImage?
-    var pulseTimer: Timer?
-    var pulsePhase: CGFloat = 1.0
-    var pulseDirection: CGFloat = -1.0
+    /// Dedicated Core Animation layer for the status dot overlay on the
+    /// menu-bar button. Animated via CABasicAnimation so the pulse runs on
+    /// CA's render-server thread, avoiding main-thread CA::Transaction
+    /// contention during status-bar menu display.
+    var statusDotLayer: CAShapeLayer?
     /// Cached value of the `multi-platform-assistant` flag, read once when
     /// the status item is constructed in `setupMenuBar()`. Flag changes
     /// require relaunch; the status item does not subscribe to live updates
@@ -862,8 +864,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusCancellable?.cancel()
-        pulseTimer?.invalidate()
-        pulseTimer = nil
+        statusDotLayer?.removeAllAnimations()
+        statusDotLayer?.removeFromSuperlayer()
+        statusDotLayer = nil
         threadWindowManager?.closeAll()
         voiceInput?.prepareForTermination()
         voiceInput?.stop()
