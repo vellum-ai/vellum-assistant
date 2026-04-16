@@ -197,31 +197,31 @@ struct InlineVideoAttachmentView: View {
             Color.clear
 
             VStack(spacing: VSpacing.xs) {
-            if case .port_missing = failure {
-                VIconView(.refreshCw, size: 20)
-                    .foregroundStyle(VColor.contentSecondary)
-            } else {
-                VIconView(.triangleAlert, size: 20)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+                if case .port_missing = failure {
+                    VIconView(.refreshCw, size: 20)
+                        .foregroundStyle(VColor.contentSecondary)
+                } else {
+                    VIconView(.triangleAlert, size: 20)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
 
-            Text(failure.userMessage)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
+                Text(failure.userMessage)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
 
-            if case .port_missing = failure {
-                Text("Tap to retry")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else if case .invalid_media = failure {
-                Text("Tap to open externally")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else {
-                Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
+                if case .port_missing = failure {
+                    Text("Tap to retry")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if case .invalid_media = failure {
+                    Text("Tap to open externally")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
         }
         .contentShape(Rectangle())
