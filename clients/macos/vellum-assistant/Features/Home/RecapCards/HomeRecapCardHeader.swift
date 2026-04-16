@@ -48,7 +48,7 @@ struct HomeRecapCardHeader: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.auxWhite)
+                .fill(VColor.surfaceActive)
                 .frame(width: 38, height: 38)
 
             VIconView(icon, size: 18)

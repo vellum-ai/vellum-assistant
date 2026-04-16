@@ -72,7 +72,7 @@ struct HomeAuthCard: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceLift)
+                .fill(VColor.surfaceActive)
                 .frame(width: 38, height: 38)
             VIconView(.file, size: 18)
                 .foregroundStyle(VColor.contentDisabled)

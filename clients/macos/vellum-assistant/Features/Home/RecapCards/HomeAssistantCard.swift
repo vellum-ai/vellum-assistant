@@ -49,7 +49,7 @@ struct HomeAssistantCard: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceLift)
+                .fill(VColor.surfaceActive)
                 .frame(width: 38, height: 38)
             VIconView(.circleUser, size: 18)
                 .foregroundStyle(VColor.contentDisabled)

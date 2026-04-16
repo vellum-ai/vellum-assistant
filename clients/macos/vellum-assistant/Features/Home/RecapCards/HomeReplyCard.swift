@@ -61,7 +61,7 @@ struct HomeReplyCard: View {
         .padding(.vertical, VSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: VRadius.window, style: .continuous)
-                .fill(VColor.auxWhite)
+                .fill(VColor.surfaceLift)
         )
         .shadow(
             color: VColor.auxBlack.opacity(0.05),

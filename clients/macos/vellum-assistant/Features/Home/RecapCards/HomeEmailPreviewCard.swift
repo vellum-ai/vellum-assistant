@@ -110,7 +110,7 @@ struct HomeEmailPreviewCard: View {
             Button(action: onSend) {
                 Text("Send it")
                     .font(VFont.bodyMediumEmphasised)
-                    .foregroundStyle(VColor.auxWhite)
+                    .foregroundStyle(VColor.contentInset)
                     .frame(maxWidth: .infinity)
                     .frame(height: 32)
                     .background(

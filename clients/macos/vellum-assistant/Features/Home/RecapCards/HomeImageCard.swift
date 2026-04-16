@@ -75,7 +75,7 @@ struct HomeImageCard: View {
             Button(action: onSave) {
                 Text("Save")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.auxWhite)
+                    .foregroundStyle(VColor.contentInset)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(height: 32)
