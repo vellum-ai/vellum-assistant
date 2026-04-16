@@ -5,38 +5,20 @@
  * Exercise strategy: the wake helper takes a `resolveTarget` dependency so
  * these tests stub out the heavyweight `Conversation` class with a minimal
  * `WakeTarget` that just tracks agent-event forwards, buffered messages,
- * and a scripted `agentLoop.run()` response.
+ * persisted tail messages, drain invocations, and a scripted
+ * `agentLoop.run()` response.
  *
- * The `addMessage` import from `memory/conversation-crud.ts` is stubbed
- * via `mock.module()` so we can assert on persistence without touching a
- * real SQLite DB.
+ * Persistence is now delegated to `WakeTarget.persistTailMessage` (the
+ * daemon adapter is responsible for building channel/interface metadata
+ * and disk-view sync — out of scope for runtime tests), so we assert on
+ * the calls received by the mock instead of stubbing
+ * `memory/conversation-crud.js`.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../../agent/loop.js";
 import type { Message } from "../../providers/types.js";
-
-// ── Stub addMessage so we can assert persistence without a real DB ───
-
-const persistedMessages: Array<{
-  conversationId: string;
-  role: string;
-  content: string;
-}> = [];
-
-mock.module("../../memory/conversation-crud.js", () => ({
-  addMessage: async (
-    conversationId: string,
-    role: string,
-    content: string,
-  ) => {
-    persistedMessages.push({ conversationId, role, content });
-    return { id: `msg-${persistedMessages.length}` };
-  },
-}));
-
-// Import after the mock is registered.
 import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
@@ -50,6 +32,10 @@ interface MockTarget extends WakeTarget {
   pushedMessages: Message[];
   runCalls: Array<{ input: Message[]; requestId?: string }>;
   processingToggles: boolean[];
+  /** Tail messages handed to `persistTailMessage`, in call order. */
+  persistedTailCalls: Message[];
+  /** Number of times `drainQueue` was invoked. */
+  drainQueueCalls: number;
 }
 
 function makeTarget(options: {
@@ -60,13 +46,17 @@ function makeTarget(options: {
   scriptedTail?: Message[];
   scriptedEvents?: AgentEvent[];
   isProcessing?: boolean;
+  /** When true, omit `drainQueue` so we can verify the wake handles its absence. */
+  omitDrainQueue?: boolean;
 }): MockTarget {
   const emittedEvents: AgentEvent[] = [];
   const pushedMessages: Message[] = [];
   const runCalls: Array<{ input: Message[]; requestId?: string }> = [];
   const processingToggles: boolean[] = [];
+  const persistedTailCalls: Message[] = [];
   const history: Message[] = [...(options.baseline ?? [])];
   let processing = options.isProcessing ?? false;
+  let drainQueueCalls = 0;
 
   const target: MockTarget = {
     conversationId: options.conversationId ?? "conv-test",
@@ -74,6 +64,10 @@ function makeTarget(options: {
     pushedMessages,
     runCalls,
     processingToggles,
+    persistedTailCalls,
+    get drainQueueCalls() {
+      return drainQueueCalls;
+    },
     agentLoop: {
       run: async (
         input: Message[],
@@ -116,6 +110,16 @@ function makeTarget(options: {
       processing = on;
       processingToggles.push(on);
     },
+    persistTailMessage: async (msg: Message) => {
+      persistedTailCalls.push(msg);
+    },
+    ...(options.omitDrainQueue
+      ? {}
+      : {
+          drainQueue: async () => {
+            drainQueueCalls++;
+          },
+        }),
   };
 
   // Expose processing setter via test-only side-channel for tests that
@@ -129,7 +133,6 @@ function makeTarget(options: {
 }
 
 beforeEach(() => {
-  persistedMessages.length = 0;
   __resetWakeChainForTests();
 });
 
@@ -162,7 +165,7 @@ describe("wakeAgentForOpportunity", () => {
     // Nothing emitted to client.
     expect(target.emittedEvents).toHaveLength(0);
     // Nothing persisted.
-    expect(persistedMessages).toHaveLength(0);
+    expect(target.persistedTailCalls).toHaveLength(0);
     // Nothing pushed into live history.
     expect(target.pushedMessages).toHaveLength(0);
     // Hint was included in the run input, but baseline is unchanged.
@@ -204,15 +207,9 @@ describe("wakeAgentForOpportunity", () => {
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: true });
-    // Assistant message persisted.
-    expect(persistedMessages).toHaveLength(1);
-    expect(persistedMessages[0]).toMatchObject({
-      conversationId: target.conversationId,
-      role: "assistant",
-    });
-    expect(JSON.parse(persistedMessages[0]!.content)).toEqual(
-      assistantMessage.content,
-    );
+    // Assistant message persisted via the target hook.
+    expect(target.persistedTailCalls).toHaveLength(1);
+    expect(target.persistedTailCalls[0]).toEqual(assistantMessage);
     // Assistant message pushed into live history.
     expect(target.pushedMessages).toContainEqual(assistantMessage);
     // message_complete event flushed to the client via the translator
@@ -271,20 +268,11 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(result).toEqual({ invoked: true, producedToolCalls: true });
 
-    // All three tail messages persisted in order.
-    expect(persistedMessages).toHaveLength(3);
-    expect(persistedMessages[0]).toMatchObject({ role: "assistant" });
-    expect(JSON.parse(persistedMessages[0]!.content)).toEqual(
-      firstAssistant.content,
-    );
-    expect(persistedMessages[1]).toMatchObject({ role: "user" });
-    expect(JSON.parse(persistedMessages[1]!.content)).toEqual(
-      toolResultUserMsg.content,
-    );
-    expect(persistedMessages[2]).toMatchObject({ role: "assistant" });
-    expect(JSON.parse(persistedMessages[2]!.content)).toEqual(
-      followupAssistant.content,
-    );
+    // All three tail messages persisted in order via the target hook.
+    expect(target.persistedTailCalls).toHaveLength(3);
+    expect(target.persistedTailCalls[0]).toEqual(firstAssistant);
+    expect(target.persistedTailCalls[1]).toEqual(toolResultUserMsg);
+    expect(target.persistedTailCalls[2]).toEqual(followupAssistant);
 
     // All three also pushed into live history so next turn sees them.
     expect(target.pushedMessages).toHaveLength(3);
@@ -347,6 +335,7 @@ describe("wakeAgentForOpportunity", () => {
         processing = on;
         toggles.push(on);
       },
+      persistTailMessage: async () => {},
     };
 
     const result = await wakeAgentForOpportunity(
@@ -395,6 +384,7 @@ describe("wakeAgentForOpportunity", () => {
       markProcessing: (on) => {
         processing = on;
       },
+      persistTailMessage: async () => {},
     };
 
     const deps = { resolveTarget: async () => target };
@@ -433,7 +423,9 @@ describe("wakeAgentForOpportunity", () => {
         run: async (input) => input,
       },
       getMessages: () => history,
-      pushMessage: (msg) => history.push(msg),
+      pushMessage: (msg) => {
+        history.push(msg);
+      },
       emitAgentEvent: () => {},
       isProcessing: () => processing,
       // The wake's own markProcessing updates track the flag too — the
@@ -442,6 +434,7 @@ describe("wakeAgentForOpportunity", () => {
       markProcessing: (on) => {
         processing = on;
       },
+      persistTailMessage: async () => {},
       setProcessing: (v) => {
         processing = v;
       },
@@ -479,12 +472,12 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => null },
     );
     expect(result).toEqual({ invoked: false, producedToolCalls: false });
-    expect(persistedMessages).toHaveLength(0);
   });
 
   test("agent loop error is treated as a no-op", async () => {
     const history: Message[] = [];
     let processing = false;
+    const persisted: Message[] = [];
     const target: WakeTarget = {
       conversationId: "conv-err",
       agentLoop: {
@@ -499,6 +492,9 @@ describe("wakeAgentForOpportunity", () => {
       markProcessing: (on) => {
         processing = on;
       },
+      persistTailMessage: async (m) => {
+        persisted.push(m);
+      },
     };
 
     const result = await wakeAgentForOpportunity(
@@ -507,6 +503,185 @@ describe("wakeAgentForOpportunity", () => {
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
-    expect(persistedMessages).toHaveLength(0);
+    expect(persisted).toHaveLength(0);
+  });
+
+  test("drainQueue is called in finally after a successful run", async () => {
+    // Verifies Gap 1 fix: messages queued during a wake (because the
+    // wake set `processing = true`) must be picked up after the wake
+    // completes. Mirrors the canonical user-turn `finally` path which
+    // sets `processing = false` then calls `drainQueue`.
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "x",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(target.drainQueueCalls).toBe(1);
+    // Critical ordering invariant: drain runs after processing=false.
+    // If drain ran while processing was still true,
+    // `enqueueMessage`'s `if (!ctx.processing) return ...` gate would
+    // see processing=true and the drained item would itself just
+    // re-enqueue — no progress.
+    expect(target.processingToggles).toEqual([true, false]);
+    expect(target.isProcessing()).toBe(false);
+  });
+
+  test("drainQueue is called in finally even when the agent loop throws", async () => {
+    // Verifies the drain is in the finally block, not just on success.
+    // A wake that crashes mid-run must still flush queued messages —
+    // otherwise a transient LLM error strands every concurrent send.
+    let drainCalls = 0;
+    const toggles: boolean[] = [];
+    let processing = false;
+    const target: WakeTarget = {
+      conversationId: "conv-drain-on-throw",
+      agentLoop: {
+        run: async () => {
+          throw new Error("LLM exploded mid-wake");
+        },
+      },
+      getMessages: () => [],
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+        toggles.push(on);
+      },
+      persistTailMessage: async () => {},
+      drainQueue: async () => {
+        drainCalls++;
+        // Snapshot processing inside drain to prove ordering.
+        if (processing) {
+          throw new Error(
+            "drainQueue invoked while processing=true — wrong order",
+          );
+        }
+      },
+    };
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-drain-on-throw", hint: "boom", source: "t" },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(drainCalls).toBe(1);
+    // Drain ran AFTER markProcessing(false), satisfying the
+    // enqueueMessage gate invariant.
+    expect(toggles).toEqual([true, false]);
+  });
+
+  test("missing drainQueue hook is tolerated (no-op fallback)", async () => {
+    // The hook is intentionally optional so test stubs without a queue
+    // can omit it. Production daemon adapter always wires it.
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+      omitDrainQueue: true,
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "x",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.invoked).toBe(true);
+    // No throw, no drain attempt recorded.
+    expect(target.drainQueueCalls).toBe(0);
+  });
+
+  test("drainQueue rejection does not propagate from the wake", async () => {
+    // Defense in depth: if the queue drain throws (e.g. a poisoned
+    // message), the wake itself must still resolve normally — the
+    // drain failure is logged but never surfaced.
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reply" }],
+      },
+    });
+    target.drainQueue = async () => {
+      throw new Error("drain blew up");
+    };
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "x",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.invoked).toBe(true);
+  });
+
+  test("persistTailMessage called for each tail message in order", async () => {
+    // Verifies Gap 2 fix: the wake delegates persistence to the target
+    // so the daemon adapter can build channel/interface metadata. We
+    // only check the call ordering / arguments here — the daemon
+    // adapter's metadata composition is exercised separately.
+    const firstAssistant: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "tu-1",
+          name: "some_tool",
+          input: {},
+        },
+      ],
+    };
+    const toolResultUserMsg: Message = {
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
+      ],
+    };
+    const followup: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "All set." }],
+    };
+    const target = makeTarget({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedAssistant: firstAssistant,
+      scriptedTail: [toolResultUserMsg, followup],
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "x",
+        source: "meet-chat-opportunity",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(target.persistedTailCalls).toEqual([
+      firstAssistant,
+      toolResultUserMsg,
+      followup,
+    ]);
   });
 });
