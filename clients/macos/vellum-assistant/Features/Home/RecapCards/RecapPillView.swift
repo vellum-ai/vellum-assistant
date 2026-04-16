@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// An inline pill/chip view for recap flowing text.
 ///
