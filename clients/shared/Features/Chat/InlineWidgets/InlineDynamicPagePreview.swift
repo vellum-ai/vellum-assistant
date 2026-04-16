@@ -15,64 +15,66 @@ public struct InlineDynamicPagePreview: View {
         Button {
             onViewOutput()
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
-                // Icon + title row
-                HStack(spacing: VSpacing.sm) {
-                    if let icon = preview.icon {
-                        if let url = URL(string: icon), url.scheme == "https" || url.scheme == "http" {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                case .failure:
-                                    RoundedRectangle(cornerRadius: VRadius.sm)
-                                        .fill(VColor.surfaceOverlay)
-                                default:
-                                    RoundedRectangle(cornerRadius: VRadius.sm)
-                                        .fill(VColor.surfaceOverlay)
-                                }
-                            }
-                            .frame(width: 32, height: 32)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        } else {
-                            Text(icon)
-                                .font(.system(size: 28))
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Text(preview.title)
-                            .font(VFont.bodyMediumEmphasised)
-                            .foregroundStyle(VColor.contentDefault)
-                            .lineLimit(2)
-
-                        if let subtitle = preview.subtitle {
-                            Text(subtitle)
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-
-                if let description = preview.description, !description.isEmpty {
-                    Text(description)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .lineLimit(3)
-                }
-
-                if let metrics = preview.metrics, !metrics.isEmpty {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Icon + title row
                     HStack(spacing: VSpacing.sm) {
-                        ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
-                            metricPill(label: metric.label, value: metric.value)
+                        if let icon = preview.icon {
+                            if let url = URL(string: icon), url.scheme == "https" || url.scheme == "http" {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                    case .failure:
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .fill(VColor.surfaceOverlay)
+                                    default:
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .fill(VColor.surfaceOverlay)
+                                    }
+                                }
+                                .frame(width: 32, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            } else {
+                                Text(icon)
+                                    .font(.system(size: 28))
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            Text(preview.title)
+                                .font(VFont.bodyMediumEmphasised)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineLimit(2)
+
+                            if let subtitle = preview.subtitle {
+                                Text(subtitle)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
+                    if let description = preview.description, !description.isEmpty {
+                        Text(description)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .lineLimit(3)
+                    }
+
+                    if let metrics = preview.metrics, !metrics.isEmpty {
+                        HStack(spacing: VSpacing.sm) {
+                            ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
+                                metricPill(label: metric.label, value: metric.value)
+                            }
                         }
                     }
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
