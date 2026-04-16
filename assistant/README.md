@@ -86,7 +86,6 @@ bun run src/index.ts                # interactive CLI session
 | `assistant config set\|get\|list`                  | Manage configuration                             |
 | `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
 | `assistant trust list\|remove\|clear`              | Manage trust rules                               |
-| `assistant doctor`                                 | Run diagnostic checks                            |
 
 ## Project Structure
 
@@ -204,7 +203,7 @@ The runtime exposes a RESTful HTTP API for Twilio configuration, credential mana
 | Method | Path                                        | Description                                                                                                                                 |
 | ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                           |
-| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (CES / encrypted file store)                                               |
+| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (CES / encrypted file store)                                              |
 | DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in config so re-entering credentials resumes working without reassigning the number. |
 | GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities                                                              |
 | POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.    |

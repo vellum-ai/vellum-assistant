@@ -12,7 +12,7 @@ Commands here operate on a **single running assistant's** local state — config
 
 For commands that manage the **lifecycle of assistant instances** (create, start, stop, delete), see `cli/AGENTS.md`.
 
-Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations`, `doctor` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
+Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
 
 ## Conventions
 
