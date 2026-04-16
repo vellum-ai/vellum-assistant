@@ -56,6 +56,44 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
 };
 
 /**
+ * Identify a model ID as an Anthropic model — accepts both the OpenRouter
+ * prefix form (`anthropic/claude-opus-4.6`) and the bare Anthropic slug
+ * (`claude-opus-4-6`) that `response.model` sometimes carries.
+ */
+function isAnthropicModelId(model: string): boolean {
+  return model.startsWith("anthropic/") || model.startsWith("claude-");
+}
+
+/**
+ * Normalize an OpenRouter-style Anthropic model ID for lookup against the
+ * Anthropic catalog: strip the `anthropic/` prefix and convert OpenRouter's
+ * dot-separated version tokens (`claude-opus-4.6`) to the dash form Anthropic
+ * uses natively (`claude-opus-4-6`).
+ */
+function normalizeAnthropicModelId(model: string): string {
+  const bare = model.startsWith("anthropic/")
+    ? model.slice("anthropic/".length)
+    : model;
+  return bare.replace(/\./g, "-");
+}
+
+/**
+ * Whether Anthropic's pricing rules (cache-read/write multipliers, fast-mode
+ * surcharge) apply for the given provider/model. True for direct Anthropic
+ * calls and for Anthropic models routed through OpenRouter — OpenRouter
+ * proxies to Anthropic's Messages API, so the usage response carries the
+ * same cache and speed fields and is charged at Anthropic's rates.
+ */
+export function usesAnthropicPricingRules(
+  provider: string,
+  model: string,
+): boolean {
+  if (provider === "anthropic") return true;
+  if (provider === "openrouter" && isAnthropicModelId(model)) return true;
+  return false;
+}
+
+/**
  * Look up pricing for a model within a provider's catalog.
  * Tries exact match first, then longest prefix match.
  */
@@ -147,12 +185,14 @@ function getAnthropicCacheWriteTokens(usage: PricingUsage): {
  */
 function calculateUsageCost(
   provider: string,
+  model: string,
   pricing: ModelPricing,
   usage: PricingUsage,
 ): number {
+  const useAnthropicRules = usesAnthropicPricingRules(provider, model);
   // Anthropic fast mode: 6x multiplier on base rates (cache multipliers stack on top)
   const speedMultiplier =
-    provider === "anthropic" && usage.speed === "fast"
+    useAnthropicRules && usage.speed === "fast"
       ? ANTHROPIC_FAST_MODE_MULTIPLIER
       : 1;
   const effectivePricing: ModelPricing = {
@@ -169,7 +209,7 @@ function calculateUsageCost(
     usage.outputTokens,
   );
 
-  if (provider !== "anthropic") {
+  if (!useAnthropicRules) {
     return (
       directInputCost +
       outputCost +
@@ -223,6 +263,27 @@ export function resolvePricingForUsage(
   model: string,
   usage: PricingUsage,
 ): PricingResult {
+  // Anthropic models routed through OpenRouter: look up against the Anthropic
+  // catalog using the normalized bare slug. OpenRouter bills these calls at
+  // Anthropic's rates and the underlying Messages API response includes
+  // Anthropic's cache- and speed-metadata fields.
+  if (provider === "openrouter" && isAnthropicModelId(model)) {
+    const anthropicCatalog = PROVIDER_PRICING.anthropic;
+    if (anthropicCatalog) {
+      const pricing = findPricing(
+        anthropicCatalog,
+        normalizeAnthropicModelId(model),
+      );
+      if (pricing) {
+        return {
+          estimatedCostUsd: calculateUsageCost(provider, model, pricing, usage),
+          pricingStatus: "priced",
+        };
+      }
+    }
+    return { estimatedCostUsd: null, pricingStatus: "unpriced" };
+  }
+
   const providerCatalog = PROVIDER_PRICING[provider];
   if (!providerCatalog) {
     return { estimatedCostUsd: null, pricingStatus: "unpriced" };
@@ -234,7 +295,7 @@ export function resolvePricingForUsage(
   }
 
   return {
-    estimatedCostUsd: calculateUsageCost(provider, pricing, usage),
+    estimatedCostUsd: calculateUsageCost(provider, model, pricing, usage),
     pricingStatus: "priced",
   };
 }
@@ -253,6 +314,7 @@ export function resolvePricingForUsageWithOverrides(
     return {
       estimatedCostUsd: calculateUsageCost(
         provider,
+        model,
         {
           inputPer1M: bestOverride.inputPer1M,
           outputPer1M: bestOverride.outputPer1M,
