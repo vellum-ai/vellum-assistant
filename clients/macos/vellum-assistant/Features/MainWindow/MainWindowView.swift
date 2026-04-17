@@ -18,8 +18,18 @@ struct MainWindowView: View {
     /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
-    @ObservedObject var windowState: MainWindowState
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// The four managers below are `@Observable`, so plain stored properties
+    /// are sufficient — SwiftUI's Observation machinery tracks only the
+    /// specific properties read inside `body` (and inside the modifier chain)
+    /// rather than invalidating the entire view on any change.
+    ///
+    /// `windowState` is `@Bindable` because `PanelCoordinator` needs
+    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// binding projections to pass into the logs-and-usage panel. Unlike
+    /// `@ObservedObject`, `@Bindable` doesn't establish its own view
+    /// invalidation policy — Observation still tracks property granularly.
+    @Bindable var windowState: MainWindowState
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -56,8 +66,8 @@ struct MainWindowView: View {
     let authManager: AuthManager
     let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
-    @ObservedObject var voiceModeManager: VoiceModeManager
-    @ObservedObject var updateManager: UpdateManager
+    var voiceModeManager: VoiceModeManager
+    var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).

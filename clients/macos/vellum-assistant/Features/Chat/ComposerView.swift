@@ -11,11 +11,11 @@ private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category
 
 struct ComposerView: View, Equatable {
     static func == (lhs: ComposerView, rhs: ComposerView) -> Bool {
-        // VoiceModeManager is @MainActor ObservableObject, not @Observable,
-        // so SwiftUI cannot track its internal state changes via struct ==.
         // voiceModeState is a snapshot captured at struct-creation time so
-        // lhs holds the previous state and rhs holds the current state,
-        // avoiding live reads from a shared mutable reference.
+        // `lhs` holds the previous value and `rhs` holds the current one.
+        // Comparing snapshots (instead of reading `voiceModeManager.state`
+        // live from a shared reference) keeps `==` a pure value comparison
+        // and ensures transitions always invalidate the equatable view.
         if lhs.voiceModeState != .off || rhs.voiceModeState != .off {
             return false
         }

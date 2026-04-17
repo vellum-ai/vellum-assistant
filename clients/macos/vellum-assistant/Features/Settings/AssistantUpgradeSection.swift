@@ -41,7 +41,7 @@ struct AssistantUpgradeSection: View {
     var healthzLoaded: Bool = false
 
     /// The update manager to observe for reactive Sparkle status updates.
-    @ObservedObject var updateManager: UpdateManager
+    var updateManager: UpdateManager
 
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?

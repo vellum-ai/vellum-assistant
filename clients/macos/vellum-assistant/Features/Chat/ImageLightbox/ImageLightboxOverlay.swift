@@ -8,7 +8,7 @@ import VellumAssistantShared
 /// Includes a floating frosted-glass toolbar at the bottom with file info and actions,
 /// and a close button in the top-right corner.
 struct ImageLightboxOverlay: View {
-    @ObservedObject var windowState: MainWindowState
+    var windowState: MainWindowState
     @State private var escapeMonitor: Any?
 
     private var lightbox: ImageLightboxState? { windowState.imageLightbox }
