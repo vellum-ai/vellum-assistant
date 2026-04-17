@@ -55,16 +55,35 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-// Mock the trust store so addRule doesn't touch disk or require full config
+// Mock the trust store so addRule doesn't touch disk or require full config.
+// Track calls to addRule so tests can verify canonicalization.
+const addRuleCalls: Array<{
+  tool: string;
+  pattern: string;
+  scope: string;
+  decision: string;
+  priority?: number;
+  options?: { allowHighRisk?: boolean; executionTarget?: string };
+}> = [];
 mock.module("../permissions/trust-store.js", () => ({
-  addRule: () => ({
-    id: "test-rule",
-    tool: "test",
-    pattern: "*",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 100,
-  }),
+  addRule: (
+    tool: string,
+    pattern: string,
+    scope: string,
+    decision: string,
+    priority?: number,
+    options?: { allowHighRisk?: boolean; executionTarget?: string },
+  ) => {
+    addRuleCalls.push({ tool, pattern, scope, decision, priority, options });
+    return {
+      id: "test-rule",
+      tool,
+      pattern,
+      scope,
+      decision,
+      priority: priority ?? 100,
+    };
+  },
   getRules: () => [],
 }));
 
@@ -231,6 +250,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM conversation_keys");
     pendingInteractions.clear();
+    addRuleCalls.length = 0;
     eventHub = new AssistantEventHub();
   });
 
@@ -914,6 +934,128 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Interaction should still be present (not consumed)
       expect(pendingInteractions.get("req-keep")).toBeDefined();
+
+      await stopServer();
+    });
+
+    test("preserves allowHighRisk for scoped tool families (e.g. bash)", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-bash-hr", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "bash",
+          input: { command: "rm -rf /tmp/test" },
+          riskLevel: "high",
+          allowlistOptions: [
+            { label: "Allow rm", description: "test", pattern: "rm**" },
+          ],
+          scopeOptions: [{ label: "Everywhere", scope: "everywhere" }],
+        },
+      });
+
+      const res = await fetch(url("trust-rules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-bash-hr",
+          pattern: "rm**",
+          scope: "everywhere",
+          decision: "allow",
+          allowHighRisk: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      // Verify addRule was called with allowHighRisk preserved for the scoped tool
+      expect(addRuleCalls).toHaveLength(1);
+      expect(addRuleCalls[0].options?.allowHighRisk).toBe(true);
+
+      await stopServer();
+    });
+
+    test("strips allowHighRisk for non-scoped tool families via canonicalization", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      // web_fetch is a URL-family tool — allowHighRisk should be stripped
+      pendingInteractions.register("req-url-hr", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "web_fetch",
+          input: { url: "https://example.com" },
+          riskLevel: "medium",
+          allowlistOptions: [
+            {
+              label: "Allow fetch",
+              description: "test",
+              pattern: "https://example.com/**",
+            },
+          ],
+          scopeOptions: [],
+        },
+      });
+
+      const res = await fetch(url("trust-rules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-url-hr",
+          pattern: "https://example.com/**",
+          scope: "everywhere",
+          decision: "allow",
+          allowHighRisk: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      // Verify addRule was called without allowHighRisk (stripped by canonicalization)
+      expect(addRuleCalls).toHaveLength(1);
+      expect(addRuleCalls[0].options?.allowHighRisk).toBeUndefined();
+
+      await stopServer();
+    });
+
+    test("accepts scope 'everywhere' for non-scoped tools (backward compat)", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-nonscoped", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "web_fetch",
+          input: { url: "https://example.com" },
+          riskLevel: "medium",
+          allowlistOptions: [
+            {
+              label: "Allow fetch",
+              description: "test",
+              pattern: "https://example.com/**",
+            },
+          ],
+          scopeOptions: [],
+        },
+      });
+
+      const res = await fetch(url("trust-rules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-nonscoped",
+          pattern: "https://example.com/**",
+          scope: "everywhere",
+          decision: "allow",
+        }),
+      });
+
+      expect(res.status).toBe(200);
 
       await stopServer();
     });

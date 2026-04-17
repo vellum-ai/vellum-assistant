@@ -8,9 +8,14 @@
  * Both async and synchronous variants are exported. The sync variants
  * use `Bun.spawnSync` + `curl` to make blocking HTTP calls — acceptable
  * for user-initiated write operations that are infrequent.
+ *
+ * All rule-returning endpoints parse response payloads through the shared
+ * `parseTrustRule` canonical parser so the client never returns unparsed
+ * or untyped raw rule objects.
  */
 
 import type { TrustRule } from "@vellumai/ces-contracts";
+import { parseTrustRule } from "@vellumai/ces-contracts";
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
@@ -166,13 +171,37 @@ function requestSync<T>(method: string, path: string, body?: unknown): T {
 }
 
 // ---------------------------------------------------------------------------
+// Response parsing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a raw rule object from a gateway response through the shared
+ * canonical parser. Ensures the trust client never returns unparsed or
+ * untyped rule objects, regardless of what the gateway sends back.
+ */
+function parseRuleResponse(raw: unknown): TrustRule {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Trust rule response is not a valid object");
+  }
+  const { rule } = parseTrustRule(raw as Record<string, unknown>);
+  return rule as TrustRule;
+}
+
+/**
+ * Parse an array of raw rule objects from a gateway response.
+ */
+function parseRulesResponse(raw: unknown[]): TrustRule[] {
+  return raw.map((r) => parseRuleResponse(r));
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /** Fetch all trust rules from the gateway. */
 export async function getAllRules(): Promise<TrustRule[]> {
-  const data = await request<{ rules: TrustRule[] }>("GET", "/v1/trust-rules");
-  return data.rules;
+  const data = await request<{ rules: unknown[] }>("GET", "/v1/trust-rules");
+  return parseRulesResponse(data.rules);
 }
 
 /** Create a new trust rule. */
@@ -185,12 +214,12 @@ export async function addRule(params: {
   allowHighRisk?: boolean;
   executionTarget?: string;
 }): Promise<TrustRule> {
-  const data = await request<{ rule: TrustRule }>(
+  const data = await request<{ rule: unknown }>(
     "POST",
     "/v1/trust-rules",
     params,
   );
-  return data.rule;
+  return parseRuleResponse(data.rule);
 }
 
 /** Update an existing trust rule by ID. */
@@ -206,12 +235,12 @@ export async function updateRule(
     executionTarget?: string;
   },
 ): Promise<TrustRule> {
-  const data = await request<{ rule: TrustRule }>(
+  const data = await request<{ rule: unknown }>(
     "PATCH",
     `/v1/trust-rules/${encodeURIComponent(id)}`,
     updates,
   );
-  return data.rule;
+  return parseRuleResponse(data.rule);
 }
 
 /** Remove a trust rule by ID. Returns true if the rule was found and deleted. */
@@ -245,11 +274,11 @@ export async function findMatchingRule(
     commands: candidates.join(","),
     scope,
   });
-  const data = await request<{ rule: TrustRule | null }>(
+  const data = await request<{ rule: unknown | null }>(
     "GET",
     `/v1/trust-rules/match?${params.toString()}`,
   );
-  return data.rule;
+  return data.rule != null ? parseRuleResponse(data.rule) : null;
 }
 
 /** Accept the starter approval bundle, seeding common low-risk allow rules. */
@@ -266,8 +295,8 @@ export async function acceptStarterBundle(): Promise<AcceptStarterBundleResult> 
 
 /** Fetch all trust rules from the gateway (synchronous). */
 export function getAllRulesSync(): TrustRule[] {
-  const data = requestSync<{ rules: TrustRule[] }>("GET", "/v1/trust-rules");
-  return data.rules;
+  const data = requestSync<{ rules: unknown[] }>("GET", "/v1/trust-rules");
+  return parseRulesResponse(data.rules);
 }
 
 /** Create a new trust rule (synchronous). */
@@ -280,12 +309,12 @@ export function addRuleSync(params: {
   allowHighRisk?: boolean;
   executionTarget?: string;
 }): TrustRule {
-  const data = requestSync<{ rule: TrustRule }>(
+  const data = requestSync<{ rule: unknown }>(
     "POST",
     "/v1/trust-rules",
     params,
   );
-  return data.rule;
+  return parseRuleResponse(data.rule);
 }
 
 /** Update an existing trust rule by ID (synchronous). */
@@ -301,12 +330,12 @@ export function updateRuleSync(
     executionTarget?: string;
   },
 ): TrustRule {
-  const data = requestSync<{ rule: TrustRule }>(
+  const data = requestSync<{ rule: unknown }>(
     "PATCH",
     `/v1/trust-rules/${encodeURIComponent(id)}`,
     updates,
   );
-  return data.rule;
+  return parseRuleResponse(data.rule);
 }
 
 /** Remove a trust rule by ID (synchronous). Returns true if deleted. */
