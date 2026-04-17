@@ -23,10 +23,10 @@ extension MainWindowView {
                     if info != nil { assistantNameResolved = true }
                 }
             }
-            .onReceive(connectionManager.$isConnected) { connected in
+            .onChange(of: connectionManager.isConnected) { _, connected in
                 handleDaemonConnectionChange(connected)
             }
-            .onReceive(connectionManager.$lastUpdateOutcome) { outcome in
+            .onChange(of: connectionManager.lastUpdateOutcome) { _, outcome in
                 guard let outcome else { return }
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()
@@ -122,6 +122,11 @@ extension MainWindowView {
             windowState.persistentConversationId = activeId
         }
         eventStreamClient.startSSE()
+
+        // Deliver the current connection state on appear. The old .onReceive
+        // (Combine $isConnected) fired immediately with the current value;
+        // .onChange only fires on subsequent changes.
+        handleDaemonConnectionChange(connectionManager.isConnected)
 
         // Show toast for update outcomes emitted while the main window was not visible.
         // The onReceive handler for lastUpdateOutcome covers outcomes arriving while

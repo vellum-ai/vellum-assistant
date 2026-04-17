@@ -6,7 +6,7 @@ struct DynamicWorkspaceWrapper: View {
     var viewModel: ChatViewModel
     let surface: Surface
     let data: DynamicPageSurfaceData
-    @ObservedObject var windowState: MainWindowState
+    var windowState: MainWindowState
     let surfaceManager: SurfaceManager
     let connectionManager: GatewayConnectionManager
     let trafficLightPadding: CGFloat

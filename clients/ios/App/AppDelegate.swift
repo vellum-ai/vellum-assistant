@@ -7,6 +7,42 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
+extension Notification.Name {
+    /// Posted when the user taps a chat push notification's default action. The
+    /// `userInfo` dictionary carries the target conversation ID under
+    /// `iosPushNotificationConversationIdKey`. `ContentView` observes this to switch
+    /// to the Chats tab and select the conversation.
+    static let iosPushNotificationConversationTap = Notification.Name("iosPushNotificationConversationTap")
+}
+
+/// `userInfo` key carrying the conversation ID string for
+/// `.iosPushNotificationConversationTap`.
+let iosPushNotificationConversationIdKey = "conversationId"
+
+/// Durable one-slot latch for a pending push-notification navigation intent.
+///
+/// On a cold launch triggered by a notification tap, `userNotificationCenter(_:didReceive:)`
+/// can run before `ContentView.body` has been evaluated and before its
+/// `.onReceive(.iosPushNotificationConversationTap)` subscriber is attached. A plain
+/// `NotificationCenter.post` in that window is dropped. The delegate stores the
+/// conversation ID here before posting; `ContentView.task` consumes the latch on first
+/// appearance, and `.onReceive` clears it on the hot path so re-entry doesn't
+/// double-navigate.
+///
+/// Main-actor isolated because both the notification-center delegate callback and the
+/// SwiftUI consumer run on the main actor under Swift 6 strict concurrency.
+@MainActor
+enum PendingPushNavigation {
+    static var conversationId: String?
+
+    /// Return and clear the pending conversation ID, if any.
+    static func consume() -> String? {
+        let value = conversationId
+        conversationId = nil
+        return value
+    }
+}
+
 /// Resolve the conversation key from UserDefaults for host tool filtering.
 private func resolveConversationKey() -> String? {
     // Managed assistant uses assistantId as conversation key
@@ -33,15 +69,14 @@ final class ClientProvider: ObservableObject {
     /// has been replaced.
     @Published var clientGeneration: UInt = 0
     /// Mirrors the daemon client's `isConnected` state so views can observe a
-    /// single source of truth. Automatically synced via Combine when the
-    /// underlying client is a `GatewayConnectionManager`.
+    /// single source of truth. Automatically synced via observation tracking when
+    /// the underlying client changes.
     @Published var isConnected: Bool = false
 
-    /// Cancellable subscription for the Combine bridge. Stored so we can
-    /// cancel it before creating a new one in `rebuildClient()` — prevents
-    /// old GatewayConnectionManager subscriptions from accumulating and writing stale
-    /// state to `isConnected`.
-    private var isConnectedSubscription: AnyCancellable?
+    /// Task for the observation bridge. Stored so we can cancel it before
+    /// creating a new one in `rebuildClient()` — prevents old observation
+    /// loops from writing stale state to `isConnected`.
+    private var isConnectedObservationTask: Task<Void, Never>?
 
     /// Task running the SSE subscribe loop that ingests trace events.
     private var traceSubscriptionTask: Task<Void, Never>?
@@ -87,17 +122,14 @@ final class ClientProvider: ObservableObject {
     }
 
     private func bindCombineBridge() {
-        isConnectedSubscription?.cancel()
-        isConnectedSubscription = nil
-        if let daemon = client as? GatewayConnectionManager {
-            // Bridge GatewayConnectionManager's @Published isConnected to our own.
-            // Both types are @MainActor so the publisher already emits on the
-            // main actor — no receive(on:) needed. Using sink with [weak self]
-            // to avoid a retain cycle (assign(to:on:) holds a strong ref).
-            isConnectedSubscription = daemon.$isConnected
-                .sink { [weak self] value in
-                    self?.isConnected = value
-                }
+        isConnectedObservationTask?.cancel()
+        isConnectedObservationTask = nil
+        let daemon = client
+        isConnectedObservationTask = Task { @MainActor [weak self] in
+            for await connected in observationStream({ daemon.isConnected }) {
+                guard let self, !Task.isCancelled else { break }
+                self.isConnected = connected
+            }
         }
     }
 
@@ -334,13 +366,14 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        let userInfo = response.notification.request.content.userInfo
+        let conversationId =
+            userInfo["conversationId"] as? String ??
+            userInfo["conversation_id"] as? String
+
         if response.actionIdentifier == "REPLY_ACTION",
            let textResponse = response as? UNTextInputNotificationResponse {
             let replyText = textResponse.userText
-            let conversationId =
-                response.notification.request.content.userInfo["conversationId"] as? String ??
-                response.notification.request.content.userInfo["conversation_id"] as? String
-
             Task { @MainActor in
                 // If not connected (e.g. background launch via notification reply with no scene
                 // foregrounded), attempt to connect before sending the reply.
@@ -364,6 +397,23 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                 completionHandler()
             }
         } else {
+            // Default tap (UNNotificationDefaultActionIdentifier) and any future custom
+            // navigation actions: surface the conversation the notification is about.
+            // ContentView observes this notification and drives the Chats tab +
+            // IOSConversationStore selection.
+            if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+               let conversationId {
+                // Latch the intent before posting. On a cold launch, this callback can
+                // run before ContentView's `.onReceive` subscriber is attached, which
+                // would drop the posted notification. `ContentView.task` reads and
+                // clears this on first appearance so the navigation still happens.
+                PendingPushNavigation.conversationId = conversationId
+                NotificationCenter.default.post(
+                    name: .iosPushNotificationConversationTap,
+                    object: nil,
+                    userInfo: [iosPushNotificationConversationIdKey: conversationId]
+                )
+            }
             completionHandler()
         }
     }

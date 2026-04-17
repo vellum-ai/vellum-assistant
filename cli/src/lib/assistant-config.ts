@@ -378,6 +378,22 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
   process.exit(1);
 }
 
+/**
+ * Determine which cloud topology an assistant entry is running on.
+ */
+export function resolveCloud(entry: AssistantEntry): string {
+  if (entry.cloud) {
+    return entry.cloud;
+  }
+  if (entry.project) {
+    return "gcp";
+  }
+  if (entry.sshUser) {
+    return "custom";
+  }
+  return "local";
+}
+
 export function saveAssistantEntry(entry: AssistantEntry): void {
   const entries = readAssistants().filter(
     (e) => e.assistantId !== entry.assistantId,

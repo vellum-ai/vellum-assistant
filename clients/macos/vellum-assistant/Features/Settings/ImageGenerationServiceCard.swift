@@ -125,17 +125,11 @@ struct ImageGenerationServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let placeholder: String = {
-            if imageGenHasKey {
-                return "••••••••••••••••"
-            }
-            return "Enter your Gemini API key"
-        }()
-        return VTextField(
-            "API Key",
-            placeholder: placeholder,
+        APIKeyTextField(
+            label: "API Key",
+            hasKey: imageGenHasKey,
             text: $apiKeyText,
-            isSecure: true,
+            emptyPlaceholder: "Enter your Gemini API key",
             errorMessage: store.imageGenKeySaveError
         )
         .disabled(store.imageGenKeySaving)

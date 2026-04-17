@@ -26,12 +26,12 @@ export const ThinkingConfigSchema = z
   .describe("Extended thinking (chain-of-thought) configuration");
 
 export const EffortSchema = z
-  .enum(["low", "medium", "high", "max"], {
-    error: 'effort must be "low", "medium", "high", or "max"',
+  .enum(["low", "medium", "high", "xhigh", "max"], {
+    error: 'effort must be "low", "medium", "high", "xhigh", or "max"',
   })
   .default("max")
   .describe(
-    "How much effort the model should put into its response — lower effort is faster and cheaper",
+    "How much effort the model should put into its response — lower effort is faster and cheaper. Ordered low < medium < high < xhigh < max. 'xhigh' is an intermediate tier between 'high' and 'max' for models that support it (e.g. Opus 4.7).",
   );
 
 export type Effort = z.infer<typeof EffortSchema>;

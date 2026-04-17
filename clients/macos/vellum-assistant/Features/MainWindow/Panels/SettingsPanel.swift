@@ -48,7 +48,7 @@ struct SettingsPanel: View {
     var connectionManager: GatewayConnectionManager?
     var conversationManager: ConversationManager
     var authManager: AuthManager
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
     var onEnableIntegration: (() -> Void)?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
@@ -71,7 +71,7 @@ struct SettingsPanel: View {
         self.connectionManager = connectionManager
         self.conversationManager = conversationManager
         self.authManager = authManager
-        self._assistantFeatureFlagStore = ObservedObject(wrappedValue: assistantFeatureFlagStore)
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.showToast = showToast
         self.onEnableIntegration = onEnableIntegration
         self.featureFlagClient = featureFlagClient

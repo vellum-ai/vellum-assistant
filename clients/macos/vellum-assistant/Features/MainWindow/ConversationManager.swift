@@ -167,6 +167,10 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     var sidebarGroupEntries: [SidebarGroupEntry] { listStore.sidebarGroupEntries }
 
+    var systemSidebarGroupEntries: [SidebarGroupEntry] { listStore.systemSidebarGroupEntries }
+
+    var customSidebarGroupEntries: [SidebarGroupEntry] { listStore.customSidebarGroupEntries }
+
     var customGroupsEnabled: Bool {
         get { listStore.customGroupsEnabled }
         set { listStore.customGroupsEnabled = newValue }

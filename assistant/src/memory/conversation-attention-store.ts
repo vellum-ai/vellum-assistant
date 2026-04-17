@@ -172,11 +172,8 @@ export function seedForkedConversationAttention(params: {
   latestAssistantMessageId: string | null;
   latestAssistantMessageAt: number | null;
 }): void {
-  const {
-    conversationId,
-    latestAssistantMessageId,
-    latestAssistantMessageAt,
-  } = params;
+  const { conversationId, latestAssistantMessageId, latestAssistantMessageAt } =
+    params;
 
   if (!latestAssistantMessageId || latestAssistantMessageAt == null) {
     return;
@@ -458,9 +455,15 @@ function resolveAssistantCursor(params: {
  * This uses the existing attention projection instead of adding a separate
  * manual-unread state machine.
  */
-export function markConversationUnread(conversationId: string): void {
+/**
+ * Returns `true` when the seen cursor was actually rewound (state changed),
+ * `false` when the conversation was already unread (no-op).
+ * Throws `UserError` when there is no assistant message to mark unread.
+ */
+export function markConversationUnread(conversationId: string): boolean {
   const db = getDb();
   const now = Date.now();
+  let changed = false;
 
   db.transaction((tx) => {
     const state = tx
@@ -511,6 +514,7 @@ export function markConversationUnread(conversationId: string): void {
           updatedAt: now,
         })
         .run();
+      changed = true;
       return;
     }
 
@@ -524,7 +528,10 @@ export function markConversationUnread(conversationId: string): void {
         eq(conversationAssistantAttentionState.conversationId, conversationId),
       )
       .run();
+    changed = true;
   });
+
+  return changed;
 }
 
 // ── getAttentionStateByConversationIds ───────────────────────────────

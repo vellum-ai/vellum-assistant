@@ -184,6 +184,12 @@ class IOSConversationStore: ObservableObject {
     @Published var selectionRequest: ConversationSelectionRequest?
     @Published var pendingConversationAnchorRequest: PendingConversationAnchorRequest?
 
+    /// Conversation ID the user tapped on a push notification but whose matching
+    /// local `IOSConversation` wasn't loaded yet (cold start, reconnect, cache miss).
+    /// Applied via `resolvePendingPushNavigationIfPossible()` whenever the conversation
+    /// list changes so navigation still completes once the list catches up.
+    private var pendingPushNavigationConversationId: String?
+
     /// Diagnostic detail from the most recent page-one conversation fetch failure.
     /// Set after both parallel foreground/background fetches resolve so race conditions
     /// cannot clobber the value. Observable by SwiftUI views when developer mode is enabled.
@@ -289,6 +295,25 @@ class IOSConversationStore: ObservableObject {
             return conversationIndex
         }
         return conversations.firstIndex(where: { viewModels[$0.id]?.conversationId == conversationId })
+    }
+
+    /// Write the daemon-assigned conversation ID back onto the local IOSConversation
+    /// so subsequent conversation-list refetches can match server rows against it
+    /// directly instead of falling back to a viewModels lookup.
+    ///
+    /// Also persists the now-cacheable conversation — saveConnectedCache filters on
+    /// conversationId != nil, so a newly promoted local conversation is only written
+    /// to the connected cache once the daemon has acknowledged it.
+    private func backfillConversationId(_ conversationId: String, for localId: UUID) {
+        guard let index = conversations.firstIndex(where: { $0.id == localId }) else { return }
+
+        // No-op if the local entry already holds the same ID, and refuse to
+        // overwrite a different ID (which would indicate a bug elsewhere).
+        guard conversations[index].conversationId == nil
+            || conversations[index].conversationId == conversationId else { return }
+
+        conversations[index].conversationId = conversationId
+        saveConnectedCache()
     }
 
     private func mergeConversationMetadata(from restored: IOSConversation, into conversation: inout IOSConversation) {
@@ -409,6 +434,33 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
+    /// Request selection of the conversation identified by the given conversation ID
+    /// (the `String` ID used by the assistant, as opposed to the local `UUID`).
+    ///
+    /// Used by the push-notification tap handler: if the matching local `IOSConversation`
+    /// is already loaded, publishes a selection request immediately. Otherwise defers the
+    /// navigation until the conversation list catches up (cold start, reconnect, or the
+    /// notification conversation hasn't been surfaced via SSE yet).
+    func requestSelectConversation(conversationId: String) {
+        if let index = existingConversationIndex(forConversationId: conversationId) {
+            pendingPushNavigationConversationId = nil
+            publishSelectionRequest(for: conversations[index].id)
+        } else {
+            pendingPushNavigationConversationId = conversationId
+        }
+    }
+
+    /// If a push-notification tap is waiting on a conversation that wasn't loaded yet,
+    /// attempt to apply it. Called after any path that can change `conversations`
+    /// (list response, `schedule_conversation_created`, etc.) so the deferred navigation
+    /// completes as soon as the target appears.
+    private func resolvePendingPushNavigationIfPossible() {
+        guard let conversationId = pendingPushNavigationConversationId,
+              let index = existingConversationIndex(forConversationId: conversationId) else { return }
+        pendingPushNavigationConversationId = nil
+        publishSelectionRequest(for: conversations[index].id)
+    }
+
     /// One-time migration: move data from legacy "threads" keys to new "conversations" keys.
     private static func migrateKeysIfNeeded(userDefaults: UserDefaults) {
         let defaults = userDefaults
@@ -508,6 +560,12 @@ class IOSConversationStore: ObservableObject {
                     }
                     self.isLoadingInitialConversations = false
                     self.saveConnectedCache()
+                    self.resolvePendingPushNavigationIfPossible()
+                case .conversationTitleUpdated(let msg):
+                    if let idx = self.conversations.firstIndex(where: { $0.conversationId == msg.conversationId }) {
+                        self.conversations[idx].title = msg.title
+                        self.saveConnectedCache()
+                    }
                 case .conversationListInvalidated:
                     self.scheduleInvalidationRefetch(daemon: daemon)
                 default:
@@ -577,37 +635,53 @@ class IOSConversationStore: ObservableObject {
     private func sendPageOneConversationList(daemon: GatewayConnectionManager) {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
-            guard let self else { return }
-            // Fetch foreground and background conversations in parallel so
-            // background conversations don't consume pagination slots.
-            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
-            async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
-            let foreground = await foregroundResult
-            let background = await backgroundResult
+            await self?.performPageOneFetch(daemon: daemon, generation: currentGeneration)
+        }
+    }
 
-            if let foreground {
-                guard currentGeneration == self.conversationListGeneration else { return }
-                // Deduplicate by conversation ID so that daemons that don't
-                // yet support the conversationType query param (which return
-                // the same conversations for both requests) don't produce
-                // duplicate sidebar entries.
-                var seenIds = Set(foreground.conversations.map(\.id))
-                let uniqueBackground = (background?.conversations ?? []).filter {
-                    seenIds.insert($0.id).inserted
-                }
-                let merged = ConversationListResponse(
-                    type: foreground.type,
-                    conversations: foreground.conversations + uniqueBackground,
-                    hasMore: foreground.hasMore
-                )
-                self.expectedConversationListGeneration = currentGeneration
-                self.lastFetchError = nil
-                self.handleConversationListResponse(merged)
-            } else {
-                guard currentGeneration == self.conversationListGeneration else { return }
-                self.lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
-                self.isLoadingInitialConversations = false
+    /// Awaitable public entry point for manual refresh (e.g. SwiftUI `.refreshable`).
+    /// Resets pagination state, bumps the generation counter, and awaits the page-1
+    /// fetch so the refresh indicator reflects network latency.
+    func refreshConversationList(daemon: GatewayConnectionManager) async {
+        conversationListOffset = 0
+        hasMoreConversations = false
+        conversationListGeneration += 1
+        await performPageOneFetch(daemon: daemon, generation: conversationListGeneration)
+    }
+
+    /// Async body of the page-1 fetch. Shared by the fire-and-forget
+    /// `sendPageOneConversationList` path and the awaitable `refreshConversationList`
+    /// path so both routes use the same generation-guard and dedup logic.
+    private func performPageOneFetch(daemon: GatewayConnectionManager, generation: UInt64) async {
+        // Fetch foreground and background conversations in parallel so
+        // background conversations don't consume pagination slots.
+        async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
+        async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
+        let foreground = await foregroundResult
+        let background = await backgroundResult
+
+        if let foreground {
+            guard generation == conversationListGeneration else { return }
+            // Deduplicate by conversation ID so that daemons that don't
+            // yet support the conversationType query param (which return
+            // the same conversations for both requests) don't produce
+            // duplicate sidebar entries.
+            var seenIds = Set(foreground.conversations.map(\.id))
+            let uniqueBackground = (background?.conversations ?? []).filter {
+                seenIds.insert($0.id).inserted
             }
+            let merged = ConversationListResponse(
+                type: foreground.type,
+                conversations: foreground.conversations + uniqueBackground,
+                hasMore: foreground.hasMore
+            )
+            expectedConversationListGeneration = generation
+            lastFetchError = nil
+            handleConversationListResponse(merged)
+        } else {
+            guard generation == conversationListGeneration else { return }
+            lastFetchError = "Foreground conversation fetch returned nil — check gateway connectivity"
+            isLoadingInitialConversations = false
         }
     }
 
@@ -646,6 +720,10 @@ class IOSConversationStore: ObservableObject {
         pendingAttentionOverrides.removeAll()
         selectionRequest = nil
         pendingConversationAnchorRequest = nil
+        // Stale pending push navigations target conversation IDs that belong to the
+        // previous connection. The user is re-pairing or switching assistants, so the
+        // old tap intent no longer applies.
+        pendingPushNavigationConversationId = nil
 
         if let daemon = newClient as? GatewayConnectionManager {
             // Connected mode — show cached conversations instantly or spinner on first launch.
@@ -850,6 +928,10 @@ class IOSConversationStore: ObservableObject {
             }
             saveConnectedCache()
         }
+
+        // A push-notification tap may have arrived before the target conversation
+        // was loaded (cold start, reconnect, cache miss). Apply it now if possible.
+        resolvePendingPushNavigationIfPossible()
     }
 
     /// Load the next page of conversations from the daemon (Connected mode only).
@@ -1001,6 +1083,13 @@ class IOSConversationStore: ObservableObject {
         // daemon conversation instead of bootstrapping a new one.
         if let conversation = conversations.first(where: { $0.id == conversationLocalId }) {
             vm.conversationId = conversation.conversationId
+        }
+
+        // Backfill the local IOSConversation.conversationId when the daemon assigns
+        // one, so the conversation-list dedup in handleConversationListResponse can
+        // match server rows against local rows without relying on viewModels lookup.
+        vm.onConversationCreated = { [weak self] conversationId in
+            self?.backfillConversationId(conversationId, for: conversationLocalId)
         }
 
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
@@ -1181,31 +1270,10 @@ class IOSConversationStore: ObservableObject {
         activityGenerations.removeAll()
     }
 
-    /// Private conversations are excluded from the conversation list response filter, so they
-    /// won't appear in the normal active conversation list.
-    var privateConversations: [IOSConversation] {
-        conversations.filter { $0.isPrivate }
-    }
-
     @discardableResult
     func newConversation() -> IOSConversation {
         let conversation = IOSConversation()
         conversations.append(conversation)
-        save()
-        return conversation
-    }
-
-    /// Create a new private conversation with the given name. The conversation is immediately
-    /// backed by a daemon conversation with conversationType "private" so it is persisted on
-    /// the daemon side and excluded from normal conversation restoration.
-    @discardableResult
-    func newPrivateConversation(name: String = "Private Conversation") -> IOSConversation {
-        let conversation = IOSConversation(title: name, isPrivate: true)
-        conversations.append(conversation)
-        // Get or create the view model after appending so activity tracking
-        // can find the conversation in self.conversations.
-        let vm = viewModel(for: conversation.id)
-        vm.createConversationIfNeeded(conversationType: "private")
         save()
         return conversation
     }

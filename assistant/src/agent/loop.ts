@@ -23,7 +23,7 @@ export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean };
-  effort: "low" | "medium" | "high" | "max";
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   toolChoice?:
     | { type: "auto" }
@@ -411,13 +411,34 @@ export class AgentLoop {
         // This can happen when the model fails to produce output after
         // receiving a large tool result. Retry once with a nudge before
         // the message is persisted.
+        //
+        // Only nudge when the model hasn't already delivered text to the user
+        // earlier in this tool-use chain. If a prior assistant turn in history
+        // contained visible text (e.g. the model said its piece before calling
+        // a side-effect tool like `remember`), an empty follow-up is the model
+        // correctly ending its turn — nudging would mislead it into thinking
+        // its earlier text didn't land and cause a verbatim re-send.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
+        const priorAssistantHadVisibleText = (() => {
+          for (let i = history.length - 1; i >= 0; i--) {
+            const msg = history[i];
+            if (msg.role !== "assistant") continue;
+            return msg.content.some(
+              (block) =>
+                block.type === "text" &&
+                typeof (block as { text?: unknown }).text === "string" &&
+                (block as { text: string }).text.trim().length > 0,
+            );
+          }
+          return false;
+        })();
         if (
           !hasVisibleText &&
           toolUseBlocks.length === 0 &&
           toolUseTurns > 0 &&
+          !priorAssistantHadVisibleText &&
           emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
         ) {
           emptyResponseRetries++;
@@ -437,7 +458,12 @@ export class AgentLoop {
           continue;
         }
 
-        if (!hasVisibleText && toolUseBlocks.length === 0 && toolUseTurns > 0) {
+        if (
+          !hasVisibleText &&
+          toolUseBlocks.length === 0 &&
+          toolUseTurns > 0 &&
+          !priorAssistantHadVisibleText
+        ) {
           rlog.error(
             { turn: toolUseTurns, retries: emptyResponseRetries },
             "Model returned empty response after tool results — retries exhausted",

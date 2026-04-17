@@ -1113,4 +1113,492 @@ describe("normalizeLlmContextPayloads", () => {
     expect(malformed.requestSections).toBeUndefined();
     expect(malformed.responseSections).toBeUndefined();
   });
+
+  // ── OpenAI Responses API normalization tests ──────────────────────────
+
+  test("normalizes OpenAI Responses API request and response payloads", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_020,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "You are a helpful assistant.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hello" }],
+            type: "message",
+          },
+          {
+            type: "function_call",
+            call_id: "call_abc",
+            name: "file_read",
+            arguments: JSON.stringify({ path: "/tmp" }),
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_abc",
+            output: "file contents",
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            name: "file_read",
+            description: "Read a file",
+            parameters: { type: "object" },
+            strict: null,
+          },
+        ],
+        reasoning: { effort: "high" },
+        max_output_tokens: 64000,
+        stream: true,
+        store: false,
+      },
+      responsePayload: {
+        id: "resp_abc123",
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Hello!" }],
+          },
+          {
+            type: "function_call",
+            call_id: "call_def",
+            name: "file_read",
+            arguments: JSON.stringify({ path: "/a" }),
+          },
+        ],
+        usage: {
+          input_tokens: 50,
+          output_tokens: 120,
+          output_tokens_details: { reasoning_tokens: 80 },
+          total_tokens: 170,
+        },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: 50,
+      outputTokens: 120,
+      stopReason: "stop",
+      requestMessageCount: 3,
+      requestToolCount: 1,
+      responseMessageCount: 1,
+      responseToolCallCount: 1,
+      responsePreview: "Hello!",
+      toolCallNames: ["file_read"],
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        text: "You are a helpful assistant.",
+      },
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "Hello",
+      },
+      {
+        kind: "function_call",
+        label: "Request tool call (file_read)",
+        role: "assistant",
+        toolName: "file_read",
+        data: { path: "/tmp" },
+        text: '{"path":"/tmp"}',
+      },
+      {
+        kind: "tool_result",
+        label: "Tool result (call_abc)",
+        role: "tool",
+        toolName: "call_abc",
+        text: "file contents",
+      },
+      {
+        kind: "tool_definitions",
+        label: "Available tools",
+        data: {
+          tools: [
+            {
+              type: "function",
+              name: "file_read",
+              description: "Read a file",
+              parameters: { type: "object" },
+              strict: null,
+            },
+          ],
+        },
+        language: "json",
+      },
+      {
+        kind: "settings",
+        label: "Request settings",
+        data: {
+          model: "gpt-5.4",
+          reasoning: { effort: "high" },
+          max_output_tokens: 64000,
+          stream: true,
+          store: false,
+        },
+        language: "json",
+      },
+    ]);
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "Hello!",
+      },
+      {
+        kind: "function_call",
+        label: "Response tool call 1",
+        role: "assistant",
+        toolName: "file_read",
+        data: { path: "/a" },
+        text: '{"path":"/a"}',
+      },
+    ]);
+  });
+
+  test("normalizes OpenAI Responses API response with text-only output (no tool calls)", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_021,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Be concise.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "What is 2+2?" }],
+            type: "message",
+          },
+        ],
+      },
+      responsePayload: {
+        id: "resp_simple",
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "4" }],
+          },
+        ],
+        usage: {
+          input_tokens: 15,
+          output_tokens: 3,
+          total_tokens: 18,
+        },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: 15,
+      outputTokens: 3,
+      stopReason: "stop",
+      requestMessageCount: 1,
+      requestToolCount: 0,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "4",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        text: "Be concise.",
+      },
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "What is 2+2?",
+      },
+    ]);
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "4",
+      },
+    ]);
+  });
+
+  test("normalizes OpenAI Responses API response even when the request payload is malformed", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_022,
+      requestPayload: "not-json",
+      responsePayload: {
+        id: "resp_orphan",
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "output_text", text: "First line\n  Second line" },
+            ],
+          },
+        ],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+        },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: 10,
+      outputTokens: 5,
+      stopReason: "stop",
+      requestMessageCount: undefined,
+      requestToolCount: undefined,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "First line Second line",
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toBeUndefined();
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "First line\n  Second line",
+      },
+    ]);
+  });
+
+  test("normalizes OpenAI Responses API request even when the response payload is malformed", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_023,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "You are helpful.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hello" }],
+            type: "message",
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            name: "search",
+            description: "Search",
+            parameters: { type: "object" },
+          },
+        ],
+      },
+      responsePayload: "not-json",
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cacheCreationInputTokens: undefined,
+      cacheReadInputTokens: undefined,
+      stopReason: undefined,
+      requestMessageCount: 1,
+      requestToolCount: 1,
+      responseMessageCount: undefined,
+      responseToolCallCount: undefined,
+      responsePreview: undefined,
+      toolCallNames: undefined,
+    });
+    expect(normalized.requestSections).toEqual([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        text: "You are helpful.",
+      },
+      {
+        kind: "message",
+        label: "User message 1",
+        role: "user",
+        text: "Hello",
+      },
+      {
+        kind: "tool_definitions",
+        label: "Available tools",
+        data: {
+          tools: [
+            {
+              type: "function",
+              name: "search",
+              description: "Search",
+              parameters: { type: "object" },
+            },
+          ],
+        },
+        language: "json",
+      },
+    ]);
+    expect(normalized.responseSections).toBeUndefined();
+  });
+
+  test("maps Responses API status 'completed' to stop reason 'stop'", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_024,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Be brief.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hi" }],
+            type: "message",
+          },
+        ],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Hey!" }],
+          },
+        ],
+        usage: { input_tokens: 5, output_tokens: 2 },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary?.stopReason).toBe("stop");
+  });
+
+  test("preserves non-completed Responses API status as stop reason", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_025,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Be brief.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hi" }],
+            type: "message",
+          },
+        ],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "search",
+            arguments: "{}",
+          },
+        ],
+        usage: { input_tokens: 5, output_tokens: 10 },
+        status: "incomplete",
+      },
+    });
+
+    expect(normalized.summary?.stopReason).toBe("incomplete");
+  });
+
+  test("legacy chat-completions payloads are still normalized correctly alongside Responses tests", () => {
+    // This test verifies backward compatibility: existing chat-completions
+    // logs stored in the database must continue to normalize correctly even
+    // after the Responses API normalizer was added.
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_026,
+      requestPayload: {
+        model: "gpt-4.1",
+        tool_choice: "auto",
+        messages: [
+          { role: "system", content: "Be helpful." },
+          { role: "user", content: "Hello" },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "lookup",
+              description: "Lookup",
+              parameters: { type: "object" },
+            },
+          },
+        ],
+      },
+      responsePayload: {
+        model: "gpt-4.1-2026-03-01",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: "Hi there!",
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 20,
+          completion_tokens: 5,
+        },
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-4.1-2026-03-01",
+      inputTokens: 20,
+      outputTokens: 5,
+      stopReason: "stop",
+      requestMessageCount: 2,
+      requestToolCount: 1,
+      responseMessageCount: 1,
+      responseToolCallCount: undefined,
+      responsePreview: "Hi there!",
+      toolCallNames: undefined,
+    });
+  });
+
+  test("does not mix Responses API request with Anthropic response", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_027,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "You are helpful.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hello" }],
+            type: "message",
+          },
+        ],
+      },
+      responsePayload: {
+        model: "claude-sonnet-4-6",
+        content: [{ type: "text", text: "Hello back." }],
+        stop_reason: "end_turn",
+      },
+    });
+
+    expect(normalized).toEqual({});
+  });
 });

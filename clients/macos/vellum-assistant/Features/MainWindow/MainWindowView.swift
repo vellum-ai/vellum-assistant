@@ -1,7 +1,10 @@
 import Combine
+import os
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MainWindowView")
 
 /// Target for the "Archive All" confirmation alert.
 struct ArchiveAllTarget {
@@ -18,8 +21,18 @@ struct MainWindowView: View {
     /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
-    @ObservedObject var windowState: MainWindowState
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// The four managers below are `@Observable`, so plain stored properties
+    /// are sufficient — SwiftUI's Observation machinery tracks only the
+    /// specific properties read inside `body` (and inside the modifier chain)
+    /// rather than invalidating the entire view on any change.
+    ///
+    /// `windowState` is `@Bindable` because `PanelCoordinator` needs
+    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// binding projections to pass into the logs-and-usage panel. Unlike
+    /// `@ObservedObject`, `@Bindable` doesn't establish its own view
+    /// invalidation policy — Observation still tracks property granularly.
+    @Bindable var windowState: MainWindowState
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -56,8 +69,8 @@ struct MainWindowView: View {
     let authManager: AuthManager
     let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
-    @ObservedObject var voiceModeManager: VoiceModeManager
-    @ObservedObject var updateManager: UpdateManager
+    var voiceModeManager: VoiceModeManager
+    var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).
@@ -181,21 +194,35 @@ struct MainWindowView: View {
         }
     }
 
-    /// Resolve a conversation ID for the chat bubble toggle using strict priority:
+    /// Resolve an existing conversation ID for the chat-dock entry paths using strict priority:
     /// 1. activeConversationId (currently selected conversation)
     /// 2. persistentConversationId (app's last-used conversation)
     /// 3. visibleConversations.first (first available conversation)
-    /// 4. create a new conversation
-    private func resolveConversationId() -> UUID {
+    /// 4. createConversation() — which may enter draft mode without committing a UUID
+    ///
+    /// Returns `nil` when no committed conversation is available. `createConversation()`
+    /// lands in draft mode (see `ConversationManager.enterDraftMode`), which deliberately
+    /// keeps `activeConversationId == nil` until the user sends their first message and the
+    /// draft is promoted. Callers must handle the nil case; force-unwrapping would crash
+    /// whenever the user invokes this path with zero existing conversations (LUM-968).
+    private func resolveConversationId() -> UUID? {
         if let id = conversationManager.activeConversationId { return id }
         if let id = windowState.persistentConversationId { return id }
         if let id = conversationManager.visibleConversations.first?.id { return id }
         conversationManager.createConversation()
-        return conversationManager.activeConversationId!
+        return conversationManager.activeConversationId
     }
 
     func enterAppEditing(appId: String) {
-        let conversationId = resolveConversationId()
+        guard let conversationId = resolveConversationId() else {
+            // No committed conversation available — createConversation() entered draft
+            // mode, which has no UUID until first user send. Fall back to `.app(appId)`
+            // (no chat dock) so the user still lands on the app they requested. The dock
+            // becomes available once a conversation exists.
+            log.info("enterAppEditing: no conversation available, opening app without chat dock (appId=\(appId, privacy: .public))")
+            windowState.selection = .app(appId)
+            return
+        }
         conversationManager.selectConversation(id: conversationId)
         windowState.setAppEditing(appId: appId, conversationId: conversationId)
     }

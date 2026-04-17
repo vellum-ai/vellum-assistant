@@ -168,6 +168,7 @@ struct ChatsDisconnectedView: View {
 
 struct ConversationListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @EnvironmentObject var clientProvider: ClientProvider
     @ObservedObject var store: IOSConversationStore
     @State private var navigationPath: [UUID] = []
     @State private var selectedConversationId: UUID?
@@ -594,6 +595,9 @@ struct ConversationListView: View {
         }
         .searchable(text: $searchText, prompt: "Search chats")
         .navigationTitle("Chats")
+        .refreshable {
+            await store.refreshConversationList(daemon: clientProvider.client)
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {

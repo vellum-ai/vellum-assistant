@@ -131,7 +131,7 @@ export type ProviderEvent =
 export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
-  effort?: "low" | "medium" | "high" | "max";
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   [key: string]: unknown;
 }

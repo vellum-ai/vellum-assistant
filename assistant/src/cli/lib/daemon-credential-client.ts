@@ -24,7 +24,6 @@ import {
   getSecureKeyResultAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
-import { PROVIDER_ENV_VAR_NAMES } from "../../shared/provider-env-vars.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-credential-client");
@@ -32,8 +31,6 @@ const CREDENTIAL_KEY_PREFIX = "credential/";
 
 /** Hard timeout for daemon HTTP requests to prevent CLI commands from hanging. */
 const DAEMON_FETCH_TIMEOUT_MS = 60_000;
-
-const PROVIDER_ENV_VARS: Record<string, string> = PROVIDER_ENV_VAR_NAMES;
 
 // ---------------------------------------------------------------------------
 // Private daemon fetch helper
@@ -252,20 +249,4 @@ export async function deleteSecureKeyViaDaemon(
     }
   }
   return deleteSecureKeyAsync(name);
-}
-
-/**
- * Retrieve a provider API key via the daemon, with env var fallback.
- *
- * Mirrors the behavior of `getProviderKeyAsync()` from secure-keys.ts:
- * first checks the secure store (via daemon), then falls back to the
- * corresponding `<PROVIDER>_API_KEY` environment variable.
- */
-export async function getProviderKeyViaDaemon(
-  provider: string,
-): Promise<string | undefined> {
-  const stored = await getSecureKeyViaDaemon(provider);
-  if (stored) return stored;
-  const envVar = PROVIDER_ENV_VARS[provider];
-  return envVar ? process.env[envVar] : undefined;
 }

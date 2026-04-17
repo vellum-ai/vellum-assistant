@@ -116,9 +116,9 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore, MainWindowState, VoiceModeManager, UpdateManager, AssistantFeatureFlagStore
 
-**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel, GatewayConnectionManager
 
 </details>
 
@@ -130,9 +130,6 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | Class | Rationale |
 |---|---|
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
-| `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
-| `VoiceModeManager` | `@Published` state machine properties consumed by SwiftUI views; audio stream delegates |
-| `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
@@ -166,7 +163,7 @@ private func observeChild() {
     }
 }
 ```
-See `MainWindowState.observeNavigationHistory()` for a production example.
+Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (reading an `@Observable` child's properties from views naturally tracks through the nested chain).
 
 **Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 
@@ -218,6 +215,7 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 - **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). **Note:** The project has the Swift 6.2 toolchain but runs in **Swift 5 language mode** (`swiftLanguageModes: [.v5]` in Package.swift). `Task.detached` is the correct pattern for escaping actor isolation in this mode. [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) are a cleaner alternative but require enabling the `NonisolatedNonsendingByDefault` feature flag, which changes the behavior of all `nonisolated async` functions across the codebase — a separate migration step. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/))
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
+- **Use an explicit capture list for `@Sendable` closures inside `mutating` struct methods.** `self` is `inout` inside a `mutating` method, and implicitly capturing it from a `@Sendable` closure (e.g. `withTaskCancellationHandler`'s `onCancel:`) is rejected in Swift 6 language mode. Write `{ [field] in field() }` to capture the needed value directly. Refs: [SE-0035](https://github.com/apple/swift-evolution/blob/main/proposals/0035-limit-inout-capture.md), [`SendableClosureCaptures`](https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures/).
 <details>
 <summary><strong>Task lifecycle patterns (deferred work, cancellation guards, cleanup)</strong></summary>
 

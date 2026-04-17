@@ -6,8 +6,8 @@ import VellumAssistantShared
 ///
 /// Runs the async MediaEmbedResolver when the message text changes
 /// (but not during streaming to avoid per-token re-resolution).
-/// Settings are read from UserDefaults so they stay in sync with
-/// MediaEmbedSettingsSection without requiring a restart.
+/// Settings are read from UserDefaults so embed preferences stay in sync with their
+/// writers without requiring a restart.
 struct MessageMediaEmbedsView: View {
     let message: ChatMessage
 

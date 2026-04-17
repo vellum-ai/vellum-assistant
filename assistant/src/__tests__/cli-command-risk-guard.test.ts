@@ -84,11 +84,7 @@ describe("CLI command risk guard: assistant commands", () => {
   });
 
   test("assistant with flags classifies as Low risk", async () => {
-    const flagCommands = [
-      "assistant --version",
-      "assistant --help",
-      "assistant doctor --verbose",
-    ];
+    const flagCommands = ["assistant --version", "assistant --help"];
 
     for (const command of flagCommands) {
       const risk = await classifyRisk("bash", { command });

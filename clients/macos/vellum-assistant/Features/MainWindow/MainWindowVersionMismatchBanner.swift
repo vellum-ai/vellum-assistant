@@ -2,11 +2,11 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Standalone view for the version mismatch banner overlay, creating a SwiftUI
-/// invalidation boundary so changes to unrelated `@ObservedObject`s on
+/// invalidation boundary so changes to unrelated properties on
 /// `MainWindowView` don't force this overlay to re-evaluate.
 struct MainWindowVersionMismatchBanner: View {
-    @ObservedObject var connectionManager: GatewayConnectionManager
-    @ObservedObject var updateManager: UpdateManager
+    var connectionManager: GatewayConnectionManager
+    var updateManager: UpdateManager
     let settingsStore: SettingsStore
     let windowState: MainWindowState
 

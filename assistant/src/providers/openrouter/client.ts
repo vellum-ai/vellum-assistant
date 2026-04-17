@@ -1,5 +1,5 @@
 import { AnthropicProvider } from "../anthropic/client.js";
-import { OpenAIProvider } from "../openai/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import type {
   Message,
   ProviderResponse,
@@ -31,7 +31,7 @@ function toAnthropicMessagesBaseURL(openRouterBaseURL: string): string {
   return openRouterBaseURL.replace(/\/v1\/?$/, "");
 }
 
-export class OpenRouterProvider extends OpenAIProvider {
+export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly openRouterApiKey: string;
   private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;

@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -29,23 +28,6 @@ struct SettingsGeneralTab: View {
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
 
-    /// Publisher for reactive observation of connectionManager's isUpdateInProgress.
-    /// Falls back to a single `false` emission when connectionManager is nil.
-    private var updateInProgressPublisher: AnyPublisher<Bool, Never> {
-        if let cm = connectionManager {
-            return cm.$isUpdateInProgress.eraseToAnyPublisher()
-        }
-        return Just(false).eraseToAnyPublisher()
-    }
-
-    /// Publisher for reactive observation of connectionManager's updateStatusMessage.
-    /// Falls back to a single `nil` emission when connectionManager is nil.
-    private var updateStatusMessagePublisher: AnyPublisher<String?, Never> {
-        if let cm = connectionManager {
-            return cm.$updateStatusMessage.eraseToAnyPublisher()
-        }
-        return Just(nil).eraseToAnyPublisher()
-    }
 
     private var currentAssistant: LockfileAssistant? {
         lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
@@ -99,6 +81,10 @@ struct SettingsGeneralTab: View {
             selectedAssistantId = LockfileAssistant.loadActiveAssistantId() ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+            // Seed update state from connectionManager — .onChange only fires on
+            // subsequent changes, not the initial value.
+            isServiceGroupUpdateInProgress = connectionManager?.isUpdateInProgress ?? false
+            updateStatusMessage = connectionManager?.updateStatusMessage
             Task {
                 // Load lockfile on a background thread — the underlying
                 // Data(contentsOf:) file I/O can block the main thread.
@@ -107,10 +93,10 @@ struct SettingsGeneralTab: View {
                 await fetchHealthz()
             }
         }
-        .onReceive(updateInProgressPublisher) { inProgress in
-            isServiceGroupUpdateInProgress = inProgress
+        .onChange(of: connectionManager?.isUpdateInProgress) { _, inProgress in
+            isServiceGroupUpdateInProgress = inProgress ?? false
         }
-        .onReceive(updateStatusMessagePublisher) { message in
+        .onChange(of: connectionManager?.updateStatusMessage) { _, message in
             updateStatusMessage = message
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

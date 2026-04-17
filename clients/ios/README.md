@@ -18,7 +18,7 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Skill invocation chips in message bubbles
 - Compact used tools list with expandable step details
 - Inline media embeds (images, YouTube, Vimeo, Loom videos)
-- Settings: integrations, trust rules, scheduled tasks, reminders (Connected mode)
+- Settings: QR pairing (Connect) and developer diagnostics
 - Attachment support (photos, files)
 - Voice input with service-first STT (gateway → configured provider) and Apple-native fallback (`SpeechRecognizerAdapter`)
 - Onboarding flow with adaptive steps based on connection mode
@@ -26,9 +26,6 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
-- Intelligence tab — installed skills management, community skill browser with debounced search, contacts with channel policy editing
-- Library — local apps grid with pin/share/bundle, shared apps with fork, searchable/sortable documents list
-- Settings parity — Models & Services (model selection, API key management), Privacy (system permission status), Channels & Guardian (guardian status, channel trust)
 
 ---
 

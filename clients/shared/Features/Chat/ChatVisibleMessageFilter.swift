@@ -15,8 +15,7 @@ public enum ChatVisibleMessageFilter {
 
     /// Returns the paginated suffix of visible messages for a given `displayedMessageCount`.
     /// Filtering is applied first, then the suffix window is taken from the filtered set.
-    /// When `displayedMessageCount >= visibleCount` (including `.max`), all visible messages
-    /// are returned so new incoming messages don't collapse visible history.
+    /// When `displayedMessageCount >= visibleCount`, all visible messages are returned.
     public static func paginatedMessages(
         from messages: [ChatMessage],
         displayedMessageCount: Int

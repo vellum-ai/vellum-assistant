@@ -1851,6 +1851,21 @@ export class RuntimeHttpServer {
               404,
             );
           try {
+            // Snapshot current state to detect whether the seen cursor
+            // actually advances (avoids emitting on no-op signals).
+            // Only consider a conversation "unseen" when a latest assistant
+            // message exists and the seen cursor is behind it — matching
+            // the hasUnseenLatestAssistantMessage logic in buildAssistantAttention.
+            const priorState = getAttentionStateByConversationIds([
+              conversationId,
+            ]).get(conversationId);
+            const wasUnseen =
+              priorState != null &&
+              priorState.latestAssistantMessageAt != null &&
+              (priorState.lastSeenAssistantMessageAt == null ||
+                priorState.lastSeenAssistantMessageAt <
+                  priorState.latestAssistantMessageAt);
+
             recordConversationSeenSignal({
               conversationId,
               sourceChannel: (body.sourceChannel as string) ?? "vellum",
@@ -1863,6 +1878,21 @@ export class RuntimeHttpServer {
               metadata: body.metadata as Record<string, unknown> | undefined,
               observedAt: body.observedAt as number | undefined,
             });
+            if (wasUnseen) {
+              assistantEventHub
+                .publish(
+                  buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                    type: "conversation_list_invalidated",
+                    reason: "seen_changed",
+                  }),
+                )
+                .catch((err) => {
+                  log.warn(
+                    { err },
+                    "Failed to publish conversation_list_invalidated (seen_changed)",
+                  );
+                });
+            }
             return Response.json({ ok: true });
           } catch (err) {
             log.error(
@@ -1894,7 +1924,22 @@ export class RuntimeHttpServer {
               404,
             );
           try {
-            markConversationUnread(conversationId);
+            const changed = markConversationUnread(conversationId);
+            if (changed) {
+              assistantEventHub
+                .publish(
+                  buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                    type: "conversation_list_invalidated",
+                    reason: "seen_changed",
+                  }),
+                )
+                .catch((err) => {
+                  log.warn(
+                    { err },
+                    "Failed to publish conversation_list_invalidated (seen_changed)",
+                  );
+                });
+            }
             return Response.json({ ok: true });
           } catch (err) {
             if (err instanceof UserError) {

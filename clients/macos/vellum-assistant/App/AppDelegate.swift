@@ -152,7 +152,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `onRecordingStateChanged`). Used to detect duplicate/stale deliveries
     /// (e.g. the async batch STT fallback completing after the user already sent).
     var voiceTranscriptionConsumed = false
-    var connectionStatusCancellable: AnyCancellable?
+    var connectionStatusTask: Task<Void, Never>?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     /// Cached circular avatar image for the menu bar icon. Invalidated only
@@ -867,7 +867,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
-        connectionStatusCancellable?.cancel()
+        connectionStatusTask?.cancel()
         statusDotLayer?.removeAllAnimations()
         statusDotLayer?.removeFromSuperlayer()
         statusDotLayer = nil

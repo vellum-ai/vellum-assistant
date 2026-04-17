@@ -260,7 +260,7 @@ struct InferenceServiceCard: View {
                 let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
                 if !isCurrentModelAnthropic {
                     let defaultModel = store.dynamicProviderDefaultModel("anthropic")
-                    draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
+                    draftModel = defaultModel.isEmpty ? "claude-opus-4-7" : defaultModel
                 }
             } else if newMode == "your-own" {
                 let providerModels = store.dynamicProviderModels(draftProvider)
@@ -330,20 +330,14 @@ struct InferenceServiceCard: View {
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
-        let placeholder: String = {
-            if providerHasKey {
-                return "••••••••••••••••"
-            }
-            if let providerPlaceholder = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !providerPlaceholder.isEmpty {
-                return providerPlaceholder
-            }
-            return "Enter your API key"
-        }()
-        return VTextField(
-            "\(providerDisplayName) API Key",
-            placeholder: placeholder,
+        APIKeyTextField(
+            label: "\(providerDisplayName) API Key",
+            hasKey: providerHasKey,
             text: $apiKeyText,
-            isSecure: true,
+            emptyPlaceholder: {
+                if let p = store.dynamicProviderApiKeyPlaceholder(effectiveProvider), !p.isEmpty { return p }
+                return "Enter your API key"
+            }(),
             errorMessage: store.apiKeySaveError
         )
         .disabled(store.apiKeySaving)

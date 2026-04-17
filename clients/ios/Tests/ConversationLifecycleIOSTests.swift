@@ -336,6 +336,41 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatedConversation.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
+    func testViewModelOnConversationCreatedBackfillsLocalConversationId() async {
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
+        let store = IOSConversationStore(connectionManager: connectionManager, eventStreamClient: connectionManager.eventStreamClient)
+
+        guard let placeholderConversation = store.conversations.first else {
+            XCTFail("Expected placeholder conversation")
+            return
+        }
+        XCTAssertNil(placeholderConversation.conversationId)
+
+        let vm = store.viewModel(for: placeholderConversation.id)
+        vm.createConversationIfNeeded()
+        await waitForAsyncMutation()
+
+        guard let backfilled = store.conversations.first(where: { $0.id == placeholderConversation.id }) else {
+            XCTFail("Expected placeholder conversation to still exist")
+            return
+        }
+        XCTAssertNotNil(backfilled.conversationId, "onConversationCreated should backfill IOSConversation.conversationId")
+        XCTAssertEqual(backfilled.conversationId, vm.conversationId)
+
+        // A subsequent conversation-list response carrying the same server ID must
+        // now dedup directly against the local conversationId — no duplicate row.
+        let response = makeConversationListResponse(conversations: [[
+            "id": backfilled.conversationId!,
+            "title": "Generating title...",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+        ]])
+        store.handleConversationListResponse(response)
+
+        XCTAssertEqual(store.conversations.count, 1, "Server row must merge into the backfilled local conversation")
+    }
+
     func testOpeningUnreadConnectedConversationMarksItSeenAndEmitsSignal() async {
         let connectionManager = GatewayConnectionManager()
         let mockListClient = MockConversationListClient()

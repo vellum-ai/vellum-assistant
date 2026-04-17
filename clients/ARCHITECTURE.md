@@ -708,42 +708,6 @@ Stores use `[weak self]` in all `Task` closures and background subscriptions. Pl
 
 ---
 
-## iOS Feature Flows
-
-### Intelligence Tab (M6)
-
-The Intelligence tab is the iOS hub for skills and contacts management, gated on daemon connectivity.
-
-| View | File | Purpose |
-|------|------|---------|
-| `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
-| `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
-| `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
-| `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |
-
-### Things Tab (M8-M9)
-
-The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
-
-| View | File | Purpose |
-|------|------|---------|
-| `ThingsView` | `ios/Views/Things/ThingsView.swift` | Segmented container switching between My Apps, Shared, and Documents |
-| `AppsGridView` | `ios/Views/Things/AppsGridView.swift` | 2-column LazyVGrid of local apps with pin, share, bundle, and delete context menu actions |
-| `SharedAppsListView` | `ios/Views/Things/SharedAppsListView.swift` | List of shared apps with detail sheet for fork/delete |
-| `DocumentsListView` | `ios/Views/Things/DocumentsListView.swift` | Searchable, sortable document list |
-
-### Settings Parity (M7)
-
-New settings sections brought to iOS for feature parity with macOS:
-
-| View | File | Purpose |
-|------|------|---------|
-| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Credential Store |
-| `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
-| `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
-
----
-
 ## macOS Deep-Link Send (M11)
 
 The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.

@@ -1,4 +1,4 @@
-import Combine
+import Observation
 import Foundation
 import os
 
@@ -24,31 +24,31 @@ public struct UpdateOutcome: Equatable {
 /// Manages the gateway connection lifecycle and publishes observable state.
 ///
 /// Owns `EventStreamClient` (SSE + subscribe + send). Handles health checks,
-/// auto-wake, and SSE message pre-processing to update `@Published` properties.
+/// auto-wake, and SSE message pre-processing to update observable properties.
 /// SwiftUI views observe this for connection status and assistant metadata.
-@MainActor
-public final class GatewayConnectionManager: ObservableObject {
+@Observable @MainActor
+public final class GatewayConnectionManager {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published public var isConnected: Bool = false
-    @Published public var isConnecting: Bool = false
-    @Published public internal(set) var assistantVersion: String?
-    @Published public internal(set) var versionMismatch: Bool = false
-    @Published public internal(set) var isUpdateInProgress: Bool = false
-    @Published public internal(set) var updateTargetVersion: String?
-    @Published public internal(set) var updateStatusMessage: String?
-    var updateExpiresAt: Date?
-    private var outcomeEmittedForCurrentCycle = false
-    @Published public internal(set) var lastUpdateOutcome: UpdateOutcome?
-    @Published public internal(set) var keyFingerprint: String?
-    @Published public var latestMemoryStatus: MemoryStatusMessage?
-    @Published public var isTrustRulesSheetOpen: Bool = false
-    @Published public var currentModel: String?
-    @Published public var latestModelInfo: ModelInfoMessage?
+    public var isConnected: Bool = false
+    public var isConnecting: Bool = false
+    public internal(set) var assistantVersion: String?
+    public internal(set) var versionMismatch: Bool = false
+    public internal(set) var isUpdateInProgress: Bool = false
+    public internal(set) var updateTargetVersion: String?
+    public internal(set) var updateStatusMessage: String?
+    @ObservationIgnored var updateExpiresAt: Date?
+    @ObservationIgnored private var outcomeEmittedForCurrentCycle = false
+    public internal(set) var lastUpdateOutcome: UpdateOutcome?
+    public internal(set) var keyFingerprint: String?
+    public var latestMemoryStatus: MemoryStatusMessage?
+    public var isTrustRulesSheetOpen: Bool = false
+    public var currentModel: String?
+    public var latestModelInfo: ModelInfoMessage?
 
     /// Whether the transport has authenticated successfully.
-    var isAuthenticated = false
+    @ObservationIgnored var isAuthenticated = false
 
     // MARK: - Connection State (internal)
 
@@ -58,8 +58,8 @@ public final class GatewayConnectionManager: ObservableObject {
     /// externally (e.g. CLI `vellum use`). Reads from this cache replace the
     /// synchronous `LockfileAssistant.loadAll()` calls that previously blocked
     /// the main thread on every health check cycle.
-    private var cachedAssistant: LockfileAssistant?
-    private var assistantChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var cachedAssistant: LockfileAssistant?
+    @ObservationIgnored private var assistantChangeObserver: NSObjectProtocol?
     #endif
 
     /// Whether auto-wake should be attempted on disconnect.
@@ -84,14 +84,14 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - Health Check
 
-    private var healthCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var healthCheckTask: Task<Void, Never>?
     private let healthCheckInterval: TimeInterval = 15.0
-    private var shouldReconnect = true
-    private var refreshTask: Task<Void, Never>?
-    private var conversationKey: String?
+    @ObservationIgnored private var shouldReconnect = true
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var conversationKey: String?
     /// Number of consecutive successful health checks. Used to suppress
     /// repetitive "Health check passed" logs after the first three passes.
-    private var consecutiveHealthCheckSuccesses = 0
+    @ObservationIgnored private var consecutiveHealthCheckSuccesses = 0
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = isUpdateInProgress
         if value != wasInProgress { isUpdateInProgress = value }
@@ -105,19 +105,19 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - Auto-Wake
 
-    public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
+    @ObservationIgnored public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
     /// Handler called after a Sparkle update is detected.
     /// Receives `(name: String, fromVersion: String)` so the macOS app can invoke
     /// CLI `upgradeFinalize` without the shared module depending on `AppDelegate`.
-    public var postSparkleUpdateHandler: (@MainActor @Sendable (_ name: String, _ fromVersion: String) async -> Void)?
-    public var recoveryPlatform: String?
-    public var recoveryDeviceId: String?
+    @ObservationIgnored public var postSparkleUpdateHandler: (@MainActor @Sendable (_ name: String, _ fromVersion: String) async -> Void)?
+    @ObservationIgnored public var recoveryPlatform: String?
+    @ObservationIgnored public var recoveryDeviceId: String?
 
     #if os(macOS)
-    var lastAutoWakeAttempt: Date?
-    var autoWakeTask: Task<Void, Never>?
-    var reconnectionTask: Task<Void, Never>?
-    var reconnectionGeneration: Int = 0
+    @ObservationIgnored var lastAutoWakeAttempt: Date?
+    @ObservationIgnored var autoWakeTask: Task<Void, Never>?
+    @ObservationIgnored var reconnectionTask: Task<Void, Never>?
+    @ObservationIgnored var reconnectionGeneration: Int = 0
     #endif
 
     // MARK: - Event Stream
@@ -128,7 +128,7 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Init
 
     public init() {
-        // Wire SSE pre-processor to update @Published state before broadcast
+        // Wire SSE pre-processor to update state before broadcast
         eventStreamClient.messagePreProcessor = { [weak self] message in
             self?.handleServerMessage(message)
         }
@@ -361,16 +361,28 @@ public final class GatewayConnectionManager: ObservableObject {
     private func startHealthCheckLoop() {
         healthCheckTask?.cancel()
 
-        healthCheckTask = Task { @MainActor [weak self] in
+        // The loop runs on a detached task at `.utility` priority so the
+        // 15 s `Task.sleep` scheduling and between-check overhead do not
+        // occupy `@MainActor`. Work that touches observable state
+        // (`performHealthCheck` and the update-timeout cleanup) stays on
+        // the main actor; every other state read hops explicitly via
+        // `MainActor.run {}`.
+        healthCheckTask = Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
+                let interval: TimeInterval = await MainActor.run { [weak self] in
+                    guard let self else { return 15.0 }
+                    return self.isUpdateInProgress ? 2.0 : self.healthCheckInterval
+                }
                 do {
-                    let interval = (self?.isUpdateInProgress == true) ? 2.0 : (self?.healthCheckInterval ?? 15.0)
                     try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 } catch {
                     return
                 }
+                guard !Task.isCancelled else { return }
 
-                guard let self, self.shouldReconnect else { return }
+                guard let self else { return }
+                let shouldContinue = await MainActor.run { self.shouldReconnect }
+                guard shouldContinue else { return }
 
                 do {
                     try await self.performHealthCheck()
@@ -378,18 +390,22 @@ public final class GatewayConnectionManager: ObservableObject {
                     log.warning("Periodic health check failed: \(error.localizedDescription, privacy: .public)")
                 }
 
-                // Check for update timeout
-                if self.isUpdateInProgress, let expiresAt = self.updateExpiresAt, Date() > expiresAt {
-                    log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
-                    self.lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
-                    self.isUpdateInProgress = false
-                    self.updateTargetVersion = nil
-                    self.updateExpiresAt = nil
-                    self.updateStatusMessage = nil
-                    self.eventStreamClient.resetSSEReconnectDelay()
-                }
+                await self.checkUpdateTimeoutIfNeeded()
             }
         }
+    }
+
+    /// Clears update state if the update deadline has passed. Runs on the
+    /// main actor because it mutates observable properties.
+    private func checkUpdateTimeoutIfNeeded() {
+        guard isUpdateInProgress, let expiresAt = updateExpiresAt, Date() > expiresAt else { return }
+        log.warning("Update timed out — clearing isUpdateInProgress after deadline passed")
+        lastUpdateOutcome = UpdateOutcome(result: .timedOut, timestamp: Date())
+        isUpdateInProgress = false
+        updateTargetVersion = nil
+        updateExpiresAt = nil
+        updateStatusMessage = nil
+        eventStreamClient.resetSSEReconnectDelay()
     }
 
     // MARK: - Version Comparison
@@ -746,20 +762,12 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - Async Observation
 
-    /// An `AsyncStream` that emits whenever `isConnected` changes.
-    ///
-    /// Prefer this over `$isConnected.values` — Combine's `AsyncPublisher`
-    /// does not terminate on task cancellation, which can cause
-    /// `withTaskGroup` to hang indefinitely.
-    public var isConnectedStream: AsyncStream<Bool> {
-        AsyncStream { continuation in
-            let cancellable = self.$isConnected.sink { value in
-                continuation.yield(value)
-            }
-            continuation.onTermination = { _ in
-                cancellable.cancel()
-            }
-        }
+    /// An async sequence that emits whenever `isConnected` changes.
+    /// Yields the current value immediately, then emits on each subsequent change.
+    /// Cancellation-cooperative: when the consuming task is cancelled, `next()`
+    /// returns `nil` promptly and all captured references are released.
+    public var isConnectedStream: ObservationValues<Bool> {
+        observationStream { [weak self] in self?.isConnected ?? false }
     }
 
     // MARK: - Helpers

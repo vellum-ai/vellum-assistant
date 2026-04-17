@@ -54,7 +54,6 @@ Examples:
         "contacts",
         "autonomy",
         "audit",
-        "doctor",
         "completions",
         "help",
       ];
@@ -137,7 +136,6 @@ _assistant() {
         'contacts:Manage the contact graph'
         'autonomy:View and configure autonomy tiers'
         'audit:Show recent tool invocations'
-        'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
         'help:Display help'
     )
@@ -178,7 +176,6 @@ function generateFishCompletion(
     contacts: "Manage the contact graph",
     autonomy: "View and configure autonomy tiers",
     audit: "Show recent tool invocations",
-    doctor: "Run diagnostic checks",
     completions: "Generate shell completion script",
     help: "Display help",
   };

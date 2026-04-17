@@ -463,19 +463,11 @@ struct VoiceSettingsView: View {
 
     // MARK: - TTS API Key Field
 
-    @ViewBuilder
     private var ttsApiKeyField: some View {
-        let placeholder: String = {
-            if ttsProviderHasKey {
-                return "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
-            }
-            return "Enter your API key"
-        }()
-        VTextField(
-            "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
-            placeholder: placeholder,
+        APIKeyTextField(
+            label: "\(selectedTTSProvider?.displayName ?? "Provider") API Key",
+            hasKey: ttsProviderHasKey,
             text: $ttsApiKeyText,
-            isSecure: true,
             errorMessage: ttsSaveError
         )
         .disabled(ttsSaving)
@@ -651,18 +643,10 @@ struct VoiceSettingsView: View {
     // MARK: - STT API Key Field
 
     private var sttApiKeyField: some View {
-        let placeholder: String = {
-            if sttProviderHasKey {
-                return "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
-            }
-            return "Enter your API key"
-        }()
-        return VTextField(
-            "\(selectedSTTProvider?.displayName ?? "Provider") API Key",
-            placeholder: placeholder,
-            text: $sttApiKeyText,
-            isSecure: true,
-            errorMessage: nil
+        APIKeyTextField(
+            label: "\(selectedSTTProvider?.displayName ?? "Provider") API Key",
+            hasKey: sttProviderHasKey,
+            text: $sttApiKeyText
         )
         .disabled(sttSaving)
     }

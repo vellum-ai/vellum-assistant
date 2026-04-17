@@ -19,6 +19,12 @@ struct PrecomputedCacheKey: Equatable {
     let assistantActivityReason: String?
     let activeSubagentFingerprint: Int
     let displayedMessageCount: Int
+    /// Identity of the first message in the rendered pagination window.
+    /// Captures sliding-window shifts in show-all mode — where the underlying
+    /// `messages` array and `displayedMessageCount` are unchanged but the
+    /// rendered slice is different — so the projection cache invalidates
+    /// whenever the window starts on a different message.
+    let firstVisibleMessageId: UUID?
 }
 
 // MARK: - Scroll Geometry Snapshot
