@@ -603,7 +603,6 @@ extension AppDelegate {
             // any visible panel so the user sees the new empty chat.
             mainWindow?.windowState.selection = nil
         }
-        UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc public func markCurrentConversationUnread() {
