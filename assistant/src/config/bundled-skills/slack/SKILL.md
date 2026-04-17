@@ -1,7 +1,7 @@
 ---
 name: slack
 description: Read, send, and manage Slack messages via the Web API
-compatibility: "Designed for Vellum personal assistants"
+compatibility: "Works with Vellum personal and platform-hosted assistants"
 metadata:
   emoji: "💬"
   vellum:
