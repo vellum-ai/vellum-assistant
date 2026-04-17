@@ -461,6 +461,7 @@ function normalizeOpenAiResponsesResponsePayload(
       };
       toolCallSections.push(section);
       responseSections.push(section);
+      continue;
     }
   }
 
@@ -1053,6 +1054,10 @@ function extractOpenAiResponsesRequestToolNames(tools: unknown): string[] {
       // Responses shape: { type: "function", name: "...", ... }
       if (asString(tool.type) === "function" && asString(tool.name)) {
         return asString(tool.name);
+      }
+      // Native web search tool: { type: "web_search_preview" }
+      if (asString(tool.type) === "web_search_preview") {
+        return "web_search";
       }
       return undefined;
     })
