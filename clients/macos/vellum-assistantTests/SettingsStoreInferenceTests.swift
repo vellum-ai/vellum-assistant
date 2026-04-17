@@ -5,7 +5,7 @@ import XCTest
 /// Verifies that `SettingsStore` reads inference provider/model from the
 /// unified `llm.default.*` keys (with a fallback to `services.inference.*`
 /// for unmigrated configs) and writes through the new
-/// `setLLMDefaultProvider` / `setLLMDefaultModel` APIs.
+/// `setLLMDefaultProvider` / `setLLMDefaultModel` / `setLLMDefault` APIs.
 @MainActor
 final class SettingsStoreInferenceTests: XCTestCase {
 
@@ -217,6 +217,48 @@ final class SettingsStoreInferenceTests: XCTestCase {
 
     func testSetLLMDefaultModelUpdatesSelectedState() {
         _ = store.setLLMDefaultModel("gpt-4.1", provider: "openai", force: true)
+        waitForPatchCount(1)
+
+        XCTAssertEqual(store.selectedModel, "gpt-4.1")
+        XCTAssertEqual(store.selectedInferenceProvider, "openai")
+    }
+
+    // MARK: - Write path: setLLMDefault (atomic provider+model)
+
+    /// The combined `setLLMDefault(provider:model:)` setter must emit a
+    /// single PATCH carrying both keys. Splitting the write into two
+    /// PATCHes (provider first, model second) lets the daemon's
+    /// `ConfigWatcher` fire between them and reload providers with the
+    /// new provider but the OLD (potentially incompatible) model — that
+    /// race is exactly what this combined helper exists to close.
+    func testSetLLMDefaultEmitsSingleAtomicPatch() {
+        _ = store.setLLMDefault(provider: "openai", model: "gpt-4.1")
+        waitForPatchCount(1)
+
+        XCTAssertEqual(
+            mockSettingsClient.patchConfigCalls.count,
+            1,
+            "setLLMDefault must persist provider+model in a single PATCH"
+        )
+
+        let patch = lastLLMDefaultPatch()
+        XCTAssertNotNil(patch, "expected an llm.default patch payload")
+        XCTAssertEqual(patch?["provider"] as? String, "openai")
+        XCTAssertEqual(patch?["model"] as? String, "gpt-4.1")
+    }
+
+    func testSetLLMDefaultDoesNotEmitServicesInferencePatch() {
+        _ = store.setLLMDefault(provider: "openai", model: "gpt-4.1")
+        waitForPatchCount(1)
+
+        XCTAssertNil(
+            lastServicesInferencePatch(),
+            "setLLMDefault must not write to services.inference.*"
+        )
+    }
+
+    func testSetLLMDefaultUpdatesSelectedState() {
+        _ = store.setLLMDefault(provider: "openai", model: "gpt-4.1")
         waitForPatchCount(1)
 
         XCTAssertEqual(store.selectedModel, "gpt-4.1")
