@@ -814,6 +814,11 @@ export class DaemonServer {
     // DB, exposing only the narrow surface the wake helper needs.
     registerDefaultWakeResolver(async (conversationId) => {
       try {
+        // Only resolve existing conversations — don't create ghost
+        // conversations for stale targets (e.g. meetings that ended
+        // but a delayed opportunity callback still fires).
+        const existing = getConversation(conversationId);
+        if (!existing) return null;
         const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
