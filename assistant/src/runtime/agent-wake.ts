@@ -223,13 +223,12 @@ async function waitUntilIdle(
   target: WakeTarget,
   nowFn: () => number,
   timeoutMs = 30_000,
-): Promise<void> {
+): Promise<boolean> {
   const deadline = nowFn() + timeoutMs;
-  // 50ms backoff is fine — wakes are not latency-critical and a user turn
-  // typically completes on the order of seconds.
   while (target.isProcessing() && nowFn() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  return !target.isProcessing();
 }
 
 /**
@@ -315,7 +314,14 @@ export async function wakeAgentForOpportunity(
       return { invoked: false, producedToolCalls: false };
     }
 
-    await waitUntilIdle(target, nowFn);
+    const idle = await waitUntilIdle(target, nowFn);
+    if (!idle) {
+      log.warn(
+        { conversationId, source },
+        "agent-wake: conversation still processing after timeout; skipping",
+      );
+      return { invoked: false, producedToolCalls: false };
+    }
 
     const baseline = target.getMessages();
     const hintContent = `[opportunity:${source}] ${hint}`;

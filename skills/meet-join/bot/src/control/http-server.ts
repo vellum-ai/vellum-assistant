@@ -144,6 +144,15 @@ export function createHttpServer(
    */
   let playbackChain: Promise<void> = Promise.resolve();
 
+  /**
+   * Tail of the chat-send queue. Concurrent POST /send_chat requests must
+   * not interleave Playwright operations on the shared chat input — one
+   * fill()/press() sequence must complete before the next begins, otherwise
+   * two messages race on the same DOM element and both may be lost or
+   * garbled. Identical pattern to `playbackChain` above.
+   */
+  let chatChain: Promise<void> = Promise.resolve();
+
   const app = new Hono();
 
   // -------------------------------------------------------------------------
@@ -232,11 +241,20 @@ export function createHttpServer(
         400,
       );
     }
+    const previousChat = chatChain;
+    let releaseChatChain!: () => void;
+    chatChain = new Promise<void>((resolve) => {
+      releaseChatChain = resolve;
+    });
+    await previousChat;
+
     try {
       await onSendChat(parsed.data.text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ sent: false, error: message }, 502);
+    } finally {
+      releaseChatChain();
     }
     return c.json({ sent: true, timestamp: new Date().toISOString() }, 200);
   });
