@@ -242,6 +242,63 @@ describe("ContextWindowManager", () => {
     expect(result.summaryText).toContain("## Recent Progress");
   });
 
+  test("marks summaryFailed when the provider throws and fallback runs", async () => {
+    // The agent-loop circuit breaker distinguishes "LLM call failed but
+    // fallback rescued us" from "compaction succeeded end-to-end". The
+    // fallback path must set summaryFailed:true so callers can count
+    // consecutive failures without losing the compacted messages.
+    const provider = createProvider(async () => {
+      throw new Error("provider unavailable");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.59,
+      }),
+    });
+    const long = "z".repeat(220);
+    const history = [
+      message("user", `task ${long}`),
+      message("assistant", `result ${long}`),
+      message("user", `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(result.summaryFailed).toBe(true);
+  });
+
+  test("does not mark summaryFailed on a successful provider call", async () => {
+    const provider = createProvider(() => ({
+      content: [
+        { type: "text", text: "## Goals\n- summary produced by provider" },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.59,
+      }),
+    });
+    const long = "z".repeat(220);
+    const history = [
+      message("user", `task ${long}`),
+      message("assistant", `result ${long}`),
+      message("user", `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(result.summaryFailed).toBe(false);
+  });
+
   test("serializes file blocks for summary chunks", async () => {
     const prompts: string[] = [];
     const provider = createProvider((messages) => {
