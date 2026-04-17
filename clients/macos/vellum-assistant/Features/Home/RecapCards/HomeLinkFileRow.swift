@@ -24,7 +24,15 @@ struct HomeLinkFileRow: View {
     var style: Style = .solid
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
+        pill
+    }
+
+    /// Renders the pill and applies the glass-style shadow when needed.
+    /// The shadow is what defines the pill edge on flat near-white
+    /// backdrops where the `auxWhite @ 10%` tint alone is invisible.
+    @ViewBuilder
+    private var pill: some View {
+        let base = HStack(spacing: VSpacing.sm) {
             iconCircle
 
             VStack(alignment: .leading, spacing: 0) {
@@ -42,6 +50,13 @@ struct HomeLinkFileRow: View {
         .padding(EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: VSpacing.lg))
         .background(backgroundShape)
         .clipShape(Capsule())
+
+        switch style {
+        case .solid:
+            base
+        case .glass:
+            base.vShadow(VShadow.md)
+        }
     }
 
     // MARK: - Background

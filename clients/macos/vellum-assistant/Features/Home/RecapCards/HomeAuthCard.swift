@@ -3,15 +3,20 @@ import VellumAssistantShared
 
 /// Card for payment authorisation actions. Supports two layouts:
 /// - **Simple**: title + Authorise/Deny buttons in a single pill.
+///   Pass `onDismiss` to additionally show an X dismiss affordance.
 /// - **Rich**: title + subtitle + Authorise/Deny/Dismiss buttons in a
 ///   pill, with an optional file attachment pill stacked below.
 ///
 /// Both variants render each row as an independent glassmorphic capsule
-/// sitting directly on the page background, matching the Figma design.
-/// Using `Material` + a subtle white tint follows Apple's recommended
-/// recipe for translucent surfaces and adapts automatically between
-/// light and dark mode.
-/// Reference: https://developer.apple.com/documentation/swiftui/material
+/// sitting directly on the page background. The pre-Liquid-Glass recipe
+/// for macOS 15 is `Material` + subtle tint + soft shadow: `Material`
+/// adapts to the current appearance, the tint matches Figma's
+/// `FFFFFF @ 10%` fill, and the shadow is what defines the pill edge
+/// on flat near-white surfaces where the tint alone would be invisible.
+/// Sibling recap cards (e.g. `HomePermissionCard`) use the same recipe.
+/// References:
+/// - https://developer.apple.com/documentation/swiftui/material
+/// - https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views (macOS 26+ replacement)
 struct HomeAuthCard: View {
     let title: String
     let subtitle: String?
@@ -48,6 +53,7 @@ struct HomeAuthCard: View {
                         )
                 )
                 .clipShape(Capsule())
+                .vShadow(VShadow.md)
 
             if let attachment {
                 HomeLinkFileRow(
