@@ -144,10 +144,16 @@ export interface RollupResult {
    * `no_actions` means there was nothing to roll up — a quiet but
    * normal outcome that does not advance the cooldown gate (no point
    * re-running until new actions land).
+   *
+   * `in_flight` means another caller is already running the producer.
+   * The second call short-circuits without entering the body so we
+   * never fire two concurrent LLM requests — this guards against the
+   * scheduler tick and an on-visit refresh trigger racing each other.
    */
   skippedReason:
     | "no_provider"
     | "no_actions"
+    | "in_flight"
     | "empty_items"
     | "provider_error"
     | "malformed_output"
@@ -170,6 +176,16 @@ export interface RollupProducerDeps {
 }
 
 /**
+ * Module-level in-flight guard. Prevents two callers (e.g. the
+ * scheduler tick and an on-visit refresh trigger) from launching two
+ * concurrent LLM requests. A second caller short-circuits with
+ * `skippedReason: "in_flight"` without entering the body. The lock
+ * is released in the `finally` so a thrown exception can't strand
+ * it in the `true` state.
+ */
+let producerInFlight = false;
+
+/**
  * Run one roll-up pass. Loads recent action items from the feed plus
  * relationship state, builds a user prompt around them, asks the
  * provider for a `write_feed_items` tool call, and invokes
@@ -178,6 +194,21 @@ export interface RollupProducerDeps {
 export async function runRollupProducer(
   now: Date = new Date(),
   deps: RollupProducerDeps = {},
+): Promise<RollupResult> {
+  if (producerInFlight) {
+    return { wroteCount: 0, skippedReason: "in_flight" };
+  }
+  producerInFlight = true;
+  try {
+    return await runRollupProducerInner(now, deps);
+  } finally {
+    producerInFlight = false;
+  }
+}
+
+async function runRollupProducerInner(
+  now: Date,
+  deps: RollupProducerDeps,
 ): Promise<RollupResult> {
   const writeItem = deps.writeItem ?? writeAssistantFeedItem;
   const loadRelationshipState =
@@ -337,9 +368,7 @@ function buildUserPrompt(
  * the `type` narrowing to digest/thread (actions and nudges are
  * rejected here even if the model ignores the tool schema).
  */
-function coerceRollupItem(
-  raw: unknown,
-): WriteAssistantFeedItemParams | null {
+function coerceRollupItem(raw: unknown): WriteAssistantFeedItemParams | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 

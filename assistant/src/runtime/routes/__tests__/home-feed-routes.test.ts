@@ -53,8 +53,28 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   },
 }));
 
+// Stub the rollup producer so the on-visit refresh trigger inside
+// handleGetHomeFeed doesn't try to resolve a real provider or touch
+// relationship state. The route calls the producer fire-and-forget,
+// so tests observe the trigger via call-count on this spy rather
+// than awaiting a return value.
+//
+// Default skip reason is `empty_items` — a real LLM attempt that
+// returned nothing to consolidate. Using a real-run skip means the
+// debounce gate holds firm in the default case (matching production
+// semantics); individual tests override with `no_provider` etc. to
+// exercise the rollback path.
+const rollupProducerSpy = mock<() => Promise<unknown>>(async () => ({
+  wroteCount: 0,
+  skippedReason: "empty_items",
+}));
+mock.module("../../../home/rollup-producer.js", () => ({
+  runRollupProducer: rollupProducerSpy,
+}));
+
 // Dynamic imports so module mocks are wired before evaluation.
 const {
+  __resetOnVisitRefreshStateForTests,
   computeGreeting,
   formatRelativeTime,
   handleGetHomeFeed,
@@ -125,6 +145,8 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
+  rollupProducerSpy.mockClear();
+  __resetOnVisitRefreshStateForTests();
   createdConversations.length = 0;
   addedMessages.length = 0;
   createConversationShouldThrow = false;
@@ -320,6 +342,85 @@ describe("handleGetHomeFeed", () => {
     expect(body.items[0]!.id).toBe("gated");
     expect(body.contextBanner.newCount).toBe(1);
     expect(body.contextBanner.timeAwayLabel).toBe("2 hours ago");
+  });
+
+  test("fires the rollup producer fire-and-forget on the first GET", async () => {
+    const res = await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    expect(res.status).toBe(200);
+    // Yield a microtask so the fire-and-forget call reaches its
+    // first await point.
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("does NOT refire the rollup when the debounce window has not elapsed", async () => {
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+
+    // A second GET milliseconds later should NOT re-trigger the
+    // rollup — the 10-minute debounce prevents aggressive pollers or
+    // multiple panels from firing repeat refreshes.
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("debounce is rolled back when the producer skips before the LLM call", async () => {
+    // Simulate the daemon-boot race: the first GET fires the
+    // producer but the provider registry isn't ready yet, so the
+    // producer short-circuits with `no_provider`. A second GET a
+    // moment later must still be allowed to fire — otherwise Home
+    // stays stale for the full 10-minute debounce window while the
+    // user is actively trying to refresh.
+    rollupProducerSpy.mockImplementationOnce(async () => ({
+      wroteCount: 0,
+      skippedReason: "no_provider",
+    }));
+
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    // Let the fire-and-forget `.then()` that performs the rollback
+    // run before we issue the second GET. Two microtask ticks
+    // because the chain is runRollupProducer -> .then handler.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(1);
+
+    // Second GET — producer is now ready. Gate must have been
+    // rolled back so this GET re-fires the producer.
+    await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    await Promise.resolve();
+    expect(rollupProducerSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test("rollup producer failure does not turn the GET into an error", async () => {
+    // Even if the rollup producer rejects, the GET must still return
+    // 200 with the cached feed — the refresh is fire-and-forget.
+    rollupProducerSpy.mockImplementationOnce(async () => {
+      throw new Error("synthetic rollup failure");
+    });
+
+    const res = await handleGetHomeFeed(
+      new Request("http://localhost/v1/home/feed?timeAwaySeconds=0"),
+    );
+    expect(res.status).toBe(200);
+    // Drain the rejected promise so it doesn't leak into the next
+    // test as an unhandled rejection.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   test("newCount counts only status=new after filtering", async () => {
