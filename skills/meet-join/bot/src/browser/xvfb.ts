@@ -21,7 +21,7 @@
  */
 
 import type { Subprocess } from "bun";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 
 /** Opaque handle returned by `startXvfb`, consumed by `stopXvfb`. */
 export interface XvfbHandle {
@@ -61,6 +61,25 @@ function lockFilePath(displayIndex: number): string {
   return `/tmp/.X${displayIndex}-lock`;
 }
 
+function parseLockPid(lockPath: string): number | null {
+  try {
+    const content = readFileSync(lockPath, "utf8").trim();
+    const pid = Number.parseInt(content, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -76,13 +95,22 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
   const lockPath = lockFilePath(displayIndex);
 
   if (existsSync(lockPath)) {
-    // Another process already owns this display; don't fight it. Returning a
-    // handle with `process: null` keeps the call idempotent — callers can
-    // still call `stopXvfb` unconditionally without tracking who started what.
-    return { display, process: null };
+    // Verify the lock holder is still alive. If Xvfb died uncleanly its
+    // lock file lingers and prevents respawning.
+    const pid = parseLockPid(lockPath);
+    if (pid !== null && isProcessAlive(pid)) {
+      return { display, process: null };
+    }
+    // Stale lock — remove it so we can respawn.
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // Race with another cleanup; fine.
+    }
   }
 
-  const proc = Bun.spawn(["Xvfb", display, "-screen", "0", "1280x720x24"], {
+  const canonicalDisplay = `:${displayIndex}`;
+  const proc = Bun.spawn(["Xvfb", canonicalDisplay, "-screen", "0", "1280x720x24"], {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "pipe",
@@ -91,7 +119,7 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
   const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (existsSync(lockPath)) {
-      return { display, process: proc };
+      return { display: canonicalDisplay, process: proc };
     }
     // If Xvfb died during startup, bail out with a useful error instead of
     // spinning until the timeout.

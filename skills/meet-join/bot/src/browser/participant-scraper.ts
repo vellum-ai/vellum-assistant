@@ -109,8 +109,20 @@ export function startParticipantScraper(
   let previous: Map<string, Participant> = new Map();
   let firstPollComplete = false;
   let stopped = false;
+  let pollInFlight = false;
 
   const poll = async (): Promise<void> => {
+    if (stopped) return;
+    if (pollInFlight) return;
+    pollInFlight = true;
+    try {
+      await pollInner();
+    } finally {
+      pollInFlight = false;
+    }
+  };
+
+  const pollInner = async (): Promise<void> => {
     if (stopped) return;
 
     let rows: ScrapedRow[];
@@ -197,6 +209,7 @@ export function startParticipantScraper(
     firstPollComplete = true;
 
     if (joined.length === 0 && left.length === 0) return;
+    if (stopped) return;
 
     const event: ParticipantChangeEvent = {
       type: "participant.change",

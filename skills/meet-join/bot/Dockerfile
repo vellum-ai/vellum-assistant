@@ -57,8 +57,8 @@ COPY skills/meet-join/contracts /app/contracts
 
 # Install JS dependencies first so Docker can cache the layer when only
 # source files change.
-COPY skills/meet-join/bot/package.json skills/meet-join/bot/tsconfig.json ./
-RUN bun install
+COPY skills/meet-join/bot/package.json skills/meet-join/bot/bun.lock skills/meet-join/bot/tsconfig.json ./
+RUN bun install --frozen-lockfile
 
 # Pull Playwright's Chromium build. This is kept separate from apt's
 # chromium install so the Playwright-controlled binary stays in sync with
