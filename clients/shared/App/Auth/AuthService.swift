@@ -47,85 +47,12 @@ public final class AuthService {
         }
     }
 
-    public func getConfig() async throws -> AllauthResponse<ConfigData> {
-        try await request(AuthRequestConfig(path: "config", retryAfterSession410: true))
-    }
-
     public func getSession(timeout: TimeInterval? = nil) async throws -> AllauthResponse<SessionData> {
         try await request(AuthRequestConfig(path: "auth/session", timeoutInterval: timeout))
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
         try await request(AuthRequestConfig(path: "auth/session", method: "DELETE"))
-    }
-
-    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
-    public func authenticateWithProviderToken(
-        provider: String,
-        process: String,
-        clientId: String,
-        idToken: String?,
-        accessToken: String?
-    ) async throws -> AllauthResponse<SessionData> {
-        var token: [String: String] = ["client_id": clientId]
-        if let idToken { token["id_token"] = idToken }
-        if let accessToken { token["access_token"] = accessToken }
-
-        let body: [String: Any] = [
-            "provider": provider,
-            "process": process,
-            "token": token,
-        ]
-        return try await request(AuthRequestConfig(path: "auth/provider/token", method: "POST", body: body))
-    }
-
-    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
-    public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
-        guard let requestURL = URL(string: url),
-              requestURL.scheme?.lowercased() == "https" else {
-            throw AuthServiceError.invalidURL
-        }
-        let (data, _) = try await URLSession.shared.data(from: requestURL)
-        return try JSONDecoder().decode(OIDCDiscovery.self, from: data)
-    }
-
-    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
-    public func exchangeOIDCCode(
-        tokenEndpoint: String,
-        clientId: String,
-        code: String,
-        codeVerifier: String,
-        redirectURI: String
-    ) async throws -> OIDCTokenResponse {
-        guard let url = URL(string: tokenEndpoint),
-              url.scheme?.lowercased() == "https" else {
-            throw AuthServiceError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        let params = [
-            "grant_type": "authorization_code",
-            "client_id": clientId,
-            "code": code,
-            "code_verifier": codeVerifier,
-            "redirect_uri": redirectURI,
-        ]
-        var formAllowed = CharacterSet.alphanumerics
-        formAllowed.insert(charactersIn: "-._~")
-        request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: formAllowed) ?? $0.value)" }
-            .joined(separator: "&")
-            .data(using: .utf8)
-
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let response = try JSONDecoder().decode(OIDCTokenResponse.self, from: data)
-
-        if let error = response.error {
-            throw AuthServiceError.oidcTokenExchangeFailed(response.error_description ?? error)
-        }
-        return response
     }
 
     // MARK: - Platform Organizations API
