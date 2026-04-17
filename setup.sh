@@ -62,6 +62,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# rtk: shell-output compression proxy used by the `shell-output-compression`
+# feature flag. Optional at runtime — the feature gracefully falls through
+# when rtk is missing — but we install it during setup so the flag is usable
+# out of the box on developer machines.
+# ---------------------------------------------------------------------------
+if command -v brew &>/dev/null; then
+  if ! command -v rtk &>/dev/null; then
+    info "Installing rtk via Homebrew (optional; powers shell-output-compression)"
+    brew install rtk || info "rtk install failed — feature flag will no-op until installed manually"
+  else
+    info "rtk already installed ($(rtk --version 2>/dev/null || echo "version unknown"))"
+  fi
+else
+  info "Skipping rtk (Homebrew not available — install manually if you want to enable shell-output-compression)"
+fi
+
+# ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant credential-executor; do

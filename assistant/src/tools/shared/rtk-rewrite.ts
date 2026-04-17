@@ -2,14 +2,21 @@ import { accessSync, constants } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Shell commands that the `rtk` binary has a dedicated subcommand for.
+ * Shell commands that the `rtk` binary has a dedicated subcommand for
+ * AND whose rtk wrapper is documented to accept the native CLI flags.
  * Derived from `rtk --help` (rtk 0.36.0). Anything not in this set is
  * passed through unchanged.
  *
- * Deliberately excluded even though `rtk` has a matching subcommand:
- * - `test`, `read` — bash builtins. `test -f foo` or `read var` would
- *   mis-dispatch to rtk's test-runner / file-reader subcommand and
- *   misinterpret the flags.
+ * Deliberately excluded even though rtk has a matching subcommand:
+ * - `test`, `read` — bash builtins. `test -f foo` / `read var` would
+ *   mis-dispatch to rtk's test-runner / file-reader and misread flags.
+ * - `diff`, `wc`, `curl`, `log` — standard Unix utilities whose rtk
+ *   wrappers may diverge from the native CLI (`rtk curl` auto-detects
+ *   JSON and emits a schema; `rtk diff` produces an ultra-condensed
+ *   form; `rtk wc` strips paths/padding; on macOS `log` is also a
+ *   system utility whose semantics differ from rtk's log-filter).
+ *   Silently changing shape/semantics is too risky for an opt-in
+ *   compression feature; add them back once equivalence is verified.
  */
 const RTK_SUBCOMMANDS = new Set([
   "ls",
@@ -29,12 +36,9 @@ const RTK_SUBCOMMANDS = new Set([
   "lint",
   "grep",
   "find",
-  "log",
-  "diff",
   "docker",
   "kubectl",
   "wget",
-  "wc",
   "prettier",
   "format",
   "playwright",
@@ -46,25 +50,20 @@ const RTK_SUBCOMMANDS = new Set([
   "rubocop",
   "rspec",
   "pip",
-  "curl",
 ]);
 
-// Positive-only cache keyed by the PATH that was probed. Different
-// callers can use different PATHs (e.g. `host_bash` prepends
-// `~/.bun/bin` via buildHostShellEnv), so caching a single global
-// answer is wrong. A negative result is never cached — installing rtk
-// mid-session (or a PATH update) should start working without a
-// restart.
-let cachedPositive: { path: string } | null = null;
+// rtk availability is probed fresh on every call. The previous
+// positive cache could go stale if rtk was removed, upgraded, or lost
+// execute permission mid-session — commands would then be rewritten to
+// `rtk <cmd>` and fail with `command not found`. An fs.accessSync over
+// a typical PATH is microseconds; the spawn that follows dominates.
 let testOverride: boolean | null = null;
 
 function defaultIsRtkAvailable(pathEnv: string): boolean {
-  if (cachedPositive && cachedPositive.path === pathEnv) return true;
   const pathEntries = pathEnv.split(":").filter(Boolean);
   for (const dir of pathEntries) {
     try {
       accessSync(join(dir, "rtk"), constants.X_OK);
-      cachedPositive = { path: pathEnv };
       return true;
     } catch {
       // Not in this PATH entry — keep looking.
@@ -80,11 +79,10 @@ function isRtkAvailable(pathEnv: string): boolean {
 
 /**
  * Test-only hook. Pass `true`/`false` to force the availability result,
- * or `null` to revert to the real check (and clear the positive cache).
+ * or `null` to revert to the real check.
  */
 export function __setRtkAvailableForTest(value: boolean | null): void {
   testOverride = value;
-  if (value === null) cachedPositive = null;
 }
 
 /**
