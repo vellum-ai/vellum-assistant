@@ -9,7 +9,7 @@
 
 import { writeFileSync } from "node:fs";
 
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 
 import { BROWSER_OPERATION_META } from "../../browser/operations.js";
 import type {
@@ -33,13 +33,15 @@ function toKebab(snakeCase: string): string {
  * Convert a snake_case field name to a kebab-case CLI option flag
  * (e.g. `allow_private_network` -> `--allow-private-network`).
  *
- * Boolean fields use Commander's negation pattern (`--flag / --no-flag`)
- * so callers can explicitly send both `true` and `false` values.
+ * Boolean fields declare only `--flag`; Commander 13 auto-generates
+ * the `--no-flag` negation variant. Declaring both in a single spec
+ * string (e.g. `--flag, --no-flag`) breaks in Commander 13 because
+ * `--flag` still parses to `false`.
  */
 function fieldToFlag(field: OperationField): string {
   const kebab = toKebab(field.name);
   if (field.type === "boolean") {
-    return `--${kebab}, --no-${kebab}`;
+    return `--${kebab}`;
   }
   return `--${kebab} <${field.type === "number" ? "number" : "value"}>`;
 }
@@ -94,7 +96,17 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
   // Add per-operation field options
   for (const field of meta.fields) {
     const flag = fieldToFlag(field);
-    if (field.required) {
+
+    if (field.enum) {
+      // Use Commander's Option class with .choices() for enum-constrained
+      // fields so invalid values are rejected at the CLI level and
+      // --help lists the allowed values.
+      const opt = new Option(flag, field.description).choices([...field.enum]);
+      if (field.required) {
+        opt.makeOptionMandatory(true);
+      }
+      subcmd.addOption(opt);
+    } else if (field.required) {
       subcmd.requiredOption(flag, field.description);
     } else {
       subcmd.option(flag, field.description);
