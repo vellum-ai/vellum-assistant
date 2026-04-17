@@ -1,9 +1,72 @@
 import Foundation
 import Testing
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @Suite("DebugStateWriterTests")
 struct DebugStateWriterTests {
+
+    // MARK: - Capture interval selection
+
+    @Test @MainActor
+    func nextInterval_usesActiveInterval_whenFrontmostAndNormalPressure() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor._testingSetLevel(.normal)
+        defer { monitor._testingSetLevel(.normal) }
+
+        let writer = DebugStateWriter(
+            directory: FileManager.default.temporaryDirectory,
+            memoryPressure: monitor,
+            isAppActive: { true }
+        )
+
+        #expect(writer.nextInterval() == DebugStateWriter.activeInterval)
+    }
+
+    @Test @MainActor
+    func nextInterval_usesThrottledInterval_whenBackgroundedAndNormalPressure() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor._testingSetLevel(.normal)
+        defer { monitor._testingSetLevel(.normal) }
+
+        let writer = DebugStateWriter(
+            directory: FileManager.default.temporaryDirectory,
+            memoryPressure: monitor,
+            isAppActive: { false }
+        )
+
+        #expect(writer.nextInterval() == DebugStateWriter.throttledInterval)
+    }
+
+    @Test @MainActor
+    func nextInterval_usesThrottledInterval_underWarningPressure() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor._testingSetLevel(.warning)
+        defer { monitor._testingSetLevel(.normal) }
+
+        let writer = DebugStateWriter(
+            directory: FileManager.default.temporaryDirectory,
+            memoryPressure: monitor,
+            isAppActive: { true }
+        )
+
+        #expect(writer.nextInterval() == DebugStateWriter.throttledInterval)
+    }
+
+    @Test @MainActor
+    func nextInterval_usesCriticalInterval_underCriticalPressure() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor._testingSetLevel(.critical)
+        defer { monitor._testingSetLevel(.normal) }
+
+        let writer = DebugStateWriter(
+            directory: FileManager.default.temporaryDirectory,
+            memoryPressure: monitor,
+            isAppActive: { true }
+        )
+
+        #expect(writer.nextInterval() == DebugStateWriter.criticalInterval)
+    }
 
     // MARK: - TranscriptDiagnostics Encoding
 

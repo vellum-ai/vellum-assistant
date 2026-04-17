@@ -1,18 +1,17 @@
 /**
- * One-time migration: copy guardian-init lock files from the legacy path
- * (~/.vellum/) to the new gateway-security directory (~/.vellum/protected/
- * in bare-metal mode, or GATEWAY_SECURITY_DIR in Docker).
+ * One-time migration: copy guardian-init lock files for the original
+ * first-local assistant whose lock lived at `~/.vellum/`.
  *
- * Before this change, channel-verification-session-proxy.ts resolved the
- * lock directory as `GATEWAY_SECURITY_DIR || getRootDir()`. The refactor
- * to `getGatewaySecurityDir()` changed the bare-metal fallback from
- * `~/.vellum/` to `~/.vellum/protected/`. Without this migration, existing
- * bare-metal instances would lose their bootstrap lock and allow a second
- * guardian init.
+ * Guardian-init shipped 2026-03-15; the refactor that moved the lock into
+ * `.vellum/protected/` shipped 2026-04-14, one day after multi-instance.
+ * The only realistic case with a stranded legacy lock is the pre-multi-
+ * instance first-local whose instanceDir is `$HOME`. We restrict to
+ * exactly that case so the migration can never pick up an unrelated
+ * `guardian-init.lock` from elsewhere on the filesystem.
  */
 
 import { copyFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { getLogger } from "../../logger.js";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../../paths.js";
@@ -27,10 +26,13 @@ export function up(): MigrationResult {
   const legacyDir = getLegacyRootDir();
   const newDir = getGatewaySecurityDir();
 
-  // If both resolve to the same directory (e.g. GATEWAY_SECURITY_DIR is set
-  // and equals getLegacyRootDir()), there is nothing to migrate.
-  if (legacyDir === newDir) {
-    log.info("Legacy and new directories are identical — nothing to migrate");
+  // Only the original first-local assistant (instanceDir === $HOME) can
+  // have a stranded legacy lock — its new dir resolves to `~/.vellum/protected`.
+  // Any other shape means this isn't that instance; skip. Normalize both
+  // sides so a user-supplied GATEWAY_SECURITY_DIR with trailing slashes
+  // still matches.
+  if (resolve(legacyDir, "protected") !== resolve(newDir)) {
+    log.info({ newDir }, "Not the first-local layout — nothing to migrate");
     return "done";
   }
 

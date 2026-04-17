@@ -5,23 +5,20 @@ import VellumAssistantShared
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @ObservedObject var ambientAgent: AmbientAgentManager
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .chats
     @State private var navigateToConnect = false
-    /// Single conversation store shared between the Chats tab (ConversationListView) and the
-    /// Private Conversations settings panel (PrivateConversationsSection). Keeping one store
-    /// prevents the dual-store data-loss race where two independent stores each
-    /// overwrite the other's UserDefaults writes in standalone mode.
+    /// Single conversation store shared between the Chats tab and the Developer section's
+    /// diagnostics. Keeping one store prevents the dual-store data-loss race where two
+    /// independent stores each overwrite the other's UserDefaults writes in standalone mode.
     @StateObject private var conversationStore: IOSConversationStore
 
-    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
+    init(authManager: AuthManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         self.authManager = authManager
-        self.ambientAgent = ambientAgent
         _conversationStore = StateObject(wrappedValue: IOSConversationStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
-    private enum Tab { case chats, things, intelligence, settings }
+    private enum Tab { case chats, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -61,6 +58,10 @@ struct ContentView: View {
             }
         }
         .task {
+            // Consume any push-notification tap that arrived before this view's
+            // `.onReceive` subscriber was attached (cold launch from notification).
+            // The hot path is handled by `.onReceive` below; this covers the race.
+            consumePendingPushNavigationIfNeeded()
             await authManager.checkSession()
             await attemptInitialConnection()
         }
@@ -73,6 +74,29 @@ struct ContentView: View {
         .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
             conversationStore.rebindGatewayConnectionManager(clientProvider.client, eventStreamClient: clientProvider.eventStreamClient)
         }
+        // Push notification tap: AppDelegate.userNotificationCenter(_:didReceive:) posts
+        // this notification on the default action with the conversation ID in userInfo.
+        // Switch to the Chats tab and ask the store to select the conversation. The store
+        // handles the deferred case (cold start / cache miss) by holding the ID until the
+        // conversation list loads.
+        .onReceive(NotificationCenter.default.publisher(for: .iosPushNotificationConversationTap)) { notification in
+            guard let conversationId = notification.userInfo?[iosPushNotificationConversationIdKey] as? String else { return }
+            // Clear the cold-start latch so the `.task` fallback doesn't re-apply
+            // this navigation when the view later appears (e.g. if the app was
+            // backgrounded and ContentView.task re-runs on re-entry).
+            _ = PendingPushNavigation.consume()
+            selectedTab = .chats
+            conversationStore.requestSelectConversation(conversationId: conversationId)
+        }
+    }
+
+    /// Consume the cold-start push-tap latch set by `AppDelegate.userNotificationCenter(_:didReceive:)`
+    /// when the delegate callback fires before this view's `.onReceive` subscriber is attached.
+    /// No-op when the latch is empty (hot path already handled the tap via `.onReceive`).
+    private func consumePendingPushNavigationIfNeeded() {
+        guard let conversationId = PendingPushNavigation.consume() else { return }
+        selectedTab = .chats
+        conversationStore.requestSelectConversation(conversationId: conversationId)
     }
 
     private func navigateToConnectSettings() {
@@ -193,22 +217,6 @@ struct ContentView: View {
                 .tag(Tab.chats)
                 .tabItem {
                     Label { Text("Chats") } icon: { VIconView(.messageSquare, size: 12) }
-                }
-
-            ThingsTabView(onConnectTapped: navigateToConnectSettings)
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.things)
-                .tabItem {
-                    Label { Text("Library") } icon: { VIconView(.layoutGrid, size: 12) }
-                }
-
-            IdentityView(onConnectTapped: navigateToConnectSettings)
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.intelligence)
-                .tabItem {
-                    Label { Text("Intelligence") } icon: { VIconView(.brain, size: 12) }
                 }
 
             SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, conversationStore: conversationStore)

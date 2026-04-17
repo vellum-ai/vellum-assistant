@@ -1,12 +1,12 @@
-import { executeBrowserAttach } from "../../../../tools/browser/browser-execution.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { runBrowserTool } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  return executeBrowserAttach(input, context);
+  return runBrowserTool("browser_attach", input, context);
 }

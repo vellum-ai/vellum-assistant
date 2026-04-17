@@ -110,8 +110,6 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 | `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
 | `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
 
-Run `vellum doctor` for a full diagnostic check including sandbox backend status.
-
 ### Credential Storage and Secret Security
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
@@ -522,8 +520,6 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 | CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify the assistant URL is reachable |
 | Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
-
-Run `vellum doctor` for a full diagnostic check.
 
 ## Development Workflow
 

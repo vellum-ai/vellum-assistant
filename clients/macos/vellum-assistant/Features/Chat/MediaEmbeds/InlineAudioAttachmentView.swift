@@ -138,7 +138,7 @@ struct InlineAudioAttachmentView: View {
                         .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
                 )
         )
-        .frame(maxWidth: 360)
+        .widthCap(360)
         .onHover { isHovering = $0 }
         .onDisappear {
             stop()

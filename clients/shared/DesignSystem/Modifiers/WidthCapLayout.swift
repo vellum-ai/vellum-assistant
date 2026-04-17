@@ -6,10 +6,14 @@ import SwiftUI
 /// inside LazyVStack cells.
 ///
 /// Reference: [Layout.explicitAlignment](https://developer.apple.com/documentation/swiftui/layout/explicitalignment(of:in:proposal:subviews:cache:)-8ofeu)
-struct WidthCapLayout: Layout {
+public struct WidthCapLayout: Layout {
     let cap: CGFloat
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public init(cap: CGFloat) {
+        self.cap = cap
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let available = proposal.replacingUnspecifiedDimensions().width
         let width = min(cap, available)
         guard let child = subviews.first else { return CGSize(width: width, height: 0) }
@@ -17,7 +21,7 @@ struct WidthCapLayout: Layout {
         return CGSize(width: width, height: childSize.height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let child = subviews.first else { return }
         child.place(
             at: bounds.origin,
@@ -31,7 +35,7 @@ extension View {
     /// Caps width at `cap` without creating `_FlexFrameLayout`.
     /// When `cap` is nil, no constraint is applied.
     @ViewBuilder
-    func widthCap(_ cap: CGFloat?) -> some View {
+    public func widthCap(_ cap: CGFloat?) -> some View {
         if let cap {
             WidthCapLayout(cap: cap) { self }
         } else {

@@ -636,8 +636,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 | File | Purpose |
 |------|---------|
-| `clients/ios/Views/Settings/QRPairingSheet.swift` | QR scan, v4 parsing, pairing handshake, polling |
-| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | Connection status and QR scan entry point |
+| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | iOS connection status (cloud-login, read-only gateway URL) |
 | `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS v4 QR generation, pre-registration with daemon |
 | `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
 | `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |
@@ -705,42 +704,6 @@ All shared stores follow the same async pattern for daemon communication:
 5. Cancel subscription tasks in `deinit` to prevent leaks
 
 Stores use `[weak self]` in all `Task` closures and background subscriptions. Platform views own stores via `@ObservedObject` or `@StateObject` and pass them down to child views.
-
----
-
-## iOS Feature Flows
-
-### Intelligence Tab (M6)
-
-The Intelligence tab is the iOS hub for skills and contacts management, gated on daemon connectivity.
-
-| View | File | Purpose |
-|------|------|---------|
-| `InstalledSkillsView` | `ios/Views/Intelligence/InstalledSkillsView.swift` | List of installed skills with enable/disable swipe actions and uninstall |
-| `SkillDetailView` | `ios/Views/Intelligence/SkillDetailView.swift` | Skill details with ClaWhub inspect data, enable/disable/uninstall actions |
-| `ContactsListView` | `ios/Views/Intelligence/ContactsListView.swift` | Searchable contacts list with guardian section and delete swipe actions |
-| `ContactDetailView` | `ios/Views/Intelligence/ContactDetailView.swift` | Contact details with channel list and policy editing via confirmation dialog |
-
-### Things Tab (M8-M9)
-
-The Things tab provides access to local apps, shared apps, and documents via a segmented picker.
-
-| View | File | Purpose |
-|------|------|---------|
-| `ThingsView` | `ios/Views/Things/ThingsView.swift` | Segmented container switching between My Apps, Shared, and Documents |
-| `AppsGridView` | `ios/Views/Things/AppsGridView.swift` | 2-column LazyVGrid of local apps with pin, share, bundle, and delete context menu actions |
-| `SharedAppsListView` | `ios/Views/Things/SharedAppsListView.swift` | List of shared apps with detail sheet for fork/delete |
-| `DocumentsListView` | `ios/Views/Things/DocumentsListView.swift` | Searchable, sortable document list |
-
-### Settings Parity (M7)
-
-New settings sections brought to iOS for feature parity with macOS:
-
-| View | File | Purpose |
-|------|------|---------|
-| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Credential Store |
-| `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
-| `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
 
 ---
 

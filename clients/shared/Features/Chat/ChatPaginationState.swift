@@ -17,12 +17,41 @@ public final class ChatPaginationState {
 
     // MARK: - Display window
 
+    /// Upper bound on the number of items passed to the ForEach. When the
+    /// conversation has more messages than this, the view renders a sliding
+    /// window of this size which shifts older as the user paginates back and
+    /// resets to the newest slice when the user returns to latest via the
+    /// scroll-to-latest CTA. Matches the pattern used by iMessage, Slack,
+    /// Discord, and other chat clients — a bounded ForEach keeps layout and
+    /// identity-diff costs flat regardless of conversation length.
+    public static let maxPaginatedWindowSize = 100
+
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
     /// Grows by `messagePageSize` each time the user scrolls to the top.
-    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
-    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
+    /// When `isShowAllMode` is true the window tracks the full message count
+    /// so new incoming messages are included automatically.
     public var displayedMessageCount: Int = messagePageSize
+
+    /// When true, the display window auto-tracks the full message count so
+    /// new incoming messages don't collapse visible history back to a suffix.
+    /// Separate from `displayedMessageCount` to avoid using `Int.max` as a
+    /// sentinel — which conflated "don't shrink" (behavioral) with "how many
+    /// items" (sizing) and made the ForEach item count unbounded.
+    public var isShowAllMode: Bool = false
+
+    /// Starting index within `displayedMessages` of the current paginated
+    /// window when in show-all mode. `nil` means "pin to the latest slice"
+    /// (window = `suffix(maxPaginatedWindowSize)`) so streaming and new
+    /// messages stay visible. A concrete value means the user has paginated
+    /// back; the window is anchored at that offset and does not auto-track
+    /// the newest messages until the user invokes the scroll-to-latest CTA.
+    ///
+    /// Only consulted when `isShowAllMode` is true and
+    /// `displayedMessages.count > maxPaginatedWindowSize`. Cleared by
+    /// `resetMessagePagination()`, `snapWindowToLatest()`, and the
+    /// `isShowAllMode` setter when transitioning to `false`.
+    public var windowOldestIndex: Int?
 
     /// True while a previous-page load is in progress (brief async delay for UX).
     public var isLoadingMoreMessages: Bool = false
@@ -55,11 +84,23 @@ public final class ChatPaginationState {
 
     /// Whether there are more messages above the current display window.
     /// True when either:
-    ///   1. There are locally loaded messages outside the current display suffix, OR
+    ///   1. There are locally loaded messages outside the current display suffix
+    ///      (non-show-all mode) or above the current sliding window (show-all
+    ///      mode with a conversation longer than `maxPaginatedWindowSize`), OR
     ///   2. The daemon has older pages available to fetch.
-    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
     public var hasMoreMessages: Bool {
-        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+        let visibleCount = displayedMessages.count
+        let capHidesLocal: Bool
+        if isShowAllMode && visibleCount > Self.maxPaginatedWindowSize {
+            let defaultStart = visibleCount - Self.maxPaginatedWindowSize
+            let start = min(windowOldestIndex ?? defaultStart, defaultStart)
+            capHidesLocal = start > 0
+        } else {
+            capHidesLocal = false
+        }
+        return (!isShowAllMode && displayedMessageCount < visibleCount)
+            || capHidesLocal
+            || hasMoreHistory
     }
 
     // MARK: - Visible Messages Cache
@@ -126,11 +167,33 @@ public final class ChatPaginationState {
         recomputePaginatedSuffix()
     }
 
-    /// Recomputes only the paginated suffix from the already-cached
-    /// `displayedMessages`. Called after `displayedMessageCount` changes
-    /// (pagination expand, reset) without re-running the visibility filter.
+    /// Recomputes the paginated slice from the already-cached
+    /// `displayedMessages`. In show-all mode with a conversation longer than
+    /// `maxPaginatedWindowSize`, the slice is a sliding window anchored at
+    /// `windowOldestIndex` (or the newest slice when that is `nil`); all
+    /// other cases fall back to a grow-only suffix.
     func recomputePaginatedSuffix() {
         let visible = displayedMessages
+        if isShowAllMode {
+            let cap = Self.maxPaginatedWindowSize
+            if visible.count <= cap {
+                paginatedVisibleMessages = visible
+                windowOldestIndex = nil
+                return
+            }
+            let defaultStart = visible.count - cap
+            let requested = windowOldestIndex ?? defaultStart
+            // Clamp to a valid window range. A negative `requested` (e.g. from
+            // a prior clamp against a shorter array) snaps to 0; a value past
+            // `defaultStart` snaps to the newest slice.
+            let start = max(0, min(requested, defaultStart))
+            // Only persist the clamped value when the user has explicitly
+            // anchored the window, so passive resizes (trim, new message
+            // append) don't promote `nil` (auto-pin) to a concrete index.
+            if windowOldestIndex != nil { windowOldestIndex = start }
+            paginatedVisibleMessages = Array(visible[start..<(start + cap)])
+            return
+        }
         if displayedMessageCount < visible.count {
             paginatedVisibleMessages = Array(visible.suffix(displayedMessageCount))
         } else {
@@ -140,29 +203,53 @@ public final class ChatPaginationState {
 
     // MARK: - Public API
 
-    /// Load the previous page of messages by expanding the display window.
-    /// When all locally loaded messages are already visible and the daemon has
-    /// more history available, requests the next older page from the daemon.
+    /// Load the previous page of messages by expanding or shifting the display
+    /// window. Priority:
+    ///   1. Non-show-all: grow `displayedMessageCount` by one page.
+    ///   2. Show-all with cap-hidden local messages: shift `windowOldestIndex`
+    ///      older by one page so the locally loaded messages above the window
+    ///      become reachable.
+    ///   3. Daemon fetch when no local messages remain above the window.
     /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
         guard hasMoreMessages, !isLoadingMoreMessages else { return false }
 
         // If the local display window can still grow, expand it first.
-        let locallyHasMore = displayedMessageCount < displayedMessages.count
+        let locallyHasMore = !isShowAllMode && displayedMessageCount < displayedMessages.count
         if locallyHasMore {
             isLoadingMoreMessages = true
             // Brief delay so the loading indicator is visible before the list shifts.
             try? await Task.sleep(nanoseconds: 150_000_000)
             let next = displayedMessageCount + Self.messagePageSize
             let total = displayedMessages.count
-            // When all messages fit within the expanded window, switch to show-all mode
-            // (Int.max) so future incoming messages don't shrink the visible history back
+            // When all messages fit within the expanded window, switch to show-all
+            // mode so future incoming messages don't shrink the visible history back
             // to a suffix window — the regression described in the parent PR.
-            displayedMessageCount = next >= total ? Int.max : next
+            if next >= total {
+                isShowAllMode = true
+                displayedMessageCount = total
+            } else {
+                displayedMessageCount = next
+            }
             recomputePaginatedSuffix()
             isLoadingMoreMessages = false
             return true
+        }
+
+        // Show-all mode: shift the sliding window older if local messages are
+        // still hidden above it, before falling through to the daemon fetch.
+        if isShowAllMode && displayedMessages.count > Self.maxPaginatedWindowSize {
+            let defaultStart = displayedMessages.count - Self.maxPaginatedWindowSize
+            let current = min(windowOldestIndex ?? defaultStart, defaultStart)
+            if current > 0 {
+                isLoadingMoreMessages = true
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                windowOldestIndex = max(0, current - Self.messagePageSize)
+                recomputePaginatedSuffix()
+                isLoadingMoreMessages = false
+                return true
+            }
         }
 
         // All local messages are visible — fetch the next page from the daemon.
@@ -199,12 +286,24 @@ public final class ChatPaginationState {
 
     /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
+        windowOldestIndex = nil
         historyCursor = nil
         hasMoreHistory = false
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
+        recomputeVisibleMessages(from: messageManager.messages)
+    }
+
+    /// Reset the sliding window to the newest slice. Invoked from the
+    /// "Scroll to latest" CTA so tapping that control takes the user to the
+    /// actual newest messages, not just the newest message that happened to
+    /// be in the previously-anchored window.
+    public func snapWindowToLatest() {
+        guard windowOldestIndex != nil else { return }
+        windowOldestIndex = nil
         recomputeVisibleMessages(from: messageManager.messages)
     }
 

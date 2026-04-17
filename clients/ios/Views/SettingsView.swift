@@ -3,28 +3,11 @@ import SwiftUI
 import VellumAssistantShared
 
 struct SettingsView: View {
-    @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
-    @State private var versionTapCount: Int = 0
-    @State private var contactsStore: ContactsStore?
-    @State private var channelTrustStore: ChannelTrustStore?
-    /// Shared conversation store — passed through so PrivateConversationsSection can show and
-    /// manage private conversations without creating a second store that races on UserDefaults.
+    /// Shared conversation store — forwarded to DeveloperSettingsSection so its diagnostics
+    /// (last fetch error, etc.) reflect the same store the Chats view reads from.
     var conversationStore: IOSConversationStore
-
-    /// Lazily builds the Channels & Guardian destination using the
-    /// pre-created stores from `@State` properties.
-    @ViewBuilder
-    private var channelsGuardianDestination: some View {
-        if let trustStore = channelTrustStore, let contacts = contactsStore {
-            ChannelsGuardianSection(channelTrustStore: trustStore, contactsStore: contacts)
-        } else {
-            Text("Not connected")
-                .foregroundStyle(.secondary)
-        }
-    }
 
     var body: some View {
         NavigationStack {
@@ -42,113 +25,23 @@ struct SettingsView: View {
                     } label: {
                         Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
-                    NavigationLink {
-                        ModelsServicesSection()
-                    } label: {
-                        Label { Text("Models & Services") } icon: { VIconView(.cpu, size: 14) }
-                    }
-                    NavigationLink {
-                        TwilioSettingsSection()
-                    } label: {
-                        Label { Text("Twilio") } icon: { VIconView(.phone, size: 14) }
-                    }
-                    NavigationLink {
-                        IntegrationsSection()
-                    } label: {
-                        Label { Text("Integrations") } icon: { VIconView(.link, size: 14) }
-                    }
-                    NavigationLink {
-                        channelsGuardianDestination
-                    } label: {
-                        Label { Text("Channels & Guardian") } icon: { VIconView(.shieldCheck, size: 14) }
-                    }
-                    NavigationLink {
-                        SchedulesSection()
-                    } label: {
-                        Label { Text("Scheduled Tasks") } icon: { VIconView(.clock, size: 14) }
-                    }
-                    NavigationLink {
-                        TrustRulesSection()
-                    } label: {
-                        Label { Text("Trust Rules") } icon: { VIconView(.shieldAlert, size: 14) }
-                    }
-                    NavigationLink {
-                        RemindersSection()
-                    } label: {
-                        Label { Text("Reminders") } icon: { VIconView(.bell, size: 14) }
-                    }
-                    NavigationLink {
-                        PrivateConversationsSection(store: conversationStore)
-                    } label: {
-                        Label { Text("Private Conversations") } icon: { VIconView(.shield, size: 14) }
-                    }
-                    NavigationLink {
-                        MediaEmbedSettingsSection()
-                    } label: {
-                        Label { Text("Media Embeds") } icon: { VIconView(.video, size: 14) }
-                    }
-                    NavigationLink {
-                        VoiceSettingsSection()
-                    } label: {
-                        Label { Text("Voice") } icon: { VIconView(.audioWaveform, size: 14) }
-                    }
-                }
-
-                NavigationLink {
-                    AppearanceSection()
-                } label: {
-                    Label { Text("Appearance") } icon: { VIconView(.paintbrush, size: 14) }
-                }
-
-                Section("Permissions") {
-                    NavigationLink {
-                        PrivacySection()
-                    } label: {
-                        Label { Text("Privacy") } icon: { VIconView(.eye, size: 14) }
-                    }
                 }
 
                 Section("About") {
-                    // Tapping the version label 7 times unlocks the developer toggle.
-                    // This keeps the feature invisible to regular users while remaining
-                    // accessible to developers without a build-time flag.
                     LabeledContent("Version", value: Bundle.main.appVersion)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            versionTapCount += 1
-                            if versionTapCount >= 7 {
-                                developerModeEnabled = true
-                                versionTapCount = 0
-                            }
-                        }
                 }
 
-                if developerModeEnabled {
-                    Section("Developer") {
-                        Toggle("Developer Mode", isOn: $developerModeEnabled)
-                        NavigationLink {
-                            DeveloperSettingsSection(conversationStore: conversationStore)
-                        } label: {
-                            Label { Text("Debug Panel") } icon: { VIconView(.bug, size: 14) }
-                        }
+                Section("Developer") {
+                    NavigationLink {
+                        DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
+                    } label: {
+                        Label { Text("Developer") } icon: { VIconView(.bug, size: 14) }
                     }
                 }
             }
             .navigationTitle("Settings")
             .navigationDestination(isPresented: $navigateToConnect) {
                 DaemonConnectionSection(authManager: authManager)
-            }
-            .task(id: "\(clientProvider.clientGeneration)-\(clientProvider.isConnected)") {
-                guard clientProvider.isConnected else {
-                    contactsStore = nil
-                    channelTrustStore = nil
-                    return
-                }
-                if let daemon = clientProvider.client as? GatewayConnectionManager {
-                    let contacts = ContactsStore(connectionManager: daemon, eventStreamClient: clientProvider.eventStreamClient)
-                    contactsStore = contacts
-                    channelTrustStore = ChannelTrustStore(connectionManager: daemon, contactsStore: contacts)
-                }
             }
         }
     }

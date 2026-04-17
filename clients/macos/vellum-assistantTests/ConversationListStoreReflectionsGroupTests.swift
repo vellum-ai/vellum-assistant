@@ -28,4 +28,28 @@ struct ConversationListStoreReflectionsGroupTests {
         #expect(backgroundEntry != nil)
         #expect(backgroundEntry?.conversations.contains { $0.conversationId == "b" } == true)
     }
+
+    /// Verifies that the pre-computed system/custom partitions stay in sync
+    /// with `sidebarGroupEntries` and expose the same entries the inline
+    /// `.filter` calls previously produced. This is the contract the sidebar
+    /// view relies on to avoid allocating fresh filtered arrays per render.
+    @Test
+    func sidebarPartitionsSplitSystemAndCustomGroups() {
+        let store = ConversationListStore()
+        store.customGroupsEnabled = true
+        store.groups = systemGroups() + [
+            ConversationGroup(id: "custom:work", name: "Work", sortPosition: 10, isSystemGroup: false),
+        ]
+        store.conversations = [
+            ConversationModel(title: "Regular", conversationId: "a", groupId: "system:all"),
+            ConversationModel(title: "Task", conversationId: "c", groupId: "custom:work"),
+        ]
+
+        let systemIds = store.systemSidebarGroupEntries.map(\.group.id)
+        let customIds = store.customSidebarGroupEntries.map(\.group.id)
+
+        #expect(systemIds.allSatisfy { $0.hasPrefix("system:") })
+        #expect(customIds == ["custom:work"])
+        #expect(store.sidebarGroupEntries.count == systemIds.count + customIds.count)
+    }
 }

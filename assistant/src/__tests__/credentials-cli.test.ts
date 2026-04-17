@@ -29,10 +29,7 @@ function nextUUID(): string {
 // healthz fallback in daemon-credential-client).
 // ---------------------------------------------------------------------------
 
-function normalizeCredentialAccount(
-  type: string,
-  name: string,
-): string {
+function normalizeCredentialAccount(type: string, name: string): string {
   if (type !== "credential") return name;
   if (name.startsWith("credential/")) return name;
   const colonIdx = name.lastIndexOf(":");
@@ -73,11 +70,6 @@ mock.module("../cli/lib/daemon-credential-client.js", () => ({
     value: secureKeyStore.get(account),
     unreachable: mockBrokerUnreachable,
   }),
-  getProviderKeyViaDaemon: async (
-    provider: string,
-  ): Promise<string | undefined> => {
-    return secureKeyStore.get(provider);
-  },
 }));
 
 // ---------------------------------------------------------------------------

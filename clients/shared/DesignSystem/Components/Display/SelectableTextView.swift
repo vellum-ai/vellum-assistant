@@ -78,17 +78,66 @@ public struct VSelectableTextView: NSViewRepresentable {
         return tc
     }()
 
+    /// Memoizes `measureSize` results keyed on content, wrapping width, and
+    /// line spacing. `NSLayoutManager.ensureLayout(for:)` is O(n) in glyph
+    /// count and runs synchronously on the main thread, and SwiftUI calls
+    /// `measureSize` for every visible cell on every `LazyVStack` layout
+    /// pass. Returning the cached size for identical queries keeps scroll
+    /// and resize cascades off the hot path.
+    ///
+    /// Memory is bounded at ``measurementCacheLimit``; when the cache
+    /// saturates it is cleared wholesale. Bulk eviction avoids per-entry
+    /// LRU bookkeeping and the working set rehydrates on the next pass.
+    @MainActor private static var measurementSizeCache: [MeasurementKey: CGSize] = [:]
+    @MainActor private static let measurementCacheLimit = 256
+
+    /// Composite key for ``measurementSizeCache``. Stores the
+    /// `NSAttributedString` by reference so `Dictionary` equality falls
+    /// through to `NSAttributedString.isEqual(_:)` rather than relying on
+    /// `NSAttributedString.hash` alone; hash-only equality would admit
+    /// collisions between distinct attributed strings and surface as
+    /// wrong-height cells.
+    private struct MeasurementKey: Hashable {
+        let attributedString: NSAttributedString
+        let maxWidth: CGFloat
+        let lineSpacing: CGFloat
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(attributedString.hash)
+            hasher.combine(maxWidth)
+            hasher.combine(lineSpacing)
+        }
+
+        static func == (lhs: MeasurementKey, rhs: MeasurementKey) -> Bool {
+            lhs.maxWidth == rhs.maxWidth
+                && lhs.lineSpacing == rhs.lineSpacing
+                && lhs.attributedString.isEqual(rhs.attributedString)
+        }
+    }
+
     /// Precomputes the layout size for a given attributed string at a given
     /// width using a shared TextKit 1 stack. Call from the SwiftUI side
     /// before creating the `NSViewRepresentable`, then apply the result via
     /// `.frame(width:height:)` to avoid `sizeThatFits` being called during
     /// the `LazyVStack` layout pass.
+    ///
+    /// Identical queries hit ``measurementSizeCache`` and skip
+    /// `ensureLayout` entirely.
     @MainActor
     public static func measureSize(
         attributedString: NSAttributedString,
         lineSpacing: CGFloat,
         maxWidth: CGFloat
     ) -> CGSize {
+        let key = MeasurementKey(
+            attributedString: attributedString,
+            maxWidth: maxWidth,
+            lineSpacing: lineSpacing
+        )
+        if let cached = measurementSizeCache[key] {
+            return cached
+        }
+
         let mutable = NSMutableAttributedString(attributedString: attributedString)
         let fullRange = NSRange(location: 0, length: mutable.length)
 
@@ -107,10 +156,16 @@ public struct VSelectableTextView: NSViewRepresentable {
         measurementLayoutManager.ensureLayout(for: measurementTextContainer)
         let usedRect = measurementLayoutManager.usedRect(for: measurementTextContainer)
 
-        return CGSize(
+        let size = CGSize(
             width: ceil(min(usedRect.width, maxWidth)),
             height: ceil(usedRect.height)
         )
+
+        if measurementSizeCache.count >= measurementCacheLimit {
+            measurementSizeCache.removeAll(keepingCapacity: true)
+        }
+        measurementSizeCache[key] = size
+        return size
     }
 
     // MARK: - NSViewRepresentable
@@ -180,12 +235,30 @@ public struct VSelectableTextView: NSViewRepresentable {
 
         let width = maxWidth ?? proposal.width ?? 400
         guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return nil }
+              let textContainer = textView.textContainer,
+              let textStorage = textView.textStorage else { return nil }
+
+        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
+        // layout pass. Returning the cached size when
+        // `(textStorage.length, width)` matches the last measurement avoids
+        // rerunning `ensureLayout`, which is O(n) in glyph count.
+        // `applyAttributedString` invalidates the cache on every mutation.
+        let coordinator = context.coordinator
+        let length = textStorage.length
+        if length == coordinator.lastMeasuredLength,
+           width == coordinator.lastMeasuredWidth {
+            return coordinator.lastMeasuredSize
+        }
 
         textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
-        return CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
+        let size = CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
+
+        coordinator.lastMeasuredLength = length
+        coordinator.lastMeasuredWidth = width
+        coordinator.lastMeasuredSize = size
+        return size
     }
 
     public static func dismantleNSView(_ textView: NSTextView, coordinator: Coordinator) {
@@ -203,6 +276,12 @@ public struct VSelectableTextView: NSViewRepresentable {
         private weak var pendingTextView: NSTextView?
         private var hasScheduledApply = false
 
+        // Last successful `sizeThatFits` measurement. `applyAttributedString`
+        // invalidates these fields whenever the text storage mutates.
+        var lastMeasuredLength: Int = -1
+        var lastMeasuredWidth: CGFloat = -1
+        var lastMeasuredSize: CGSize = .zero
+
         func reset() {
             lastAttributedString = nil
             lastLineSpacing = 0
@@ -210,6 +289,13 @@ public struct VSelectableTextView: NSViewRepresentable {
             pendingLineSpacing = nil
             pendingTextView = nil
             hasScheduledApply = false
+            invalidateMeasurementCache()
+        }
+
+        func invalidateMeasurementCache() {
+            lastMeasuredLength = -1
+            lastMeasuredWidth = -1
+            lastMeasuredSize = .zero
         }
 
         func cancelPendingApply() {
@@ -265,6 +351,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         ) {
             lastAttributedString = attributedString
             lastLineSpacing = lineSpacing
+            invalidateMeasurementCache()
 
             guard let textStorage = textView.textStorage else { return }
 

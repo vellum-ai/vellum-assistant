@@ -1,7 +1,7 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-let appVersion = "0.6.3"
+let appVersion = "0.6.4"
 
 let package = Package(
     name: "vellum-assistant",
@@ -30,9 +30,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/containerization.git", exact: "0.30.1"),
-        .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.0.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "8.58.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.8.1"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.11.2"),
     ],
     targets: [
         .target(

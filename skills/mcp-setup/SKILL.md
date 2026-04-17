@@ -12,7 +12,7 @@ Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion)
 
 ## CLI Commands
 
-All commands use `assistant mcp`. Run them via `host_bash`.
+All commands use `assistant mcp`. Run `list`, `add`, and `remove` via the `bash` tool — they just read/write config and don't need host access. Run `auth` via `host_bash` because it binds a localhost OAuth callback server that the user's host browser must redirect back to.
 
 ### List servers
 

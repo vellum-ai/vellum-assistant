@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -70,8 +70,8 @@
     "@vellumai/egress-proxy"
   ],
   "overrides": {
-    "lodash": "^4.18.0",
-    "path-to-regexp": "^8.4.0"
+    "lodash": "4.18.1",
+    "path-to-regexp": "8.4.2"
   },
   "devDependencies": {
     "@types/archiver": "7.0.0",

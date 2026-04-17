@@ -244,7 +244,7 @@ struct AssistantBackupsSection: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             ForEach(localSnapshots) { entry in
-                snapshotRow(entry)
+                snapshotRow(entry, type: "Local snapshot")
             }
         }
         .padding(VSpacing.md)
@@ -315,7 +315,7 @@ struct AssistantBackupsSection: View {
                         .foregroundStyle(VColor.contentTertiary)
                 } else {
                     ForEach(group.snapshots) { entry in
-                        snapshotRow(entry)
+                        snapshotRow(entry, type: "Offsite snapshot")
                     }
                 }
             } else {
@@ -333,18 +333,17 @@ struct AssistantBackupsSection: View {
     }
 
     @ViewBuilder
-    private func snapshotRow(_ entry: AutoBackupEntry) -> some View {
+    private func snapshotRow(_ entry: AutoBackupEntry, type: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.snapshotDateFormatter.string(from: entry.createdAt))
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
-                Text("\(Self.formatBytes(entry.sizeBytes)) · \(entry.filename)")
+                Text(type)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
             }
 
             Spacer()
@@ -383,15 +382,40 @@ struct AssistantBackupsSection: View {
         return f
     }()
 
-    /// Format a byte count as a short human-readable string.
-    private static func formatBytes(_ bytes: Int64) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024
-        if mb < 1024 { return String(format: "%.1f MB", mb) }
-        let gb = mb / 1024
-        return String(format: "%.2f GB", gb)
+    /// ISO8601 decoder used to parse the managed-backup `created_at` timestamp
+    /// so it can be reformatted into the same human-readable style as the
+    /// automatic snapshot rows. Supports both plain and fractional-seconds
+    /// variants since the platform API mixes the two.
+    private static let iso8601Formatters: [ISO8601DateFormatter] = {
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return [fractional, plain]
+    }()
+
+    /// Format the managed-backup `createdAt` string for display. Falls back to
+    /// the raw string if the value isn't a recognizable ISO8601 timestamp.
+    private static func formatManagedBackupDate(_ raw: String) -> String {
+        for formatter in iso8601Formatters {
+            if let date = formatter.date(from: raw) {
+                return snapshotDateFormatter.string(from: date)
+            }
+        }
+        return raw
+    }
+
+    /// Map the backend `backup_type` enum values onto the labels used in the
+    /// web app so the two clients stay visually consistent.
+    private static func displayBackupType(_ rawType: String) -> String {
+        switch rawType {
+        case "point_in_time":
+            return "Point-in-time"
+        case "scheduled":
+            return "Scheduled"
+        default:
+            return rawType.replacingOccurrences(of: "_", with: " ").capitalized
+        }
     }
 
     // MARK: - Local Backup Content
@@ -474,11 +498,11 @@ struct AssistantBackupsSection: View {
             ForEach(managedBackups, id: \.snapshotName) { backup in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(backup.snapshotName)
+                        Text(Self.formatManagedBackupDate(backup.createdAt))
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
-                        Text(backup.createdAt)
+                        Text(Self.displayBackupType(backup.backupType))
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }

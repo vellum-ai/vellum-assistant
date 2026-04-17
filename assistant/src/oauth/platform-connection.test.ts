@@ -12,6 +12,7 @@ import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError, VellumError } from "../util/errors.js";
 import {
   CredentialRequiredError,
+  InsufficientBalanceError,
   PlatformOAuthConnection,
   ProviderUnreachableError,
 } from "./platform-connection.js";
@@ -199,6 +200,52 @@ describe("PlatformOAuthConnection", () => {
     const provErr = new ProviderUnreachableError();
     expect(provErr).toBeInstanceOf(BackendError);
     expect(provErr).toBeInstanceOf(VellumError);
+
+    const balErr = new InsufficientBalanceError();
+    expect(balErr).toBeInstanceOf(BackendError);
+    expect(balErr).toBeInstanceOf(VellumError);
+  });
+
+  test("402 response throws InsufficientBalanceError", async () => {
+    const client = makeMockClient(
+      mock(
+        async () => new Response("", { status: 402 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow(InsufficientBalanceError);
+  });
+
+  test("402 response includes actionable billing message", async () => {
+    const client = makeMockClient(
+      mock(
+        async () => new Response("", { status: 402 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow(/add funds/i);
+  });
+
+  test("does not retry on 402", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 402 });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow(InsufficientBalanceError);
+    expect(callCount).toBe(1);
   });
 
   test("424 response throws CredentialRequiredError", async () => {

@@ -3,6 +3,6 @@
   "private": true,
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0"
+    "@anthropic-ai/sdk": "0.39.0"
   }
 }

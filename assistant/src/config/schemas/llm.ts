@@ -70,7 +70,7 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 // Effort & Speed
 // ---------------------------------------------------------------------------
 
-export const EffortEnum = z.enum(["low", "medium", "high", "max"]);
+export const EffortEnum = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type Effort = z.infer<typeof EffortEnum>;
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
@@ -219,7 +219,7 @@ export type PricingOverride = z.infer<typeof PricingOverrideSchema>;
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
-  model: ModelSchema.default("claude-opus-4-6"),
+  model: ModelSchema.default("claude-opus-4-7"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
   speed: SpeedEnum.default("standard"),

@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import VellumAssistantShared
@@ -10,15 +11,45 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Debug
 /// debugging context without needing the Xcode debugger or `log stream`.
 ///
 /// File: `~/Library/Application Support/vellum-assistant/debug-state.json`
+///
+/// The capture loop is throttled under system memory pressure and when the
+/// app is not frontmost. `captureSnapshot()` walks the live conversation
+/// list and the LRU `ChatViewModel` cache on the main actor; when the
+/// process is thrashing against a memory-pressure-induced paging storm,
+/// that walk can stall the main thread for seconds. Consulting the shared
+/// ``MemoryPressureMonitor`` (Apple guidance:
+/// [DispatchSource.makeMemoryPressureSource](https://developer.apple.com/documentation/dispatch/dispatchsource/makememorypressuresource(eventmask:queue:))
+/// and [WWDC18 — iOS Memory Deep Dive](https://developer.apple.com/videos/play/wwdc2018/416/))
+/// lets us back off instead of compounding the stall.
 @MainActor
 final class DebugStateWriter {
+    /// Capture interval when the app is frontmost and memory is healthy.
+    static let activeInterval: Duration = .seconds(5)
+
+    /// Capture interval when the app is not frontmost or the system is
+    /// under non-critical memory pressure. Long enough to keep the on-disk
+    /// snapshot from going fully stale without doing per-second work.
+    static let throttledInterval: Duration = .seconds(30)
+
+    /// Capture interval under critical memory pressure. At this point we
+    /// skip the capture entirely and only wake periodically to check
+    /// whether pressure has subsided.
+    static let criticalInterval: Duration = .seconds(60)
+
     private var timerTask: Task<Void, Never>?
     private weak var appDelegate: AppDelegate?
 
     let fileURL: URL
     private let diagnosticsStore: ChatDiagnosticsStore
+    private let memoryPressure: MemoryPressureMonitor
+    private let isAppActive: @MainActor () -> Bool
 
-    init(directory: URL? = nil, diagnosticsStore: ChatDiagnosticsStore? = nil) {
+    init(
+        directory: URL? = nil,
+        diagnosticsStore: ChatDiagnosticsStore? = nil,
+        memoryPressure: MemoryPressureMonitor = .shared,
+        isAppActive: @escaping @MainActor () -> Bool = { NSApp?.isActive ?? true }
+    ) {
         let dir: URL
         if let directory {
             dir = directory
@@ -31,6 +62,8 @@ final class DebugStateWriter {
         self.fileURL = dir.appendingPathComponent("debug-state.json")
 
         self.diagnosticsStore = diagnosticsStore ?? ChatDiagnosticsStore.shared
+        self.memoryPressure = memoryPressure
+        self.isAppActive = isAppActive
     }
 
     func start(appDelegate: AppDelegate) {
@@ -39,7 +72,8 @@ final class DebugStateWriter {
         timerTask?.cancel()
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
+                let interval = self?.nextInterval() ?? DebugStateWriter.activeInterval
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else { break }
                 self?.captureAndWrite()
             }
@@ -51,9 +85,31 @@ final class DebugStateWriter {
         timerTask = nil
     }
 
+    /// The sleep duration before the next capture attempt, chosen based on
+    /// current system memory pressure and whether the app is frontmost.
+    func nextInterval() -> Duration {
+        switch memoryPressure.current {
+        case .critical:
+            return Self.criticalInterval
+        case .warning:
+            return Self.throttledInterval
+        case .normal:
+            return isAppActive() ? Self.activeInterval : Self.throttledInterval
+        }
+    }
+
     private func captureAndWrite() {
         guard let appDelegate else { return }
         if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return }
+        // Skip when the app is backgrounded — the on-disk snapshot is only
+        // useful while the user is actively interacting, and capturing
+        // iterates the conversation list / LRU cache which becomes
+        // expensive under memory pressure.
+        if !isAppActive() { return }
+        // Skip entirely under critical memory pressure. The system is about
+        // to start jettisoning processes; doing work that faults pages in
+        // for the conversation walk makes the stall worse.
+        if memoryPressure.current == .critical { return }
         let snapshot = captureSnapshot(from: appDelegate)
 
         // Encode and write on a background thread to avoid blocking the main

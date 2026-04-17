@@ -44,6 +44,32 @@ When adding a new dependency:
 3. If unsure about compatibility, flag it in the PR for review.
 4. Verify the version in `package.json` is pinned to an exact version (no `^` or `~`).
 
+### GitHub Actions
+
+All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
+
+### Swift SPM
+
+In `clients/Package.swift` and any future `Package.swift`, use `.package(url: ..., exact: "X.Y.Z")`. Do not use `.package(url: ..., from: "X.Y.Z")` or other range syntax — the `from:` form silently pulls in new minor/patch releases on each `swift package resolve`.
+
+### Docker base images
+
+In every `Dockerfile`, `FROM` lines must pin the base image to both an exact version tag and an `@sha256:` digest (e.g. `FROM debian:trixie-slim@sha256:...`). Rebuild the digest reference when intentionally upgrading. Do NOT pin `apt-get install` package versions inside Dockerfiles — Debian rotates them out of APT quickly; rely on the base-image digest for reproducibility instead.
+
+### Tool versions
+
+Bun and Node are tracked as separate toolchains; each has its own set of files that must stay in sync. When bumping any file in a set, bump all of them in the same PR so the repo never has drifted copies.
+
+- **Bun**: `.tool-versions`, `setup.sh`, all `bun-version:` workflow inputs, and all production `Dockerfile` bun installs must reference the same exact version string.
+- **Node**: `.nvmrc` and every workflow `node-version:` input must reference the same exact version string. (`.nvmrc` is Node-only and is intentionally not tied to the Bun version.)
+
+### What we explicitly do not pin
+
+- `apt-get install` package versions inside Dockerfiles (Debian rotates them out).
+- `brew install` formulae in `setup.sh` (Homebrew lacks clean exact-version pinning and it's developer-local).
+- Xcode point releases beyond the major tag already set via `sudo xcode-select -s`.
+- GitHub-hosted runner system libraries.
+
 ## Testing
 
 The full test suite is large and will hang or timeout if run unscoped. **Never run `bun test` without specifying file paths.**
@@ -67,17 +93,6 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
   - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
-
-## GitHub Actions Allowlist
-
-This repository uses a **GitHub Actions allowlist** — only pre-approved actions can run in workflows. The allowlist is managed at https://github.com/vellum-ai/vellum-assistant/settings/actions.
-
-When adding or changing a `uses:` step in any `.github/workflows/*.yml` file (e.g. a new action, or bumping an existing action to a new major version), you **must** also add the action to the allowlist. If you don't, CI and release workflows will fail with a permissions error.
-
-**Checklist for workflow changes:**
-1. Before merging, verify every `uses:` reference in your diff is already on the allowlist.
-2. If a new action is needed, request that a repo admin add it at the settings URL above.
-3. Include this in PR descriptions when adding new actions so reviewers know the allowlist needs updating.
 
 ## Keep Docs Up to Date
 

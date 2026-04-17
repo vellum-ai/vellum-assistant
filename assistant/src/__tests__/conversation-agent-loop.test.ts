@@ -457,7 +457,12 @@ function makeCtx(
 
     graphMemory: {
       onCompacted: () => {},
-      prepareMemory: async () => ({ runMessages: [], injectedTokens: 0, latencyMs: 0, mode: "none" as const }),
+      prepareMemory: async () => ({
+        runMessages: [],
+        injectedTokens: 0,
+        latencyMs: 0,
+        mode: "none" as const,
+      }),
       reinjectCachedMemory: (messages: Message[]) => ({
         runMessages: messages,
         injectedTokens: 0,
@@ -776,6 +781,95 @@ describe("session-agent-loop", () => {
         string,
       ];
       expect(call[4]).toBe("openrouter");
+    });
+
+    test("record request log handles Responses API shaped payloads", async () => {
+      const events: ServerMessage[] = [];
+      const rawRequest = {
+        model: "gpt-5.4",
+        instructions: "Be helpful.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hello" }],
+            type: "message",
+          },
+        ],
+      };
+      const rawResponse = {
+        id: "resp_test",
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Hi there." }],
+          },
+        ],
+        usage: {
+          input_tokens: 12,
+          output_tokens: 3,
+        },
+        status: "completed",
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi there." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 12,
+          outputTokens: 3,
+          model: "gpt-5.4",
+          actualProvider: "openai",
+          providerDurationMs: 45,
+          rawRequest,
+          rawResponse,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Hi there." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as AgentLoopConversationContext["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const call = recordRequestLogMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        undefined,
+        string,
+      ];
+      expect(call).toEqual([
+        "test-conv",
+        JSON.stringify(rawRequest),
+        JSON.stringify(rawResponse),
+        undefined,
+        "openai",
+      ]);
     });
   });
 
@@ -1952,7 +2046,6 @@ describe("session-agent-loop", () => {
 
       expect(drainReason).toBe("loop_complete");
     });
-
   });
 
   describe("stale pending surface cleanup", () => {

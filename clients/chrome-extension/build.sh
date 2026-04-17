@@ -24,7 +24,7 @@ fi
 # builds produce a valid extension zip.
 EXT_VERSION="${EXT_VERSION%%-*}"
 
-echo "Building Vellum browser-relay extension…"
+echo "Building the Vellum Assistant Chrome extension…"
 
 # Type-check with tsc --noEmit before bundling so type errors fail fast
 # rather than surfacing as runtime errors in the loaded extension. `bun build`

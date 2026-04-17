@@ -1,4 +1,3 @@
-import Combine
 import Observation
 import SwiftUI
 import VellumAssistantShared
@@ -13,25 +12,34 @@ enum ViewSelection: Equatable {
 
 /// Cross-view UI state for the main window, extracted from `MainWindowView`
 /// to make it explicit, injectable, and easier to preview.
+///
+/// Marked `@Observable` so SwiftUI tracks each property independently — views
+/// observe exactly the properties they read, and `didSet` chains that mutate
+/// several properties in sequence (e.g. `selection` updating
+/// `persistentConversationId`) do not cascade view invalidations.
 @MainActor
-public final class MainWindowState: ObservableObject {
+@Observable
+public final class MainWindowState {
+    @ObservationIgnored
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
+    @ObservationIgnored
     @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
+    ///
+    /// `NavigationHistory` is itself `@Observable`, so reading
+    /// `windowState.navigationHistory.backStack` from a view naturally tracks
+    /// through the nested `@Observable` chain without any manual bridge.
     let navigationHistory = NavigationHistory()
-
-    /// Bridges `@Observable` NavigationHistory changes into this
-    /// `ObservableObject`'s `objectWillChange` publisher so SwiftUI views
-    /// observing this state also update when back/forward stacks change.
 
     /// Tracks the last known selection for navigation history recording.
     /// Captured at the start of `didSet` (before any side effects) to avoid
-    /// relying on `oldValue` or `willSet` with `@Published`, which can
-    /// behave unreliably.
+    /// relying on `oldValue` or `willSet`, which can behave unreliably.
+    /// Internal bookkeeping — not reactive state.
+    @ObservationIgnored
     private var _lastKnownSelection: ViewSelection?
 
-    @Published var selection: ViewSelection? {
+    var selection: ViewSelection? {
         didSet {
             let previousSelection = _lastKnownSelection
             _lastKnownSelection = selection
@@ -55,32 +63,32 @@ public final class MainWindowState: ObservableObject {
     }
 
     /// Tracks the "background" conversation that persists even when viewing an app or panel overlay.
-    @Published var persistentConversationId: UUID?
+    var persistentConversationId: UUID?
 
     /// Tracks which panel originated the avatar customization flow so we can return to it.
-    @Published var avatarCustomizationReturnPanel: SidePanelType = .intelligence
+    var avatarCustomizationReturnPanel: SidePanelType = .intelligence
 
-    @Published var selectedSubagentId: String?
+    var selectedSubagentId: String?
 
     /// Daemon message ID for the LLM context inspector overlay. Shared so both
     /// the main chat and the subagent detail panel can trigger the inspector.
-    @Published var inspectorMessageId: String?
+    var inspectorMessageId: String?
 
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
-    @Published var pendingMemoryId: String?
+    var pendingMemoryId: String?
 
     /// Transient skill ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/SkillsPanel, then set back to nil.
-    @Published var pendingSkillId: String?
-    @Published var activeDynamicSurface: UiSurfaceShowMessage?
-    @Published var activeDynamicParsedSurface: Surface?
-    @Published var workspaceComposerExpanded = false
-    @Published var layoutConfig: LayoutConfig
-    @Published var toastInfo: ToastInfo?
-    @Published var imageLightbox: ImageLightboxState?
-    private var autoDismissTask: Task<Void, Never>?
-    private var lightboxFetchTask: Task<Void, Never>?
+    var pendingSkillId: String?
+    var activeDynamicSurface: UiSurfaceShowMessage?
+    var activeDynamicParsedSurface: Surface?
+    var workspaceComposerExpanded = false
+    var layoutConfig: LayoutConfig
+    var toastInfo: ToastInfo?
+    var imageLightbox: ImageLightboxState?
+    @ObservationIgnored private var autoDismissTask: Task<Void, Never>?
+    @ObservationIgnored private var lightboxFetchTask: Task<Void, Never>?
 
     /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.conversation` selection or `nil` which defaults to chat).
@@ -147,19 +155,6 @@ public final class MainWindowState: ObservableObject {
 
     init() {
         self.layoutConfig = LayoutConfigStore.load()
-        observeNavigationHistory()
-    }
-
-    private func observeNavigationHistory() {
-        withObservationTracking {
-            _ = navigationHistory.backStack
-            _ = navigationHistory.forwardStack
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.objectWillChange.send()
-                self?.observeNavigationHistory() // re-arm
-            }
-        }
     }
 
     // MARK: - Selection Helpers

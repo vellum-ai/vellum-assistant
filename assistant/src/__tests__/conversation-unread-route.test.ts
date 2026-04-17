@@ -19,7 +19,7 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-const mockMarkConversationUnread = mock((_conversationId: string) => {});
+const mockMarkConversationUnread = mock((_conversationId: string) => true);
 
 mock.module("../memory/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: () => new Map(),
@@ -40,7 +40,7 @@ describe("POST /v1/conversations/unread", () => {
   let port: number;
 
   beforeEach(() => {
-    mockMarkConversationUnread.mockReset();
+    mockMarkConversationUnread.mockClear();
   });
 
   afterAll(async () => {

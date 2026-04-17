@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Sparkle
 import VellumAssistantShared
 import os
@@ -9,39 +10,52 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Updat
 ///
 /// The appcast URL points to the public releases repo where CI publishes
 /// signed ZIPs alongside an `appcast.xml`.
+///
+/// Marked `@Observable` for property-level SwiftUI tracking: Sparkle
+/// delegate callbacks write several properties synchronously, and views
+/// should only re-evaluate when the specific property they read changes.
 @MainActor
-public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
+@Observable
+public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
-    private var updaterController: SPUStandardUpdaterController!
+    @ObservationIgnored private var updaterController: SPUStandardUpdaterController!
 
-    @Published public private(set) var isUpdateAvailable = false
-    @Published public private(set) var isDeferredUpdateReady = false
-    @Published public private(set) var availableUpdateVersion: String?
+    public private(set) var isUpdateAvailable = false
+    public private(set) var isDeferredUpdateReady = false
+    public private(set) var availableUpdateVersion: String?
 
     /// The version string of the update that Sparkle has found and is about to
     /// install.  Set in `didFindValidUpdate` so the pre-update hook can include
     /// the target version in progress broadcasts and workspace commits.
-    @Published public var pendingUpdateVersion: String?
+    public var pendingUpdateVersion: String?
 
     /// Whether a newer service group release is available for Docker/managed topologies.
-    @Published public private(set) var isServiceGroupUpdateAvailable = false
+    public private(set) var isServiceGroupUpdateAvailable = false
     /// The version string of the available service group update, if any.
-    @Published public private(set) var serviceGroupUpdateVersion: String?
+    public private(set) var serviceGroupUpdateVersion: String?
 
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.  Async to allow best-effort
     /// backup and progress broadcasts before shutdown.
-    var onWillInstallUpdate: (() async -> Void)?
+    @ObservationIgnored var onWillInstallUpdate: (() async -> Void)?
 
     /// Timer for periodic service group update checks (Docker/managed topologies).
-    private var serviceGroupCheckTimer: Timer?
+    @ObservationIgnored private var serviceGroupCheckTimer: Timer?
 
     /// Lock-protected storage for the deferred install handler.  Written from
     /// any thread by the Sparkle delegate callback and read on MainActor by
     /// `installDeferredUpdateIfAvailable()`.  Using `OSAllocatedUnfairLock`
     /// eliminates the race between an async `Task` hop and a synchronous
     /// `applicationWillTerminate` call.
-    private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
+    @ObservationIgnored private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
+
+    /// Monotonically increasing counter bumped by `didFindValidUpdate` and
+    /// `updaterDidNotFindUpdate` whenever an update check completes.
+    /// `checkForUpdatesAsync` observes this counter so it can return as soon
+    /// as Sparkle's callback fires, regardless of whether `isUpdateAvailable`
+    /// actually changed value (e.g. a re-check that confirms the same known
+    /// update, or a re-check that finds no update when none was available).
+    private(set) var updateCheckCompletionGeneration: UInt64 = 0
 
     override init() {
         super.init()
@@ -90,13 +104,17 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
         updaterController.updater.checkForUpdatesInBackground()
 
         return await withTaskGroup(of: Bool.self) { group in
-            // Race: delegate callback vs timeout
+            // Race: delegate callback vs timeout.  Observe the completion
+            // counter rather than `isUpdateAvailable` itself because
+            // `observationStream` deduplicates by `Equatable`, and a
+            // same-value write (already-known update, or no update when
+            // none was available) would otherwise never yield.
             group.addTask { @MainActor [weak self] in
                 guard let self else { return false }
-                for await value in self.$isUpdateAvailable.values.dropFirst() {
-                    return value
+                for await _ in observationStream({ self.updateCheckCompletionGeneration }).dropFirst() {
+                    return self.isUpdateAvailable
                 }
-                return false
+                return self.isUpdateAvailable
             }
             group.addTask { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -290,6 +308,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             self.isUpdateAvailable = true
             self.availableUpdateVersion = item.displayVersionString
             self.pendingUpdateVersion = item.displayVersionString
+            self.updateCheckCompletionGeneration &+= 1
         }
     }
 
@@ -300,6 +319,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     /// button while an update is downloaded and ready to install.
     nonisolated public func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         Task { @MainActor in
+            defer { self.updateCheckCompletionGeneration &+= 1 }
             guard !self.isDeferredUpdateReady else { return }
             self.isUpdateAvailable = false
             self.availableUpdateVersion = nil

@@ -1678,3 +1678,297 @@ describe("computer-use tool trust rule matching", () => {
     }
   });
 });
+
+// ── canonical parser normalization-on-load ─────────────────────────────────
+
+describe("canonical parser normalization-on-load", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("URL rule with executionTarget is stripped on load and re-saved", () => {
+    // A URL rule (web_fetch) should not carry executionTarget — the canonical
+    // parser strips it and marks the file for re-save.
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "url-rule-with-et",
+            tool: "web_fetch",
+            pattern: "web_fetch:https://example.com/*",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 1000,
+            executionTarget: "/usr/bin/node",
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "url-rule-with-et");
+    expect(found).toBeDefined();
+    // executionTarget should have been stripped by the canonical parser
+    expect(found).not.toHaveProperty("executionTarget");
+
+    // Verify the re-save persisted the normalized rule
+    const disk = JSON.parse(readFileSync(trustPath, "utf-8"));
+    const diskRule = disk.rules.find(
+      (r: { id: string }) => r.id === "url-rule-with-et",
+    );
+    expect(diskRule).toBeDefined();
+    expect(diskRule).not.toHaveProperty("executionTarget");
+  });
+
+  test("URL rule with allowHighRisk is preserved on load", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "url-rule-with-ahr",
+            tool: "browser_navigate",
+            pattern: "**",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 2000,
+            allowHighRisk: true,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "url-rule-with-ahr");
+    expect(found).toBeDefined();
+    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+  });
+
+  test("scoped rule preserves executionTarget and allowHighRisk on load", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "scoped-rule-with-opts",
+            tool: "bash",
+            pattern: "npm *",
+            scope: "/tmp",
+            decision: "allow",
+            priority: 100,
+            createdAt: 3000,
+            executionTarget: "/usr/local/bin/node",
+            allowHighRisk: true,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "scoped-rule-with-opts");
+    expect(found).toBeDefined();
+    expect((found as { executionTarget?: string }).executionTarget).toBe(
+      "/usr/local/bin/node",
+    );
+    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+  });
+
+  test("normalization on v2 file triggers re-save as v3", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 2,
+        rules: [
+          {
+            id: "v2-url-rule",
+            tool: "network_request",
+            pattern: "network_request:https://api.test.com/*",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 4000,
+            executionTarget: "stale-value",
+          },
+        ],
+      }),
+    );
+    clearCache();
+    getAllRules();
+
+    // File should be re-saved as v3 with normalized rules
+    const disk = JSON.parse(readFileSync(trustPath, "utf-8"));
+    expect(disk.version).toBe(3);
+    const diskRule = disk.rules.find(
+      (r: { id: string }) => r.id === "v2-url-rule",
+    );
+    expect(diskRule).toBeDefined();
+    expect(diskRule).not.toHaveProperty("executionTarget");
+  });
+});
+
+// ── optional-scope matching fallback ──────────────────────────────────────
+
+describe("optional-scope matching fallback", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("rule with missing scope is normalized to everywhere and matches any dir", () => {
+    // Simulate a persisted rule that somehow lacks a scope field —
+    // the canonical parser normalizes it to "everywhere".
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "no-scope-rule",
+            tool: "bash",
+            pattern: "echo *",
+            decision: "allow",
+            priority: 200,
+            createdAt: 5000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "no-scope-rule");
+    expect(found).toBeDefined();
+    expect(found!.scope).toBe("everywhere");
+
+    // Should match any working directory since scope defaults to everywhere
+    const match = findHighestPriorityRule(
+      "bash",
+      ["echo hello"],
+      "/any/random/dir",
+    );
+    expect(match).not.toBeNull();
+    expect(match!.id).toBe("no-scope-rule");
+  });
+
+  test("rule with empty-string scope is normalized to everywhere", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "empty-scope-rule",
+            tool: "bash",
+            pattern: "ls *",
+            scope: "",
+            decision: "allow",
+            priority: 200,
+            createdAt: 6000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "empty-scope-rule");
+    expect(found).toBeDefined();
+    // The effectiveScope helper treats "" as "everywhere"
+    const match = findHighestPriorityRule(
+      "bash",
+      ["ls -la"],
+      "/some/other/dir",
+    );
+    expect(match).not.toBeNull();
+    expect(match!.id).toBe("empty-scope-rule");
+  });
+});
+
+// ── unknown-version no-overwrite semantics ────────────────────────────────
+
+describe("unknown-version no-overwrite semantics", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("unknown version file is never overwritten even if normalization would apply", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    // A future version file with rules that would normally be normalized —
+    // the unknown-version guard must prevent any disk writes.
+    const originalContent = JSON.stringify({
+      version: 9999,
+      rules: [
+        {
+          id: "future-url-rule",
+          tool: "web_fetch",
+          pattern: "web_fetch:https://future.io/*",
+          scope: "everywhere",
+          decision: "allow",
+          priority: 50,
+          createdAt: 7000,
+          executionTarget: "should-be-stripped-but-file-not-overwritten",
+        },
+      ],
+    });
+    writeFileSync(trustPath, originalContent);
+    clearCache();
+    const rules = getAllRules();
+    // Defaults should be present in-memory
+    const defaults = rules.filter((r) => r.id.startsWith("default:"));
+    expect(defaults).toHaveLength(NUM_DEFAULTS);
+    // The on-disk file must NOT be overwritten
+    const diskContent = readFileSync(trustPath, "utf-8");
+    expect(diskContent).toBe(originalContent);
+  });
+
+  test("unknown version returns only in-memory defaults, not file rules", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 42,
+        rules: [
+          {
+            id: "v42-rule",
+            tool: "bash",
+            pattern: "dangerous *",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 500,
+            createdAt: 8000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    // The file's rules should NOT appear in the loaded set
+    expect(rules.find((r) => r.id === "v42-rule")).toBeUndefined();
+    // Only defaults should be present
+    expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
+  });
+});

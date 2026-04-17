@@ -328,17 +328,32 @@ struct VCodeTextView: NSViewRepresentable {
     ) -> CGSize? {
         guard let textView = nsView.documentView as? ClickReportingTextView,
               let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return nil }
-        let height: CGFloat
-        if let cached = context.coordinator.cachedHeight {
-            height = cached
-        } else {
-            layoutManager.ensureLayout(for: textContainer)
-            let usedRect = layoutManager.usedRect(for: textContainer)
-            height = usedRect.height + textView.textContainerInset.height * 2
-            context.coordinator.cachedHeight = height
+              let textContainer = textView.textContainer,
+              let textStorage = textView.textStorage else { return nil }
+
+        let width = proposal.width ?? 400
+
+        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
+        // layout pass. Returning the cached size when
+        // `(textStorage.length, width)` matches the last measurement avoids
+        // rerunning `ensureLayout`, which is O(n) in glyph count. `applyText`
+        // invalidates on both the plain-text apply and async syntax-highlight
+        // completion (font variants can change line height).
+        let coordinator = context.coordinator
+        let length = textStorage.length
+        if length == coordinator.lastMeasuredLength,
+           width == coordinator.lastMeasuredWidth {
+            return CGSize(width: width, height: coordinator.lastMeasuredHeight)
         }
-        return CGSize(width: proposal.width ?? 400, height: height)
+
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = usedRect.height + textView.textContainerInset.height * 2
+
+        coordinator.lastMeasuredLength = length
+        coordinator.lastMeasuredWidth = width
+        coordinator.lastMeasuredHeight = height
+        return CGSize(width: width, height: height)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -350,8 +365,21 @@ struct VCodeTextView: NSViewRepresentable {
         var lastMatchIndex: Int = -1
         var lastMatchCount: Int = 0
         var paragraphStyle: NSParagraphStyle?
-        var cachedHeight: CGFloat?
+
+        // Last successful `sizeThatFits` measurement. Invalidated wherever
+        // the text storage is replaced: `applyText` and the async
+        // syntax-highlight completion.
+        var lastMeasuredLength: Int = -1
+        var lastMeasuredWidth: CGFloat = -1
+        var lastMeasuredHeight: CGFloat = 0
+
         private var highlightTask: Task<Void, Never>?
+
+        func invalidateMeasurementCache() {
+            lastMeasuredLength = -1
+            lastMeasuredWidth = -1
+            lastMeasuredHeight = 0
+        }
 
         deinit {
             highlightTask?.cancel()
@@ -369,7 +397,7 @@ struct VCodeTextView: NSViewRepresentable {
             to textView: NSTextView
         ) {
             lastText = text
-            cachedHeight = nil
+            invalidateMeasurementCache()
 
             // Apply plain text immediately so the view is never empty
             guard let textStorage = textView.textStorage else { return }
@@ -400,9 +428,9 @@ struct VCodeTextView: NSViewRepresentable {
                     storage.setAttributedString(highlighted)
                     storage.endEditing()
 
-                    // Invalidate cached height — font variants from highlighting
-                    // (bold/italic) may change line heights.
-                    self?.cachedHeight = nil
+                    // Invalidate measurement cache — font variants from
+                    // highlighting (bold/italic) may change line heights.
+                    self?.invalidateMeasurementCache()
 
                     // Re-apply search highlights that were wiped by setAttributedString
                     if let self, !self.currentMatchRanges.isEmpty {

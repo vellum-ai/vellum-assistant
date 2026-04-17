@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 import VellumAssistantShared
 import os
 
@@ -13,13 +14,18 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 /// established, call ``reloadFromGateway()`` to fetch the authoritative state
 /// from the gateway API.  The ``feature_flags_changed`` SSE event triggers
 /// subsequent gateway refreshes when flag files change on disk.
+///
+/// Marked `@Observable` so views are only invalidated when the specific flag
+/// they read via ``isEnabled(_:)`` changes, not on every refresh of the
+/// internal `resolvedFlags` dictionary.
 @MainActor
-final class AssistantFeatureFlagStore: ObservableObject {
-    @Published private var resolvedFlags: [String: Bool]
+@Observable
+final class AssistantFeatureFlagStore {
+    private var resolvedFlags: [String: Bool]
 
-    private let registryDefaults: [String: Bool]
-    private var flagChangeCancellable: AnyCancellable?
-    private let featureFlagClient: FeatureFlagClientProtocol
+    @ObservationIgnored private let registryDefaults: [String: Bool]
+    @ObservationIgnored private var flagChangeCancellable: AnyCancellable?
+    @ObservationIgnored private let featureFlagClient: FeatureFlagClientProtocol
 
     init(
         notificationCenter: NotificationCenter = .default,

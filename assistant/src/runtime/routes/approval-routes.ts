@@ -396,9 +396,11 @@ export async function handleTrustRule(
     const tool = getTool(confirmation.toolName);
     const executionTarget =
       tool?.origin === "skill" ? confirmation.executionTarget : undefined;
+
+    // Canonicalization is handled inside addRule — no need to pre-parse here.
     addRule(confirmation.toolName, pattern, scope, decision, undefined, {
-      allowHighRisk: allowHighRisk || undefined,
-      executionTarget,
+      ...(allowHighRisk ? { allowHighRisk: true } : {}),
+      ...(executionTarget != null ? { executionTarget } : {}),
     });
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, requestId },

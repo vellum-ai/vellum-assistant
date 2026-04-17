@@ -116,7 +116,7 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState, ConversationManager, ConversationListStore, ConversationSelectionStore, ConversationActivityStore, MainWindowState, VoiceModeManager, UpdateManager, AssistantFeatureFlagStore
 
 **Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel, GatewayConnectionManager
 
@@ -130,8 +130,6 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | Class | Rationale |
 |---|---|
 | `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
-| `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
-| `VoiceModeManager` | `@Published` state machine properties consumed by SwiftUI views; audio stream delegates |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
@@ -165,7 +163,7 @@ private func observeChild() {
     }
 }
 ```
-See `MainWindowState.observeNavigationHistory()` for a production example.
+Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (reading an `@Observable` child's properties from views naturally tracks through the nested chain).
 
 **Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 
@@ -197,6 +195,7 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 - **Lazy containers for large collections.** Use `LazyVStack`, `LazyHStack`, `LazyVGrid` instead of eager equivalents when the item count is unbounded or large. In particular, avoid `VStack`/`HStack` inside a `ScrollView` for large or unbounded data-driven lists — eager loading kills scroll performance. Small, fixed-size lists where visibility-sensitive logic (e.g., `onAppear` pagination triggers) matters may use eager containers intentionally.
 - **Keep modifier chains lean.** Every SwiftUI modifier wraps its content in a new view value. Long chains of redundant or duplicated modifiers deepen the view tree and increase diffing cost. Group related modifiers, remove redundant ones (e.g., don't set `.font` on every row when the parent already sets it), and extract heavily-modified subtrees into standalone `@ViewBuilder` methods.
 - **Scope observation narrowly.** Only observe the specific properties a view needs. Prefer granular `@Observable` properties or `withObservationTracking` over observing an entire store that publishes on unrelated changes.
+- **Memoize `sizeThatFits` (and sibling measurement calls) in `NSViewRepresentable` views placed in lazy containers.** Any `NSViewRepresentable` that hosts a TextKit stack (`NSLayoutManager` + `NSTextContainer`) and can appear inside a `LazyVStack` / `LazyHStack` / `List` cell must cache its last measurement. [`NSLayoutManager.ensureLayout(for:)`](https://developer.apple.com/documentation/uikit/nslayoutmanager/ensurelayout(for:)) is O(glyph count) and runs synchronously on the main thread, and SwiftUI calls [`sizeThatFits(_:nsView:context:)`](https://developer.apple.com/documentation/swiftui/nsviewrepresentable/sizethatfits(_:nsview:context:)) on every visible cell on every layout pass (scroll, resize, streaming edit). Cache at minimum on `(textStorage.length, proposalWidth)`; for attribute-sensitive paths (static measurement helpers, highlighted content) key on the `NSAttributedString` itself and fall through to [`NSAttributedString.isEqual(_:)`](https://developer.apple.com/documentation/foundation/nsattributedstring/isequal(_:)) for identity — `NSAttributedString.hash` alone admits collisions and surfaces as wrong-height cells. Invalidate at every text-storage mutation site (text apply, edit callbacks, async highlight/formatting completions). Reference: `SelectableTextView`, `HighlightedTextView.CodeTextView`, `VCodeView.VCodeTextView`.
 <details>
 <summary><strong>Per-entity observation and dictionary patterns</strong></summary>
 
@@ -217,6 +216,7 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 - **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). **Note:** The project has the Swift 6.2 toolchain but runs in **Swift 5 language mode** (`swiftLanguageModes: [.v5]` in Package.swift). `Task.detached` is the correct pattern for escaping actor isolation in this mode. [`@concurrent` functions (SE-0461)](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) are a cleaner alternative but require enabling the `NonisolatedNonsendingByDefault` feature flag, which changes the behavior of all `nonisolated async` functions across the codebase — a separate migration step. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/))
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
+- **Use an explicit capture list for `@Sendable` closures inside `mutating` struct methods.** `self` is `inout` inside a `mutating` method, and implicitly capturing it from a `@Sendable` closure (e.g. `withTaskCancellationHandler`'s `onCancel:`) is rejected in Swift 6 language mode. Write `{ [field] in field() }` to capture the needed value directly. Refs: [SE-0035](https://github.com/apple/swift-evolution/blob/main/proposals/0035-limit-inout-capture.md), [`SendableClosureCaptures`](https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures/).
 <details>
 <summary><strong>Task lifecycle patterns (deferred work, cancellation guards, cleanup)</strong></summary>
 
@@ -448,6 +448,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | `Timer.publish` / `Timer.scheduledTimer` for UI updates | Timer continues firing when the view is off-screen, wastes energy, and requires manual lifecycle management (invalidate, cancellable storage) | Use `TimelineView(.periodic(from: .now, by: interval))` for fixed-rate progress displays or `TimelineView(.animation)` for frame-rate animations. TimelineView auto-pauses when the view is off-screen and requires no manual teardown. |
 | `DispatchQueue.main.sync` from `@MainActor` or main thread | Deadlocks. Ref: [Apple — DispatchQueue.sync](https://developer.apple.com/documentation/dispatch/dispatchqueue/sync(execute:)-3gef0) | Use `Thread.isMainThread` guard, or `await MainActor.run {}` from async contexts. Prefer thread-safe APIs that don't need the main thread. |
 | CPU-bound work inside `@MainActor` type without offloading | Blocks UI (JSON decode, image resize, compression). Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/268/) | Offload the expensive call via `Task.detached`. Keep the type on `@MainActor`. See § "@MainActor Isolation Boundaries". |
+| Unguarded `NSLayoutManager.ensureLayout(for:)` in `NSViewRepresentable.sizeThatFits` inside `LazyVStack`/`List` cells | SwiftUI calls `sizeThatFits` on every visible cell on every layout pass; `ensureLayout` is O(glyphs) on the main thread. Caches keyed only on text content (not width) silently skip on same-text-new-width queries, running layout again. | Cache last measurement on `(textStorage.length, proposalWidth)` at minimum; use `NSAttributedString.isEqual(_:)` when attributes matter. Invalidate at every text-storage mutation site. See § "View Bodies and Rendering". |
 
 </details>
 

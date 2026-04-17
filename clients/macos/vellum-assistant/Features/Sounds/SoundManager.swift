@@ -32,7 +32,7 @@ final class SoundManager {
     /// one queue — `NSSound(named:)` can return cached instances, so concurrent
     /// volume mutations from separate queues would race.
     /// See: https://developer.apple.com/documentation/appkit/nssound/play()
-    @ObservationIgnored static let audioQueue = DispatchQueue(
+    @ObservationIgnored nonisolated static let audioQueue = DispatchQueue(
         label: "com.vellum.assistant.audio-playback", qos: .userInitiated
     )
 

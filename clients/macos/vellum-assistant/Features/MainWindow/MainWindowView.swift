@@ -1,7 +1,10 @@
 import Combine
+import os
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MainWindowView")
 
 /// Target for the "Archive All" confirmation alert.
 struct ArchiveAllTarget {
@@ -11,6 +14,16 @@ struct ArchiveAllTarget {
 
 struct MainWindowView: View {
     @Bindable var conversationManager: ConversationManager
+    /// `@Observable` source of truth for the conversation list (conversations,
+    /// groups, cached sidebar partitions, visible / unseen counts). Views
+    /// that render the sidebar read these properties straight from the store
+    /// rather than through `ConversationManager` forwarders so Observation
+    /// tracking is anchored on the object that owns the mutation, as
+    /// recommended by [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
+    /// Taking the store as an explicit parameter (instead of reading
+    /// `conversationManager.listStore` at each call site) documents the
+    /// sidebar's read-only contract with the store at the view boundary.
+    let listStore: ConversationListStore
     let appListManager: AppListManager
     let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
@@ -18,8 +31,18 @@ struct MainWindowView: View {
     /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
-    @ObservedObject var windowState: MainWindowState
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// The four managers below are `@Observable`, so plain stored properties
+    /// are sufficient — SwiftUI's Observation machinery tracks only the
+    /// specific properties read inside `body` (and inside the modifier chain)
+    /// rather than invalidating the entire view on any change.
+    ///
+    /// `windowState` is `@Bindable` because `PanelCoordinator` needs
+    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// binding projections to pass into the logs-and-usage panel. Unlike
+    /// `@ObservedObject`, `@Bindable` doesn't establish its own view
+    /// invalidation policy — Observation still tracks property granularly.
+    @Bindable var windowState: MainWindowState
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -35,10 +58,6 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
-    /// True when the sidebar was auto-collapsed by entering an app panel.
-    /// Used to distinguish automatic collapse from manual user collapse so
-    /// we only re-expand the sidebar on app exit when it was our doing.
-    @State private var sidebarAutoCollapsedForApp = false
     @State var sidebarContentHeight: CGFloat = 0
     @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -56,8 +75,8 @@ struct MainWindowView: View {
     let authManager: AuthManager
     let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
-    @ObservedObject var voiceModeManager: VoiceModeManager
-    @ObservedObject var updateManager: UpdateManager
+    var voiceModeManager: VoiceModeManager
+    var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).
@@ -92,6 +111,7 @@ struct MainWindowView: View {
     @State var feedStore: HomeFeedStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
+        self.listStore = conversationManager.listStore
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
@@ -163,9 +183,9 @@ struct MainWindowView: View {
                 // Restore the conversation the user was on before entering temporary chat.
                 // Fall back to visibleConversations.first only if the stored conversation no longer exists.
                 if let savedId = preTemporaryChatConversationId,
-                   conversationManager.visibleConversations.contains(where: { $0.id == savedId }) {
+                   listStore.visibleConversations.contains(where: { $0.id == savedId }) {
                     conversationManager.selectConversation(id: savedId)
-                } else if let recent = conversationManager.visibleConversations.first {
+                } else if let recent = listStore.visibleConversations.first {
                     conversationManager.selectConversation(id: recent.id)
                 } else {
                     conversationManager.enterDraftMode()
@@ -181,21 +201,35 @@ struct MainWindowView: View {
         }
     }
 
-    /// Resolve a conversation ID for the chat bubble toggle using strict priority:
+    /// Resolve an existing conversation ID for the chat-dock entry paths using strict priority:
     /// 1. activeConversationId (currently selected conversation)
     /// 2. persistentConversationId (app's last-used conversation)
     /// 3. visibleConversations.first (first available conversation)
-    /// 4. create a new conversation
-    private func resolveConversationId() -> UUID {
+    /// 4. createConversation() — which may enter draft mode without committing a UUID
+    ///
+    /// Returns `nil` when no committed conversation is available. `createConversation()`
+    /// lands in draft mode (see `ConversationManager.enterDraftMode`), which deliberately
+    /// keeps `activeConversationId == nil` until the user sends their first message and the
+    /// draft is promoted. Callers must handle the nil case; force-unwrapping would crash
+    /// whenever the user invokes this path with zero existing conversations (LUM-968).
+    private func resolveConversationId() -> UUID? {
         if let id = conversationManager.activeConversationId { return id }
         if let id = windowState.persistentConversationId { return id }
-        if let id = conversationManager.visibleConversations.first?.id { return id }
+        if let id = listStore.visibleConversations.first?.id { return id }
         conversationManager.createConversation()
-        return conversationManager.activeConversationId!
+        return conversationManager.activeConversationId
     }
 
     func enterAppEditing(appId: String) {
-        let conversationId = resolveConversationId()
+        guard let conversationId = resolveConversationId() else {
+            // No committed conversation available — createConversation() entered draft
+            // mode, which has no UUID until first user send. Fall back to `.app(appId)`
+            // (no chat dock) so the user still lands on the app they requested. The dock
+            // becomes available once a conversation exists.
+            log.info("enterAppEditing: no conversation available, opening app without chat dock (appId=\(appId, privacy: .public))")
+            windowState.selection = .app(appId)
+            return
+        }
         conversationManager.selectConversation(id: conversationId)
         windowState.setAppEditing(appId: appId, conversationId: conversationId)
     }
@@ -299,11 +333,11 @@ struct MainWindowView: View {
                 // Guard against archived conversations: if the conversation was archived while an
                 // overlay was open, persistentConversationId may still point to the stale ID.
                 if case .conversation(let id) = newSelection {
-                    if conversationManager.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
+                    if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
                         conversationManager.selectConversation(id: id)
                     } else {
                         // Conversation was archived/deleted — fall back to the first visible conversation
-                        if let fallback = conversationManager.visibleConversations.first {
+                        if let fallback = listStore.visibleConversations.first {
                             windowState.applySelectionCorrection(.conversation(fallback.id))
                         } else {
                             windowState.applySelectionCorrection(nil)
@@ -356,35 +390,6 @@ struct MainWindowView: View {
                 if oldAppId != newAppId {
                     sharing.publishedUrl = nil
                     sharing.publishError = nil
-                }
-
-                // Collapse the sidebar when an app or document editor opens
-                // to avoid crowding; re-expand when leaving so other panels
-                // see the sidebar.
-                let wasApp: Bool = {
-                    switch oldSelection {
-                    case .app, .appEditing: return true
-                    case .panel(.documentEditor): return true
-                    default: return false
-                    }
-                }()
-                let isApp: Bool = {
-                    switch newSelection {
-                    case .app, .appEditing: return true
-                    case .panel(.documentEditor): return true
-                    default: return false
-                    }
-                }()
-                if sidebarExpanded && isApp {
-                    withAnimation(VAnimation.panel) {
-                        sidebarExpanded = false
-                        sidebarAutoCollapsedForApp = true
-                    }
-                } else if sidebarAutoCollapsedForApp && wasApp && !isApp {
-                    withAnimation(VAnimation.panel) {
-                        sidebarExpanded = true
-                        sidebarAutoCollapsedForApp = false
-                    }
                 }
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
@@ -472,17 +477,16 @@ struct MainWindowView: View {
                             : "A new version is available")
                 ) {
                     if updateManager.isDeferredUpdateReady {
-                        // Trigger Sparkle's installer directly — it handles
-                        // termination and relaunch.  Calling NSApp.terminate
-                        // first creates a race where the installer starts
-                        // mid-teardown and can't coordinate the relaunch.
                         updateManager.installDeferredUpdateIfAvailable()
-                    } else if updateManager.isServiceGroupUpdateAvailable && !updateManager.isUpdateAvailable {
-                        // Service group update only — navigate to Settings where the upgrade controls live
+                    } else if updateManager.isServiceGroupUpdateAvailable {
+                        // Service group update available (possibly with app update too)
+                        // — navigate to Settings where the upgrade flow also triggers
+                        // the app update dialog when the client is behind.
                         settingsStore.pendingSettingsTab = .general
                         windowState.selection = .panel(.settings)
-                    } else {
-                        AppDelegate.shared?.checkForUpdates()
+                    } else if updateManager.isUpdateAvailable {
+                        // App update only — show the native update dialog directly.
+                        updateManager.checkForUpdates()
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))

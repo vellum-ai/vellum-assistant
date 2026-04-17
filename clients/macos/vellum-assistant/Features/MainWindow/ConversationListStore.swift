@@ -6,7 +6,15 @@ import os
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListStore")
 
 /// Lightweight identifiable wrapper for ForEach over grouped conversations.
-struct SidebarGroupEntry: Identifiable {
+///
+/// `Equatable` conformance is load-bearing: it lets callers gate
+/// `@Observable` stored-property writes with `!=`, so assignments that would
+/// produce an identical array do not trigger SwiftUI observation
+/// notifications or downstream `ForEachState.update` keypath projection on
+/// every element. See [Observation framework](https://developer.apple.com/documentation/observation)
+/// — `@Observable` fires change notifications on every assignment regardless
+/// of value equality, so the caller is responsible for skipping no-op writes.
+struct SidebarGroupEntry: Identifiable, Equatable {
     let id: String
     let group: ConversationGroup
     let conversations: [ConversationModel]
@@ -253,6 +261,16 @@ final class ConversationListStore {
     /// so the view body reads a ready-made array without inline computation.
     private(set) var sidebarGroupEntries: [SidebarGroupEntry] = []
 
+    /// Pre-computed partitions of `sidebarGroupEntries` for the two sidebar
+    /// sections (system groups above the `YOUR GROUPS` divider, custom groups
+    /// below). Kept as separate stored properties so the sidebar view body
+    /// does not allocate fresh filtered arrays on every layout pass — each
+    /// re-allocation produces a new array identity that `ForEachState.update`
+    /// has to diff via `KeyPath._projectReadOnly` on every element, which is
+    /// the stall observed in the Sentry app-hang telemetry.
+    private(set) var systemSidebarGroupEntries: [SidebarGroupEntry] = []
+    private(set) var customSidebarGroupEntries: [SidebarGroupEntry] = []
+
     /// Recompute all derived sidebar properties from `conversations` and `groups`.
     /// Called from `conversations.didSet` and `groups.didSet`. Skips work when
     /// `conversations` is empty to avoid wasted computation (e.g. when `groups`
@@ -263,7 +281,9 @@ final class ConversationListStore {
             groupedConversations = []
             visibleConversations = []
             unseenVisibleConversationCount = 0
-            sidebarGroupEntries = []
+            if !sidebarGroupEntries.isEmpty { sidebarGroupEntries = [] }
+            if !systemSidebarGroupEntries.isEmpty { systemSidebarGroupEntries = [] }
+            if !customSidebarGroupEntries.isEmpty { customSidebarGroupEntries = [] }
             return
         }
         let currentSortedGroups = groups.sorted { $0.sortPosition < $1.sortPosition }
@@ -322,6 +342,15 @@ final class ConversationListStore {
     /// Derive sidebar group entries from `groupedConversations` and the current
     /// `customGroupsEnabled` flag. Called from `recomputeDerivedProperties()` and
     /// when `customGroupsEnabled` changes.
+    ///
+    /// Writes the three cached arrays (`sidebarGroupEntries`,
+    /// `systemSidebarGroupEntries`, `customSidebarGroupEntries`) behind `!=`
+    /// equality guards. `@Observable` notifies on every stored-property
+    /// assignment regardless of value equality, so without these guards a
+    /// pagination or heartbeat pulse that produces an identical sidebar
+    /// (e.g. seen-state flip, `lastInteractedAt` tie) would still invalidate
+    /// every sidebar view and force `ForEachState.update` to re-diff — the
+    /// source of the `KeyPath._projectReadOnly` main-thread hang.
     private func recomputeSidebarGroupEntries() {
         let raw = groupedConversations
         var entries: [SidebarGroupEntry] = []
@@ -348,7 +377,25 @@ final class ConversationListStore {
                 ))
             }
         }
-        sidebarGroupEntries = entries
+        if sidebarGroupEntries != entries {
+            sidebarGroupEntries = entries
+        }
+
+        var systemEntries: [SidebarGroupEntry] = []
+        var customEntries: [SidebarGroupEntry] = []
+        for entry in entries {
+            if entry.group.isSystemGroup {
+                systemEntries.append(entry)
+            } else {
+                customEntries.append(entry)
+            }
+        }
+        if systemSidebarGroupEntries != systemEntries {
+            systemSidebarGroupEntries = systemEntries
+        }
+        if customSidebarGroupEntries != customEntries {
+            customSidebarGroupEntries = customEntries
+        }
     }
 
     // MARK: - Sort Helpers

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
@@ -275,43 +276,20 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
   // After migration to skill-provided tools, default allow rules preserve the
   // same frictionless UX so they don't trigger permission prompts.
+  //
   // browser_navigate candidates contain URLs with "/" (e.g.
   // "browser_navigate:https://example.com/path"), so it needs standalone
   // "**" globstar (same as host_bash / computer_use_*).  The tool field
   // already filters by tool name, so a prefix is unnecessary.
-  const browserNavigateRule: DefaultRuleTemplate = {
-    id: "default:allow-browser_navigate-global",
-    tool: "browser_navigate",
-    pattern: "**",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 100,
-  };
-
-  const BROWSER_TOOLS_NO_SLASH = [
-    "browser_snapshot",
-    "browser_screenshot",
-    "browser_close",
-    "browser_attach",
-    "browser_detach",
-    "browser_click",
-    "browser_type",
-    "browser_press_key",
-    "browser_scroll",
-    "browser_select_option",
-    "browser_hover",
-    "browser_wait_for",
-    "browser_extract",
-    "browser_wait_for_download",
-    "browser_fill_credential",
-    "browser_status",
-  ] as const;
-
-  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOLS_NO_SLASH.map(
+  // All other browser tools use the standard "tool:*" pattern.
+  //
+  // The canonical set of browser tool names is sourced from BROWSER_TOOL_NAMES
+  // (browser/operations.ts) — the single source of truth for browser identifiers.
+  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOL_NAMES.map(
     (tool) => ({
       id: `default:allow-${tool}-global`,
       tool,
-      pattern: `${tool}:*`,
+      pattern: tool === "browser_navigate" ? "**" : `${tool}:*`,
       scope: "everywhere",
       decision: "allow" as const,
       priority: 100,
@@ -357,7 +335,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     skillLoadDynamicRule,
     skillLoadRule,
     skillExecuteRule,
-    browserNavigateRule,
     ...browserToolRules,
     ...uiSurfaceRules,
     memoryRecallRule,

@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, dangerGhost, outlined, ghost, contrast }
-    public enum Size: Hashable { case regular, compact, pill, inline }
+    public enum Size: Hashable { case regular, compact, pill, inline, pillRegular }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -149,7 +149,7 @@ public struct VButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     public func makeBody(configuration: Configuration) -> some View {
-        let cornerRadius: CGFloat = size == .pill ? VRadius.pill : VRadius.md
+        let cornerRadius: CGFloat = (size == .pill || size == .pillRegular) ? VRadius.pill : VRadius.md
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
@@ -304,6 +304,11 @@ private struct ButtonLayoutModifier: ViewModifier {
                 .frame(height: 24)
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else {
+            // Covers both `.regular` and `.pillRegular`. They intentionally
+            // share layout (32pt height, 10pt horizontal padding); only
+            // the corner radius differs between them, which is resolved in
+            // `VButtonStyle.makeBody` (pill radius for `.pillRegular`,
+            // `VRadius.md` for `.regular`).
             content
                 .padding(.horizontal, 10)
                 .frame(height: 32)

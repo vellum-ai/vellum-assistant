@@ -1771,6 +1771,85 @@ describe("AgentLoop", () => {
     expect(messageCompletes).toHaveLength(2);
   });
 
+  // Regression: when the model emits [text, tool_use] in a single turn and then
+  // returns an empty response after the tool result, the loop must NOT nudge —
+  // the model already delivered its reply before the tool call, and nudging
+  // would trick it into re-sending the same text verbatim.
+  test("does not nudge empty response when prior turn had visible text", async () => {
+    const textPlusToolUseResponse: ProviderResponse = {
+      content: [
+        { type: "text", text: "your move, husband." },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/note.txt" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    const emptyResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "end_turn",
+    };
+
+    const { provider, calls } = createMockProvider([
+      textPlusToolUseResponse,
+      emptyResponse,
+    ]);
+
+    const toolExecutor = async () => ({
+      content: "noted",
+      isError: false,
+    });
+
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // Provider called exactly 2 times: initial [text+tool_use], then empty.
+    // No third (retry) call because the prior turn had visible text.
+    expect(calls).toHaveLength(2);
+
+    // No nudge message should appear anywhere in history.
+    const nudgeInHistory = history.some(
+      (m) =>
+        m.role === "user" &&
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            "text" in b &&
+            (b as { text: string }).text.includes(
+              "previous response was empty",
+            ),
+        ),
+    );
+    expect(nudgeInHistory).toBe(false);
+
+    // The [text, tool_use] assistant message is preserved in history.
+    const firstAssistant = history.find((m) => m.role === "assistant");
+    expect(firstAssistant).toBeDefined();
+    expect(firstAssistant!.content).toEqual([
+      { type: "text", text: "your move, husband." },
+      {
+        type: "tool_use",
+        id: "t1",
+        name: "read_file",
+        input: { path: "/note.txt" },
+      },
+    ]);
+  });
+
   test("gives up after max empty response retries", async () => {
     const emptyResponse: ProviderResponse = {
       content: [],

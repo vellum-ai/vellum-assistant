@@ -43,7 +43,15 @@ const TICK_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Per-producer minimum gap between runs. */
 const GMAIL_DIGEST_INTERVAL_MS = 5 * 60 * 1000;
-const ROLLUP_INTERVAL_MS = 30 * 60 * 1000;
+/**
+ * Roll-up cadence is deliberately long — 120 minutes — because the
+ * scheduler is the *safety net*, not the primary trigger. Opening the
+ * Home page fires a debounced on-visit refresh in the HTTP route (see
+ * `runtime/routes/home-feed-routes.ts`), which is the path most users
+ * actually hit. The scheduler exists so the feed still stays fresh
+ * for long idle stretches where nobody opens the Home page.
+ */
+const ROLLUP_INTERVAL_MS = 2 * 60 * 60 * 1000;
 
 export interface FeedSchedulerHandle {
   /** Stops the interval. Safe to call multiple times. */
@@ -146,8 +154,9 @@ export function startFeedScheduler(
             "Rollup producer ran",
           );
           // Only advance the cooldown gate when the producer actually
-          // had a chance to run the LLM. Two skip reasons short-circuit
-          // before any provider call and should NOT burn the window:
+          // had a chance to run the LLM. Three skip reasons short-
+          // circuit before any provider call and should NOT burn the
+          // window:
           //   - `no_provider`: the provider registry wasn't ready yet
           //     (happens on the startup tick because the feed scheduler
           //     boots before the provider init pass in
@@ -155,12 +164,19 @@ export function startFeedScheduler(
           //   - `no_actions`: there was nothing to roll up. A subsequent
           //     tick should retry as soon as new actions land, not wait
           //     the full window.
+          //   - `in_flight`: another caller (usually the on-visit
+          //     refresh trigger in `home-feed-routes.ts`) is already
+          //     running the rollup. That caller's result effectively
+          //     counts as this scheduler tick's real run; bumping the
+          //     gate here would force the NEXT tick to also wait out
+          //     the full window even though nothing broken happened.
           // Every other outcome — success, empty items, malformed
           // output, provider error — is a real LLM attempt and does
           // advance the gate so a broken producer doesn't hammer us.
           if (
             result.skippedReason !== "no_provider" &&
-            result.skippedReason !== "no_actions"
+            result.skippedReason !== "no_actions" &&
+            result.skippedReason !== "in_flight"
           ) {
             lastRollupAt = nowMs;
           }

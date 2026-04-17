@@ -34,12 +34,9 @@ function dispatchLlmContext(messageId: string): Promise<Response> | Response {
 }
 
 function dispatchLogPayload(logId: string): Promise<Response> | Response {
-  const url = new URL(
-    `http://localhost/v1/llm-request-logs/${logId}/payload`,
-  );
+  const url = new URL(`http://localhost/v1/llm-request-logs/${logId}/payload`);
   const route = routes.find(
-    (r) =>
-      r.method === "GET" && r.endpoint === "llm-request-logs/:id/payload",
+    (r) => r.method === "GET" && r.endpoint === "llm-request-logs/:id/payload",
   );
   if (!route) {
     throw new Error("No llm-request-logs payload route found");
@@ -233,6 +230,90 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.requestPayload).toBeNull();
     expect(body.logs[0]?.responsePayload).toBeNull();
+  });
+
+  // ── OpenAI Responses API payload tests ──────────────────────────────
+
+  const responsesApiRequestPayload = JSON.stringify({
+    model: "gpt-5.4",
+    instructions: "Be concise.",
+    input: [
+      {
+        role: "user",
+        content: [{ type: "input_text", text: "Hello there." }],
+        type: "message",
+      },
+    ],
+  });
+
+  const responsesApiResponsePayload = JSON.stringify({
+    id: "resp_test",
+    model: "gpt-5.4",
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "Hello back." }],
+      },
+    ],
+    usage: {
+      input_tokens: 11,
+      output_tokens: 4,
+    },
+    status: "completed",
+  });
+
+  test("normalizes Responses API payloads and infers OpenAI provider when no stored provider exists", async () => {
+    seedRequestLog({
+      id: "log-responses-legacy",
+      messageId: "msg-responses-legacy",
+      provider: null,
+      requestPayload: responsesApiRequestPayload,
+      responsePayload: responsesApiResponsePayload,
+    });
+
+    const response = await dispatchLlmContext("msg-responses-legacy");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      logs: Array<{
+        summary?: { provider: string; inputTokens?: number };
+      }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]?.summary).toEqual(
+      expect.objectContaining({
+        provider: "openai",
+        inputTokens: 11,
+      }),
+    );
+  });
+
+  test("prefers a stored provider over Responses API payload inference", async () => {
+    seedRequestLog({
+      id: "log-responses-openai",
+      messageId: "msg-responses-openai",
+      provider: "openai",
+      requestPayload: responsesApiRequestPayload,
+      responsePayload: responsesApiResponsePayload,
+    });
+
+    const response = await dispatchLlmContext("msg-responses-openai");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      logs: Array<{
+        summary?: { provider: string };
+      }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]?.summary).toEqual(
+      expect.objectContaining({
+        provider: "openai",
+      }),
+    );
   });
 });
 

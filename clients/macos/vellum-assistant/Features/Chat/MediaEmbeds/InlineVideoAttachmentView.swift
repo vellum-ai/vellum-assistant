@@ -127,7 +127,7 @@ struct InlineVideoAttachmentView: View {
                 .accessibilityLabel("Save video")
             }
         }
-        .frame(maxWidth: 360)
+        .widthCap(360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
         .onHover { isHovering = $0 }
         .onDisappear {

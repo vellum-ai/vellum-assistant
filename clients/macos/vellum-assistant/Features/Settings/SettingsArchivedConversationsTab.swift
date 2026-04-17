@@ -4,9 +4,15 @@ import VellumAssistantShared
 struct SettingsArchivedConversationsTab: View {
     var conversationManager: ConversationManager
 
+    /// `@Observable` source of truth for `archivedConversations`. Reading
+    /// from the store directly (rather than through a `ConversationManager`
+    /// forwarder) anchors Observation tracking on the object that owns the
+    /// mutation. See [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
+    private var listStore: ConversationListStore { conversationManager.listStore }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if conversationManager.archivedConversations.isEmpty {
+            if listStore.archivedConversations.isEmpty {
                 GeometryReader { geo in
                     VEmptyState(
                         title: "No archived conversations",
@@ -18,7 +24,7 @@ struct SettingsArchivedConversationsTab: View {
                 .frame(minHeight: 400)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
+                    ForEach(Array(listStore.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
                         if index > 0 {
                             SettingsDivider()
                         }

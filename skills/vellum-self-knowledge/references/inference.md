@@ -49,7 +49,7 @@ Relevant config paths and what they control:
 | `llm.default.model` | The active model ID (e.g. `claude-opus-4-6`, `gpt-5.2`) |
 | `llm.default.provider` | The active provider: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter` |
 | `services.inference.mode` | `"your-own"` (user's API key) vs `"managed"` (platform proxy) |
-| `llm.default.effort` | Inference effort level: `"low"`, `"medium"`, `"high"`, `"max"` |
+| `llm.default.effort` | Inference effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` (`xhigh` sits between `high` and `max`, for models that support it — e.g. Opus 4.7) |
 | `llm.default.thinking.enabled` | Whether extended thinking (chain-of-thought) is active |
 
 Read any of these with `assistant config get <path>`, e.g.:

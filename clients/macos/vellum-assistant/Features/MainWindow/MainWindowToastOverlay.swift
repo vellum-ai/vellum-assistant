@@ -2,10 +2,10 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Standalone view for the window toast overlay, creating a SwiftUI
-/// invalidation boundary so changes to unrelated `@ObservedObject`s on
+/// invalidation boundary so changes to unrelated observable state on
 /// `MainWindowView` don't force this overlay to re-evaluate.
 struct MainWindowToastOverlay: View {
-    @ObservedObject var windowState: MainWindowState
+    var windowState: MainWindowState
 
     var body: some View {
         if let toast = windowState.toastInfo {

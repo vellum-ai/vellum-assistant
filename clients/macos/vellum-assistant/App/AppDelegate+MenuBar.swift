@@ -290,11 +290,13 @@ extension AppDelegate {
     }
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
+    /// Reads the precomputed `cachedDisplayName` so this runs on every
+    /// connection-status change without recomputing the display string.
     private func menuBarTooltip() -> String {
         let activator = PTTActivator.cached
         let name = Self.appName
         guard activator.kind != .none else { return name }
-        return "\(name) — hold \(activator.displayName) to talk"
+        return "\(name) — hold \(PTTActivator.cachedDisplayName) to talk"
     }
 
     func configureMenuBarIcon(_ button: NSStatusBarButton) {
@@ -601,7 +603,6 @@ extension AppDelegate {
             // any visible panel so the user sees the new empty chat.
             mainWindow?.windowState.selection = nil
         }
-        UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc public func markCurrentConversationUnread() {
@@ -622,18 +623,17 @@ extension AppDelegate {
     }
 
     @objc public func checkForUpdates() {
-        // Docker/managed topologies: always navigate to Settings > General
-        // where the Software Update card lives and auto-loads releases.
-        // Sparkle is only relevant for local topology.
         let assistants = LockfileAssistant.loadAll()
         let connectedId = LockfileAssistant.loadActiveAssistantId()
         if let id = connectedId,
            let assistant = assistants.first(where: { $0.assistantId == id }),
            assistant.isDocker || assistant.isManaged {
             showSettingsTab("General")
+            // Also check for client app updates — Sparkle handles this independently
+            // of the service group update shown in Settings.
+            updateManager.checkForUpdates()
             return
         }
-        // Local topology: use Sparkle
         updateManager.checkForUpdates()
     }
 
@@ -1042,6 +1042,7 @@ extension AppDelegate {
     #if DEBUG
     @objc func showComponentGallery() {
         AvatarGallerySection.registerInGallery()
+        HomeGallerySection.registerInGallery()
         if galleryWindow == nil { galleryWindow = ComponentGalleryWindow() }
         galleryWindow?.show()
     }

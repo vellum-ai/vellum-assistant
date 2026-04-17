@@ -1,4 +1,5 @@
 {
   "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
-  "project": ["src/**/*.ts"]
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": ["@vellumai/ces-contracts"]
 }

@@ -385,6 +385,44 @@ export function conversationManagementRouteDefinitions(
             404,
           );
         }
+
+        // Broadcast conversation_title_updated so all connected clients
+        // (including the one that initiated the rename) update immediately.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(
+              DAEMON_INTERNAL_ASSISTANT_ID,
+              {
+                type: "conversation_title_updated",
+                conversationId: params.id,
+                title: name,
+              },
+              params.id,
+            ),
+          )
+          .catch((err) => {
+            log.warn(
+              { err, conversationId: params.id },
+              "Failed to publish conversation_title_updated",
+            );
+          });
+
+        // Notify all connected clients that the conversation list changed
+        // so sidebars on other devices can refresh.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated for rename",
+            );
+          });
+
         return Response.json({ ok: true });
       },
     },
@@ -529,6 +567,23 @@ export function conversationManagementRouteDefinitions(
           });
         }
         log.info({ conversationId: resolvedId }, "Deleted conversation");
+
+        // Notify all connected clients that the conversation list changed
+        // so sidebars on other devices can refresh.
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "deleted",
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated for delete",
+            );
+          });
+
         return new Response(null, { status: 204 });
       },
     },
@@ -697,6 +752,19 @@ export function conversationManagementRouteDefinitions(
             groupId: u.groupId,
           })),
         );
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "reordered",
+            }),
+          )
+          .catch((err) => {
+            log.warn(
+              { err },
+              "Failed to publish conversation_list_invalidated (reordered)",
+            );
+          });
         return Response.json({ ok: true });
       },
     },

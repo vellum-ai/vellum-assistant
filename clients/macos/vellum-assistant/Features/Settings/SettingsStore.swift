@@ -47,7 +47,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Selection
 
-    @Published var selectedModel: String = "claude-opus-4-6"
+    @Published var selectedModel: String = "claude-opus-4-7"
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
@@ -2314,7 +2314,7 @@ public final class SettingsStore: ObservableObject {
             do {
                 let (decoded, response): (OAuthProvidersListResponse?, _) =
                     try await GatewayHTTPClient.get(
-                        path: "oauth/providers",
+                        path: "assistants/{assistantId}/oauth/providers",
                         params: ["supports_managed_mode": "true"],
                         timeout: 10
                     )
@@ -2719,7 +2719,7 @@ public final class SettingsStore: ObservableObject {
         Task {
             do {
                 let (decoded, response): (YourOwnOAuthAppsResponse?, _) = try await GatewayHTTPClient.get(
-                    path: "oauth/apps",
+                    path: "assistants/{assistantId}/oauth/apps",
                     params: ["provider_key": providerKey],
                     timeout: 10
                 )
@@ -2752,7 +2752,7 @@ public final class SettingsStore: ObservableObject {
     func fetchYourOwnOAuthConnections(appId: String) async {
         do {
             let (decoded, response): (YourOwnOAuthConnectionsResponse?, _) = try await GatewayHTTPClient.get(
-                path: "oauth/apps/\(appId)/connections",
+                path: "assistants/{assistantId}/oauth/apps/\(appId)/connections",
                 timeout: 10
             )
             if response.isSuccess, let decoded {
@@ -2773,7 +2773,7 @@ public final class SettingsStore: ObservableObject {
         let secretKey = "client" + "_secret"
         body[secretKey] = clientSecret
         do {
-            let response = try await GatewayHTTPClient.post(path: "oauth/apps", json: body, timeout: 10)
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps", json: body, timeout: 10)
             if response.isSuccess {
                 self.fetchYourOwnOAuthApps(providerKey: providerKey)
             } else {
@@ -2795,7 +2795,7 @@ public final class SettingsStore: ObservableObject {
     func deleteYourOwnOAuthApp(id: String, providerKey: String) async {
         yourOwnOAuthError[providerKey] = nil
         do {
-            let response = try await GatewayHTTPClient.delete(path: "oauth/apps/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/apps/\(id)", timeout: 10)
             if response.isSuccess {
                 self.yourOwnOAuthApps[providerKey]?.removeAll { $0.id == id }
                 self.yourOwnOAuthConnectionsByApp.removeValue(forKey: id)
@@ -2819,7 +2819,7 @@ public final class SettingsStore: ObservableObject {
         let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         do {
-            let response = try await GatewayHTTPClient.delete(path: "oauth/connections/\(id)", timeout: 10)
+            let response = try await GatewayHTTPClient.delete(path: "assistants/{assistantId}/oauth/connections/\(id)", timeout: 10)
             if response.isSuccess {
                 await self.fetchYourOwnOAuthConnections(appId: appId)
             } else {
@@ -2850,7 +2850,7 @@ public final class SettingsStore: ObservableObject {
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         Task {
             do {
-                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/oauth/apps/\(appId)/connect", json: [:], timeout: 10)
                 guard response.isSuccess else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],

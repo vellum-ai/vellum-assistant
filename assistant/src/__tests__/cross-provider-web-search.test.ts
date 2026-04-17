@@ -89,7 +89,8 @@ function webSearchResultOnlyMessage(): Message[] {
 // Mock OpenAI SDK
 // ---------------------------------------------------------------------------
 
-let lastOpenAIParams: Record<string, unknown> | null = null;
+let lastOpenAIResponsesParams: Record<string, unknown> | null = null;
+let lastOpenAIChatParams: Record<string, unknown> | null = null;
 
 mock.module("openai", () => {
   class FakeAPIError extends Error {
@@ -110,7 +111,7 @@ mock.module("openai", () => {
       chat = {
         completions: {
           create: (params: Record<string, unknown>) => {
-            lastOpenAIParams = JSON.parse(JSON.stringify(params));
+            lastOpenAIChatParams = JSON.parse(JSON.stringify(params));
             return (async function* () {
               yield {
                 choices: [
@@ -124,6 +125,28 @@ mock.module("openai", () => {
               };
             })();
           },
+        },
+      };
+      responses = {
+        stream: (params: Record<string, unknown>) => {
+          lastOpenAIResponsesParams = JSON.parse(JSON.stringify(params));
+          return (async function* () {
+            yield {
+              type: "response.output_text.delta",
+              delta: "OK",
+            };
+            yield {
+              type: "response.completed",
+              response: {
+                model: "gpt-4o",
+                status: "completed",
+                usage: {
+                  input_tokens: 10,
+                  output_tokens: 5,
+                },
+              },
+            };
+          })();
         },
       };
     },
@@ -172,22 +195,137 @@ mock.module("@google/genai", () => {
 
 // Import providers after mocking
 import { GeminiProvider } from "../providers/gemini/client.js";
-import { OpenAIProvider } from "../providers/openai/client.js";
+import {
+  OpenAIChatCompletionsProvider,
+  OpenAIResponsesProvider,
+} from "../providers/openai/client.js";
 
 // ---------------------------------------------------------------------------
-// OpenAI provider tests
+// OpenAI Responses API provider tests
 // ---------------------------------------------------------------------------
 
-describe("Cross-Provider Web Search — OpenAI", () => {
+describe("Cross-Provider Web Search — OpenAI (Responses API)", () => {
   beforeEach(() => {
-    lastOpenAIParams = null;
+    lastOpenAIResponsesParams = null;
+  });
+
+  test("degrades server_tool_use in assistant message to text placeholder in Responses input", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o");
+    await provider.sendMessage(webSearchConversation());
+
+    const input = lastOpenAIResponsesParams!.input as Array<{
+      type: string;
+      role?: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
+
+    const assistantItems = input.filter(
+      (item) => item.type === "message" && item.role === "assistant",
+    );
+    const hasWebSearchPlaceholder = assistantItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "output_text" &&
+          part.text?.includes("[Web search: web_search]"),
+      ),
+    );
+    expect(hasWebSearchPlaceholder).toBe(true);
+
+    const hasResultsText = assistantItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "output_text" &&
+          part.text?.includes("Here are the results."),
+      ),
+    );
+    expect(hasResultsText).toBe(true);
+  });
+
+  test("degrades web_search_tool_result in user message to text placeholder in Responses input", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o");
+    await provider.sendMessage(webSearchConversation());
+
+    const input = lastOpenAIResponsesParams!.input as Array<{
+      type: string;
+      role?: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
+
+    const userItems = input.filter(
+      (item) => item.type === "message" && item.role === "user",
+    );
+    const hasWebSearchResult = userItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "input_text" && part.text === "[Web search results]",
+      ),
+    );
+    expect(hasWebSearchResult).toBe(true);
+  });
+
+  test("handles message containing only web_search_tool_result", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o");
+    await provider.sendMessage(webSearchResultOnlyMessage());
+
+    const input = lastOpenAIResponsesParams!.input as Array<{
+      type: string;
+      role?: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
+
+    const assistantItems = input.filter(
+      (item) => item.type === "message" && item.role === "assistant",
+    );
+    const hasWebSearchPlaceholder = assistantItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "output_text" &&
+          part.text?.includes("[Web search: web_search]"),
+      ),
+    );
+    expect(hasWebSearchPlaceholder).toBe(true);
+
+    const userItems = input.filter(
+      (item) => item.type === "message" && item.role === "user",
+    );
+    const hasWebSearchResult = userItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "input_text" && part.text === "[Web search results]",
+      ),
+    );
+    expect(hasWebSearchResult).toBe(true);
+  });
+
+  test("does not produce function_call items for server_tool_use blocks", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o");
+    await provider.sendMessage(webSearchConversation());
+
+    const input = lastOpenAIResponsesParams!.input as Array<{
+      type: string;
+    }>;
+
+    const functionCallItems = input.filter(
+      (item) => item.type === "function_call",
+    );
+    expect(functionCallItems).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAI Chat Completions compatibility provider tests
+// ---------------------------------------------------------------------------
+
+describe("Cross-Provider Web Search — OpenAI Chat Completions (compatibility)", () => {
+  beforeEach(() => {
+    lastOpenAIChatParams = null;
   });
 
   test("degrades server_tool_use in assistant message to text placeholder", async () => {
-    const provider = new OpenAIProvider("sk-test", "gpt-4o");
+    const provider = new OpenAIChatCompletionsProvider("sk-test", "gpt-4o");
     await provider.sendMessage(webSearchConversation());
 
-    const messages = lastOpenAIParams!.messages as Array<{
+    const messages = lastOpenAIChatParams!.messages as Array<{
       role: string;
       content: unknown;
     }>;
@@ -199,40 +337,13 @@ describe("Cross-Provider Web Search — OpenAI", () => {
   });
 
   test("degrades web_search_tool_result in user message to text placeholder", async () => {
-    const provider = new OpenAIProvider("sk-test", "gpt-4o");
+    const provider = new OpenAIChatCompletionsProvider("sk-test", "gpt-4o");
     await provider.sendMessage(webSearchConversation());
 
-    const messages = lastOpenAIParams!.messages as Array<{
+    const messages = lastOpenAIChatParams!.messages as Array<{
       role: string;
       content: unknown;
     }>;
-
-    const userMsgs = messages.filter((m) => m.role === "user");
-    const hasWebSearchResult = userMsgs.some((m) => {
-      if (typeof m.content === "string") return false;
-      if (Array.isArray(m.content)) {
-        return (m.content as Array<{ type: string; text?: string }>).some(
-          (part) =>
-            part.type === "text" && part.text === "[Web search results]",
-        );
-      }
-      return false;
-    });
-    expect(hasWebSearchResult).toBe(true);
-  });
-
-  test("handles message containing only web_search_tool_result", async () => {
-    const provider = new OpenAIProvider("sk-test", "gpt-4o");
-    await provider.sendMessage(webSearchResultOnlyMessage());
-
-    const messages = lastOpenAIParams!.messages as Array<{
-      role: string;
-      content: unknown;
-    }>;
-
-    const assistantMsg = messages.find((m) => m.role === "assistant");
-    expect(assistantMsg).toBeDefined();
-    expect(assistantMsg!.content).toContain("[Web search: web_search]");
 
     const userMsgs = messages.filter((m) => m.role === "user");
     const hasWebSearchResult = userMsgs.some((m) => {
@@ -249,10 +360,10 @@ describe("Cross-Provider Web Search — OpenAI", () => {
   });
 
   test("does not produce tool_calls for server_tool_use blocks", async () => {
-    const provider = new OpenAIProvider("sk-test", "gpt-4o");
+    const provider = new OpenAIChatCompletionsProvider("sk-test", "gpt-4o");
     await provider.sendMessage(webSearchConversation());
 
-    const messages = lastOpenAIParams!.messages as Array<{
+    const messages = lastOpenAIChatParams!.messages as Array<{
       role: string;
       tool_calls?: unknown[];
     }>;

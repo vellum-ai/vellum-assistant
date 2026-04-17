@@ -141,9 +141,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
-    /// DispatchSource for system memory pressure events. Triggers an aggressive
-    /// message trim on .warning and .critical events to reclaim memory quickly.
-    @ObservationIgnored private var memoryPressureSource: DispatchSourceMemoryPressure?
+    /// Listener token for the shared ``MemoryPressureMonitor``. Triggers an
+    /// aggressive message trim on warning and critical events to reclaim
+    /// memory quickly.
+    @ObservationIgnored private var memoryPressureListener: MemoryPressureMonitor.ListenerToken?
 
     /// Watchdog task that fires when `isSending` has been `true` for more than
     /// 60 seconds without being reset.  Helps diagnose app freezes where the
@@ -827,6 +828,18 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
+    public var isShowAllMode: Bool {
+        get { paginationState.isShowAllMode }
+        set {
+            paginationState.isShowAllMode = newValue
+            // The sliding-window anchor is only consulted in show-all mode.
+            // Clear it when leaving show-all so a subsequent re-entry starts
+            // pinned to the newest slice instead of a stale older offset.
+            if !newValue { paginationState.windowOldestIndex = nil }
+            paginationState.recomputeVisibleMessages(from: messageManager.messages)
+        }
+    }
+
     public var isLoadingMoreMessages: Bool {
         get { paginationState.isLoadingMoreMessages }
         set { paginationState.isLoadingMoreMessages = newValue }
@@ -893,6 +906,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public func resetMessagePagination() {
         paginationState.resetMessagePagination()
+    }
+
+    /// Reset the sliding window to the newest slice so new and streaming
+    /// messages are visible again. Invoked from the "Scroll to latest" CTAs
+    /// on both platforms before the scroll proxy is instructed to jump to
+    /// the latest anchor.
+    public func snapWindowToLatest() {
+        paginationState.snapWindowToLatest()
     }
 
     // MARK: - On-Demand Content Rehydration
@@ -1027,6 +1048,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         // Reset pagination so the display window doesn't reference indices beyond the
         // newly shortened array. trimKeepRecent < messagePageSize is possible, so clamp.
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
     }
 
@@ -1044,6 +1066,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 msgs[i].stripHeavyContent()
             }
         }
+        isShowAllMode = false
         displayedMessageCount = Self.messagePageSize
         // Only mark history as unloaded if there's a conversation to reload from.
         // Conversations without a conversation ID (new, empty) have nothing to fetch —
@@ -1218,28 +1241,32 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
 
-        // Register for system memory pressure events so we can aggressively
-        // trim the message list when the OS warns of low memory. This prevents
-        // the app from being jettisoned on devices with limited RAM.
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            // Keep only the most recent trimKeepRecent messages to reclaim
-            // as much memory as possible under pressure.
-            let keepCount = Self.trimKeepRecent
-            if self.messages.count > keepCount {
-                self.messages.removeFirst(self.messages.count - keepCount)
-                // Advance cursor to oldest retained message and mark that older
-                // pages are available from the daemon so the user can paginate back.
-                if let oldestRetained = self.messages.first {
-                    self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+        // Subscribe to the shared memory pressure monitor so we can
+        // aggressively trim the message list when the OS warns of low memory.
+        // This prevents the app from being jettisoned on devices with limited
+        // RAM. Using the shared monitor (rather than a private DispatchSource)
+        // keeps a single source of truth for pressure-driven throttling
+        // across the app — see `MemoryPressureMonitor`.
+        self.memoryPressureListener = MemoryPressureMonitor.shared.addListener { [weak self] level in
+            guard level.isElevated else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Keep only the most recent trimKeepRecent messages to reclaim
+                // as much memory as possible under pressure.
+                let keepCount = Self.trimKeepRecent
+                if self.messages.count > keepCount {
+                    self.messages.removeFirst(self.messages.count - keepCount)
+                    // Advance cursor to oldest retained message and mark that older
+                    // pages are available from the daemon so the user can paginate back.
+                    if let oldestRetained = self.messages.first {
+                        self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+                    }
+                    self.hasMoreHistory = true
+                    self.isShowAllMode = false
+                    self.displayedMessageCount = Self.messagePageSize
                 }
-                self.hasMoreHistory = true
-                self.displayedMessageCount = Self.messagePageSize
             }
         }
-        source.resume()
-        self.memoryPressureSource = source
     }
 
     // MARK: - Notification Catch-Up
@@ -2110,15 +2137,32 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             flushPartialOutputBuffer()
             var mergedMessages = chatMessages + self.messages
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
+            // Shift the sliding-window anchor by the visible prepend count so
+            // the user continues to see the same logical slice (with newly
+            // loaded older messages now above it) rather than drifting onto
+            // newer content. The anchor indexes into `displayedMessages`, so
+            // the shift must use the visibility-filtered count — a raw
+            // `chatMessages.count` would over-shift whenever the page
+            // contains subagent notifications or other filtered entries.
+            // A `nil` anchor means "pin to the newest slice" and stays that
+            // way through pagination.
+            if let anchor = paginationState.windowOldestIndex {
+                let visiblePrepended = ChatVisibleMessageFilter
+                    .visibleMessages(from: chatMessages)
+                    .count
+                paginationState.windowOldestIndex = anchor + visiblePrepended
+            }
             self.messages = mergedMessages
             // Expand the display window by the number of messages prepended so
-            // the user sees them immediately. Use Int.max if no more pages exist.
+            // the user sees them immediately. Enter show-all mode when no more
+            // daemon pages exist so new incoming messages stay visible.
             if hasMore {
-                displayedMessageCount = displayedMessageCount == Int.max
-                    ? Int.max
-                    : displayedMessageCount + chatMessages.count
+                if !isShowAllMode {
+                    displayedMessageCount = displayedMessageCount + chatMessages.count
+                }
             } else {
-                displayedMessageCount = Int.max
+                isShowAllMode = true
+                displayedMessageCount = mergedMessages.count
             }
             self.paginationState.loadMoreTimeoutTask?.cancel()
             self.paginationState.loadMoreTimeoutTask = nil
@@ -2231,6 +2275,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
         // Reset pagination so the view shows the most-recent page after history loads.
+        self.isShowAllMode = false
         self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
         // Strip heavy data from old messages after a (potentially large) history load.
@@ -2301,7 +2346,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
-        memoryPressureSource?.cancel()
+        if let token = memoryPressureListener {
+            MemoryPressureMonitor.shared.removeListener(token)
+        }
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }

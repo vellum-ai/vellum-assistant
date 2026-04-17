@@ -205,8 +205,15 @@ async function startGateway(): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  // Wait for /healthz to respond (up to 5s)
-  const deadline = Date.now() + 5_000;
+  // Collect stderr for diagnostics on failure
+  let stderr = "";
+  gatewayProc.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+
+  // Wait for /healthz to respond (up to 15s — drizzle-kit dynamic import
+  // is slow on cold CI runners where each test spawns a fresh process)
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://localhost:${port}/healthz`);
@@ -216,13 +223,27 @@ async function startGateway(): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error("Gateway failed to start within 5 seconds");
+  throw new Error(
+    `Gateway failed to start within 15 seconds.\nStderr:\n${stderr}`,
+  );
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (gatewayProc) {
-    gatewayProc.kill();
+    const proc = gatewayProc;
     gatewayProc = null;
+    proc.kill();
+    // Wait for the process to fully exit before cleaning up the directory.
+    // Without this, the next test can race with the dying process over the
+    // shared testDir (e.g. ENXIO on gateway.sock).
+    await new Promise<void>((resolve) => {
+      proc.on("exit", resolve);
+      // Safety timeout — don't block forever if the process ignores SIGTERM
+      setTimeout(() => {
+        proc.kill("SIGKILL");
+        resolve();
+      }, 3000);
+    });
   }
   try {
     rmSync(testDir, { recursive: true, force: true });
@@ -268,7 +289,7 @@ describe("gateway telegram hot-reload (e2e)", () => {
       method: "POST",
     });
     expect(after.status).toBe(401);
-  }, 15_000);
+  }, 30_000);
 
   test("gateway keeps reloading credentials after multiple atomic metadata rewrites when metadata.json already existed at startup", async () => {
     mkdirSync(testDir, { recursive: true });
@@ -311,7 +332,7 @@ describe("gateway telegram hot-reload (e2e)", () => {
       method: "POST",
     });
     expect(after.status).toBe(401);
-  }, 15_000);
+  }, 30_000);
 
   test("gateway hot-reloads v2 encrypted store credentials written after startup", async () => {
     // --- Setup: no credentials directory exists (fresh hatch) ---
@@ -345,5 +366,5 @@ describe("gateway telegram hot-reload (e2e)", () => {
       method: "POST",
     });
     expect(after.status).toBe(401);
-  }, 15_000);
+  }, 30_000);
 });

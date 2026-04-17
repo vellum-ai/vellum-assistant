@@ -19,37 +19,24 @@ import { dirname, join } from "node:path";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
+import type {
+  TrustDecision,
+  TrustFileData,
+  TrustRule,
+} from "@vellumai/ces-contracts/trust-rules";
+import {
+  parseTrustFileData,
+  parseTrustRule,
+} from "@vellumai/ces-contracts/trust-rules";
+
 import { getLogger } from "./logger.js";
 import { getGatewaySecurityDir } from "./paths.js";
+
+export type { TrustDecision, TrustRule };
 
 const log = getLogger("trust-store");
 
 const TRUST_FILE_VERSION = 3;
-
-// ---------------------------------------------------------------------------
-// Types — duplicated from ces-contracts to avoid adding a package dep for now.
-// These match the TrustRule / TrustFileData / TrustDecision shapes exactly.
-// ---------------------------------------------------------------------------
-
-export type TrustDecision = "allow" | "deny" | "ask";
-
-export interface TrustRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  scope: string;
-  decision: TrustDecision;
-  priority: number;
-  createdAt: number;
-  executionTarget?: string;
-  allowHighRisk?: boolean;
-}
-
-interface TrustFileData {
-  version: number;
-  rules: TrustRule[];
-  starterBundleAccepted?: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Starter bundle definitions
@@ -198,8 +185,11 @@ function ruleOrder(a: TrustRule, b: TrustRule): number {
 // Scope matching
 // ---------------------------------------------------------------------------
 
-function matchesScope(ruleScope: string, workingDir: string): boolean {
-  if (ruleScope === "everywhere") return true;
+function matchesScope(
+  ruleScope: string | undefined,
+  workingDir: string,
+): boolean {
+  if (!ruleScope || ruleScope === "everywhere") return true;
   const prefix = ruleScope.replace(/\*$/, "").replace(/\/+$/, "");
   const dir = workingDir.replace(/\/+$/, "");
   return dir === prefix || dir.startsWith(prefix + "/");
@@ -215,60 +205,89 @@ let cachedStarterBundleAccepted: boolean | null = null;
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
+  let needsSave = false;
 
   if (existsSync(path)) {
     try {
       const raw = readFileSync(path, "utf-8");
-      const data = JSON.parse(raw) as TrustFileData;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const version = typeof parsed.version === "number" ? parsed.version : 0;
 
-      const rawRules = Array.isArray(data.rules) ? data.rules : [];
+      // Unknown future version — return empty rules for safety; do NOT
+      // overwrite the file so a newer gateway can still read it.
+      if (version !== TRUST_FILE_VERSION && version !== 1 && version !== 2) {
+        log.warn(
+          { version },
+          "Unknown trust file version, returning empty rules",
+        );
+        return [];
+      }
+
+      // Parse and normalize using the shared canonical parser
+      const { data, normalized } = parseTrustFileData(parsed);
+
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
+      if (normalized) {
+        needsSave = true;
+      }
+
+      // Version upgrade triggers re-save
+      if (version !== TRUST_FILE_VERSION) {
+        needsSave = true;
+        log.info(
+          { version, targetVersion: TRUST_FILE_VERSION },
+          "Migrating legacy trust file version",
+        );
+      }
+
       // Strip __internal: rules that may have been hand-edited in
-      const sanitizedRules = rawRules.filter((r) => {
+      const sanitizedRules = data.rules.filter((r) => {
         if (typeof r.tool === "string" && r.tool.startsWith("__internal:")) {
           log.warn(
             { ruleId: r.id, tool: r.tool },
             "Stripping __internal: rule from trust file on load",
           );
+          needsSave = true;
           return false;
         }
         return true;
       });
 
-      if (
-        data.version === TRUST_FILE_VERSION ||
-        data.version === 1 ||
-        data.version === 2
-      ) {
-        rules = sanitizedRules;
-
-        // Strip legacy principal-scoped fields
-        for (const rule of rules) {
-          const r = rule as unknown as Record<string, unknown>;
-          if (
-            "principalKind" in r ||
-            "principalId" in r ||
-            "principalVersion" in r
-          ) {
-            delete r.principalKind;
-            delete r.principalId;
-            delete r.principalVersion;
-          }
+      // Strip legacy principal-scoped fields
+      for (const rule of sanitizedRules) {
+        const r = rule as unknown as Record<string, unknown>;
+        if (
+          "principalKind" in r ||
+          "principalId" in r ||
+          "principalVersion" in r
+        ) {
+          delete r.principalKind;
+          delete r.principalId;
+          delete r.principalVersion;
+          needsSave = true;
         }
-      } else {
-        log.warn(
-          { version: data.version },
-          "Unknown trust file version, returning empty rules",
-        );
-        return [];
       }
+
+      rules = sanitizedRules;
     } catch (err) {
       log.error({ err }, "Failed to load trust file");
     }
   }
 
   rules.sort(ruleOrder);
+
+  if (needsSave) {
+    try {
+      saveToDisk(rules);
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to persist normalized trust rules (continuing with in-memory rules)",
+      );
+    }
+  }
+
   return rules;
 }
 
@@ -332,7 +351,10 @@ export function addRule(
   // Re-read from disk to avoid lost updates
   cachedRules = null;
   const rules = [...getRules()];
-  const rule: TrustRule = {
+
+  // Canonicalize through the shared parser so fields invalid for the tool's
+  // family are stripped before persistence, regardless of callsite.
+  const { rule: canonical } = parseTrustRule({
     id: uuid(),
     tool,
     pattern,
@@ -340,13 +362,14 @@ export function addRule(
     decision,
     priority,
     createdAt: Date.now(),
-  };
-  if (options?.allowHighRisk != null) {
-    rule.allowHighRisk = options.allowHighRisk;
-  }
-  if (options?.executionTarget != null) {
-    rule.executionTarget = options.executionTarget;
-  }
+    ...(options?.allowHighRisk != null
+      ? { allowHighRisk: options.allowHighRisk }
+      : {}),
+    ...(options?.executionTarget != null
+      ? { executionTarget: options.executionTarget }
+      : {}),
+  });
+  const rule = canonical;
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -376,12 +399,18 @@ export function updateRule(
   const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) throw new Error(`Trust rule not found: ${id}`);
-  const rule = { ...rules[index] };
-  if (updates.tool != null) rule.tool = updates.tool;
-  if (updates.pattern != null) rule.pattern = updates.pattern;
-  if (updates.scope != null) rule.scope = updates.scope;
-  if (updates.decision != null) rule.decision = updates.decision;
-  if (updates.priority != null) rule.priority = updates.priority;
+  const merged = { ...rules[index] };
+  if (updates.tool != null) merged.tool = updates.tool;
+  if (updates.pattern != null) merged.pattern = updates.pattern;
+  if (updates.scope != null) merged.scope = updates.scope;
+  if (updates.decision != null) merged.decision = updates.decision;
+  if (updates.priority != null) merged.priority = updates.priority;
+
+  // Canonicalize through parseTrustRule so that fields invalid for the
+  // (potentially changed) tool family are stripped. For example, if a rule's
+  // tool is changed from "bash" to "web_fetch", executionTarget is dropped
+  // because URL-family tools don't support target scoping.
+  const { rule } = parseTrustRule(merged as unknown as Record<string, unknown>);
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;

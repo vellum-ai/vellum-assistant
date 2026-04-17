@@ -27,7 +27,7 @@ struct APIKeyEntryStepView: View {
                 CatalogModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
                 CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
                 CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
-            ], defaultModel: "claude-opus-4-6", apiKeyUrl: "https://console.anthropic.com/settings/keys", apiKeyPlaceholder: "sk-ant-api03-..."),
+            ], defaultModel: "claude-opus-4-7", apiKeyUrl: "https://console.anthropic.com/settings/keys", apiKeyPlaceholder: "sk-ant-api03-..."),
             ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
                 CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
                 CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),

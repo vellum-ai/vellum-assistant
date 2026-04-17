@@ -200,16 +200,10 @@ describe("path helpers", () => {
       expect(ports.tcp).toBe(8765);
     });
 
-    test("returns identical defaults for dev (Phase 5 deferred)", () => {
+    test("returns base defaults for a bare env with no portsOverride", () => {
+      // Bare env literal (no portsOverride) falls through to DEFAULT_PORTS.
+      // Real non-prod seeds populate portsOverride — see seeds.test cases.
       expect(getDefaultPorts(dev)).toEqual(getDefaultPorts(prod));
-    });
-
-    test("returns identical defaults for staging", () => {
-      const staging: EnvironmentDefinition = {
-        name: "staging",
-        platformUrl: "https://staging-platform.vellum.ai",
-      };
-      expect(getDefaultPorts(staging)).toEqual(getDefaultPorts(prod));
     });
 
     test("merges env.portsOverride on top of defaults", () => {

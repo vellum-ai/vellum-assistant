@@ -87,10 +87,6 @@ struct SettingsDeveloperTab: View {
                     sshTerminalSection
                 }
             }
-            // Backups (all assistant types)
-            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
-                AssistantBackupsSection(assistant: assistant, store: store)
-            }
             // Transfer (local ↔ managed)
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
                !assistant.isRemote || assistant.isManaged {
@@ -1059,6 +1055,7 @@ struct SettingsDeveloperTab: View {
             set: { newValue in
                 switch flag.scope {
                 case .assistant:
+                    let previousValue = assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
                     if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
                         assistantFlags[index] = AssistantFeatureFlag(
                             key: flag.key,
@@ -1078,12 +1075,26 @@ struct SettingsDeveloperTab: View {
                         do {
                             try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
                         } catch {
-                            // Best-effort: the local cache already has the override for
-                            // optimistic UI. The gateway PATCH may fail for managed
-                            // assistants where the platform doesn't support the write
-                            // endpoint. Log but don't revert.
+                            await MainActor.run {
+                                guard let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) else { return }
+                                // Avoid clobbering a newer user toggle while this request was in flight.
+                                guard assistantFlags[index].enabled == newValue else { return }
+                                assistantFlags[index] = AssistantFeatureFlag(
+                                    key: flag.key,
+                                    enabled: previousValue,
+                                    defaultEnabled: flag.defaultEnabled,
+                                    description: flag.description.isEmpty ? nil : flag.description,
+                                    label: flag.label
+                                )
+                                NotificationCenter.default.post(
+                                    name: .assistantFeatureFlagDidChange,
+                                    object: nil,
+                                    userInfo: ["key": flag.key, "enabled": previousValue]
+                                )
+                                AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: previousValue)
+                            }
                             os.Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
-                                .warning("Failed to sync feature flag '\(flag.key)' to gateway: \(error.localizedDescription)")
+                                .warning("Failed to sync feature flag '\(flag.key)' to gateway; reverted local toggle: \(error.localizedDescription)")
                         }
                     }
                 case .macos:
