@@ -68,6 +68,9 @@ struct HomeUpdatesListCard: View {
                         onSelectUpdate(index)
                     }
                     .pointerCursor()
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(item.title), \(item.threadName)")
+                    .accessibilityAddTraits(.isButton)
             }
         }
     }
