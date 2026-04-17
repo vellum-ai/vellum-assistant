@@ -322,14 +322,12 @@ export function createHttpServer(
     // awaiting it directly is safe.
     await previousChain;
 
+    try {
     let handle: AudioPlaybackHandle;
     try {
       handle = playbackFactory(playbackSpawnOptions);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Release our slot so the next POST in the chain isn't blocked on a
-      // handler that failed before it even registered.
-      releaseChain();
       return c.json({ error: `failed to start playback: ${message}` }, 500);
     }
 
@@ -342,15 +340,14 @@ export function createHttpServer(
 
     const body = c.req.raw.body;
     if (!body) {
-      activeStreams.delete(streamId);
-      // No body is treated as an empty stream — flush trailing silence for
-      // symmetry and return success.
+      if (activeStreams.get(streamId)?.controller === controller) {
+        activeStreams.delete(streamId);
+      }
       try {
         await handle.flushSilence(TRAILING_SILENCE_MS);
       } catch {
         // Best-effort; silence is cosmetic.
       }
-      releaseChain();
       return c.json({ streamId, bytes: 0 }, 200);
     }
 
@@ -411,18 +408,14 @@ export function createHttpServer(
       } catch {
         // Lock may already be released after `cancel()`; fine.
       }
-      activeStreams.delete(streamId);
-      // Always flush trailing silence so we don't "pop" — even on cancel,
-      // which intentionally stops PCM mid-frame.
+      if (activeStreams.get(streamId)?.controller === controller) {
+        activeStreams.delete(streamId);
+      }
       try {
         await handle.flushSilence(TRAILING_SILENCE_MS);
       } catch {
         // Best-effort.
       }
-      // Release our slot in the playback chain *after* the silence flush
-      // so any POST queued behind us only unblocks once the shared pacat
-      // stdin is fully quiesced.
-      releaseChain();
     }
 
     if (writeError) {
@@ -446,6 +439,9 @@ export function createHttpServer(
       );
     }
     return c.json({ streamId, bytes }, 200);
+    } finally {
+      releaseChain();
+    }
   });
 
   // -------------------------------------------------------------------------

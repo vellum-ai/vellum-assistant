@@ -57,6 +57,14 @@ export const BOT_AUDIO_SAMPLE_BITS = 16;
 export const BOT_AUDIO_ENCODING = "pcm_s16le";
 
 /**
+ * Timeout for the best-effort `DELETE /play_audio/<streamId>` issued during
+ * cancel. The DELETE is cosmetic (the POST is already aborted, so the bot
+ * sees EOF), but we don't want a hung DELETE to block the cancel path
+ * indefinitely.
+ */
+export const CANCEL_DELETE_TIMEOUT_MS = 5_000;
+
+/**
  * ffmpeg arguments that read whatever format the TTS provider emits on
  * stdin and write raw 48 kHz / mono / s16le PCM on stdout. The decoder is
  * format-agnostic (no `-f` on input) so the same pipeline accepts mp3,
@@ -447,6 +455,7 @@ export class MeetTtsBridge {
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${this.botApiToken}` },
+          signal: AbortSignal.timeout(CANCEL_DELETE_TIMEOUT_MS),
         },
       );
     } catch (err) {
@@ -601,11 +610,21 @@ export class MeetTtsBridge {
 
       child.on("error", (err) => {
         const nodeErr = err as NodeJS.ErrnoException;
-        const reason =
-          nodeErr?.code === "ENOENT"
-            ? "ffmpeg binary not found on PATH (ENOENT)"
-            : `ffmpeg probe failed: ${err instanceof Error ? err.message : String(err)}`;
-        settle({ available: false, reason });
+        if (nodeErr?.code === "ENOENT") {
+          settle({
+            available: false,
+            reason: "ffmpeg binary not found on PATH (ENOENT)",
+          });
+        } else {
+          // Transient error (EMFILE, EAGAIN, etc.) — clear the memoized
+          // probe so the next speak() retries instead of being stuck on a
+          // sticky false negative.
+          this.ffmpegProbe = null;
+          settle({
+            available: false,
+            reason: `ffmpeg probe failed (transient): ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
       });
       child.on("exit", () => {
         // Any exit — zero or non-zero — means ffmpeg was runnable.
