@@ -59,6 +59,7 @@ public final class AuthService {
         try await request(AuthRequestConfig(path: "auth/session", method: "DELETE"))
     }
 
+    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
     public func authenticateWithProviderToken(
         provider: String,
         process: String,
@@ -78,6 +79,7 @@ public final class AuthService {
         return try await request(AuthRequestConfig(path: "auth/provider/token", method: "POST", body: body))
     }
 
+    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
     public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
         guard let requestURL = URL(string: url),
               requestURL.scheme?.lowercased() == "https" else {
@@ -87,6 +89,7 @@ public final class AuthService {
         return try JSONDecoder().decode(OIDCDiscovery.self, from: data)
     }
 
+    // NOTE: No longer used by startWorkOSLogin(). Retained for backward compatibility.
     public func exchangeOIDCCode(
         tokenEndpoint: String,
         clientId: String,
