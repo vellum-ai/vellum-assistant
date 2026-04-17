@@ -52,11 +52,13 @@ final class ConversationRestorer {
     private let eventStreamClient: EventStreamClient
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
-    private var connectionObservationTask: Task<Void, Never>?
     private var disconnectObservationTask: Task<Void, Never>?
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
     private var invalidationRefetchTask: Task<Void, Never>?
+    /// NotificationCenter observer token for `.daemonDidReconnect`. Removed after
+    /// the first post fires the initial conversation list fetch.
+    private var daemonReconnectObserver: NSObjectProtocol?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -67,10 +69,12 @@ final class ConversationRestorer {
     }
 
     deinit {
-        connectionObservationTask?.cancel()
         disconnectObservationTask?.cancel()
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
+        if let daemonReconnectObserver {
+            NotificationCenter.default.removeObserver(daemonReconnectObserver)
+        }
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -98,6 +102,8 @@ final class ConversationRestorer {
 
         // Reset loading state when the daemon disconnects so the Load More
         // button doesn't stay permanently disabled after a dropped connection.
+        // The transition to `false` is only read for its edge effect, so this
+        // path tolerates the Observation framework's racy "first read" semantics.
         disconnectObservationTask?.cancel()
         disconnectObservationTask = Task { @MainActor [weak self] in
             for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
@@ -109,13 +115,45 @@ final class ConversationRestorer {
         }
 
         // Fetch conversation list on first connect.
-        connectionObservationTask?.cancel()
-        connectionObservationTask = Task { @MainActor [weak self] in
-            for await connected in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
-                guard let self, !Task.isCancelled else { break }
-                if connected {
+        //
+        // Uses `.daemonDidReconnect` (posted synchronously by
+        // `GatewayConnectionManager.setConnected(true)` on the main actor) as
+        // the trigger rather than an `observationStream` on `isConnected`.
+        // The Observation-based approach is racy at startup: the
+        // connect-task and the observer-task are both enqueued on the main
+        // actor, and there is no guarantee that `withObservationTracking` is
+        // installed before `setConnected(true)` runs. When the tracking is
+        // installed after the transition, the `onChange` callback never
+        // fires and the initial fetch is skipped — the sidebar then stays
+        // empty until another code path (e.g. a server-pushed
+        // `conversation_list_invalidated` after the user sends a message)
+        // triggers `scheduleInvalidationRefetch`. `.daemonDidReconnect` is
+        // the same deterministic signal used elsewhere in the app for
+        // reconnect-triggered refreshes.
+        //
+        // The synchronous `isConnected` guard handles the (rare) case where
+        // the daemon connected before the restorer started observing; it is
+        // idempotent because `fetchConversationList` cancels any in-flight
+        // fetch task before starting a new one.
+        if connectionManager.isConnected {
+            fetchConversationList()
+        } else {
+            if let existing = daemonReconnectObserver {
+                NotificationCenter.default.removeObserver(existing)
+                daemonReconnectObserver = nil
+            }
+            daemonReconnectObserver = NotificationCenter.default.addObserver(
+                forName: .daemonDidReconnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if let observer = self.daemonReconnectObserver {
+                        NotificationCenter.default.removeObserver(observer)
+                        self.daemonReconnectObserver = nil
+                    }
                     self.fetchConversationList()
-                    break // Only need the first connect
                 }
             }
         }
