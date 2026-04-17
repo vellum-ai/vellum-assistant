@@ -423,11 +423,11 @@ function fileAddRule(
 ): TrustRule {
   if (tool.startsWith("__internal:"))
     throw new Error(`Cannot create internal pseudo-rule via addRule: ${tool}`);
-  // Re-read from disk to avoid lost updates if another call modified rules
-  // between our last read and now (e.g. two rapid trust rule additions).
-  cachedRules = null;
-  const rules = [...getRules()];
-  const rule: TrustRule = {
+
+  // Canonicalize through the shared parser so fields invalid for the tool's
+  // family are stripped before persistence, regardless of which callsite
+  // invoked addRule.
+  const { rule: canonical } = parseTrustRule({
     id: uuid(),
     tool,
     pattern,
@@ -441,7 +441,13 @@ function fileAddRule(
     ...(options?.executionTarget != null
       ? { executionTarget: options.executionTarget }
       : {}),
-  };
+  });
+  const rule = canonical as TrustRule;
+
+  // Re-read from disk to avoid lost updates if another call modified rules
+  // between our last read and now (e.g. two rapid trust rule additions).
+  cachedRules = null;
+  const rules = [...getRules()];
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -1011,15 +1017,46 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       throw new Error(
         `Cannot create internal pseudo-rule via addRule: ${tool}`,
       );
-    this.ensureInitialized();
-    const rule = trustClient.addRuleSync({
+
+    // Canonicalize through the shared parser so fields invalid for the tool's
+    // family are stripped before sending to the gateway.
+    const { rule: canonical } = parseTrustRule({
+      id: "",
       tool,
       pattern,
       scope,
       decision,
       priority,
-      allowHighRisk: options?.allowHighRisk,
-      executionTarget: options?.executionTarget,
+      createdAt: 0,
+      ...(options?.allowHighRisk != null
+        ? { allowHighRisk: options.allowHighRisk }
+        : {}),
+      ...(options?.executionTarget != null
+        ? { executionTarget: options.executionTarget }
+        : {}),
+    });
+    const canonicalOpts: { allowHighRisk?: boolean; executionTarget?: string } =
+      {};
+    if ("allowHighRisk" in canonical) {
+      canonicalOpts.allowHighRisk = (
+        canonical as { allowHighRisk?: boolean }
+      ).allowHighRisk;
+    }
+    if ("executionTarget" in canonical) {
+      canonicalOpts.executionTarget = (
+        canonical as { executionTarget?: string }
+      ).executionTarget;
+    }
+
+    this.ensureInitialized();
+    const rule = trustClient.addRuleSync({
+      tool: canonical.tool,
+      pattern: canonical.pattern,
+      scope: canonical.scope,
+      decision: canonical.decision,
+      priority: canonical.priority,
+      allowHighRisk: canonicalOpts.allowHighRisk,
+      executionTarget: canonicalOpts.executionTarget,
     });
     // Update local cache
     this.rules = [...this.rules, rule].sort(ruleOrder);
@@ -1044,6 +1081,23 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
         `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
       );
     this.ensureInitialized();
+
+    // Canonicalize the merged rule so fields invalid for the (possibly new)
+    // tool family are stripped before sending to the gateway.
+    const existing = this.rules.find((r) => r.id === id);
+    if (existing) {
+      const merged = { ...existing, ...updates };
+      const { rule: canonical } = parseTrustRule(merged);
+      // Send the canonical fields as the update
+      updates = {
+        tool: canonical.tool,
+        pattern: canonical.pattern,
+        scope: canonical.scope,
+        decision: canonical.decision,
+        priority: canonical.priority,
+      };
+    }
+
     const rule = trustClient.updateRuleSync(id, updates);
     // Update local cache
     const idx = this.rules.findIndex((r) => r.id === id);
