@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Vellum Assistant Browser Relay",
+  "name": "Vellum Assistant",
   "version": "0.0.0",
   "minimum_chrome_version": "116",
   "description": "Bridges the Vellum assistant to your live browser session via Chrome DevTools Protocol (CDP) through chrome.debugger.",
@@ -23,7 +23,7 @@
 
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Vellum Relay"
+    "default_title": "Vellum Assistant"
   },
 
   "icons": {

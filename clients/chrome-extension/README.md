@@ -1,8 +1,14 @@
-# Vellum Chrome Extension
+# Vellum Assistant Chrome Extension
 
 MV3 Chrome extension that connects your browser to a running Vellum assistant via a WebSocket relay. It discovers assistants from the local lockfile, handles auth automatically, and maintains a persistent background connection.
 
-## Prerequisites
+## Install from Chrome Web Store
+
+Install the [Vellum Assistant](https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) extension directly from the Chrome Web Store. This is the recommended approach for most users — no developer mode required.
+
+## Development
+
+### Prerequisites
 
 - Bun installed and on `PATH`
 - Chrome with Developer mode enabled (`chrome://extensions`)
@@ -14,7 +20,7 @@ If Bun isn't on your PATH:
 export PATH="$HOME/.bun/bin:$PATH"
 ```
 
-## Build & Load
+### Build & Load
 
 ```bash
 cd clients/chrome-extension
@@ -27,7 +33,7 @@ Then in Chrome:
 3. Click **Load unpacked**
 4. Select `clients/chrome-extension/dist`
 
-## Dev Loop
+### Dev Loop
 
 After editing extension code:
 

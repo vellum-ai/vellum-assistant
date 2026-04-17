@@ -88,7 +88,7 @@ const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   [BROWSER_STATUS_MODE.EXTENSION]: [
     "Controls the user's existing Chrome profile and tabs.",
     "Requires the Vellum extension to be paired and actively connected.",
-    "Best when the user wants the assistant to operate in their real browser session.",
+    "This is the preferred method. It provides the highest level of security as ",
   ],
   [BROWSER_STATUS_MODE.CDP_INSPECT]: [
     "Controls an existing Chrome instance launched with --remote-debugging-port.",
@@ -2087,7 +2087,7 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
 
 function extensionSetupActions(): string[] {
   return [
-    "Install and enable the Vellum Relay Chrome extension.",
+    "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
     "Open the extension popup and click Pair with local assistant.",
     "Keep the extension connected to the assistant relay.",
   ];
