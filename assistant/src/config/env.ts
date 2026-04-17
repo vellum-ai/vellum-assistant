@@ -153,9 +153,9 @@ export function getPlatformBaseUrl(): string {
     // Config not yet available (early bootstrap) — fall through
   }
   // Resolve the default platform URL from VELLUM_ENVIRONMENT.
-  // `local` points at a developer's locally running platform; every
-  // other value (including unset) falls back to dev-platform so we
-  // don't accidentally hit production/staging by default.
+  // `production` and `staging` map to their respective hosted platforms,
+  // `local` points at a developer's locally running platform, and
+  // everything else (including unset) falls back to dev-platform.
   const env = str("VELLUM_ENVIRONMENT")?.trim();
   let defaultUrl: string;
   if (env === "production") {
