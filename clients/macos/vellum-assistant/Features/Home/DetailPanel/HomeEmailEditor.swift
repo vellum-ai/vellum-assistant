@@ -55,7 +55,6 @@ struct HomeEmailEditor: View {
                 .frame(minHeight: 240, alignment: .topLeading)
                 .padding(VSpacing.md)
 
-            Spacer(minLength: 0)
 
             if !attachments.isEmpty {
                 Divider()
