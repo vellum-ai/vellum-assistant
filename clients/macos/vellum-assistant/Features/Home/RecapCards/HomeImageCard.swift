@@ -42,7 +42,7 @@ struct HomeImageCard: View {
 
             actionButtons
         }
-        .recapCardGlass()
+        .glassCard()
         .recapCardMaxWidth(fill: true)
     }
 

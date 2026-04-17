@@ -47,7 +47,7 @@ struct HomePermissionCard: View {
             }
             actionButtons
         }
-        .recapCardGlass()
+        .glassCard()
         .recapCardMaxWidth()
     }
 

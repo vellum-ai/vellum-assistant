@@ -30,7 +30,7 @@ struct HomeReplyCard: View {
             composerBar
                 .padding(.top, VSpacing.md)
         }
-        .recapCardGlass()
+        .glassCard()
         .recapCardMaxWidth(fill: true)
     }
 

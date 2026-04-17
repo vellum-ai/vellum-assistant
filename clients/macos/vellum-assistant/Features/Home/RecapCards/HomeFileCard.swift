@@ -41,7 +41,7 @@ struct HomeFileCard: View {
                 fileSize: fileSize
             )
         }
-        .recapCardGlass()
+        .glassCard()
         .recapCardMaxWidth(fill: true)
     }
 }

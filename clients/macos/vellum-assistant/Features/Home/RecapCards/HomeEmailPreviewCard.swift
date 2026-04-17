@@ -48,7 +48,7 @@ struct HomeEmailPreviewCard: View {
 
             actionButtons
         }
-        .recapCardGlass()
+        .glassCard()
         .recapCardMaxWidth(fill: true)
     }
 
