@@ -196,7 +196,8 @@ const DISPATCH_HANDLERS: Record<BrowserOperation, OperationHandler> = {
  * @param input     - Flat input object matching the operation's field schema.
  * @param context   - Tool execution context (conversation ID, signal, etc.).
  * @returns The tool execution result from the underlying handler.
- * @throws If the operation identifier is not recognized.
+ *   If the operation identifier is not recognized, returns an error
+ *   result (`isError: true`) rather than throwing.
  */
 export async function executeBrowserOperation(
   operation: BrowserOperation,
@@ -220,8 +221,8 @@ export async function executeBrowserOperation(
  * constraints. Used by the CLI command builder to generate subcommands.
  *
  * The `browser_mode` and `activity` fields are omitted from per-operation
- * metadata because they are common to all operations and handled by the
- * CLI framework as global options.
+ * metadata because they are not exposed through the CLI. Operations
+ * invoked via the CLI always use the default browser mode.
  */
 export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
   {
