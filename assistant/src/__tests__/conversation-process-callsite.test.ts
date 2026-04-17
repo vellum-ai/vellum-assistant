@@ -1,20 +1,11 @@
 /**
- * PR 6 — verify that `callSite` threads from `Conversation.processMessage`
- * options all the way down to the per-call provider config.
+ * Verify that `callSite` threads from `Conversation.processMessage` options
+ * all the way down to the per-call provider config, and that user-initiated
+ * turns default to `'mainAgent'` when no caller-supplied `callSite` is set.
  *
  * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
  * the conversation passes after `processMessage` runs the slash-resolver and
  * runtime-injection pipeline.
- *
- * NOTE: PR 6 originally defaulted absent callers to `'mainAgent'`, but
- * Codex/Devin flagged that this routes every conversation turn through
- * `RetryProvider`'s new call-site resolver while `config-model.setModel`
- * still writes to `services.inference` without syncing `llm.default`.
- * Defer the cutover to a future PR that handles the model-sync. Until
- * then, agent-loop turns leave `callSite` undefined so the legacy
- * `modelIntent` path remains in effect for the user-message conversation
- * flow, while adapter callers (heartbeat/filing/scheduler) keep passing
- * their explicit `callSite` through.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -274,13 +265,7 @@ describe("processMessage callSite threading", () => {
     expect(captured.callSite).toBe("heartbeatAgent");
   });
 
-  test("leaves callSite undefined when not supplied (legacy modelIntent path)", async () => {
-    // PR 6 originally defaulted absent callers to 'mainAgent', but
-    // Codex/Devin flagged that this routes every conversation turn through
-    // the new RetryProvider call-site resolver while `services.inference`
-    // writes don't sync to `llm.default`. Defer the cutover to a future PR
-    // that handles the model-sync. Until then, agent-loop turns keep using
-    // the legacy modelIntent path by leaving `callSite` undefined.
+  test("defaults to 'mainAgent' when not supplied", async () => {
     mockConversation = {
       id: "conv-1",
       contextSummary: null,
@@ -297,6 +282,6 @@ describe("processMessage callSite threading", () => {
 
     await conversation.processMessage("Plain user message", [], () => {});
 
-    expect(captured.callSite).toBeUndefined();
+    expect(captured.callSite).toBe("mainAgent");
   });
 });
