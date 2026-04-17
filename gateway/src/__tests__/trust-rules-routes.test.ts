@@ -264,7 +264,7 @@ describe("GET /v1/trust-rules/match — query", () => {
         {
           id: "m-1",
           tool: "bash",
-          pattern: "ls **",
+          pattern: "**",
           scope: "everywhere",
           decision: "allow",
           priority: 100,
