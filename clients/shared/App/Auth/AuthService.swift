@@ -686,19 +686,10 @@ public final class AuthService {
     // MARK: - Allauth Requests
 
     private func request<T: Codable>(_ requestConfig: AuthRequestConfig) async throws -> AllauthResponse<T> {
-        var attempt = try await executeRequestAttempt(
-            requestConfig: requestConfig,
-            includeSessionToken: true
-        )
+        let attempt = try await executeRequestAttempt(requestConfig: requestConfig)
         log.debug("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
 
-        if await shouldRetryAfterSessionTokenGone(for: requestConfig, firstAttempt: attempt) {
-            attempt = try await executeRequestAttempt(
-                requestConfig: requestConfig,
-                includeSessionToken: false
-            )
-            log.debug("Auth request retry \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
-        }
+        await clearSessionTokenIfGone(for: requestConfig, attempt: attempt)
 
         let decoded: AllauthResponse<T>
         do {
@@ -716,22 +707,22 @@ public final class AuthService {
         return decoded
     }
 
-    private func shouldRetryAfterSessionTokenGone(
+    /// Clears the stored session token when the server responds with 410 (Gone),
+    /// indicating the token is no longer valid.
+    private func clearSessionTokenIfGone(
         for requestConfig: AuthRequestConfig,
-        firstAttempt: AuthAttemptResult
-    ) async -> Bool {
-        guard firstAttempt.statusCode == 410, firstAttempt.didSendSessionToken else {
-            return false
+        attempt: AuthAttemptResult
+    ) async {
+        guard attempt.statusCode == 410, attempt.didSendSessionToken else {
+            return
         }
 
         log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; clearing stored session token.")
         await SessionTokenManager.deleteTokenAsync()
-        return false
     }
 
     private func executeRequestAttempt(
-        requestConfig: AuthRequestConfig,
-        includeSessionToken: Bool
+        requestConfig: AuthRequestConfig
     ) async throws -> AuthAttemptResult {
         let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
@@ -747,7 +738,7 @@ public final class AuthService {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         var didSendSessionToken = false
-        if includeSessionToken, let token = await SessionTokenManager.getTokenAsync() {
+        if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
             didSendSessionToken = true
         }
