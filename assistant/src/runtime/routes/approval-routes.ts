@@ -8,6 +8,7 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
+import { parseTrustRule } from "@vellumai/ces-contracts";
 import { z } from "zod";
 
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
@@ -396,10 +397,40 @@ export async function handleTrustRule(
     const tool = getTool(confirmation.toolName);
     const executionTarget =
       tool?.origin === "skill" ? confirmation.executionTarget : undefined;
-    addRule(confirmation.toolName, pattern, scope, decision, undefined, {
-      allowHighRisk: allowHighRisk || undefined,
-      executionTarget,
+
+    // Canonicalize through the shared parser so fields invalid for the tool's
+    // family are stripped before persistence. The `always_allow_high_risk`
+    // decision maps to `allowHighRisk: true` on the persisted rule for scoped
+    // and generic tool families; the parser strips it for families that don't
+    // support it (URL, managed-skill, skill-load).
+    const { rule: canonical } = parseTrustRule({
+      id: "",
+      tool: confirmation.toolName,
+      pattern,
+      scope,
+      decision,
+      priority: 100,
+      createdAt: 0,
+      ...(allowHighRisk ? { allowHighRisk: true } : {}),
+      ...(executionTarget != null ? { executionTarget } : {}),
     });
+    const canonicalOpts =
+      "allowHighRisk" in canonical || "executionTarget" in canonical
+        ? {
+            allowHighRisk: (canonical as { allowHighRisk?: boolean })
+              .allowHighRisk,
+            executionTarget: (canonical as { executionTarget?: string })
+              .executionTarget,
+          }
+        : undefined;
+    addRule(
+      canonical.tool,
+      canonical.pattern,
+      canonical.scope,
+      canonical.decision,
+      undefined,
+      canonicalOpts,
+    );
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, requestId },
       "Trust rule added via HTTP (bound to pending confirmation)",
