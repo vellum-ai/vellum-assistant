@@ -118,15 +118,18 @@ struct HomeAuthCard: View {
         VButton(label: "Deny", style: .danger, size: .pillRegular, action: onDeny)
     }
 
+    @ViewBuilder
     private var dismissButton: some View {
-        VButton(
-            label: "Dismiss",
-            iconOnly: "lucide-x",
-            style: .outlined,
-            size: .pillRegular,
-            iconColor: VColor.primaryBase
-        ) {
-            onDismiss?()
+        if let onDismiss {
+            VButton(
+                label: "Dismiss",
+                iconOnly: "lucide-x",
+                style: .outlined,
+                size: .pillRegular,
+                iconColor: VColor.primaryBase
+            ) {
+                onDismiss()
+            }
         }
     }
 }
