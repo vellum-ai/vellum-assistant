@@ -1066,19 +1066,20 @@ function makeHubPublisher(
       typeof (msg as { conversationId?: unknown }).conversationId === "string"
         ? (msg as { conversationId: string }).conversationId
         : undefined;
-    // List-level events (e.g. title updates, list invalidations) describe a
-    // single conversation but are semantically useful to ALL connected
-    // clients so their sidebars stay in sync — not just the client currently
-    // viewing that conversation. Publish them unscoped so the SSE hub does
-    // not filter them out by the subscriber's `filter.conversationId`.
-    // `conversation_list_invalidated` is already published unscoped by the
-    // management routes; this keeps `conversation_title_updated` consistent.
-    const isListLevelEvent =
-      msg.type === "conversation_title_updated" ||
-      msg.type === "conversation_list_invalidated";
-    const resolvedConversationId = isListLevelEvent
-      ? undefined
-      : (msgConversationId ?? conversationId);
+    // `conversation_list_invalidated` is a list-level system event: it
+    // describes no particular conversation and every connected client
+    // should refresh its sidebar. Publish it unscoped so the SSE hub does
+    // not filter it out by the subscriber's `filter.conversationId`.
+    // Other events (including `conversation_title_updated`) stay scoped to
+    // their conversation — unscoped scoped-events would leak foreign
+    // `conversationId` values to native clients' speculative ID-resolution
+    // path. For `conversation_title_updated` we instead enqueue a matching
+    // unscoped `conversation_list_invalidated` below so other clients'
+    // sidebars can refresh and pick up the new title.
+    const resolvedConversationId =
+      msg.type === "conversation_list_invalidated"
+        ? undefined
+        : (msgConversationId ?? conversationId);
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
@@ -1093,6 +1094,29 @@ function makeHubPublisher(
           { err },
           "assistant-events hub subscriber threw during POST /messages",
         );
+      }
+
+      // When the agent loop auto-generates a conversation title, also
+      // broadcast an unscoped `conversation_list_invalidated` so every
+      // connected client's sidebar can refresh and pick up the new title.
+      // Without this, clients viewing other conversations (or a draft)
+      // would never learn that the title for this conversation changed.
+      // The scoped `conversation_title_updated` above still handles the
+      // in-place update for the client currently viewing this conversation.
+      if (msg.type === "conversation_title_updated") {
+        try {
+          await deps.assistantEventHub.publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          );
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to publish conversation_list_invalidated after title update",
+          );
+        }
       }
     })();
   };

@@ -14,11 +14,16 @@
  *
  * If the conversationKey has no mapping yet (e.g. a client-generated draft
  * UUID that has not been sent a first message), the subscription is
- * accepted without a conversation-scoped filter. This avoids eagerly
- * materialising a server-side conversation at subscribe time, which would
- * cause `handleSendMessage` to skip its `conversation_list_invalidated`
- * publish (guarded on `mapping.created`) and leave other clients unaware
- * of the new conversation.
+ * accepted with `filter.conversationId` set to the unresolved key itself.
+ * Since the key is a freshly generated UUID distinct from any server-
+ * assigned conversation id, no scoped events will match — the subscriber
+ * only receives unscoped system events (e.g. `conversation_list_invalidated`)
+ * until the first message materialises the conversation and the client
+ * reconnects. This avoids eagerly materialising a server-side conversation
+ * at subscribe time (which would cause `handleSendMessage` to skip its
+ * `conversation_list_invalidated` publish on first message) and also
+ * prevents cross-conversation event leakage that an unfiltered subscription
+ * would cause.
  */
 
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
@@ -85,15 +90,16 @@ export function handleSubscribeAssistantEvents(
   };
   if (conversationKey) {
     // Resolve to the internal conversation id when a mapping exists, but do
-    // NOT create one here. If the key is a fresh draft, leave
-    // `filter.conversationId` unset so the subscriber still receives
-    // unscoped system events (e.g. `conversation_list_invalidated`). Once
-    // the first message materialises the conversation, the client is
-    // expected to reconnect (or refresh) to pick up the scoped stream.
+    // NOT create one here. If the key is a fresh draft with no mapping yet,
+    // fall back to the key itself as the conversationId filter. Since the
+    // key is a client-chosen UUID distinct from any server-assigned
+    // conversation id, no published event will match it — the subscriber
+    // only receives unscoped system events (e.g.
+    // `conversation_list_invalidated`). Once the first message materialises
+    // the conversation, the client is expected to reconnect to pick up the
+    // properly scoped stream.
     const mapping = getConversationByKey(conversationKey);
-    if (mapping) {
-      filter.conversationId = mapping.conversationId;
-    }
+    filter.conversationId = mapping?.conversationId ?? conversationKey;
   }
   const encoder = new TextEncoder();
 
