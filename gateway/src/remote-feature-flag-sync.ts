@@ -149,6 +149,16 @@ export class RemoteFeatureFlagSync {
     }
 
     if (this.started) {
+      // A concurrent poll() may have called pauseForCredentials() during
+      // our await, re-establishing credential-watch state and setting a
+      // safety-net timer. Clean that up before deciding what to do next
+      // so we don't leak timers or leave waitingForCredentials stale.
+      this.clearCredentialWatch();
+      if (this.pollTimer) {
+        clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+      }
+
       if (result === "missing_credentials") {
         this.pauseForCredentials();
       } else {
