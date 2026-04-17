@@ -205,7 +205,13 @@ export class RemoteFeatureFlagSync {
    * Stop polling and watch for credential changes instead.
    *
    * Called when credentials are not configured (user not logged in).
-   * Resumes sync automatically when the credential cache is invalidated.
+   * Resumes sync automatically via two paths:
+   * 1. Primary: credential cache invalidation (e.g. after login).
+   * 2. Safety net: a delayed retry at the steady-state interval, in case
+   *    the "missing" result was caused by a transient credential-reader
+   *    failure (readCesCredential swallows errors as undefined) or an
+   *    invalidation event was missed between the credential check and
+   *    the listener registration.
    */
   private pauseForCredentials(): void {
     if (this.waitingForCredentials) return;
@@ -217,7 +223,7 @@ export class RemoteFeatureFlagSync {
       this.pollTimer = null;
     }
 
-    // Listen for credential changes to resume.
+    // Primary resume path: credential cache invalidation.
     this.unsubscribeCredentials = this.credentials.onInvalidate(() => {
       if (!this.started || !this.waitingForCredentials) return;
       log.info("Credentials changed — attempting remote feature flag sync");
@@ -228,6 +234,19 @@ export class RemoteFeatureFlagSync {
         );
       });
     });
+
+    // Safety net: re-check after the steady-state interval. If credentials
+    // are still missing, syncNow → pauseForCredentials re-arms this timer.
+    this.pollTimer = setTimeout(() => {
+      if (!this.started || !this.waitingForCredentials) return;
+      log.debug("Safety re-check: retrying credential read after pause");
+      this.syncNow().catch((err) => {
+        log.warn(
+          { err },
+          "Failed to sync remote feature flags (safety re-check)",
+        );
+      });
+    }, this.maxIntervalMs);
 
     log.debug("Paused remote flag polling — waiting for credentials");
   }
