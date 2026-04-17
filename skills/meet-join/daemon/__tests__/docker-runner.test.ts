@@ -616,10 +616,10 @@ describe("DockerRunner workspace-mount mode branching", () => {
     });
 
     const expected = dockerSocketUnreachableMessage(socketPath);
-    // Guard the exact Phase 1.10 wording so regressions to the old
-    // Phase 1.8 "host docker socket" message surface loudly.
+    // Guard the wording so regressions to the old "host docker socket"
+    // message surface loudly. Must use "assistant" not "daemon" per AGENTS.md.
     expect(expected).toContain("Inner dockerd is not running");
-    expect(expected).toContain("Phase 1.10 PR 2");
+    expect(expected).toContain("assistant container");
 
     await expect(
       runner.run({

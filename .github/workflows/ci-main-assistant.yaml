@@ -8,6 +8,7 @@ on:
       - 'assistant/**'
       - 'credential-executor/**'
       - 'packages/**'
+      - 'skills/meet-join/contracts/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 

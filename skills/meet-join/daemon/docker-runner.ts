@@ -214,7 +214,7 @@ export class DockerApiError extends Error {
  * operator overrides the default socket path).
  */
 export function dockerSocketUnreachableMessage(socketPath: string): string {
-  return `Inner dockerd is not running (socket ${socketPath}). The daemon container's init supervisor (Phase 1.10 PR 2) failed to start dockerd. Check daemon container logs.`;
+  return `Inner dockerd is not running (socket ${socketPath}). The assistant container's init supervisor failed to start dockerd. Check assistant container logs.`;
 }
 
 /**
