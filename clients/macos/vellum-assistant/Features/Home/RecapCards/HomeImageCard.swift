@@ -63,7 +63,7 @@ struct HomeImageCard: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 288)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl, style: .continuous))
     }
 
     // MARK: - Action buttons
@@ -82,7 +82,7 @@ struct HomeImageCard: View {
             .buttonStyle(.plain)
 
             Button(action: onOpenInFinder) {
-                Text("Open in Finder")
+                Text("Find a New One")
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
                     .padding(.horizontal, 10)

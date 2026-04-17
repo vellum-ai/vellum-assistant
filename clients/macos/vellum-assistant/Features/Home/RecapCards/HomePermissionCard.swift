@@ -65,7 +65,7 @@ struct HomePermissionCard: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceActive)
+                .fill(VColor.surfaceLift)
                 .frame(width: 38, height: 38)
             VIconView(.lockOpen, size: 18)
                 .foregroundStyle(VColor.contentDisabled)

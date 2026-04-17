@@ -50,22 +50,17 @@ struct HomeReplyCard: View {
     // MARK: - Inline Composer
 
     private var composerBar: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.lg) {
             composerInput
             composerIcons
         }
         .padding(.leading, VSpacing.md)
         .padding(.trailing, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .frame(minHeight: 40)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.window, style: .continuous)
+            Capsule(style: .continuous)
                 .fill(VColor.surfaceLift)
-        )
-        .shadow(
-            color: VColor.auxBlack.opacity(0.05),
-            radius: 2,
-            x: 0,
-            y: 2
         )
     }
 
@@ -91,15 +86,25 @@ struct HomeReplyCard: View {
     }
 
     private var composerIcons: some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(.paperclip, size: 20)
+        HStack(spacing: VSpacing.lg) {
+            VIconView(.paperclip, size: 14)
                 .foregroundStyle(VColor.contentTertiary)
 
-            VIconView(.mic, size: 20)
+            VIconView(.mic, size: 14)
                 .foregroundStyle(VColor.contentTertiary)
 
-            VIconView(.audioWaveform, size: 32)
-                .foregroundStyle(VColor.contentDefault)
+            sendButton
+        }
+    }
+
+    private var sendButton: some View {
+        ZStack {
+            Circle()
+                .fill(VColor.contentDefault)
+                .frame(width: 20, height: 20)
+
+            VIconView(.audioWaveform, size: 14)
+                .foregroundStyle(VColor.surfaceLift)
         }
     }
 }

@@ -70,29 +70,21 @@ struct HomeEmailPreviewCard: View {
     }
 
     private func emailField(label: String, value: String) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            Text(label)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-
-            Text(value)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, VSpacing.sm)
+        Text("\(label) \(value)")
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(VColor.contentSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, VSpacing.sm)
     }
 
     private var bodySection: some View {
-        HStack {
-            Text(bodyText)
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, VSpacing.sm)
+        Text(bodyText)
+            .font(VFont.bodyMediumEmphasised)
+            .foregroundStyle(VColor.contentDefault)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, VSpacing.sm)
     }
 
     private var divider: some View {
@@ -104,12 +96,12 @@ struct HomeEmailPreviewCard: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.xs) {
             Button(action: onSend) {
                 Text("Send it")
                     .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentInset)
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
                     .frame(height: 32)
                     .background(
                         Capsule()
@@ -122,7 +114,7 @@ struct HomeEmailPreviewCard: View {
                 Text("Rework")
                     .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.primaryBase)
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
                     .frame(height: 32)
                     .background(
                         Capsule()
@@ -130,6 +122,8 @@ struct HomeEmailPreviewCard: View {
                     )
             }
             .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
         }
     }
 }

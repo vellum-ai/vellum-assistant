@@ -113,7 +113,7 @@ struct HomeUpdatesListCard: View {
     private func updateIconCircle(icon: VIcon) -> some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceActive)
+                .fill(VColor.surfaceLift)
                 .frame(width: 26, height: 26)
 
             VIconView(icon, size: 12)

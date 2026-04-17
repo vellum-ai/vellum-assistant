@@ -37,7 +37,7 @@ struct HomeLinkFileRow: View {
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceActive)
+                .fill(VColor.surfaceLift)
                 .frame(width: 26, height: 26)
 
             VIconView(icon, size: 12)
