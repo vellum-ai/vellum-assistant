@@ -463,8 +463,8 @@ public final class MainWindow {
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowWidth: CGFloat = 1200
-        let windowHeight: CGFloat = 900
+        let windowWidth: CGFloat = min(1400, screenFrame.width * 0.85)
+        let windowHeight: CGFloat = min(900, screenFrame.height * 0.85)
         let windowRect = NSRect(
             x: screenFrame.midX - windowWidth / 2,
             y: screenFrame.midY - windowHeight / 2,
@@ -485,7 +485,7 @@ public final class MainWindow {
         window.isMovableByWindowBackground = false
         window.backgroundColor = NSColor(VColor.surfaceBase)
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 800, height: 600)
+        window.contentMinSize = NSSize(width: 1000, height: 650)
         window.setFrame(windowRect, display: false)
         window.setFrameAutosaveName("MainWindow")
         window.delegate = closeDelegate

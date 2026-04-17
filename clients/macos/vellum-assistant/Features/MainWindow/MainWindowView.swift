@@ -27,7 +27,7 @@ struct MainWindowView: View {
     @State private var jitPermissionManager = JITPermissionManager()
     /// Window size tracked via onGeometryChange, used for zoom scaling
     /// and panel width calculations without a synchronous GeometryReader.
-    @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
+    @State private var windowSize: CGSize = CGSize(width: 1000, height: 650)
     /// Stores the conversation ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleConversations.first
     /// (which may be a pinned conversation unrelated to what they were doing).
@@ -562,7 +562,7 @@ struct MainWindowView: View {
     private var coreLayoutDecoratedView: some View {
         coreLayoutGeometryView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minWidth: 800, minHeight: 600)
+            .frame(minWidth: 1000, minHeight: 650)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { newSize in
