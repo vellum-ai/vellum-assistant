@@ -26,7 +26,7 @@ export class ProviderUnreachableError extends BackendError {
 export class InsufficientBalanceError extends BackendError {
   constructor(
     message = "Your Vellum account balance is too low to use this managed OAuth connection. " +
-      "Please add funds at https://app.vellum.ai/billing or switch to using your own OAuth app.",
+      "You can add funds or switch to using your own OAuth app.",
   ) {
     super(message);
     this.name = "InsufficientBalanceError";
