@@ -26,7 +26,7 @@ struct HomeFileCard: View {
     }
 
     var body: some View {
-        VStack(spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             HomeRecapCardHeader(
                 icon: .file,
                 title: title,

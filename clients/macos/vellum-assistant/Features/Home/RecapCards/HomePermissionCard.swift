@@ -174,6 +174,7 @@ struct HomePermissionCard: View {
 
     private var dismissButton: some View {
         VButton(
+            label: "Dismiss",
             iconOnly: "lucide-x",
             style: .outlined,
             size: .pillRegular,
@@ -181,6 +182,5 @@ struct HomePermissionCard: View {
         ) {
             onDismiss?()
         }
-        .accessibilityLabel("Dismiss")
     }
 }
