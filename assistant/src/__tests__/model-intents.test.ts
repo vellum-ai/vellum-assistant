@@ -38,8 +38,10 @@ describe("model intents", () => {
   });
 });
 
-// `RetryProvider`'s legacy `modelIntent` normalization path was removed in
-// PR 19 of the unify-llm-callsites plan. The remaining `resolveModelIntent`
-// helper lives in `providers/model-intents.ts` for use by the workspace
-// migration's snapshot table — see `workspace/migrations/038-unify-llm-
-// callsite-configs.ts`.
+// `RetryProvider` normalizes outbound calls through call-site routing
+// (`resolveCallSiteConfig` against `llm.callSites.<id>` / `llm.default`).
+// The `resolveModelIntent` helper exercised above lives in
+// `providers/model-intents.ts` and is used by the unify-llm workspace
+// migration's snapshot table (see
+// `workspace/migrations/038-unify-llm-callsite-configs.ts`) to seed
+// `llm.default` from any pre-existing `modelIntent` setting.

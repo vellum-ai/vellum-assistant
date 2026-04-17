@@ -268,10 +268,11 @@ export class AgentLoop {
 
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
-        // can route through `resolveCallSiteConfig`. User-initiated
-        // conversation turns default to `mainAgent` in the agent loop's
-        // caller; other invocation contexts (heartbeat, filing, analyze,
-        // etc.) pass their own `callSite`.
+        // can route through `resolveCallSiteConfig` against
+        // `llm.callSites.<id>` (falling back to `llm.default` when absent).
+        // User-initiated conversation turns default to `mainAgent` in the
+        // agent loop's caller; other invocation contexts (heartbeat, filing,
+        // analyze, etc.) pass their own `callSite`.
         if (callSite) {
           providerConfig.callSite = callSite;
         }

@@ -9,7 +9,6 @@ let mockConfig = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
-    speed: "standard" as "standard" | "fast",
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
   },
@@ -185,7 +184,6 @@ describe("HeartbeatService", () => {
       heartbeat: {
         enabled: true,
         intervalMs: 60_000,
-        speed: "standard",
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
       },
@@ -547,17 +545,18 @@ describe("HeartbeatService", () => {
     });
   });
 
-  test("callSite is passed regardless of legacy heartbeat.speed value", async () => {
-    // The legacy `heartbeat.speed` field is no longer read by the heartbeat
-    // service — every run unconditionally passes `callSite: 'heartbeatAgent'`
-    // and the resolver maps that to whatever `llm.callSites.heartbeatAgent`
-    // (or the default) configures. PR 19 will remove the schema field.
-    mockConfig.heartbeat.speed = "fast";
+  test("processMessage receives only callSite — no legacy speed knob", async () => {
+    // The heartbeat service unconditionally passes `callSite:
+    // 'heartbeatAgent'` and nothing else. The resolver maps that identifier
+    // to whatever `llm.callSites.heartbeatAgent` (or `llm.default`)
+    // configures.
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options?.callSite).toBe("heartbeatAgent");
+    expect(processMessageCalls[0].options).toEqual({
+      callSite: "heartbeatAgent",
+    });
   });
 
   test("end-to-end: llm.callSites.heartbeatAgent.speed resolves to 'fast'", async () => {

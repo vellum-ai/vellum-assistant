@@ -62,17 +62,13 @@ export {
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
-  Effort,
   ModelPricingOverride,
-  Speed,
   ThinkingConfig,
 } from "./schemas/inference.js";
 export {
   ContextOverflowRecoveryConfigSchema,
   ContextWindowConfigSchema,
-  EffortSchema,
   ModelPricingOverrideSchema,
-  SpeedSchema,
   ThinkingConfigSchema,
 } from "./schemas/inference.js";
 export type {
@@ -87,6 +83,14 @@ export {
 } from "./schemas/ingress.js";
 export type { JournalConfig } from "./schemas/journal.js";
 export { JournalConfigSchema } from "./schemas/journal.js";
+export type {
+  LLMCallSite,
+  LLMCallSiteConfig,
+  LLMConfig,
+  LLMConfigBase,
+  LLMConfigFragment,
+} from "./schemas/llm.js";
+export { LLMCallSiteEnum, LLMSchema } from "./schemas/llm.js";
 export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
 export {
   AuditLogConfigSchema,

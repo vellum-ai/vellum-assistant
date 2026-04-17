@@ -25,28 +25,6 @@ export const ThinkingConfigSchema = z
   })
   .describe("Extended thinking (chain-of-thought) configuration");
 
-export const EffortSchema = z
-  .enum(["low", "medium", "high", "max"], {
-    error: 'effort must be "low", "medium", "high", or "max"',
-  })
-  .default("max")
-  .describe(
-    "How much effort the model should put into its response — lower effort is faster and cheaper",
-  );
-
-export type Effort = z.infer<typeof EffortSchema>;
-
-export const SpeedSchema = z
-  .enum(["standard", "fast"], {
-    error: 'speed must be "standard" or "fast"',
-  })
-  .default("standard")
-  .describe(
-    'Inference speed mode — "fast" enables higher output token throughput on supported models (Opus 4.6, Opus 4.7) at premium pricing',
-  );
-
-export type Speed = z.infer<typeof SpeedSchema>;
-
 export const ContextOverflowRecoveryConfigSchema = z
   .object({
     enabled: z

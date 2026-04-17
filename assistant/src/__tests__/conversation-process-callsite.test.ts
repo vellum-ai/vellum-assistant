@@ -1,11 +1,14 @@
 /**
- * Verify that `callSite` threads from `Conversation.processMessage` options
- * all the way down to the per-call provider config, and that user-initiated
- * turns default to `'mainAgent'` when no caller-supplied `callSite` is set.
+ * Verifies that `callSite` threads from `Conversation.processMessage`
+ * options all the way down to the per-call provider config, and that
+ * user-initiated turns default to `'mainAgent'` when no caller-supplied
+ * `callSite` is set.
  *
  * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
  * the conversation passes after `processMessage` runs the slash-resolver and
- * runtime-injection pipeline.
+ * runtime-injection pipeline. Adapter callers (heartbeat, filing, scheduler)
+ * pass an explicit `callSite` so `RetryProvider` resolves their per-call
+ * config from `llm.callSites.<id>`.
  */
 import { describe, expect, mock, test } from "bun:test";
 

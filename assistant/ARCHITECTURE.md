@@ -2094,7 +2094,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
-**Configuration:** `notifications.decisionModelIntent` in `config.json`.
+**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to `llm.default` when unset.
 
 ---
 

@@ -1,8 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
-import type { Speed } from "../../config/schemas/inference.js";
-import type { LLMCallSite } from "../../config/schemas/llm.js";
+import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import type { AuthContext } from "../../runtime/auth/types.js";

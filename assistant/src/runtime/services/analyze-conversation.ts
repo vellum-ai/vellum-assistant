@@ -17,8 +17,8 @@
  *
  * Both triggers route the agent loop through `callSite: 'analyzeConversation'`
  * so per-call provider/model selection flows through `resolveCallSiteConfig`
- * against `llm.callSites.analyzeConversation` (populated by the unify-llm
- * workspace migration from the legacy `analysis.modelIntent`/`modelOverride`).
+ * against `llm.callSites.analyzeConversation` (falling back to `llm.default`
+ * when no override is set).
  */
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {

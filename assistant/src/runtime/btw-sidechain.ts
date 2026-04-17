@@ -97,10 +97,8 @@ export async function runBtwSidechain(
       config: {
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
-        // Resolution: explicit callSite → default "identityIntro" (the
-        // original purpose of this side-chain runner). The legacy
-        // `modelIntent` parameter was removed in PR 19 of the
-        // unify-llm-callsites plan.
+        // Default call site is "identityIntro" — the original purpose of
+        // this side-chain runner. Callers may override per invocation.
         callSite: params.callSite ?? ("identityIntro" as LLMCallSite),
       },
       onEvent: (event) => {

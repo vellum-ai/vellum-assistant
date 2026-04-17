@@ -135,9 +135,8 @@ export interface SendMessageConfig {
   /**
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
-   * via `resolveCallSiteConfig(callSite, config.llm)`. Required for any new
-   * caller; the legacy `modelIntent`-based fallback was removed in PR 19 of
-   * the unify-llm-callsites plan.
+   * via `resolveCallSiteConfig(callSite, config.llm)`, falling back to
+   * `llm.default` when no callSite-specific entry is present.
    */
   callSite?: LLMCallSite;
   effort?: "low" | "medium" | "high" | "max";

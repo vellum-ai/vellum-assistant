@@ -359,10 +359,9 @@ export async function runAgentLoopImpl(
     titleText?: string;
     /**
      * LLM call-site identifier threaded into the per-call provider config.
-     * When unset, defaults to `'mainAgent'` so this turn routes through the
-     * main-agent profile in the unified `llm` config. Adapter callers
-     * (heartbeat, filing, schedule, etc.) override with their own call-site
-     * id as PRs 7-11 migrate them off the legacy `speed` / `modelIntent` paths.
+     * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
+     * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
+     * the agent loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
   },
@@ -392,7 +391,7 @@ export async function runAgentLoopImpl(
   // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
   // `callSite`. The provider layer resolves provider/model/maxTokens via
   // `resolveCallSiteConfig`, picking up any user overrides under
-  // `llm.callSites.mainAgent`.
+  // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
 
   // Capture the turn channel context *before* any awaits so a second

@@ -31,7 +31,7 @@ The candidate set is serialized into a compact `<conversation-candidates>` block
 
 ### 3. Decision
 
-The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `notifications.decisionModelIntent`) along with available channels, the user's preference summary, and the conversation candidate set. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, a deduplication key, and **per-channel conversation actions**.
+The decision engine (`decision-engine.ts`) sends the signal to an LLM (configured via `llm.callSites.notificationDecision`) along with available channels, the user's preference summary, and the conversation candidate set. The LLM responds with a structured decision: whether to notify, which channels, rendered copy per channel, a deduplication key, and **per-channel conversation actions**.
 
 **Conversation actions:** For each selected channel, the LLM decides:
 
@@ -538,10 +538,14 @@ Preferences are sanitized against prompt injection (angle brackets replaced with
 
 ## Configuration
 
-All settings live under the `notifications` key in `config.json`:
+The decision engine and preference extractor pick their per-call LLM config
+from the unified `llm` block. Override defaults by setting either of:
 
-| Key                                 | Type   | Default               | Description                                                              |
-| ----------------------------------- | ------ | --------------------- | ------------------------------------------------------------------------ |
-| `notifications.decisionModelIntent` | string | `"latency-optimized"` | Model intent used for both the decision engine and preference extraction |
+| Key                                  | Type    | Default        | Description                                                                 |
+| ------------------------------------ | ------- | -------------- | --------------------------------------------------------------------------- |
+| `llm.callSites.notificationDecision` | object  | _(unset)_      | Provider/model/effort/etc. override for the decision engine call site       |
+| `llm.callSites.preferenceExtraction` | object  | _(unset)_      | Provider/model/effort/etc. override for the preference extractor call site  |
+
+When a call site override is unset, the resolver falls back to `llm.default`.
 
 The notification pipeline is always active -- signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.
