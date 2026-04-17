@@ -159,6 +159,36 @@ describe("multi-local", () => {
       }
     });
 
+    test("allocation picks env-specific port bases for non-prod envs", async () => {
+      // Each non-prod env sits in its own 1000-port window (see
+      // environments/seeds.ts). Hatching under VELLUM_ENVIRONMENT=dev should
+      // produce ports in the dev block (18000+), not the production defaults.
+      const prevEnv = process.env.VELLUM_ENVIRONMENT;
+      const prevXdg = process.env.XDG_DATA_HOME;
+      const xdgDataHome = mkdtempSync(join(tmpdir(), "cli-multi-xdg-ports-"));
+      process.env.VELLUM_ENVIRONMENT = "dev";
+      process.env.XDG_DATA_HOME = xdgDataHome;
+      try {
+        const res = await allocateLocalResources("dev-a");
+        expect(res.daemonPort).toBe(18000);
+        expect(res.gatewayPort).toBe(18100);
+        expect(res.qdrantPort).toBe(18200);
+        expect(res.cesPort).toBe(18300);
+      } finally {
+        if (prevEnv !== undefined) {
+          process.env.VELLUM_ENVIRONMENT = prevEnv;
+        } else {
+          delete process.env.VELLUM_ENVIRONMENT;
+        }
+        if (prevXdg !== undefined) {
+          process.env.XDG_DATA_HOME = prevXdg;
+        } else {
+          delete process.env.XDG_DATA_HOME;
+        }
+        rmSync(xdgDataHome, { recursive: true, force: true });
+      }
+    });
+
     test("second instance gets distinct ports and dir when first instance is saved", async () => {
       // GIVEN a first local assistant already exists in the lockfile
       saveAssistantEntry(makeEntry("instance-a"));

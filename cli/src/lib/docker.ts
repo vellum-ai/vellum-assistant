@@ -13,9 +13,10 @@ import {
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { writeInitialConfig } from "./config-utils";
-import { DEFAULT_GATEWAY_PORT } from "./constants";
 import { PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 import type { Species } from "./constants";
+import { getDefaultPorts } from "./environments/paths.js";
+import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
@@ -1074,7 +1075,7 @@ export async function hatchDocker(
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
-    const gatewayPort = DEFAULT_GATEWAY_PORT;
+    const gatewayPort = getDefaultPorts(getCurrentEnvironment()).gateway;
 
     const imageTags: Record<ServiceName, string> = {
       assistant: "",

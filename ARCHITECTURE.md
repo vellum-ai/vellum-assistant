@@ -122,21 +122,13 @@ All instances are created with explicit names via `vellum hatch --name <name>`.
 
 Each instance gets its own:
 - **`BASE_DATA_DIR`**: Set to `resources.instanceDir`. The daemon (and gateway) append `.vellum` to this to derive the root directory, so all runtime files land under the instance.
-- **Daemon port** (`RUNTIME_HTTP_PORT`): Allocated by scanning from base port 7821.
-- **Gateway port** (`GATEWAY_PORT`): Allocated by scanning from base port 7830.
-- **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning from base port 6333.
+- **Daemon port** (`RUNTIME_HTTP_PORT`), **Gateway port** (`GATEWAY_PORT`), **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning upward from the environment's base port — see "Port allocation" below.
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
 
 ### Port allocation
 
-Ports are allocated sequentially by `allocateLocalResources()` in `cli/src/lib/assistant-config.ts`:
-
-1. Scan from `DEFAULT_DAEMON_PORT` (7821) upward to find the first available port.
-2. Scan from `DEFAULT_GATEWAY_PORT` (7830) upward, excluding the daemon port.
-3. Scan from `DEFAULT_QDRANT_PORT` (6333) upward, excluding both previously allocated ports.
-
-Availability is checked via TCP connect probe. Each scan range spans up to 100 ports. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` can restart instances on the same ports.
+`allocateLocalResources()` in `cli/src/lib/assistant-config.ts` takes each service's base port from `getDefaultPorts(env)` and scans upward for the first port not bound by another local instance in that env's lockfile. Each environment has its own disjoint port window so running prod + non-prod assistants side by side doesn't collide; the concrete numbers live in `cli/src/lib/environments/seeds.ts`. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` restart instances on the same ports.
 
 ### Lockfile schema
 

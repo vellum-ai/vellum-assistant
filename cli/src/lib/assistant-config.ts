@@ -10,14 +10,9 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./constants.js";
 import {
-  DAEMON_INTERNAL_ASSISTANT_ID,
-  DEFAULT_CES_PORT,
-  DEFAULT_DAEMON_PORT,
-  DEFAULT_GATEWAY_PORT,
-  DEFAULT_QDRANT_PORT,
-} from "./constants.js";
-import {
+  getDefaultPorts,
   getLockfilePath,
   getLockfilePaths,
   getMultiInstanceDir,
@@ -187,6 +182,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
   }
 
   const env = getCurrentEnvironment();
+  const defaultPorts = getDefaultPorts(env);
   let mutated = false;
 
   // Migrate top-level `baseDataDir` → `resources.instanceDir`
@@ -206,7 +202,7 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
   // Synthesise missing `resources` for local entries
   if (!raw.resources || typeof raw.resources !== "object") {
     const gatewayPort =
-      parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
+      parsePortFromUrl(raw.runtimeUrl) ?? defaultPorts.gateway;
     const instanceDir = join(
       getMultiInstanceDir(env),
       typeof raw.assistantId === "string"
@@ -215,10 +211,10 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     );
     raw.resources = {
       instanceDir,
-      daemonPort: DEFAULT_DAEMON_PORT,
+      daemonPort: defaultPorts.daemon,
       gatewayPort,
-      qdrantPort: DEFAULT_QDRANT_PORT,
-      cesPort: DEFAULT_CES_PORT,
+      qdrantPort: defaultPorts.qdrant,
+      cesPort: defaultPorts.ces,
       pidFile: join(instanceDir, ".vellum", "vellum.pid"),
     };
     mutated = true;
@@ -235,20 +231,20 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       mutated = true;
     }
     if (typeof res.daemonPort !== "number") {
-      res.daemonPort = DEFAULT_DAEMON_PORT;
+      res.daemonPort = defaultPorts.daemon;
       mutated = true;
     }
     if (typeof res.gatewayPort !== "number") {
       res.gatewayPort =
-        parsePortFromUrl(raw.runtimeUrl) ?? DEFAULT_GATEWAY_PORT;
+        parsePortFromUrl(raw.runtimeUrl) ?? defaultPorts.gateway;
       mutated = true;
     }
     if (typeof res.qdrantPort !== "number") {
-      res.qdrantPort = DEFAULT_QDRANT_PORT;
+      res.qdrantPort = defaultPorts.qdrant;
       mutated = true;
     }
     if (typeof res.cesPort !== "number") {
-      res.cesPort = DEFAULT_CES_PORT;
+      res.cesPort = defaultPorts.ces;
       mutated = true;
     }
     if (typeof res.pidFile !== "string") {
@@ -451,20 +447,21 @@ export async function allocateLocalResources(
     );
   }
 
-  const daemonPort = await findAvailablePort(
-    DEFAULT_DAEMON_PORT,
-    reservedPorts,
-  );
-  const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+  // Env-aware bases: non-prod envs sit in their own 1000-port window so
+  // running prod and staging assistants side-by-side doesn't collide. See
+  // `environments/seeds.ts:portBlock` for the layout.
+  const basePorts = getDefaultPorts(env);
+  const daemonPort = await findAvailablePort(basePorts.daemon, reservedPorts);
+  const gatewayPort = await findAvailablePort(basePorts.gateway, [
     ...reservedPorts,
     daemonPort,
   ]);
-  const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+  const qdrantPort = await findAvailablePort(basePorts.qdrant, [
     ...reservedPorts,
     daemonPort,
     gatewayPort,
   ]);
-  const cesPort = await findAvailablePort(DEFAULT_CES_PORT, [
+  const cesPort = await findAvailablePort(basePorts.ces, [
     ...reservedPorts,
     daemonPort,
     gatewayPort,

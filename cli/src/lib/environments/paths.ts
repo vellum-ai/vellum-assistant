@@ -86,11 +86,10 @@ export function getMultiInstanceDir(env: EnvironmentDefinition): string {
 }
 
 /**
- * Default port set for an environment. Phase 5 (per-env port offsets) was
- * deferred from MVP — this currently returns the same ports for every
- * environment. Per-env specialization lands in a later phase without
- * changing the function signature or call sites. `env.portsOverride` is
- * merged on top of the defaults when set.
+ * Default port set for an environment.
+ * Seed entries for non-prod environments come with separate port ranges
+ * to avoid collisions in multi-env / multi-instance setups.
+ * Longer term, consider allocating ports dynamically at hatch/wake time.
  */
 export function getDefaultPorts(env: EnvironmentDefinition): PortMap {
   return {
