@@ -14,6 +14,8 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import { ContextOverflowError } from "../types.js";
+import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 export interface OpenAIResponsesProviderOptions {
   baseURL?: string;
@@ -299,6 +301,19 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
+        const overflow = detectOpenAICompatibleContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `${this.providerLabel} API error (${error.status}): ${error.message}`,
+            this.name,
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              raw: error.error ?? error,
+              cause: error,
+            },
+          );
+        }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
           retryAfterMs?: number;

@@ -15,11 +15,61 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import { ContextOverflowError } from "../types.js";
 
 const log = getLogger("anthropic-client");
 
 /** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
 const VALIDATION_TIMEOUT_MS = 10_000;
+
+/**
+ * Detect Anthropic's `prompt_too_long` context-overflow signal.
+ *
+ * Anthropic returns HTTP 400 with a body shaped as
+ *   `{ type: "error", error: { type: "invalid_request_error", message: "..." } }`
+ * where the inner `message` carries the "prompt is too long: N tokens > M
+ * maximum" text. The SDK stores the body at `APIError.error` and formats a
+ * top-level `message` by JSON-stringifying the body when no top-level
+ * `.message` key exists — so we probe both the nested body and the
+ * formatted string.
+ */
+export function detectAnthropicContextOverflow(
+  error: InstanceType<typeof Anthropic.APIError>,
+): { actualTokens?: number; maxTokens?: number } | null {
+  // Only 400 responses map to this category; 413 ("request too large") is
+  // theoretically adjacent but Anthropic does not emit it today.
+  if (error.status !== 400) return null;
+  // Walk the nested body shape safely.
+  const body = error.error as
+    | {
+        type?: string;
+        message?: string;
+        error?: { type?: string; message?: string };
+      }
+    | undefined;
+  const innerMessage =
+    (typeof body === "object" && body != null
+      ? (body.error?.message ?? body.message)
+      : undefined) ?? "";
+  const topLevelMessage = error.message ?? "";
+  const combined = `${innerMessage} ${topLevelMessage}`;
+  // Anthropic: "prompt is too long: 242201 tokens > 200000 maximum"
+  if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
+  // Anthropic reports both the actual prompt token count and the max
+  // (context window) in the message body. Prefer the clean inner message
+  // over the JSON-stringified top-level string.
+  const source = innerMessage || topLevelMessage;
+  const tokensMatch = source.match(/(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)/i);
+  if (tokensMatch) {
+    const actual = parseInt(tokensMatch[1].replace(/,/g, ""), 10);
+    const max = parseInt(tokensMatch[2].replace(/,/g, ""), 10);
+    const result: { actualTokens?: number; maxTokens?: number } = {};
+    if (!isNaN(actual) && actual > 0) result.actualTokens = actual;
+    if (!isNaN(max) && max > 0) result.maxTokens = max;
+    return result;
+  }
+  return {};
+}
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
 const ORPHAN_WARNING_THROTTLE_MS = 60_000;
@@ -1183,12 +1233,26 @@ export class AnthropicProvider implements Provider {
             `Anthropic API error (${error.status})`,
           );
         }
+        const overflow = detectAnthropicContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `Anthropic API error (${error.status}): ${error.message}`,
+            "anthropic",
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              raw: error.error ?? error,
+              cause: error,
+            },
+          );
+        }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
         } = {};
-        if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
+        if (retryAfterMs !== undefined)
+          errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
