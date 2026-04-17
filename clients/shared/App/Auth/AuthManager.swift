@@ -4,7 +4,6 @@ import AppKit
 import UIKit
 #endif
 import AuthenticationServices
-import CryptoKit
 import Foundation
 import os
 
@@ -96,7 +95,9 @@ public final class AuthManager {
         do {
             let stateParam = generateRandomString(length: 32)
             let returnTo = "/accounts/native/callback?state=\(stateParam)"
-            guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            var allowedReturnToChars = CharacterSet.urlQueryAllowed
+            allowedReturnToChars.remove(charactersIn: "?=&+")
+            guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: allowedReturnToChars) else {
                 throw AuthServiceError.invalidURL
             }
             let loginURLString = "\(VellumEnvironment.resolvedPlatformURL)/account/login?returnTo=\(encodedReturnTo)"
@@ -109,11 +110,11 @@ public final class AuthManager {
             guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
                   let sessionToken = components.queryItems?.first(where: { $0.name == "session_token" })?.value,
                   let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value else {
-                throw AuthServiceError.oidcTokenExchangeFailed("Missing session token or state in callback.")
+                throw AuthServiceError.authCallbackFailed("Missing session token or state in callback.")
             }
 
             guard returnedState == stateParam else {
-                throw AuthServiceError.oidcTokenExchangeFailed("Invalid state parameter.")
+                throw AuthServiceError.authCallbackFailed("Invalid state parameter.")
             }
 
             await SessionTokenManager.setTokenAsync(sessionToken)
@@ -125,6 +126,7 @@ public final class AuthManager {
                 log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
             } else {
+                log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -174,18 +176,6 @@ public final class AuthManager {
         }
     }
 
-    private func generateCodeVerifier() -> String {
-        var bytes = [UInt8](repeating: 0, count: 64)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes).base64URLEncodedString()
-    }
-
-    private func generateCodeChallenge(from verifier: String) -> String {
-        let data = Data(verifier.utf8)
-        let hash = SHA256.hash(data: data)
-        return Data(hash).base64URLEncodedString()
-    }
-
     private func generateRandomString(length: Int) -> String {
         var bytes = [UInt8](repeating: 0, count: length)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
@@ -201,7 +191,7 @@ public final class AuthManager {
                 } else if let callbackURL {
                     continuation.resume(returning: callbackURL)
                 } else {
-                    continuation.resume(throwing: AuthServiceError.oidcTokenExchangeFailed("No callback URL received."))
+                    continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
             session.prefersEphemeralWebBrowserSession = false
