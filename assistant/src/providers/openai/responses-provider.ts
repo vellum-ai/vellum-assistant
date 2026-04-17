@@ -299,8 +299,13 @@ export class OpenAIResponsesProvider implements Provider {
       }
 
       // Build content blocks.
-      // Inject server_tool_use blocks before text so conversation history
-      // matches the shape Anthropic produces for native web search.
+      // Inject server_tool_use + web_search_tool_result pairs before text so
+      // conversation history matches the shape Anthropic produces for native
+      // web search. The paired result block prevents repairHistory() from
+      // treating completed searches as interrupted (which would inject a
+      // synthetic web_search_tool_result_error and corrupt history). OpenAI
+      // weaves search results into the text output, so the result content is
+      // an empty array — the actual results are in the text block that follows.
       const content: ContentBlock[] = [];
       for (const toolUseId of webSearchCallIds) {
         content.push({
@@ -308,6 +313,11 @@ export class OpenAIResponsesProvider implements Provider {
           id: toolUseId,
           name: "web_search",
           input: {},
+        });
+        content.push({
+          type: "web_search_tool_result",
+          tool_use_id: toolUseId,
+          content: [],
         });
       }
       if (contentText) {

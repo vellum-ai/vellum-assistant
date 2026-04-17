@@ -1394,7 +1394,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
   // server_tool_use content blocks in ProviderResponse
   // -----------------------------------------------------------------------
 
-  test("includes server_tool_use content blocks in response for web search calls", async () => {
+  test("includes paired server_tool_use + web_search_tool_result content blocks for web search calls", async () => {
     const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
       useNativeWebSearch: true,
     });
@@ -1409,8 +1409,8 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       [webSearchTool],
     );
 
-    // server_tool_use should appear before the text content block
-    expect(result.content).toHaveLength(2);
+    // server_tool_use + web_search_tool_result pair should appear before text
+    expect(result.content).toHaveLength(3);
     expect(result.content[0]).toEqual({
       type: "server_tool_use",
       id: "ws_call_1",
@@ -1418,12 +1418,17 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       input: {},
     });
     expect(result.content[1]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_1",
+      content: [],
+    });
+    expect(result.content[2]).toEqual({
       type: "text",
       text: "Here are the results.",
     });
   });
 
-  test("includes multiple server_tool_use blocks for multiple web search calls", async () => {
+  test("includes paired server_tool_use + web_search_tool_result for multiple web search calls", async () => {
     const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
       useNativeWebSearch: true,
     });
@@ -1444,7 +1449,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       [webSearchTool],
     );
 
-    expect(result.content).toHaveLength(3);
+    expect(result.content).toHaveLength(5);
     expect(result.content[0]).toEqual({
       type: "server_tool_use",
       id: "ws_call_1",
@@ -1452,12 +1457,22 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       input: {},
     });
     expect(result.content[1]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_1",
+      content: [],
+    });
+    expect(result.content[2]).toEqual({
       type: "server_tool_use",
       id: "ws_call_2",
       name: "web_search",
       input: {},
     });
-    expect(result.content[2]).toEqual({
+    expect(result.content[3]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_2",
+      content: [],
+    });
+    expect(result.content[4]).toEqual({
       type: "text",
       text: "Combined search results.",
     });
