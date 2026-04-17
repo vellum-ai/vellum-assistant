@@ -372,6 +372,10 @@ struct HomeGallerySection: View {
 /// body, and a single attachment). Kept private to the gallery so it can
 /// own the `@State` bindings required by the editor's field text.
 private struct _HomeEmailEditorDemo: View {
+    private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
+        .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
+    ]
+
     @State private var toAddress: String = "john@johnstown.com"
     @State private var subject: String = "looking for a basketball scholarship"
     @State private var bodyText: String = """
@@ -396,13 +400,7 @@ private struct _HomeEmailEditorDemo: View {
                 toAddress: $toAddress,
                 subject: $subject,
                 bodyText: $bodyText,
-                attachments: [
-                    .init(
-                        id: UUID(),
-                        fileName: "nba-2025-invoice-224468.pdf",
-                        fileSize: "24 kb"
-                    ),
-                ],
+                attachments: Self.sampleAttachments,
                 onAttachmentTap: { _ in }
             )
         }
@@ -418,6 +416,10 @@ private struct _HomeEmailEditorDemo: View {
 /// placeholder. The intent is to show the visual relationship between the
 /// two columns, not to exercise the real home page.
 private struct _HomeSplitLayoutDemo: View {
+    private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
+        .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
+    ]
+
     @State private var toAddress: String = "john@johnstown.com"
     @State private var subject: String = "looking for a basketball scholarship"
     @State private var bodyText: String = """
@@ -451,13 +453,7 @@ private struct _HomeSplitLayoutDemo: View {
                     toAddress: $toAddress,
                     subject: $subject,
                     bodyText: $bodyText,
-                    attachments: [
-                        .init(
-                            id: UUID(),
-                            fileName: "nba-2025-invoice-224468.pdf",
-                            fileSize: "24 kb"
-                        ),
-                    ],
+                    attachments: Self.sampleAttachments,
                     onAttachmentTap: { _ in }
                 )
             }
