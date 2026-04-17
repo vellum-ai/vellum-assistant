@@ -14,6 +14,40 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import { ContextOverflowError } from "../types.js";
+
+/**
+ * Detect Gemini's context-overflow signals on an `ApiError`. Gemini surfaces
+ * this condition via its "RESOURCE_EXHAUSTED" category (HTTP 400 in the
+ * Generative Language API, 429 in some Vertex paths) with messages like
+ * "The input token count ... exceeds the maximum number of tokens allowed".
+ * The Gemini SDK's `ApiError` only exposes `status` and `message`; we match
+ * both the broad overflow keywords and the RESOURCE_EXHAUSTED marker.
+ */
+function detectGeminiContextOverflow(
+  error: ApiError,
+): { actualTokens?: number; maxTokens?: number } | null {
+  const status = error.status;
+  // 400 = INVALID_ARGUMENT from Gemini when the prompt is too long, 413 is
+  // occasionally used, and 429 with RESOURCE_EXHAUSTED is the Vertex path.
+  if (status !== 400 && status !== 413 && status !== 429) return null;
+  const message = error.message ?? "";
+  const matches =
+    /resource.?exhausted|context.?length.?exceeded|token.?count.*exceeds|exceeds.*maximum.*tokens|prompt.?is.?too.?long|too.?many.?(?:input.?)?tokens|input.?too.?long/i.test(
+      message,
+    );
+  if (!matches) return null;
+  // Gemini rarely includes token counts in the message; best-effort parse.
+  const tokensMatch = message.match(/(\d[\d,]*)\s*[>≥]\s*(\d[\d,]*)/);
+  const out: { actualTokens?: number; maxTokens?: number } = {};
+  if (tokensMatch) {
+    const actual = parseInt(tokensMatch[1].replace(/,/g, ""), 10);
+    const max = parseInt(tokensMatch[2].replace(/,/g, ""), 10);
+    if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
+    if (!isNaN(max) && max > 0) out.maxTokens = max;
+  }
+  return out;
+}
 
 const log = getLogger("gemini-client");
 
@@ -238,6 +272,19 @@ export class GeminiProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof ApiError) {
+        const overflow = detectGeminiContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `Gemini API error (${error.status}): ${error.message}`,
+            "gemini",
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              raw: error,
+              cause: error,
+            },
+          );
+        }
         throw new ProviderError(
           `Gemini API error (${error.status}): ${error.message}`,
           "gemini",

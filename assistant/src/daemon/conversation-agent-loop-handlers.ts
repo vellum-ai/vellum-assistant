@@ -27,6 +27,7 @@ import {
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
+import { isContextOverflowError } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -75,6 +76,12 @@ export interface EventHandlerState {
   contextTooLargeDetected: boolean;
   /** The raw error message from the provider when context_too_large is detected. */
   contextTooLargeErrorMessage: string | null;
+  /**
+   * The raw provider error object when context_too_large is detected. Kept so
+   * `parseActualTokensFromError` can prefer the typed `ContextOverflowError`
+   * fields over the string-regex fallback when available.
+   */
+  contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
@@ -145,6 +152,7 @@ export function createEventHandlerState(): EventHandlerState {
     deferredOrderingError: null,
     contextTooLargeDetected: false,
     contextTooLargeErrorMessage: null,
+    contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
@@ -616,9 +624,15 @@ export function handleError(
   if (isProviderOrderingError(event.error.message)) {
     state.orderingErrorDetected = true;
     state.deferredOrderingError = event.error.message;
+  } else if (isContextOverflowError(event.error)) {
+    // Typed path — the provider client already classified this as overflow.
+    state.contextTooLargeDetected = true;
+    state.contextTooLargeErrorMessage = event.error.message;
+    state.contextTooLargeError = event.error;
   } else if (isContextTooLarge(event.error.message)) {
     state.contextTooLargeDetected = true;
     state.contextTooLargeErrorMessage = event.error.message;
+    state.contextTooLargeError = event.error;
   } else {
     const classified = classifyConversationError(event.error, {
       phase: "agent_loop",
@@ -626,6 +640,7 @@ export function handleError(
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
       state.contextTooLargeErrorMessage = event.error.message;
+      state.contextTooLargeError = event.error;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"

@@ -5,11 +5,7 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import {
-  getProvider,
-  initializeProviders,
-  listProviders,
-} from "./registry.js";
+import { getProvider, initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -17,6 +13,10 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "./types.js";
+
+// Re-export the typed context-overflow error so callsites that dispatch on
+// this category do not need to reach into `./types.js` directly.
+export { ContextOverflowError, isContextOverflowError } from "./types.js";
 
 export interface ConfiguredProviderResult {
   provider: Provider;

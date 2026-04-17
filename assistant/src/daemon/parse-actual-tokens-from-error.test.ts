@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseActualTokensFromError } from "./conversation-agent-loop.js";
+import { ContextOverflowError } from "../providers/types.js";
+import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 
 describe("parseActualTokensFromError", () => {
   test("returns null for null input", () => {
@@ -67,5 +68,63 @@ describe("parseActualTokensFromError", () => {
 
   test("returns null when no numeric pattern matches", () => {
     expect(parseActualTokensFromError("context window exceeded")).toBeNull();
+  });
+
+  // ── Typed-error branch ─────────────────────────────────────────────
+
+  test("prefers ContextOverflowError.actualTokens over string-regex match", () => {
+    // Message would regex-parse to 999999, but typed field wins.
+    const err = new ContextOverflowError(
+      "Anthropic API error (400): prompt is too long: 999999 tokens > 200000 maximum",
+      "anthropic",
+      {
+        actualTokens: 242201,
+        maxTokens: 200000,
+        raw: {},
+      },
+    );
+    expect(parseActualTokensFromError(err)).toBe(242201);
+  });
+
+  test("falls back to regex when ContextOverflowError has no actualTokens", () => {
+    const err = new ContextOverflowError(
+      "OpenAI API error (400): too many input tokens: 150000 > 128000",
+      "openai",
+      { raw: {} },
+    );
+    expect(parseActualTokensFromError(err)).toBe(150000);
+  });
+
+  test("returns null when ContextOverflowError has neither typed field nor matching message", () => {
+    const err = new ContextOverflowError("context window exceeded", "openai", {
+      raw: {},
+    });
+    expect(parseActualTokensFromError(err)).toBeNull();
+  });
+
+  test("typed-error parsing takes precedence over string regex even when both present", () => {
+    // String has 999999 tokens > 200000; typed field says 242201.
+    // The typed field MUST win — this is the core contract.
+    const err = new ContextOverflowError(
+      "prompt is too long: 999999 tokens > 200000 maximum",
+      "anthropic",
+      { actualTokens: 242201, raw: {} },
+    );
+    expect(parseActualTokensFromError(err)).toBe(242201);
+  });
+
+  test("accepts an untyped Error instance and parses its message", () => {
+    const err = new Error("prompt is too long: 242201 tokens > 200000 maximum");
+    expect(parseActualTokensFromError(err)).toBe(242201);
+  });
+
+  test("ignores non-numeric/invalid actualTokens on typed error", () => {
+    // actualTokens of 0 should fall through (typed check requires > 0).
+    const err = new ContextOverflowError(
+      "prompt is too long: 242201 tokens > 200000 maximum",
+      "anthropic",
+      { actualTokens: 0, raw: {} },
+    );
+    expect(parseActualTokensFromError(err)).toBe(242201);
   });
 });
