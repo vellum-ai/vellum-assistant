@@ -386,8 +386,13 @@ export function conversationManagementRouteDefinitions(
           );
         }
 
-        // Broadcast conversation_title_updated so all connected clients
-        // (including the one that initiated the rename) update immediately.
+        // Broadcast conversation_title_updated so the client currently
+        // viewing this conversation can update the header in-place.
+        // Scoped to the conversation id so foreign conversationId values
+        // don't leak to other subscribers' speculative ID-resolution
+        // paths. Other clients learn about the rename via the unscoped
+        // `conversation_list_invalidated` published below, which triggers
+        // their sidebars to refetch and pick up the new title.
         assistantEventHub
           .publish(
             buildAssistantEvent(
