@@ -8,11 +8,20 @@
  * layer, so no additional actor-token verification is needed here.
  *
  * When `conversationKey` is provided, subscribers receive events scoped to
- * that conversation. When omitted, subscribers receive events from ALL
+ * that conversation plus unscoped system events (e.g. conversation list
+ * invalidations). When omitted, subscribers receive events from ALL
  * conversations for this assistant (unfiltered).
+ *
+ * If the conversationKey has no mapping yet (e.g. a client-generated draft
+ * UUID that has not been sent a first message), the subscription is
+ * accepted without a conversation-scoped filter. This avoids eagerly
+ * materialising a server-side conversation at subscribe time, which would
+ * cause `handleSendMessage` to skip its `conversation_list_invalidated`
+ * publish (guarded on `mapping.created`) and leave other clients unaware
+ * of the new conversation.
  */
 
-import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
   AssistantEventFilter,
@@ -75,8 +84,16 @@ export function handleSubscribeAssistantEvents(
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
   };
   if (conversationKey) {
-    const mapping = getOrCreateConversation(conversationKey);
-    filter.conversationId = mapping.conversationId;
+    // Resolve to the internal conversation id when a mapping exists, but do
+    // NOT create one here. If the key is a fresh draft, leave
+    // `filter.conversationId` unset so the subscriber still receives
+    // unscoped system events (e.g. `conversation_list_invalidated`). Once
+    // the first message materialises the conversation, the client is
+    // expected to reconnect (or refresh) to pick up the scoped stream.
+    const mapping = getConversationByKey(conversationKey);
+    if (mapping) {
+      filter.conversationId = mapping.conversationId;
+    }
   }
   const encoder = new TextEncoder();
 
