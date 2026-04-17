@@ -635,8 +635,8 @@ public final class EventStreamClient {
         shouldReconnect = false
         tokenRotationTask?.cancel()
         sseReconnectTask?.cancel()
-        sseTask?.cancel()
         let continuations = subscribers.values.map(\.continuation)
         Self.teardown(session: sseSession, continuations: continuations)
+        sseTask?.cancel()
     }
 }
