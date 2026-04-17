@@ -23,8 +23,8 @@ import type {
   TrustDecision,
   TrustFileData,
   TrustRule,
-} from "@vellumai/ces-contracts/trust-rules";
-import { parseTrustFileData } from "@vellumai/ces-contracts/trust-rules";
+} from "@vellumai/ces-contracts";
+import { parseTrustFileData } from "@vellumai/ces-contracts";
 
 import { getLogger } from "./logger.js";
 import { getGatewaySecurityDir } from "./paths.js";
