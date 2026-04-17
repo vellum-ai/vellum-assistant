@@ -187,8 +187,8 @@ public final class EventStreamClient {
         }
     }
 
-    /// Disconnect and finish all subscriber streams.
-    func teardown() {
+    /// Terminal cleanup for the client. Stops SSE and finishes all subscriber streams.
+    private func teardown() {
         shouldReconnect = false
         stopSSE()
         let activeSubscribers = Array(subscribers.values)
@@ -631,10 +631,6 @@ public final class EventStreamClient {
     }
 
     deinit {
-        sseSession?.invalidateAndCancel()
-        let activeSubscribers = Array(subscribers.values)
-        for subscriber in activeSubscribers {
-            subscriber.continuation.finish()
-        }
+        teardown()
     }
 }
