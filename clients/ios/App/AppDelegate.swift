@@ -7,6 +7,18 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
+extension Notification.Name {
+    /// Posted when the user taps a chat push notification (default action).
+    /// `userInfo` contains the key `"conversationId"` with the daemon conversation ID
+    /// extracted from the notification payload. Observed by `ContentView` so the app
+    /// switches to the Chats tab and selects the target conversation.
+    static let iosPushNotificationConversationTap = Notification.Name("iosPushNotificationConversationTap")
+}
+
+/// Key used in the `iosPushNotificationConversationTap` notification's `userInfo`
+/// for the daemon conversation ID string.
+let iosPushNotificationConversationIdKey = "conversationId"
+
 /// Resolve the conversation key from UserDefaults for host tool filtering.
 private func resolveConversationKey() -> String? {
     // Managed assistant uses assistantId as conversation key
@@ -322,13 +334,14 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        let userInfo = response.notification.request.content.userInfo
+        let conversationId =
+            userInfo["conversationId"] as? String ??
+            userInfo["conversation_id"] as? String
+
         if response.actionIdentifier == "REPLY_ACTION",
            let textResponse = response as? UNTextInputNotificationResponse {
             let replyText = textResponse.userText
-            let conversationId =
-                response.notification.request.content.userInfo["conversationId"] as? String ??
-                response.notification.request.content.userInfo["conversation_id"] as? String
-
             Task { @MainActor in
                 // If not connected (e.g. background launch via notification reply with no scene
                 // foregrounded), attempt to connect before sending the reply.
@@ -352,6 +365,18 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                 completionHandler()
             }
         } else {
+            // Default tap (UNNotificationDefaultActionIdentifier) and any future custom
+            // navigation actions: surface the conversation the notification is about.
+            // ContentView observes this notification and drives the Chats tab +
+            // IOSConversationStore selection.
+            if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+               let conversationId {
+                NotificationCenter.default.post(
+                    name: .iosPushNotificationConversationTap,
+                    object: nil,
+                    userInfo: [iosPushNotificationConversationIdKey: conversationId]
+                )
+            }
             completionHandler()
         }
     }

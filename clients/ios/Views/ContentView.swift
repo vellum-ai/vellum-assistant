@@ -72,6 +72,16 @@ struct ContentView: View {
         .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
             conversationStore.rebindGatewayConnectionManager(clientProvider.client, eventStreamClient: clientProvider.eventStreamClient)
         }
+        // Push notification tap: AppDelegate.userNotificationCenter(_:didReceive:) posts
+        // this notification on the default action with the daemon conversation ID in
+        // userInfo. Switch to the Chats tab and ask the store to select the conversation.
+        // The store handles the deferred case (cold start / cache miss) by holding the
+        // daemon ID until the conversation list loads.
+        .onReceive(NotificationCenter.default.publisher(for: .iosPushNotificationConversationTap)) { notification in
+            guard let conversationId = notification.userInfo?[iosPushNotificationConversationIdKey] as? String else { return }
+            selectedTab = .chats
+            conversationStore.requestSelectConversation(daemonConversationId: conversationId)
+        }
     }
 
     private func navigateToConnectSettings() {

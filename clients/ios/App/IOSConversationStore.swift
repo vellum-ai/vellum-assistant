@@ -184,6 +184,12 @@ class IOSConversationStore: ObservableObject {
     @Published var selectionRequest: ConversationSelectionRequest?
     @Published var pendingConversationAnchorRequest: PendingConversationAnchorRequest?
 
+    /// Daemon conversation ID the user tapped on a push notification but whose matching
+    /// local `IOSConversation` wasn't loaded yet (cold start, reconnect, cache miss).
+    /// Applied via `resolvePendingPushNavigationIfPossible()` whenever the conversation
+    /// list changes so navigation still completes once the list catches up.
+    private var pendingPushNavigationDaemonConversationId: String?
+
     /// Diagnostic detail from the most recent page-one conversation fetch failure.
     /// Set after both parallel foreground/background fetches resolve so race conditions
     /// cannot clobber the value. Observable by SwiftUI views when developer mode is enabled.
@@ -428,6 +434,32 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
+    /// Request selection of the conversation identified by the given daemon conversation ID.
+    ///
+    /// Used by the push-notification tap handler: if the matching local `IOSConversation`
+    /// is already loaded, publishes a selection request immediately. Otherwise defers the
+    /// navigation until the conversation list catches up (cold start, reconnect, or the
+    /// notification conversation hasn't been surfaced via SSE yet).
+    func requestSelectConversation(daemonConversationId: String) {
+        if let index = existingConversationIndex(forConversationId: daemonConversationId) {
+            pendingPushNavigationDaemonConversationId = nil
+            publishSelectionRequest(for: conversations[index].id)
+        } else {
+            pendingPushNavigationDaemonConversationId = daemonConversationId
+        }
+    }
+
+    /// If a push-notification tap is waiting on a conversation that wasn't loaded yet,
+    /// attempt to apply it. Called after any path that can change `conversations`
+    /// (list response, `schedule_conversation_created`, etc.) so the deferred navigation
+    /// completes as soon as the target appears.
+    private func resolvePendingPushNavigationIfPossible() {
+        guard let daemonConversationId = pendingPushNavigationDaemonConversationId,
+              let index = existingConversationIndex(forConversationId: daemonConversationId) else { return }
+        pendingPushNavigationDaemonConversationId = nil
+        publishSelectionRequest(for: conversations[index].id)
+    }
+
     /// One-time migration: move data from legacy "threads" keys to new "conversations" keys.
     private static func migrateKeysIfNeeded(userDefaults: UserDefaults) {
         let defaults = userDefaults
@@ -527,6 +559,7 @@ class IOSConversationStore: ObservableObject {
                     }
                     self.isLoadingInitialConversations = false
                     self.saveConnectedCache()
+                    self.resolvePendingPushNavigationIfPossible()
                 case .conversationTitleUpdated(let msg):
                     if let idx = self.conversations.firstIndex(where: { $0.conversationId == msg.conversationId }) {
                         self.conversations[idx].title = msg.title
@@ -686,6 +719,10 @@ class IOSConversationStore: ObservableObject {
         pendingAttentionOverrides.removeAll()
         selectionRequest = nil
         pendingConversationAnchorRequest = nil
+        // Stale pending push navigations target daemon conversation IDs that belong
+        // to the previous client. The user is re-pairing or switching daemons, so
+        // the old tap intent no longer applies.
+        pendingPushNavigationDaemonConversationId = nil
 
         if let daemon = newClient as? GatewayConnectionManager {
             // Connected mode — show cached conversations instantly or spinner on first launch.
@@ -890,6 +927,10 @@ class IOSConversationStore: ObservableObject {
             }
             saveConnectedCache()
         }
+
+        // A push-notification tap may have arrived before the target conversation
+        // was loaded (cold start, reconnect, cache miss). Apply it now if possible.
+        resolvePendingPushNavigationIfPossible()
     }
 
     /// Load the next page of conversations from the daemon (Connected mode only).
