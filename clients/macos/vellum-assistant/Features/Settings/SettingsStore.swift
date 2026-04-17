@@ -329,6 +329,65 @@ public final class SettingsStore: ObservableObject {
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
 
+    // MARK: - UserDefaults key classification (multi-platform-assistant)
+    //
+    // This block classifies every `UserDefaults.standard` key currently read or written
+    // by `SettingsStore`. The classification governs which keys will move to per-assistant
+    // scoped storage in a later PR of the multi-platform-hosted-assistant rollout, gated
+    // on the `multi-platform-assistant` feature flag. Grep for the literal key strings to
+    // locate the readers/writers — line numbers are intentionally omitted because they
+    // drift (per `clients/AGENTS.md` Documentation Update Protocol).
+    //
+    // Three classifications are used:
+    //
+    //   • install-global  — legitimately spans every assistant on the same install
+    //                       (device/install telemetry, ToS-style preferences). These
+    //                       keys will NOT be scoped per-assistant.
+    //   • per-assistant   — will move to scoped storage in a later PR with a one-time,
+    //                       idempotent copy from the legacy unscoped key.
+    //   • deprecated      — dead key; do not migrate. Cleanup happens in a separate
+    //                       post-bake PR.
+    //
+    // install-global:
+    //   • "sendDiagnostics"            — also reads the legacy fallback key
+    //                                    "sendPerformanceReports" on first launch.
+    //   • "collectUsageData"
+    //
+    // per-assistant (will be scoped on a future PR):
+    //   • "connectedOrganizationId"    — exposed via `cachedOrgId`; also observed via
+    //                                    `UserDefaults.standard.publisher(for:)` KVO.
+    //   • "selectedImageGenModel"
+    //   • "cmdEnterToSend"
+    //   • "globalHotkeyShortcut"       — NOTE: discuss in review whether this should be
+    //                                    reclassified as install-global. The user may
+    //                                    reasonably expect a global hotkey to remain
+    //                                    identical regardless of which assistant is
+    //                                    active. Defaulting to per-assistant unless the
+    //                                    team explicitly decides otherwise.
+    //   • "quickInputHotkeyShortcut"
+    //   • "quickInputHotkeyKeyCode"
+    //   • "sidebarToggleShortcut"
+    //   • "newChatShortcut"
+    //   • "currentConversationShortcut"
+    //   • "popOutShortcut"
+    //
+    // deprecated (do not migrate; future cleanup):
+    //   • The legacy `connectedAssistantId` UserDefaults reference at
+    //     `AppDelegate+InputMonitors.swift` was removed in PR #24077. Fallback reads
+    //     remain at `AppDelegate+ConnectionSetup.swift` and `AppDelegate+AuthLifecycle.swift`
+    //     and are intentionally retained until the multi-platform-assistant work bakes —
+    //     they are tracked in that plan's "out of scope" list, not here.
+    //
+    // Not classified (out of scope for per-assistant scoping — internal bookkeeping):
+    //   • `kPendingKeyDeletionTombstones` — the tombstone list used by `SettingsStore`'s
+    //     own pending-key-deletion maintenance routine, install-global by construction.
+    //
+    // Rollback story:
+    //   Flag off ⇒ readers/writers use legacy unscoped keys (today's behavior, byte-for-byte).
+    //   Flag on  ⇒ scoped keys, with a one-time idempotent copy from legacy.
+    //   Legacy keys are never deleted by this plan; cleanup happens in a separate
+    //   post-bake PR once the flag has fully rolled out.
+
     // MARK: - Privacy
 
     /// Whether the user has opted in to sending crash reports, error diagnostics, and
