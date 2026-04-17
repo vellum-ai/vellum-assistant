@@ -8,6 +8,13 @@
  * This keeps every wrapper as a thin adapter with no independent
  * execution logic — all behavior flows through the shared browser
  * operations contract.
+ *
+ * NOTE: The current `browser_*` skill tools are compatibility adapters
+ * over the canonical browser operations contract. They exist so the
+ * LLM-facing tool API remains stable while the CLI (`assistant browser`)
+ * consumes the same operations directly. Once the `browser_*` tool
+ * names are no longer referenced by clients or the LLM, these wrappers
+ * can be removed without changing the CLI or the operations layer.
  */
 
 import {
