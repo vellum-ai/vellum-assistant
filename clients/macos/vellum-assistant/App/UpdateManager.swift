@@ -50,6 +50,21 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// `applicationWillTerminate` call.
     @ObservationIgnored private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
 
+    /// Monotonically increasing counter bumped by Sparkle delegate callbacks
+    /// (`didFindValidUpdate` / `updaterDidNotFindUpdate`) whenever an update
+    /// check completes. `checkForUpdatesAsync` observes this counter to detect
+    /// completion even when the resulting `isUpdateAvailable` value equals the
+    /// previous one (e.g. re-check that finds the same known update, or
+    /// re-check that finds no update when none was available).
+    ///
+    /// `observationStream` deduplicates by `Equatable`, so we need a value that
+    /// always changes between checks to signal "a new check completed".  The
+    /// previous `@Published $isUpdateAvailable.values` projection emitted on
+    /// every assignment regardless of equality; this counter restores that
+    /// behavior without coupling the async-completion signal to
+    /// `isUpdateAvailable`'s value-change semantics.
+    private(set) var updateCheckCompletionGeneration: UInt64 = 0
+
     override init() {
         super.init()
         updaterController = SPUStandardUpdaterController(
@@ -100,14 +115,18 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
             // Race: delegate callback vs timeout
             group.addTask { @MainActor [weak self] in
                 guard let self else { return false }
-                // `observationStream` yields the current value immediately, so
-                // skip it with `.dropFirst()` to wait for an actual Sparkle
-                // transition (matches the previous `$isUpdateAvailable.values.dropFirst()`
-                // Combine projection behavior).
-                for await value in observationStream({ self.isUpdateAvailable }).dropFirst() {
-                    return value
+                // Observe the completion-generation counter rather than
+                // `isUpdateAvailable` directly: `observationStream` is
+                // deduplicated by `Equatable`, so a same-value write
+                // (e.g. re-check that finds the same already-known update,
+                // or re-check that finds no update when none was available)
+                // would not emit and this task would hang until the timeout.
+                // The counter strictly increments on each delegate callback,
+                // so every completion yields a new value.
+                for await _ in observationStream({ self.updateCheckCompletionGeneration }).dropFirst() {
+                    return self.isUpdateAvailable
                 }
-                return false
+                return self.isUpdateAvailable
             }
             group.addTask { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -301,6 +320,7 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
             self.isUpdateAvailable = true
             self.availableUpdateVersion = item.displayVersionString
             self.pendingUpdateVersion = item.displayVersionString
+            self.updateCheckCompletionGeneration &+= 1
         }
     }
 
@@ -311,6 +331,7 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// button while an update is downloaded and ready to install.
     nonisolated public func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         Task { @MainActor in
+            defer { self.updateCheckCompletionGeneration &+= 1 }
             guard !self.isDeferredUpdateReady else { return }
             self.isUpdateAvailable = false
             self.availableUpdateVersion = nil
