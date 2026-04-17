@@ -2,6 +2,7 @@
 // bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/conversation-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -2418,6 +2419,120 @@ describe("Permission Checker", () => {
       );
       expect(match).not.toBeNull();
       expect(match!.decision).toBe("allow");
+    });
+  });
+
+  // ── Family-aware rule shape regression ─────────────────────────
+  //
+  // Validates that trust rules conform to canonical family-aware shapes
+  // after disk round-trips. The canonical parser in ces-contracts strips
+  // fields that are invalid for a rule's tool family.
+
+  describe("family-aware rule shape regression", () => {
+    test("scoped tool (bash) preserves executionTarget and allowHighRisk through disk round-trip", () => {
+      const rule = addRule("bash", "kill *", "everywhere", "allow", 100, {
+        allowHighRisk: true,
+        executionTarget: "/usr/local/bin/node",
+      });
+      expect(rule.allowHighRisk).toBe(true);
+      expect(rule.executionTarget).toBe("/usr/local/bin/node");
+
+      // Force a disk round-trip by clearing the cache and re-reading
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "bash",
+        ["kill -9 1234"],
+        "/tmp",
+        { executionTarget: "/usr/local/bin/node" },
+      );
+      expect(reloaded).not.toBeNull();
+      // Scoped tools retain both fields after canonical normalization
+      expect(reloaded!.allowHighRisk).toBe(true);
+      expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
+    });
+
+    test("URL tool (web_fetch) has allowHighRisk stripped after disk round-trip", () => {
+      // addRule stores allowHighRisk in-memory even for URL tools,
+      // but the canonical parser strips it when loading from disk.
+      const rule = addRule(
+        "web_fetch",
+        "web_fetch:http://localhost:3000/*",
+        "/tmp",
+        "allow",
+        100,
+        { allowHighRisk: true },
+      );
+      // In-memory rule still has allowHighRisk (not yet parsed)
+      expect(rule.allowHighRisk).toBe(true);
+
+      // Force a disk round-trip
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "web_fetch",
+        ["web_fetch:http://localhost:3000/health"],
+        "/tmp",
+      );
+      expect(reloaded).not.toBeNull();
+      // URL tools lose allowHighRisk after canonical normalization
+      expect(reloaded!.allowHighRisk).toBeUndefined();
+    });
+
+    test("generic tool (skill_test_tool) preserves optional fields through round-trip", () => {
+      const rule = addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+        { allowHighRisk: true },
+      );
+      expect(rule.allowHighRisk).toBe(true);
+
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "skill_test_tool",
+        ["skill_test_tool:test"],
+        "/tmp",
+      );
+      expect(reloaded).not.toBeNull();
+      // Generic tools preserve allowHighRisk for forward compatibility
+      expect(reloaded!.allowHighRisk).toBe(true);
+    });
+
+    test("rule without scope defaults to 'everywhere' after parsing", () => {
+      // Write a rule directly with no scope field to simulate legacy data
+      const trustPath = join(checkerTestDir, "protected", "trust.json");
+      const trustDir = join(checkerTestDir, "protected");
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+      writeFileSync(
+        trustPath,
+        JSON.stringify({
+          version: 3,
+          rules: [
+            {
+              id: "test-no-scope",
+              tool: "bash",
+              pattern: "echo *",
+              decision: "allow",
+              priority: 100,
+              createdAt: Date.now(),
+              // No scope field — should default to "everywhere"
+            },
+          ],
+        }),
+      );
+      clearCache();
+
+      const reloaded = findHighestPriorityRule(
+        "bash",
+        ["echo hello"],
+        "/any/path",
+      );
+      // The rule matches from any scope because missing scope
+      // is normalized to "everywhere" by the canonical parser.
+      expect(reloaded).not.toBeNull();
+      expect(reloaded!.id).toBe("test-no-scope");
+      expect(reloaded!.scope).toBe("everywhere");
     });
   });
 

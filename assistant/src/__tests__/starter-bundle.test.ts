@@ -135,4 +135,36 @@ describe("Starter approval bundle", () => {
       expect(defaultIds.has(starterRule.id)).toBe(false);
     }
   });
+
+  test("accepted starter rules have canonical persisted shape after disk round-trip", () => {
+    acceptStarterBundle();
+
+    // Force a disk round-trip by clearing the cache
+    clearCache();
+    const allRules = getAllRules();
+    const starterRuleIds = new Set(getStarterBundleRules().map((r) => r.id));
+    const starterRules = allRules.filter((r) => starterRuleIds.has(r.id));
+
+    expect(starterRules.length).toBe(getStarterBundleRules().length);
+
+    for (const rule of starterRules) {
+      // Canonical shape: scope is always present and set to "everywhere"
+      expect(rule.scope).toBe("everywhere");
+
+      // Starter rules are all allow decisions — they should not carry
+      // family-specific metadata signals (allowHighRisk, executionTarget).
+      // These rules cover read-only/information-gathering tools that are
+      // either generic or scoped family, but none require high-risk access.
+      expect(rule.allowHighRisk).toBeUndefined();
+      expect(rule.executionTarget).toBeUndefined();
+
+      // Base fields must be present
+      expect(rule.id).toBeTruthy();
+      expect(rule.tool).toBeTruthy();
+      expect(rule.pattern).toBeTruthy();
+      expect(rule.decision).toBe("allow");
+      expect(rule.priority).toBeGreaterThan(0);
+      expect(rule.createdAt).toBeGreaterThan(0);
+    }
+  });
 });
