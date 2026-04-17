@@ -5,12 +5,11 @@
  * the approval-flow trust-rule endpoint in approval-routes.ts.
  * All endpoints are bearer-token authenticated (standard runtime auth).
  *
- * Payloads are canonicalized through the shared `parseTrustRule` parser
- * before persistence: legacy clients can keep sending current shapes
- * without 4xx regressions, but fields invalid for a tool's family
- * (e.g. `executionTarget` on a URL-tool rule) are silently stripped.
+ * Canonicalization is handled centrally inside `addRule`/`updateRule` in
+ * trust-store.ts: legacy clients can keep sending current shapes without
+ * 4xx regressions, but fields invalid for a tool's family (e.g.
+ * `executionTarget` on a URL-tool rule) are silently stripped.
  */
-import { parseTrustRule } from "@vellumai/ces-contracts";
 import { z } from "zod";
 
 import {
@@ -86,37 +85,19 @@ export async function handleAddTrustRuleManage(
   }
 
   try {
-    // Canonicalize through the shared parser so fields invalid for the tool's
-    // family are stripped before persistence. Legacy callers that send e.g.
-    // executionTarget on a URL-tool rule won't get a 4xx — the field is simply
-    // dropped during normalization.
-    const { rule: canonical } = parseTrustRule({
-      id: "",
-      tool: toolName,
+    // Canonicalization is handled inside addRule — no need to pre-parse here.
+    // Legacy callers that send e.g. executionTarget on a URL-tool rule won't
+    // get a 4xx — the field is simply dropped during normalization in addRule.
+    addRule(
+      toolName,
       pattern,
       scope,
-      decision,
-      priority: 100,
-      createdAt: 0,
-      ...(allowHighRisk != null ? { allowHighRisk } : {}),
-      ...(executionTarget != null ? { executionTarget } : {}),
-    });
-    const canonicalOpts =
-      "allowHighRisk" in canonical || "executionTarget" in canonical
-        ? {
-            allowHighRisk: (canonical as { allowHighRisk?: boolean })
-              .allowHighRisk,
-            executionTarget: (canonical as { executionTarget?: string })
-              .executionTarget,
-          }
-        : undefined;
-    addRule(
-      canonical.tool,
-      canonical.pattern,
-      canonical.scope,
-      canonical.decision,
+      decision as "allow" | "deny" | "ask",
       undefined,
-      canonicalOpts,
+      {
+        ...(allowHighRisk != null ? { allowHighRisk } : {}),
+        ...(executionTarget != null ? { executionTarget } : {}),
+      },
     );
     log.info(
       { toolName, pattern, scope, decision },
