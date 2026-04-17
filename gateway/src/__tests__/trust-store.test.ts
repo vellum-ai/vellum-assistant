@@ -163,8 +163,8 @@ describe("normalization on load", () => {
 
     const rules = loadRules();
     expect(rules).toHaveLength(1);
-    expect((rules[0] as Record<string, unknown>).executionTarget).toBe("host");
-    expect((rules[0] as Record<string, unknown>).allowHighRisk).toBe(true);
+    expect((rules[0] as any).executionTarget).toBe("host");
+    expect((rules[0] as any).allowHighRisk).toBe(true);
   });
 
   test("preserves executionTarget and allowHighRisk on generic (unknown) tool rules", () => {
@@ -187,10 +187,8 @@ describe("normalization on load", () => {
 
     const rules = loadRules();
     expect(rules).toHaveLength(1);
-    expect((rules[0] as Record<string, unknown>).executionTarget).toBe(
-      "container",
-    );
-    expect((rules[0] as Record<string, unknown>).allowHighRisk).toBe(false);
+    expect((rules[0] as any).executionTarget).toBe("container");
+    expect((rules[0] as any).allowHighRisk).toBe(false);
   });
 
   test("strips legacy principal-scoped fields and re-saves", () => {
