@@ -440,11 +440,12 @@ struct InferenceServiceCard: View {
         // daemon's read-modify-write cycle for the model doesn't overwrite them.
         store.selectedModel = draftModel
         let capturedModel = draftModel
+        let capturedProvider = draftProvider
         let forceSend = modeChanged
         Task {
             if let pendingMode { _ = await pendingMode.value }
             if let pendingProvider { _ = await pendingProvider.value }
-            store.setModel(capturedModel, provider: draftProvider, force: forceSend)
+            store.setModel(capturedModel, provider: capturedProvider, force: forceSend)
         }
         initialModel = draftModel
     }
