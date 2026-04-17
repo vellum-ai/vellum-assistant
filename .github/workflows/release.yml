@@ -288,7 +288,7 @@ jobs:
           retention-days: 90
 
   publish-chrome-extension:
-    needs: [extract-version, build-chrome-extension]
+    needs: [extract-version, build-chrome-extension, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: >-
       needs.extract-version.outputs.chrome_extension_changed == 'true'
       && needs.extract-version.outputs.is_staging == 'false'
@@ -1410,8 +1410,16 @@ jobs:
   # arm64 macOS build — builds Swift + Bun binaries in a single job,
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
+  #
+  # `needs:` gates on the three GCR service manifests. We intentionally do NOT
+  # list `push-dockerhub-image` here because this job runs in both staging
+  # and production, and `push-dockerhub-image` is prod-only (skipped in staging)
+  # — a skipped dep would cascade-skip this job in staging. The Docker Hub
+  # gate is applied downstream at the `release` job (GitHub Release), which
+  # is the sole publisher of the DMG produced here, and at `release-ios`
+  # for its sibling TestFlight publish.
   build-macos-arm64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1786,7 +1794,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -2484,8 +2492,12 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  # iOS build — produces .ipa for TestFlight upload via release-ios.
+  # As with the macOS builds, `needs:` gates on GCR manifests only because
+  # this job runs in staging too; the Docker Hub gate lives on `release-ios`
+  # (prod-only), which is the sole external publisher of this .ipa.
   build-ios:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -2523,7 +2535,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [extract-version, build-ios]
+    needs: [extract-version, build-ios, push-dockerhub-image]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
