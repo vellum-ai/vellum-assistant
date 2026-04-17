@@ -152,7 +152,6 @@ final class ClientProvider: ObservableObject {
 class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
-    let ambientAgentManager = AmbientAgentManager()
     private var actorTokenBootstrapTask: Task<Void, Never>?
     /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
     /// the daemon-instance-changed observer. Stored so we can properly remove
@@ -337,7 +336,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     /// Performs the initial actor token bootstrap with exponential backoff.
     /// Called only when no actor token exists (first launch or after credential wipe).
-    /// Stable device ID stored in Keychain, shared with QRPairingSheet.
+    /// Stable device ID stored in Keychain, used for platform bootstrap.
     private static func getOrCreateDeviceId() -> String {
         if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {
             return existing

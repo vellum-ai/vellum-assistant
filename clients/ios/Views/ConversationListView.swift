@@ -793,11 +793,9 @@ struct ConversationChatView: View {
     let conversation: IOSConversation
 
     @EnvironmentObject var clientProvider: ClientProvider
-    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @State private var showCopiedConfirmation = false
     @State private var showShareSheet = false
     @State private var shareMarkdown: String = ""
-    @State private var showDebugPanel = false
 
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
@@ -823,16 +821,6 @@ struct ConversationChatView: View {
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if developerModeEnabled {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button {
-                            showDebugPanel = true
-                        } label: {
-                            VIconView(.bug, size: 20)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    }
-                }
                 if let forkAction = makeCurrentTipForkToolbarAction(store: store, conversation: conversation) {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: forkAction) {
@@ -850,13 +838,6 @@ struct ConversationChatView: View {
             }
             .sheet(isPresented: $showShareSheet) {
                 ActivityViewController(activityItems: [shareMarkdown])
-            }
-            .sheet(isPresented: $showDebugPanel) {
-                DebugPanelView(
-                    traceStore: clientProvider.traceStore,
-                    conversationId: viewModel.conversationId,
-                    onClose: { showDebugPanel = false }
-                )
             }
     }
 

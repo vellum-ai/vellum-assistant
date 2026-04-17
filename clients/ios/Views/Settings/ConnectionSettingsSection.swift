@@ -48,7 +48,6 @@ struct APIKeySection: View {
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @State private var showingQRPairing = false
 
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
@@ -91,33 +90,12 @@ struct DaemonConnectionSection: View {
                     }
                 } else {
                     // Not configured state
-                    Text("Scan a QR code from your Assistant to connect.")
+                    Text("Log in with Vellum to connect to your cloud assistant.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }
             } header: {
                 Text("Connection")
-            }
-
-            Section {
-                Button {
-                    showingQRPairing = true
-                } label: {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 8) {
-                            VIconView(.qrCode, size: 40)
-                            Text("Scan QR Code")
-                                .font(.headline)
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 12)
-                }
-            } header: {
-                Text("Pair with Assistant")
-            } footer: {
-                Text("Open Vellum on your Assistant, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
             // MARK: - Vellum Account
@@ -174,9 +152,6 @@ struct DaemonConnectionSection: View {
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingQRPairing) {
-            QRPairingSheet()
-        }
     }
 }
 #endif

@@ -8,22 +8,19 @@ After editing `project.yml`, regenerate the Xcode project by running `xcodegen g
 
 ## Features
 
-- **Cloud login** — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
-- **Connect to assistant** — pair with a local or remote assistant via QR code (HTTP+SSE through the gateway)
+- **Cloud login** — sign in with Vellum to connect to a platform-hosted assistant (HTTP+SSE through the gateway)
 - Chat interface with streaming responses, markdown rendering, and code blocks
 - Multiple threads with persistence, search, rename, timestamps, and archive
-- Assistant-synced threads in Connected mode (shared with macOS)
 - Model picker, model list, and command list rendering (shared components)
 - Subagent status chips with real-time state updates
 - Skill invocation chips in message bubbles
 - Compact used tools list with expandable step details
 - Inline media embeds (images, YouTube, Vimeo, Loom videos)
-- Settings: QR pairing (Connect) and developer diagnostics
+- Settings: Connection and developer diagnostics
 - Attachment support (photos, files)
 - Voice input with service-first STT (gateway → configured provider) and Apple-native fallback (`SpeechRecognizerAdapter`)
-- Onboarding flow with adaptive steps based on connection mode
+- Onboarding flow (Welcome → Login → Permissions → Ready)
 - Export conversation as markdown (copy to clipboard or share sheet)
-- Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
 
@@ -71,31 +68,15 @@ cd clients/ios
 
 ---
 
-## Connection Modes
+## Connection
 
-The iOS onboarding flow offers two paths: **cloud login** and **connect to assistant**.
-
-### Cloud Login (no Mac required)
+The iOS app connects to a Vellum-hosted assistant via cloud login.
 
 1. Launch the app → complete onboarding → choose **"Log in with Vellum"**
 2. Authenticate via WorkOS in the system browser
 3. The app connects to your platform-hosted assistant automatically
 
 No API key or local assistant is required — the assistant runs on the Vellum platform. Session tokens are stored in the Keychain and refreshed automatically.
-
-### Connect to Assistant
-
-Pair with a running assistant (local Mac or remote) via QR code. The iOS app connects through the HTTP gateway using bearer token authentication.
-
-**QR Code Pairing:**
-
-1. On your Mac (or remote host), open **Settings → Connect → Show QR Code**
-2. On your iPhone, go to **Settings → Connect → Scan QR Code**
-3. Scan the QR code — the host will show an approval prompt
-4. Tap **Approve Once** or **Always Allow** on the host
-5. The app auto-configures the gateway URL and bearer token
-
-The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections.
 
 **Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys and tokens are stored in `UserDefaults` instead, which works fine for development. On a real device, credentials are stored in the Keychain.
 
@@ -117,7 +98,6 @@ Test files in `clients/ios/Tests/`:
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction
 - `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling
 - `ConversationLifecycleIOSTests.swift` — session creation, backfill, conversation isolation
-- `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 ### Shared Tests
 
@@ -144,12 +124,11 @@ swift test --filter VellumAssistantSharedTests
 
 | Setting | Storage | Default | Description |
 |---------|---------|---------|-------------|
-| Gateway URL | UserDefaults `gateway_base_url` | — | HTTP(S) gateway URL from QR code pairing |
+| Gateway URL | UserDefaults `gateway_base_url` | — | HTTP(S) gateway URL for the cloud assistant |
 | Bearer token | Keychain (device) / UserDefaults (sim), provider `"runtime-bearer-token"` | — | Authentication token for gateway requests |
-| Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for pairing identity (survives reinstalls) |
+| Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for device identity (survives reinstalls) |
 | Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
-| Session token | Keychain via `AuthManager` | — | WorkOS session token for cloud login mode |
-| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Used by TitleGenerator for auto-generating conversation titles |
+| Session token | Keychain via `AuthManager` | — | WorkOS session token for cloud login |
 
 </details>
 
@@ -176,12 +155,8 @@ During recording, the `SpeechRecognizerAdapter` protocol (`Services/SpeechRecogn
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Cannot connect" | Assistant not running or wrong gateway URL | Start the macOS app, verify gateway URL in Settings → Connect |
-| "Connection failed" after QR scan | Gateway unreachable from iPhone | Ensure both devices are on the same network; check firewall settings |
-| "Pairing was denied" | User tapped Deny on Mac | Show a new QR code and approve the pairing |
-| "Pairing request expired" | QR code older than 5 minutes | Show a new QR code on your Mac |
-| "This QR code is outdated" | Scanned a v2/v3 QR code | Update Vellum on your Mac and generate a new QR code |
-| Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code to obtain a fresh token |
+| "Cannot connect" | Session token expired or gateway unreachable | Log out and log back in via Settings → Connect |
+| Auth timeout / immediate disconnect | Missing or invalid session token | Log in again via Settings → Connect |
 | "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
 | Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vocify-inc.vellum-assistant-ios` then reinstall |
 
