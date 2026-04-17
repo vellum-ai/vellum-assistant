@@ -79,7 +79,7 @@ enum HostCuActionRunner {
 
         if !isObserveOnly {
             // Resolve element IDs to coordinates if needed
-            guard let resolvedAction = resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: request.stepNumber) else {
+            guard let resolvedAction = await resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: request.stepNumber) else {
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
@@ -270,7 +270,7 @@ enum HostCuActionRunner {
     // MARK: - Coordinate Resolution
 
     /// Resolve element IDs to screen coordinates when x/y are not provided.
-    private static func resolveCoordinatesIfNeeded(for action: AgentAction, enumerator: AccessibilityTreeProviding, stepNumber: Int) -> AgentAction? {
+    private static func resolveCoordinatesIfNeeded(for action: AgentAction, enumerator: AccessibilityTreeProviding, stepNumber: Int) async -> AgentAction? {
         var resolved = action
 
         switch resolved.type {
@@ -280,7 +280,7 @@ enum HostCuActionRunner {
                     log.error("[\(stepNumber)] Action requires either x/y coordinates or element_id")
                     return nil
                 }
-                guard let center = elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -290,7 +290,7 @@ enum HostCuActionRunner {
 
         case .scroll:
             if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
-                guard let center = elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -300,13 +300,13 @@ enum HostCuActionRunner {
 
         case .drag:
             if resolved.x == nil || resolved.y == nil, let sourceId = resolved.resolvedFromElementId {
-                if let center = elementCenter(for: sourceId, enumerator: enumerator) {
+                if let center = await elementCenter(for: sourceId, enumerator: enumerator) {
                     resolved.x = center.x
                     resolved.y = center.y
                 }
             }
             if resolved.toX == nil || resolved.toY == nil, let targetId = resolved.resolvedToElementId {
-                if let center = elementCenter(for: targetId, enumerator: enumerator) {
+                if let center = await elementCenter(for: targetId, enumerator: enumerator) {
                     resolved.toX = center.x
                     resolved.toY = center.y
                 }
@@ -320,8 +320,8 @@ enum HostCuActionRunner {
     }
 
     /// Find the center point of an AX element by ID in the current window.
-    private static func elementCenter(for elementId: Int, enumerator: AccessibilityTreeProviding) -> CGPoint? {
-        guard let result = enumerator.enumerateCurrentWindow() else { return nil }
+    private static func elementCenter(for elementId: Int, enumerator: AccessibilityTreeProviding) async -> CGPoint? {
+        guard let result = await enumerator.enumerateCurrentWindow() else { return nil }
         let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
         guard let element = flat.first(where: { $0.id == elementId }) else { return nil }
         let frame = element.frame
@@ -364,7 +364,7 @@ enum HostCuActionRunner {
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
 
-        if let result = enumerator.enumerateCurrentWindow() {
+        if let result = await enumerator.enumerateCurrentWindow() {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
                 elements: result.elements,
                 windowTitle: result.windowTitle,
@@ -382,7 +382,7 @@ enum HostCuActionRunner {
 
             // Enumerate secondary windows on first step
             if stepNumber <= 1 {
-                let secondaryWindows = enumerator.enumerateSecondaryWindows(
+                let secondaryWindows = await enumerator.enumerateSecondaryWindows(
                     excludingPID: result.pid,
                     maxWindows: 2
                 )
