@@ -56,8 +56,8 @@ final class ConversationRestorer {
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
     private var invalidationRefetchTask: Task<Void, Never>?
-    /// NotificationCenter observer token for `.daemonDidReconnect`. Removed after
-    /// the first post fires the initial conversation list fetch.
+    /// NotificationCenter observer token for `.daemonDidReconnect`. One-shot —
+    /// removed after the first post fires the initial conversation list fetch.
     private var daemonReconnectObserver: NSObjectProtocol?
 
     weak var delegate: ConversationRestorerDelegate?
@@ -114,27 +114,22 @@ final class ConversationRestorer {
             }
         }
 
-        // Fetch conversation list on first connect.
+        // Fetch conversation list on first connect using `.daemonDidReconnect`
+        // — the shared, main-actor-synchronous signal posted by
+        // `GatewayConnectionManager.setConnected(true)`.
         //
-        // Uses `.daemonDidReconnect` (posted synchronously by
-        // `GatewayConnectionManager.setConnected(true)` on the main actor) as
-        // the trigger rather than an `observationStream` on `isConnected`.
-        // The Observation-based approach is racy at startup: the
-        // connect-task and the observer-task are both enqueued on the main
-        // actor, and there is no guarantee that `withObservationTracking` is
-        // installed before `setConnected(true)` runs. When the tracking is
-        // installed after the transition, the `onChange` callback never
-        // fires and the initial fetch is skipped — the sidebar then stays
-        // empty until another code path (e.g. a server-pushed
-        // `conversation_list_invalidated` after the user sends a message)
-        // triggers `scheduleInvalidationRefetch`. `.daemonDidReconnect` is
-        // the same deterministic signal used elsewhere in the app for
-        // reconnect-triggered refreshes.
+        // An `observationStream` on `isConnected` is inappropriate here:
+        // `withObservationTracking` installation and `setConnected(true)`
+        // are enqueued on the main actor in an unordered pair, so when the
+        // transition lands before tracking is installed the `onChange`
+        // callback never fires and the first-connect branch is silently
+        // skipped. `.daemonDidReconnect` is delivered synchronously from
+        // the write site, so it cannot be missed for this reason.
         //
-        // The synchronous `isConnected` guard handles the (rare) case where
-        // the daemon connected before the restorer started observing; it is
+        // The synchronous `isConnected` guard covers the case where the
+        // daemon is already connected at observer-registration time; it is
         // idempotent because `fetchConversationList` cancels any in-flight
-        // fetch task before starting a new one.
+        // fetch before starting a new one.
         if connectionManager.isConnected {
             fetchConversationList()
         } else {
