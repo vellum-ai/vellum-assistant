@@ -7,5 +7,6 @@
     "src/lib/platform-releases.ts",
     "src/lib/cli-error.ts"
   ],
-  "project": ["src/**/*.ts", "src/**/*.tsx"]
+  "project": ["src/**/*.ts", "src/**/*.tsx"],
+  "ignoreDependencies": ["@vellumai/version-compat"]
 }
