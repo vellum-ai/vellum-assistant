@@ -51,20 +51,30 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when changing inference mode would invalidate the current web search config.
+    /// True when changing inference mode/provider would invalidate the current web search config.
     private var wouldInvalidateWebSearch: Bool {
         let modeChanging = draftMode != store.inferenceMode
-        guard modeChanging else { return false }
+        let providerChanging = draftProvider != store.selectedInferenceProvider
+        guard modeChanging || providerChanging else { return false }
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
         if draftMode == "your-own" && store.webSearchMode == "managed" {
             return true
         }
-        // Switching to Managed inference while web search uses Provider Native
-        // (Provider Native requires Your Own inference).
+        // Switching to Managed inference while web search uses Provider Native —
+        // only invalidate when the resulting provider cannot support native web search.
         if draftMode == "managed" && store.webSearchProvider == "inference-provider-native" {
-            return true
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
+        }
+        // Switching providers while web search uses Provider Native — invalidate
+        // when the new provider cannot support native web search.
+        if providerChanging && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
         }
         return false
     }
