@@ -112,11 +112,7 @@ struct ImageGenerationServiceCard: View {
                 isDisabled: authManager.isSubmitting
             ) {
                 Task {
-                    await authManager.loginWithToast(showToast: showToast, onSuccess: {
-                        if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
-                            AppDelegate.shared?.reconnectManagedAssistant()
-                        }
-                    })
+                    await authManager.loginWithToast(showToast: showToast)
                 }
             }
         }

@@ -10,11 +10,10 @@ import {
 import { computeDeviceId } from "../lib/guardian-token";
 import {
   clearPlatformToken,
-  ensureSelfHostedLocalRegistration,
   fetchCurrentUser,
   fetchOrganizationId,
+  bootstrapSelfHostedLocalAssistantCredentials,
   getPlatformUrl,
-  injectCredentialsIntoAssistant,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client";
@@ -43,6 +42,15 @@ function openBrowser(url: string): void {
  * Start a local HTTP server, open the browser to the platform login page,
  * and wait for the platform to redirect back with the session token.
  */
+export function buildBrowserLoginUrl(
+  platformUrl: string,
+  port: number,
+  state: string,
+): string {
+  const normalizedBase = platformUrl.replace(/\/+$/, "");
+  return `${normalizedBase}/accounts/cli/callback?port=${port}&state=${encodeURIComponent(state)}`;
+}
+
 function browserLogin(platformUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const state = randomBytes(32).toString("hex");
@@ -109,8 +117,7 @@ function browserLogin(platformUrl: string): Promise<string> {
       }
 
       const port = addr.port;
-      const returnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-      const loginUrl = `${platformUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
+      const loginUrl = buildBrowserLoginUrl(platformUrl, port, state);
 
       console.log("Opening browser for login...");
       console.log(`If the browser doesn't open, visit: ${loginUrl}`);
@@ -182,39 +189,38 @@ export async function login(): Promise<void> {
       if (entry && entry.cloud !== "vellum") {
         const orgId = await fetchOrganizationId(token);
         const clientInstallationId = computeDeviceId();
-        const registration = await ensureSelfHostedLocalRegistration(
+        const result = await bootstrapSelfHostedLocalAssistantCredentials({
           token,
-          orgId,
+          organizationId: orgId,
           clientInstallationId,
-          entry.assistantId,
-          "cli",
-        );
+          clientPlatform: "cli",
+          entry,
+          userId: user.id,
+          platformUrl: getPlatformUrl(),
+        });
         console.log(
-          `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
+          `Registered assistant: ${result.registration.assistant.name} (${result.registration.assistant.id})`,
         );
 
-        // Inject credentials into the running assistant via the gateway,
-        // mirroring the desktop app's LocalAssistantBootstrapService flow.
-        const allInjected = await injectCredentialsIntoAssistant({
-          gatewayUrl: entry.runtimeUrl,
-          bearerToken: entry.bearerToken,
-          assistantApiKey: registration.assistant_api_key,
-          platformAssistantId: registration.assistant.id,
-          platformBaseUrl: getPlatformUrl(),
-          organizationId: orgId,
-          userId: user.id,
-          webhookSecret: registration.webhook_secret,
-        });
-        if (allInjected) {
-          console.log("Injected platform credentials into assistant.");
+        if (result.allInjected) {
+          if (result.assistantApiKeySource === "reprovision") {
+            console.log(
+              "Reprovisioned missing assistant API key and injected platform credentials into assistant.",
+            );
+          } else {
+            console.log("Injected platform credentials into assistant.");
+          }
         } else {
           console.warn(
             "Some credentials could not be injected into the assistant.",
           );
         }
       }
-    } catch {
-      // Non-fatal — login succeeded even if registration fails
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `Warning: logged in, but local assistant registration did not complete: ${message}`,
+      );
     }
   } catch (error) {
     console.error(

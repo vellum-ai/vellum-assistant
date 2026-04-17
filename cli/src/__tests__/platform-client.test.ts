@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  bootstrapSelfHostedLocalAssistantCredentials,
   clearPlatformToken,
   getPlatformUrl,
   readPlatformToken,
@@ -200,5 +201,168 @@ describe("getPlatformUrl resolution order", () => {
   test("trims whitespace from VELLUM_PLATFORM_URL", () => {
     process.env.VELLUM_PLATFORM_URL = "  https://trimmed.vellum.ai  ";
     expect(getPlatformUrl()).toBe("https://trimmed.vellum.ai");
+  });
+});
+
+describe("bootstrapSelfHostedLocalAssistantCredentials", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("reprovisions when ensure-registration returns no key and the assistant is missing it", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      requests.push({ url, method });
+
+      if (
+        url ===
+          "https://platform.test/v1/assistants/self-hosted-local/ensure-registration/" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          assistant: { id: "platform-assistant-1", name: "Local: my-local" },
+          registration: {
+            client_installation_id: "device-id-123",
+            runtime_assistant_id: "my-local",
+            client_platform: "cli",
+          },
+          assistant_api_key: null,
+          webhook_secret: "webhook-secret-123",
+        });
+      }
+
+      if (url === "http://127.0.0.1:7821/v1/secrets" && method === "GET") {
+        return Response.json({ secrets: [] });
+      }
+
+      if (
+        url ===
+          "https://platform.test/v1/assistants/self-hosted-local/reprovision-api-key/" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          assistant: { id: "platform-assistant-1" },
+          provisioning: {
+            credential_name: "vellum:assistant_api_key",
+            assistant_api_key: "reprovisioned-key-123",
+            rotated: true,
+          },
+        });
+      }
+
+      if (url === "http://127.0.0.1:7821/v1/secrets" && method === "POST") {
+        return Response.json({ success: true });
+      }
+
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await bootstrapSelfHostedLocalAssistantCredentials({
+      token: "session-token",
+      organizationId: "org-1",
+      clientInstallationId: "device-id-123",
+      clientPlatform: "cli",
+      entry: {
+        assistantId: "my-local",
+        runtimeUrl: "http://my-machine.local:7821",
+        localUrl: "http://127.0.0.1:7821",
+        bearerToken: "local-bearer",
+      },
+      userId: "user-1",
+      platformUrl: "https://platform.test",
+    });
+
+    expect(result.assistantApiKeySource).toBe("reprovision");
+    expect(result.allInjected).toBe(true);
+    expect(
+      requests.some(({ url }) => url.startsWith("http://my-machine.local:7821")),
+    ).toBe(false);
+    expect(
+      requests.filter(
+        ({ url, method }) => url === "http://127.0.0.1:7821/v1/secrets" && method === "POST",
+      ),
+    ).toHaveLength(6);
+    expect(
+      requests.some(
+        ({ url, method }) =>
+          url ===
+            "https://platform.test/v1/assistants/self-hosted-local/reprovision-api-key/" &&
+          method === "POST",
+      ),
+    ).toBe(true);
+  });
+
+  test("reuses the assistant's existing API key without reprovisioning", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      requests.push({ url, method });
+
+      if (
+        url ===
+          "https://platform.test/v1/assistants/self-hosted-local/ensure-registration/" &&
+        method === "POST"
+      ) {
+        return Response.json({
+          assistant: { id: "platform-assistant-1", name: "Local: my-local" },
+          registration: {
+            client_installation_id: "device-id-123",
+            runtime_assistant_id: "my-local",
+            client_platform: "cli",
+          },
+          assistant_api_key: null,
+          webhook_secret: "webhook-secret-123",
+        });
+      }
+
+      if (url === "http://127.0.0.1:7821/v1/secrets" && method === "GET") {
+        return Response.json({
+          secrets: [{ type: "credential", name: "vellum:assistant_api_key" }],
+        });
+      }
+
+      if (url === "http://127.0.0.1:7821/v1/secrets" && method === "POST") {
+        return Response.json({ success: true });
+      }
+
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await bootstrapSelfHostedLocalAssistantCredentials({
+      token: "session-token",
+      organizationId: "org-1",
+      clientInstallationId: "device-id-123",
+      clientPlatform: "cli",
+      entry: {
+        assistantId: "my-local",
+        runtimeUrl: "http://my-machine.local:7821",
+        localUrl: "http://127.0.0.1:7821",
+        bearerToken: "local-bearer",
+      },
+      userId: "user-1",
+      platformUrl: "https://platform.test",
+    });
+
+    expect(result.assistantApiKeySource).toBe("assistant-store");
+    expect(result.allInjected).toBe(true);
+    expect(
+      requests.some(
+        ({ url }) =>
+          url ===
+          "https://platform.test/v1/assistants/self-hosted-local/reprovision-api-key/",
+      ),
+    ).toBe(false);
+    expect(
+      requests.filter(
+        ({ url, method }) => url === "http://127.0.0.1:7821/v1/secrets" && method === "POST",
+      ),
+    ).toHaveLength(5);
   });
 });

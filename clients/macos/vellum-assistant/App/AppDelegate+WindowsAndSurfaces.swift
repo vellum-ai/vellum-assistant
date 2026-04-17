@@ -722,24 +722,11 @@ extension AppDelegate {
     }
 
     /// Triggers the platform login flow (WorkOS) in response to a
-    /// `show_platform_login` event from the daemon. On success, re-bootstraps
-    /// actor credentials and the local assistant API key, mirroring the
-    /// post-login flow in SettingsPanel and MainWindowView.
+    /// `show_platform_login` event from the daemon.
     public func showPlatformLogin() {
         Task {
             await authManager.loginWithToast(showToast: { [weak self] msg, style in
                 self?.mainWindow?.windowState.showToast(message: msg, style: style)
-            }, onSuccess: { [weak self] in
-                guard let self else { return }
-                if !self.isCurrentAssistantManaged {
-                    self.ensureActorCredentials()
-                }
-                self.localBootstrapDidComplete = false
-                self.ensureLocalAssistantApiKey()
-
-                if self.isCurrentAssistantManaged {
-                    self.reconnectManagedAssistant()
-                }
             })
         }
     }
