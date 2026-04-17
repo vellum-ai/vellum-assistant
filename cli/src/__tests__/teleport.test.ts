@@ -206,26 +206,25 @@ const checkExistingPlatformAssistantMock = spyOn(
   "checkExistingPlatformAssistant",
 ).mockResolvedValue(null);
 
-const ensureSelfHostedLocalRegistrationMock = spyOn(
+const bootstrapSelfHostedLocalAssistantCredentialsMock = spyOn(
   platformClient,
-  "ensureSelfHostedLocalRegistration",
+  "bootstrapSelfHostedLocalAssistantCredentials",
 ).mockResolvedValue({
-  assistant: { id: "platform-assistant-1", name: "my-assistant" },
   registration: {
-    client_installation_id: "device-id-123",
-    runtime_assistant_id: "target-local",
-    client_platform: "cli",
+    assistant: { id: "platform-assistant-1", name: "my-assistant" },
+    registration: {
+      client_installation_id: "device-id-123",
+      runtime_assistant_id: "target-local",
+      client_platform: "cli",
+    },
+    assistant_api_key: "api-key-123",
+    webhook_secret: "webhook-secret-123",
   },
-  assistant_api_key: "api-key-123",
-  webhook_secret: "webhook-secret-123",
+  allInjected: true,
+  assistantApiKeySource: "ensure-registration",
 } as unknown as Awaited<
-  ReturnType<typeof platformClient.ensureSelfHostedLocalRegistration>
+  ReturnType<typeof platformClient.bootstrapSelfHostedLocalAssistantCredentials>
 >);
-
-const injectCredentialsIntoAssistantMock = spyOn(
-  platformClient,
-  "injectCredentialsIntoAssistant",
-).mockResolvedValue(true);
 
 const fetchCurrentUserMock = spyOn(
   platformClient,
@@ -321,8 +320,7 @@ afterAll(() => {
   platformUploadToSignedUrlMock.mockRestore();
   platformImportPreflightFromGcsMock.mockRestore();
   platformImportBundleFromGcsMock.mockRestore();
-  ensureSelfHostedLocalRegistrationMock.mockRestore();
-  injectCredentialsIntoAssistantMock.mockRestore();
+  bootstrapSelfHostedLocalAssistantCredentialsMock.mockRestore();
   fetchCurrentUserMock.mockRestore();
   fetchOrganizationIdMock.mockRestore();
   computeDeviceIdMock.mockRestore();
@@ -447,19 +445,21 @@ beforeEach(() => {
   });
   checkExistingPlatformAssistantMock.mockReset();
   checkExistingPlatformAssistantMock.mockResolvedValue(null);
-  ensureSelfHostedLocalRegistrationMock.mockReset();
-  ensureSelfHostedLocalRegistrationMock.mockResolvedValue({
-    assistant: { id: "platform-assistant-1", name: "my-assistant" },
+  bootstrapSelfHostedLocalAssistantCredentialsMock.mockReset();
+  bootstrapSelfHostedLocalAssistantCredentialsMock.mockResolvedValue({
     registration: {
-      client_installation_id: "device-id-123",
-      runtime_assistant_id: "target-local",
-      client_platform: "cli",
+      assistant: { id: "platform-assistant-1", name: "my-assistant" },
+      registration: {
+        client_installation_id: "device-id-123",
+        runtime_assistant_id: "target-local",
+        client_platform: "cli",
+      },
+      assistant_api_key: "api-key-123",
+      webhook_secret: "webhook-secret-123",
     },
-    assistant_api_key: "api-key-123",
-    webhook_secret: "webhook-secret-123",
+    allInjected: true,
+    assistantApiKeySource: "ensure-registration",
   });
-  injectCredentialsIntoAssistantMock.mockReset();
-  injectCredentialsIntoAssistantMock.mockResolvedValue(true);
   fetchCurrentUserMock.mockReset();
   fetchCurrentUserMock.mockResolvedValue({
     id: "user-1",
@@ -2283,7 +2283,7 @@ describe("credential import display", () => {
 // ---------------------------------------------------------------------------
 
 describe("teleport platform credential injection", () => {
-  test("platform→local teleport calls ensureSelfHostedLocalRegistration and injectCredentialsIntoAssistant", async () => {
+  test("platform→local teleport bootstraps platform credentials for the target assistant", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -2306,22 +2306,16 @@ describe("teleport platform credential injection", () => {
 
     try {
       await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalledWith(
-        "platform-token",
-        "org-1",
-        "device-id-123",
-        "my-local",
-        "cli",
-      );
-      expect(injectCredentialsIntoAssistantMock).toHaveBeenCalledWith({
-        gatewayUrl: "http://localhost:7821",
-        bearerToken: "local-bearer",
-        assistantApiKey: "api-key-123",
-        platformAssistantId: "platform-assistant-1",
-        platformBaseUrl: "https://platform.vellum.ai",
+      expect(
+        bootstrapSelfHostedLocalAssistantCredentialsMock,
+      ).toHaveBeenCalledWith({
+        token: "platform-token",
         organizationId: "org-1",
+        clientInstallationId: "device-id-123",
+        clientPlatform: "cli",
+        entry: { ...localEntry, bearerToken: "local-token" },
         userId: "user-1",
-        webhookSecret: "webhook-secret-123",
+        platformUrl: "https://platform.vellum.ai",
       });
       expect(consoleLogSpy).toHaveBeenCalledWith(
         "  Platform credentials injected.",
@@ -2355,8 +2349,9 @@ describe("teleport platform credential injection", () => {
 
     try {
       await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalled();
-      expect(injectCredentialsIntoAssistantMock).toHaveBeenCalled();
+      expect(
+        bootstrapSelfHostedLocalAssistantCredentialsMock,
+      ).toHaveBeenCalled();
       expect(consoleLogSpy).toHaveBeenCalledWith(
         "  Platform credentials injected.",
       );
@@ -2385,8 +2380,9 @@ describe("teleport platform credential injection", () => {
 
     try {
       await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
-      expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
+      expect(
+        bootstrapSelfHostedLocalAssistantCredentialsMock,
+      ).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -2426,8 +2422,9 @@ describe("teleport platform credential injection", () => {
 
     try {
       await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
-      expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
+      expect(
+        bootstrapSelfHostedLocalAssistantCredentialsMock,
+      ).not.toHaveBeenCalled();
       expect(consoleLogSpy).toHaveBeenCalledWith(
         "  Skipped platform credential injection (not logged in).",
       );

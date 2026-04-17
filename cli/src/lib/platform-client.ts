@@ -168,6 +168,15 @@ export interface EnsureRegistrationResponse {
   webhook_secret: string;
 }
 
+export interface ReprovisionSelfHostedLocalApiKeyResponse {
+  assistant: { id: string };
+  provisioning: {
+    credential_name: string;
+    assistant_api_key: string;
+    rotated: boolean;
+  };
+}
+
 /**
  * Register (or re-confirm) a self-hosted local assistant with the platform.
  *
@@ -222,6 +231,58 @@ export async function ensureSelfHostedLocalRegistration(
   return (await response.json()) as EnsureRegistrationResponse;
 }
 
+/**
+ * Rotate and return a fresh API key for a self-hosted local assistant.
+ *
+ * Calls `POST /v1/assistants/self-hosted-local/reprovision-api-key/`.
+ */
+export async function reprovisionSelfHostedLocalAssistantApiKey(
+  token: string,
+  organizationId: string,
+  clientInstallationId: string,
+  runtimeAssistantId: string,
+  clientPlatform: string,
+  assistantVersion?: string,
+  platformUrl?: string,
+): Promise<ReprovisionSelfHostedLocalApiKeyResponse> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, string> = {
+    client_installation_id: clientInstallationId,
+    runtime_assistant_id: runtimeAssistantId,
+    client_platform: clientPlatform,
+  };
+  if (assistantVersion) {
+    body.assistant_version = assistantVersion;
+  }
+
+  const response = await fetch(
+    `${resolvedUrl}/v1/assistants/self-hosted-local/reprovision-api-key/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Session-Token": token,
+        "Vellum-Organization-Id": organizationId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication required for assistant API key reprovision.");
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `API key reprovision failed (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as ReprovisionSelfHostedLocalApiKeyResponse;
+}
+
 // ---------------------------------------------------------------------------
 // Credential injection into running assistant via gateway
 // ---------------------------------------------------------------------------
@@ -254,6 +315,47 @@ async function injectGatewayCredential(
     signal: AbortSignal.timeout(10_000),
   });
   return response.ok;
+}
+
+interface GatewaySecretListResponse {
+  secrets?: Array<{ type?: string; name?: string }>;
+  accounts?: Array<{ type?: string; name?: string }>;
+}
+
+async function listGatewaySecretNames(
+  gatewayUrl: string,
+  bearerToken?: string,
+): Promise<string[]> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (bearerToken) {
+    headers["Authorization"] = `Bearer ${bearerToken}`;
+  }
+
+  const response = await fetch(`${gatewayUrl}/v1/secrets`, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to inspect assistant credentials (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  const body = (await response.json()) as GatewaySecretListResponse;
+  const entries = Array.isArray(body.secrets)
+    ? body.secrets
+    : Array.isArray(body.accounts)
+      ? body.accounts
+      : [];
+
+  return entries
+    .map((entry) => entry?.name)
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
 }
 
 export interface CredentialInjectionParams {
@@ -308,6 +410,103 @@ export async function injectCredentialsIntoAssistant(
 
   const results = await Promise.all(promises);
   return results.every(Boolean);
+}
+
+export interface AssistantCredentialTarget {
+  assistantId: string;
+  runtimeUrl: string;
+  localUrl?: string;
+  bearerToken?: string;
+}
+
+export interface BootstrapSelfHostedLocalAssistantCredentialsParams {
+  token: string;
+  organizationId: string;
+  clientInstallationId: string;
+  clientPlatform: string;
+  entry: AssistantCredentialTarget;
+  userId?: string;
+  assistantVersion?: string;
+  platformUrl?: string;
+}
+
+export interface BootstrapSelfHostedLocalAssistantCredentialsResult {
+  registration: EnsureRegistrationResponse;
+  allInjected: boolean;
+  assistantApiKeySource: "ensure-registration" | "assistant-store" | "reprovision";
+}
+
+/**
+ * Register a self-hosted local assistant with the platform and ensure the
+ * running assistant has all required platform credentials.
+ *
+ * Mirrors the desktop bootstrap flow:
+ * - `ensure-registration` for the platform mapping
+ * - reuse an existing `vellum:assistant_api_key` already stored in the
+ *   assistant when the platform no longer returns the raw key
+ * - `reprovision-api-key` only when the assistant is actually missing the key
+ */
+export async function bootstrapSelfHostedLocalAssistantCredentials(
+  params: BootstrapSelfHostedLocalAssistantCredentialsParams,
+): Promise<BootstrapSelfHostedLocalAssistantCredentialsResult> {
+  const gatewayUrl = params.entry.localUrl || params.entry.runtimeUrl;
+  const platformUrl = params.platformUrl || getPlatformUrl();
+
+  const registration = await ensureSelfHostedLocalRegistration(
+    params.token,
+    params.organizationId,
+    params.clientInstallationId,
+    params.entry.assistantId,
+    params.clientPlatform,
+    params.assistantVersion,
+    platformUrl,
+  );
+
+  let assistantApiKey = registration.assistant_api_key;
+  let assistantApiKeySource:
+    | "ensure-registration"
+    | "assistant-store"
+    | "reprovision" = "ensure-registration";
+
+  if (!assistantApiKey) {
+    const existingSecretNames = await listGatewaySecretNames(
+      gatewayUrl,
+      params.entry.bearerToken,
+    );
+
+    if (existingSecretNames.includes("vellum:assistant_api_key")) {
+      assistantApiKeySource = "assistant-store";
+    } else {
+      const reprovision = await reprovisionSelfHostedLocalAssistantApiKey(
+        params.token,
+        params.organizationId,
+        params.clientInstallationId,
+        params.entry.assistantId,
+        params.clientPlatform,
+        params.assistantVersion,
+        platformUrl,
+      );
+      assistantApiKey = reprovision.provisioning.assistant_api_key;
+      assistantApiKeySource = "reprovision";
+    }
+  }
+
+  const allInjected = await injectCredentialsIntoAssistant({
+    gatewayUrl,
+    bearerToken: params.entry.bearerToken,
+    assistantApiKey,
+    platformAssistantId: registration.assistant.id,
+    platformBaseUrl: platformUrl,
+    organizationId: params.organizationId,
+    userId: params.userId,
+    webhookSecret: registration.webhook_secret,
+  });
+
+  return {
+    registration,
+    allInjected,
+    assistantApiKeySource,
+  };
 }
 
 export async function hatchAssistant(

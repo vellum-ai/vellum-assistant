@@ -26,8 +26,7 @@ import {
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
   platformPollImportStatus,
-  ensureSelfHostedLocalRegistration,
-  injectCredentialsIntoAssistant,
+  bootstrapSelfHostedLocalAssistantCredentials,
   fetchCurrentUser,
   fetchOrganizationId,
 } from "../lib/platform-client.js";
@@ -1127,27 +1126,26 @@ async function tryInjectPlatformCredentials(
     const user = await fetchCurrentUser(token);
     const orgId = await fetchOrganizationId(token);
     const clientInstallationId = computeDeviceId();
-    const registration = await ensureSelfHostedLocalRegistration(
+    const gatewayBearer =
+      loadGuardianToken(entry.assistantId)?.accessToken ?? entry.bearerToken;
+    const result = await bootstrapSelfHostedLocalAssistantCredentials({
       token,
-      orgId,
-      clientInstallationId,
-      entry.assistantId,
-      "cli",
-    );
-
-    const allInjected = await injectCredentialsIntoAssistant({
-      gatewayUrl: entry.runtimeUrl,
-      bearerToken: entry.bearerToken,
-      assistantApiKey: registration.assistant_api_key,
-      platformAssistantId: registration.assistant.id,
-      platformBaseUrl: getPlatformUrl(),
       organizationId: orgId,
+      clientInstallationId,
+      clientPlatform: "cli",
+      entry: { ...entry, bearerToken: gatewayBearer },
       userId: user.id,
-      webhookSecret: registration.webhook_secret,
+      platformUrl: getPlatformUrl(),
     });
 
-    if (allInjected) {
-      console.log("  Platform credentials injected.");
+    if (result.allInjected) {
+      if (result.assistantApiKeySource === "reprovision") {
+        console.log(
+          "  Reprovisioned missing assistant API key and injected platform credentials.",
+        );
+      } else {
+        console.log("  Platform credentials injected.");
+      }
     } else {
       console.warn("  Some platform credentials could not be injected.");
     }
