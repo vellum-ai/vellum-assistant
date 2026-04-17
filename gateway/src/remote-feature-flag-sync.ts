@@ -259,12 +259,22 @@ export class RemoteFeatureFlagSync {
   }
 
   private async fetchRemoteFeatureFlags(): Promise<RemoteFetchResult> {
-    const [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] =
-      await Promise.all([
+    // Wrap credential reads so transient failures (CES unreachable, keychain
+    // errors) are treated as retriable errors with backoff, not as "missing
+    // credentials" which would pause polling indefinitely.
+    let platformUrlRaw: string | undefined;
+    let assistantIdRaw: string | undefined;
+    let assistantApiKeyRaw: string | undefined;
+    try {
+      [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] = await Promise.all([
         this.credentials.get(credentialKey("vellum", "platform_base_url")),
         this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
         this.credentials.get(credentialKey("vellum", "assistant_api_key")),
       ]);
+    } catch (err) {
+      log.warn({ err }, "Failed to read credentials — will retry on next poll");
+      return { status: "error" };
+    }
 
     // Fall back to env vars when credential cache values are missing.
     const platformUrl = (
