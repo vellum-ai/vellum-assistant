@@ -110,10 +110,9 @@ type OperationHandler = (
 ) => Promise<ToolExecutionResult>;
 
 /**
- * Inline `wait_for_download` handler. This logic currently lives in the
- * tool wrapper (`browser-wait-for-download.ts`); it is replicated here
- * so the shared contract can dispatch it without depending on the
- * wrapper. The wrapper can be repointed to this contract in a later PR.
+ * Inline `wait_for_download` handler. Downloads are only supported
+ * on auto/local browser modes; the handler validates the mode and
+ * delegates to `browserManager.waitForDownload()`.
  */
 async function executeWaitForDownload(
   input: Record<string, unknown>,
