@@ -62,9 +62,9 @@ public struct VFormattingToolbar: View {
         case .bold: return VIcon.bold.rawValue
         case .italic: return VIcon.italic.rawValue
         case .underline: return VIcon.underline.rawValue
-        case .alignLeft: return VIcon.textAlignLeft.rawValue
+        case .alignLeft: return VIcon.textAlignStart.rawValue
         case .alignCenter: return VIcon.textAlignCenter.rawValue
-        case .alignRight: return VIcon.textAlignRight.rawValue
+        case .alignRight: return VIcon.textAlignEnd.rawValue
         case .link: return VIcon.link.rawValue
         case .unorderedList: return VIcon.list.rawValue
         case .orderedList: return VIcon.listOrdered.rawValue
