@@ -31,6 +31,12 @@ function getMaxPollIntervalMs(): number {
   return DEFAULT_POLL_INTERVAL_MS;
 }
 
+/** Discriminated result from a remote feature flag fetch attempt. */
+type RemoteFetchResult =
+  | { status: "success"; values: Record<string, boolean> }
+  | { status: "missing_credentials" }
+  | { status: "error" };
+
 export type RemoteFeatureFlagSyncConfig = {
   /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
   credentials: CredentialCache;
@@ -46,11 +52,17 @@ export type RemoteFeatureFlagSyncConfig = {
  * {@link INITIAL_POLL_INTERVAL_MS} and doubles on each failure until it
  * reaches the steady-state interval. On the first success the interval
  * snaps to steady-state immediately.
+ *
+ * When credentials are not configured (user not logged in), polling pauses
+ * entirely and resumes automatically when the credential cache is
+ * invalidated (e.g. after login).
  */
 export class RemoteFeatureFlagSync {
   private started = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private syncNowActive = false;
+  private waitingForCredentials = false;
+  private unsubscribeCredentials: (() => void) | null = null;
   private currentIntervalMs: number;
   private readonly maxIntervalMs: number;
   private readonly credentials: CredentialCache;
@@ -65,21 +77,28 @@ export class RemoteFeatureFlagSync {
   async start(): Promise<void> {
     this.started = true;
 
-    let ok = false;
+    let result: RemoteFetchResult["status"] = "error";
     try {
-      ok = await this.fetchAndCache();
+      result = await this.fetchAndCache();
     } catch (err) {
       log.warn({ err }, "Failed to sync remote feature flags on startup");
     }
 
-    if (ok) {
+    if (result === "success") {
       // First fetch succeeded — jump straight to steady-state polling.
       this.currentIntervalMs = this.maxIntervalMs;
+      this.scheduleNextPoll();
+    } else if (result === "missing_credentials") {
+      this.pauseForCredentials();
+    } else {
+      this.scheduleNextPoll();
     }
 
-    this.scheduleNextPoll();
     log.info(
-      { intervalMs: this.currentIntervalMs },
+      {
+        intervalMs: this.currentIntervalMs,
+        waitingForCredentials: this.waitingForCredentials,
+      },
       "Remote feature flag polling started",
     );
   }
@@ -90,6 +109,7 @@ export class RemoteFeatureFlagSync {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
+    this.clearCredentialWatch();
   }
 
   /**
@@ -102,15 +122,19 @@ export class RemoteFeatureFlagSync {
     // Guard: tell poll()'s .finally() not to reschedule — we'll handle it.
     this.syncNowActive = true;
 
+    // If we were waiting for credentials, clear that state.
+    this.clearCredentialWatch();
+
     // Cancel the pending poll so we don't double-fetch.
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
 
+    let result: RemoteFetchResult["status"] = "error";
     try {
-      const ok = await this.fetchAndCache();
-      if (ok) {
+      result = await this.fetchAndCache();
+      if (result === "success") {
         this.currentIntervalMs = this.maxIntervalMs;
       }
     } catch (err) {
@@ -120,7 +144,11 @@ export class RemoteFeatureFlagSync {
     }
 
     if (this.started) {
-      this.scheduleNextPoll();
+      if (result === "missing_credentials") {
+        this.pauseForCredentials();
+      } else {
+        this.scheduleNextPoll();
+      }
     }
   }
 
@@ -133,10 +161,12 @@ export class RemoteFeatureFlagSync {
   private poll(): void {
     if (!this.started) return;
     this.fetchAndCache()
-      .then((ok) => {
-        if (ok) {
+      .then((result) => {
+        if (result === "success") {
           // Success — snap to steady-state interval.
           this.currentIntervalMs = this.maxIntervalMs;
+        } else if (result === "missing_credentials") {
+          this.pauseForCredentials();
         } else {
           // Failure — double the interval, capped at max.
           this.currentIntervalMs = Math.min(
@@ -155,34 +185,80 @@ export class RemoteFeatureFlagSync {
       .finally(() => {
         // If syncNow() is active it owns rescheduling — skip to avoid
         // creating a duplicate poll chain.
-        if (this.started && !this.syncNowActive) {
+        // If waitingForCredentials, credential watch owns resumption.
+        if (
+          this.started &&
+          !this.syncNowActive &&
+          !this.waitingForCredentials
+        ) {
           this.scheduleNextPoll();
         }
       });
   }
 
   /**
-   * Fetch remote flags and write them to the store.
-   * Returns true if flags were successfully written, false otherwise.
+   * Stop polling and watch for credential changes instead.
+   *
+   * Called when credentials are not configured (user not logged in).
+   * Resumes sync automatically when the credential cache is invalidated.
    */
-  private async fetchAndCache(): Promise<boolean> {
-    const values = await this.fetchRemoteFeatureFlags();
-    if (values === null) {
-      log.warn("Skipping cache write — fetch returned no usable data");
-      return false;
+  private pauseForCredentials(): void {
+    if (this.waitingForCredentials) return;
+    this.waitingForCredentials = true;
+
+    // Stop any pending poll.
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
     }
-    writeRemoteFeatureFlags(values);
-    log.info(
-      { count: Object.keys(values).length },
-      "Synced remote feature flags",
-    );
-    return true;
+
+    // Listen for credential changes to resume.
+    this.unsubscribeCredentials = this.credentials.onInvalidate(() => {
+      if (!this.started || !this.waitingForCredentials) return;
+      log.info("Credentials changed — attempting remote feature flag sync");
+      this.syncNow().catch((err) => {
+        log.warn(
+          { err },
+          "Failed to sync remote feature flags after credential change",
+        );
+      });
+    });
+
+    log.debug("Paused remote flag polling — waiting for credentials");
   }
 
-  private async fetchRemoteFeatureFlags(): Promise<Record<
-    string,
-    boolean
-  > | null> {
+  /** Clear the credential invalidation watch if active. */
+  private clearCredentialWatch(): void {
+    this.waitingForCredentials = false;
+    if (this.unsubscribeCredentials) {
+      this.unsubscribeCredentials();
+      this.unsubscribeCredentials = null;
+    }
+  }
+
+  /**
+   * Fetch remote flags and write them to the store.
+   * Returns the status of the fetch attempt.
+   */
+  private async fetchAndCache(): Promise<RemoteFetchResult["status"]> {
+    const result = await this.fetchRemoteFeatureFlags();
+    if (result.status === "missing_credentials") {
+      log.debug("Skipping remote flag sync — credentials not configured");
+      return "missing_credentials";
+    }
+    if (result.status === "error") {
+      log.warn("Skipping cache write — fetch returned no usable data");
+      return "error";
+    }
+    writeRemoteFeatureFlags(result.values);
+    log.info(
+      { count: Object.keys(result.values).length },
+      "Synced remote feature flags",
+    );
+    return "success";
+  }
+
+  private async fetchRemoteFeatureFlags(): Promise<RemoteFetchResult> {
     const [platformUrlRaw, assistantIdRaw, assistantApiKeyRaw] =
       await Promise.all([
         this.credentials.get(credentialKey("vellum", "platform_base_url")),
@@ -216,7 +292,7 @@ export class RemoteFeatureFlagSync {
         },
         "Remote feature flag sync skipped: missing credentials",
       );
-      return null;
+      return { status: "missing_credentials" };
     }
 
     const url = `${platformUrl}/v1/feature-flags/assistant-flag-values/`;
@@ -236,7 +312,7 @@ export class RemoteFeatureFlagSync {
         { status: response.status, url },
         "Platform feature flags request failed",
       );
-      return null;
+      return { status: "error" };
     }
 
     const body = (await response.json()) as {
@@ -244,7 +320,7 @@ export class RemoteFeatureFlagSync {
     };
     if (!body.flags || typeof body.flags !== "object") {
       log.warn("Platform feature flags response missing 'flags' field");
-      return null;
+      return { status: "error" };
     }
 
     // Filter to boolean values only (defensive), and prevent the platform
@@ -253,7 +329,7 @@ export class RemoteFeatureFlagSync {
     // every flag it knows about. Without this filter, shipped features get
     // silently turned off for all users.
     const registry = loadFeatureFlagDefaults();
-    const result: Record<string, boolean> = {};
+    const values: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {
       if (typeof value !== "boolean") continue;
       if (!value && registry[key]?.defaultEnabled) {
@@ -263,9 +339,9 @@ export class RemoteFeatureFlagSync {
         );
         continue;
       }
-      result[key] = value;
+      values[key] = value;
     }
 
-    return result;
+    return { status: "success", values };
   }
 }

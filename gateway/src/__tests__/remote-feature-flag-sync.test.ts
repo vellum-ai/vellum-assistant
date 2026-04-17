@@ -45,17 +45,40 @@ const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
 // Helpers
 // ---------------------------------------------------------------------------
 
+type FakeCredentialCacheExt = CredentialCache & {
+  _invalidate(): void;
+  _setValues(v: Record<string, string | undefined>): void;
+};
+
 /**
  * Build a fake CredentialCache that resolves credential keys from an
  * in-memory map. Keys follow the `credential/{service}/{field}` format
  * produced by `credentialKey()`.
+ *
+ * Includes `onInvalidate` support and test helpers:
+ * - `_invalidate()` — fire all registered invalidation listeners
+ * - `_setValues(v)` — replace the in-memory credential map
  */
 function fakeCredentialCache(
-  values: Record<string, string | undefined> = {},
-): CredentialCache {
+  initialValues: Record<string, string | undefined> = {},
+): FakeCredentialCacheExt {
+  let values = { ...initialValues };
+  const invalidateListeners = new Set<() => void>();
   return {
     get: async (key: string) => values[key],
-  } as unknown as CredentialCache;
+    onInvalidate: (cb: () => void) => {
+      invalidateListeners.add(cb);
+      return () => {
+        invalidateListeners.delete(cb);
+      };
+    },
+    _invalidate: () => {
+      for (const cb of invalidateListeners) cb();
+    },
+    _setValues: (v: Record<string, string | undefined>) => {
+      values = { ...v };
+    },
+  } as unknown as FakeCredentialCacheExt;
 }
 
 function defaultCredentials(): Record<string, string> {
@@ -489,40 +512,32 @@ describe("RemoteFeatureFlagSync", () => {
   });
 
   test("polls with backoff when initial fetch fails, then snaps to steady-state on success", async () => {
-    // Simulate: first two fetches fail (missing creds), third succeeds.
-    let callCount = 0;
-    const credsFn = async (key: string) => {
-      callCount++;
-      // First 6 calls = 2 attempts × 3 credential reads each → missing API key.
-      // After that, credentials are available.
-      if (callCount <= 6) {
-        if (key === "credential/vellum/assistant_api_key") return undefined;
-        return defaultCredentials()[key];
+    // Simulate: first two fetches return 500, third succeeds.
+    let fetchCallCount = 0;
+    fetchMock = mock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount <= 2) {
+        return new Response("Internal Server Error", { status: 500 });
       }
-      return defaultCredentials()[key];
-    };
-    const creds = { get: credsFn } as unknown as CredentialCache;
-
-    fetchMock = mock(async () =>
-      Response.json({ flags: { "backoff-flag": true } }),
-    );
+      return Response.json({ flags: { "backoff-flag": true } });
+    });
 
     const sync = new RemoteFeatureFlagSync({
-      credentials: creds,
+      credentials: fakeCredentialCache(defaultCredentials()),
       initialPollIntervalMs: 50,
     });
     await sync.start();
 
-    // Initial fetch failed (missing creds) — no fetch calls yet
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Initial fetch failed (500) — 1 call so far
+    expect(fetchCallCount).toBe(1);
 
-    // Wait for first poll (50ms) — still fails (creds still missing)
+    // Wait for first poll (50ms) — still fails (500)
     await new Promise((r) => setTimeout(r, 80));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchCallCount).toBe(2);
 
-    // Wait for second poll (100ms = 50ms doubled) — creds now available
+    // Wait for second poll (100ms = 50ms doubled) — succeeds
     await new Promise((r) => setTimeout(r, 130));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchCallCount).toBe(3);
 
     clearRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({ "backoff-flag": true });
@@ -615,32 +630,70 @@ describe("RemoteFeatureFlagSync", () => {
   });
 
   test("doubles poll interval on consecutive failures", async () => {
-    // Always fail — missing creds
-    const creds = defaultCredentials();
-    delete creds["credential/vellum/assistant_api_key"];
-
-    fetchMock = mock(async () => Response.json({ flags: {} }));
+    // Always fail with 500
+    fetchMock = mock(
+      async () => new Response("Internal Server Error", { status: 500 }),
+    );
 
     const sync = new RemoteFeatureFlagSync({
-      credentials: fakeCredentialCache(creds),
+      credentials: fakeCredentialCache(defaultCredentials()),
       initialPollIntervalMs: 50,
     });
     await sync.start();
 
-    // No fetch calls (missing creds)
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Initial fetch failed (500) — 1 call
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     // After 50ms: first poll fires, still fails → interval doubles to 100ms
     await new Promise((r) => setTimeout(r, 80));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // After another 100ms: second poll fires, still fails → interval doubles to 200ms
     await new Promise((r) => setTimeout(r, 130));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     // After another 200ms: third poll fires
     await new Promise((r) => setTimeout(r, 230));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    sync.stop();
+  });
+
+  test("pauses polling when credentials are missing and resumes on invalidation", async () => {
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "resumed-flag": true } }),
+    );
+
+    const creds = fakeCredentialCache({
+      ...defaultCredentials(),
+      "credential/vellum/assistant_api_key": undefined,
+    });
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: creds,
+      initialPollIntervalMs: 50,
+    });
+    await sync.start();
+
+    // No fetch calls — missing creds, polling should be paused
     expect(fetchMock).not.toHaveBeenCalled();
+
+    // Wait well past the initial poll interval — should still not poll
+    await new Promise((r) => setTimeout(r, 200));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Simulate user logging in — credentials now available
+    creds._setValues(defaultCredentials());
+    creds._invalidate();
+
+    // Wait for syncNow to complete (async, fire-and-forget from callback)
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should have fetched once after credential invalidation
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "resumed-flag": true });
 
     sync.stop();
   });
