@@ -120,6 +120,10 @@ struct HomePermissionCard: View {
                         .multilineTextAlignment(.leading)
 
                     showDetailsRow
+
+                    if isExpanded {
+                        expandedDetailsStub
+                    }
                 }
                 .padding(VSpacing.xs)
             }
@@ -152,6 +156,20 @@ struct HomePermissionCard: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "Hide details" : "Show details")
+    }
+
+    /// Placeholder content shown when the "Show Details" toggle is
+    /// expanded. Intentionally a stub until the permission-request
+    /// payload wiring lands — when it does, replace this with the
+    /// tool arguments / raw request body from the caller.
+    private var expandedDetailsStub: some View {
+        Text("Additional tool details will appear here once wired to the permission request payload.")
+            .font(VFont.labelDefault)
+            .foregroundStyle(VColor.contentTertiary)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Action buttons
