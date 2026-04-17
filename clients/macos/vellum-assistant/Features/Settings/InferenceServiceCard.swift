@@ -64,14 +64,16 @@ struct InferenceServiceCard: View {
         }
         // Switching to Managed inference while web search uses Provider Native —
         // only invalidate when the resulting provider cannot support native web search.
-        if draftMode == "managed" && store.webSearchProvider == "inference-provider-native" {
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if draftMode == "managed" && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
             if !store.isNativeWebSearchCapable(draftProvider) {
                 return true
             }
         }
         // Switching providers while web search uses Provider Native — invalidate
         // when the new provider cannot support native web search.
-        if providerChanging && store.webSearchProvider == "inference-provider-native" {
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
             if !store.isNativeWebSearchCapable(draftProvider) {
                 return true
             }
