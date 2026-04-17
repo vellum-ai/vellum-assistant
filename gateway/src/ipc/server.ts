@@ -11,9 +11,9 @@
  * the assistant container can connect to it.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { z } from "zod";
 
@@ -79,6 +79,13 @@ export class GatewayIpcServer {
 
   /** Start listening on the Unix domain socket. */
   start(): void {
+    // Ensure the parent directory exists — on a fresh hatch the workspace
+    // dir may not have been created yet when the IPC server starts.
+    const socketDir = dirname(this.socketPath);
+    if (!existsSync(socketDir)) {
+      mkdirSync(socketDir, { recursive: true });
+    }
+
     // Clean up stale socket file from a previous run
     if (existsSync(this.socketPath)) {
       try {
