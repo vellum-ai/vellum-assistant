@@ -56,7 +56,17 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
             )
             .overlay(
                 GeometryReader { proxy in
-                    shape.strokeBorder(edgeHighlight(size: proxy.size), lineWidth: 1)
+                    ZStack {
+                        // Thin (0.5pt) stroke carries the full edge
+                        // highlight pattern along the whole border.
+                        shape.strokeBorder(edgeHighlight(size: proxy.size), lineWidth: 0.5)
+                        // Concentric 1pt stroke only paints at the corner
+                        // highlights (TL in light mode, TL + BR in dark),
+                        // clear elsewhere. Where it paints, the corner
+                        // reads as a full 1pt line; everywhere else only
+                        // the thin 0.5pt stroke shows through.
+                        shape.strokeBorder(cornerHighlight(size: proxy.size), lineWidth: 1)
+                    }
                 }
             )
             .clipShape(shape)
@@ -106,6 +116,47 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
                 .init(color: bright, location: tl + 0.05),
                 .init(color: .clear, location: tl + 0.10),
                 .init(color: .clear, location: 1),
+            ]
+        }
+
+        return AngularGradient(stops: stops, center: .center)
+    }
+
+    /// Angular gradient for the thick corner stroke — bright only in a
+    /// narrow plateau at each corner-highlight position, clear elsewhere.
+    /// Layered on top of the thin edge stroke, this gives the bright
+    /// corners a heavier 1pt stroke while leaving the rest of the border
+    /// at the thinner 0.5pt weight.
+    private func cornerHighlight(size: CGSize) -> AngularGradient {
+        let w = max(size.width, 1)
+        let h = max(size.height, 1)
+        let f = atan2(h, w) / (2 * .pi)
+        let half: CGFloat = 0.015   // plateau half-width (~5° of arc)
+        let bright = VColor.glassEdgeHighlight
+        let tl = 0.5 + f
+
+        let stops: [Gradient.Stop]
+        switch colorScheme {
+        case .dark:
+            // Two plateaus: BR (near location f) and TL (near 0.5 + f).
+            stops = [
+                .init(color: .clear,  location: 0),
+                .init(color: .clear,  location: f - half),
+                .init(color: bright, location: f),
+                .init(color: .clear,  location: f + half),
+                .init(color: .clear,  location: tl - half),
+                .init(color: bright, location: tl),
+                .init(color: .clear,  location: tl + half),
+                .init(color: .clear,  location: 1),
+            ]
+        default:
+            // One plateau at TL only (light mode is single-corner).
+            stops = [
+                .init(color: .clear,  location: 0),
+                .init(color: .clear,  location: tl - half),
+                .init(color: bright, location: tl),
+                .init(color: .clear,  location: tl + half),
+                .init(color: .clear,  location: 1),
             ]
         }
 
