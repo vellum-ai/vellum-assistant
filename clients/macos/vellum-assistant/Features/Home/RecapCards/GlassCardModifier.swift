@@ -52,7 +52,18 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
             .padding(padding)
             .background(
                 ZStack {
-                    shape.fill(.ultraThinMaterial)
+                    // Solid white backing so the 1pt outer ring (where
+                    // Material gets clipped off below) has a consistent
+                    // color instead of canvas showing through.
+                    shape.fill(VColor.surfaceLift)
+                    // Material at a 1pt-oversized shape. Its natural rim
+                    // lands at the outer edge of the inset(-1) shape —
+                    // which sits 1pt OUTSIDE the card's real edge. The
+                    // final .clipShape(shape) at the bottom of this
+                    // modifier crops that outer pixel off, and the rim
+                    // disappears with it.
+                    shape.inset(by: -1).fill(.ultraThinMaterial)
+                    // 10% white tint at the real shape.
                     shape.fill(VColor.glassFill)
                 }
             )
