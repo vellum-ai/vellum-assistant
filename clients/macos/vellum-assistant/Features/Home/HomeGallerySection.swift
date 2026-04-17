@@ -274,7 +274,192 @@ struct HomeGallerySection: View {
                     )
                 }
             }
+
+            // MARK: - HomeDetailPanel
+
+            if filter == nil || filter == "homeDetailPanel" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeDetailPanel",
+                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeDetailPanel(
+                        icon: .file,
+                        title: "Panel title",
+                        primaryAction: .init(label: "Primary", action: {}),
+                        secondaryAction: .init(label: "Secondary", style: .danger, action: {}),
+                        onDismiss: {}
+                    ) {
+                        Text("Detail content goes here.")
+                            .padding(VSpacing.lg)
+                    }
+                    .frame(height: 520)
+                }
+            }
+
+            // MARK: - HomeEmailEditor
+
+            if filter == nil || filter == "homeEmailEditor" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeEmailEditor",
+                    description: "Pure body content for the email editor variant of the Home detail panel."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    _HomeEmailEditorDemo()
+                }
+            }
+
+            // MARK: - HomeInvoicePreview
+
+            if filter == nil || filter == "homeInvoicePreview" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeInvoicePreview",
+                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeDetailPanel(
+                        icon: .file,
+                        title: "Authorise Payment to Slack",
+                        primaryAction: .init(label: "Authorise", action: {}),
+                        secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                        onDismiss: {}
+                    ) {
+                        HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+                    }
+                    .frame(height: 520)
+                }
+            }
+
+            // MARK: - HomeSplitLayout
+
+            if filter == nil || filter == "homeSplitLayout" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeSplitLayout",
+                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    _HomeSplitLayoutDemo()
+                }
+            }
         }
+    }
+}
+
+// MARK: - Demo helpers
+
+/// Demo wrapper that hosts `HomeEmailEditor` inside a `HomeDetailPanel` with
+/// sample content matching the Figma mock (thread name, recipient, subject,
+/// body, and a single attachment). Kept private to the gallery so it can
+/// own the `@State` bindings required by the editor's field text.
+private struct _HomeEmailEditorDemo: View {
+    private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
+        .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
+    ]
+
+    @State private var toAddress: String = "john@johnstown.com"
+    @State private var subject: String = "looking for a basketball scholarship"
+    @State private var bodyText: String = """
+    Dear Whatsyourface,
+
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+
+    Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+
+    Best,
+    Rok
+    """
+
+    var body: some View {
+        HomeDetailPanel(
+            icon: nil,
+            title: "Thread Name Here",
+            primaryAction: .init(label: "Send", action: {}),
+            onDismiss: {}
+        ) {
+            HomeEmailEditor(
+                toAddress: $toAddress,
+                subject: $subject,
+                bodyText: $bodyText,
+                attachments: Self.sampleAttachments,
+                onAttachmentTap: { _ in }
+            )
+        }
+        .frame(height: 640)
+    }
+}
+
+/// Demo wrapper that renders the side-by-side layout from the Figma mocks
+/// — a placeholder home column on the leading side and the email editor
+/// detail panel on the trailing side. `HomePageView` requires far too much
+/// setup (`HomeStore`, `HomeFeedStore`, etc.) to make a realistic full
+/// demo worthwhile here, so the leading column is intentionally a minimal
+/// placeholder. The intent is to show the visual relationship between the
+/// two columns, not to exercise the real home page.
+private struct _HomeSplitLayoutDemo: View {
+    private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
+        .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
+    ]
+
+    @State private var toAddress: String = "john@johnstown.com"
+    @State private var subject: String = "looking for a basketball scholarship"
+    @State private var bodyText: String = """
+    Dear Whatsyourface,
+
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+
+    Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+
+    Best,
+    Rok
+    """
+
+    var body: some View {
+        HStack(alignment: .top, spacing: VSpacing.lg) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Home placeholder")
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(VSpacing.xxl)
+
+            HomeDetailPanel(
+                icon: nil,
+                title: "Thread Name Here",
+                primaryAction: .init(label: "Send", action: {}),
+                onDismiss: {}
+            ) {
+                HomeEmailEditor(
+                    toAddress: $toAddress,
+                    subject: $subject,
+                    bodyText: $bodyText,
+                    attachments: Self.sampleAttachments,
+                    onAttachmentTap: { _ in }
+                )
+            }
+        }
+        .frame(width: 1200, height: 640)
+        .padding(VSpacing.lg)
     }
 }
 
@@ -293,6 +478,10 @@ extension HomeGallerySection {
         case "homeImageCard": HomeGallerySection(filter: "homeImageCard")
         case "homeFileCard": HomeGallerySection(filter: "homeFileCard")
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
+        case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
+        case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
+        case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
+        case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
         default: EmptyView()
         }
     }
