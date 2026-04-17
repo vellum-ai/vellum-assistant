@@ -171,6 +171,58 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
   return {};
 }
 
+/**
+ * Fetch the guardian contact and their active channels from the gateway via IPC.
+ * Returns null on any failure (IPC not available, no guardian, etc.) so the
+ * caller can fall back to the local contact store.
+ */
+export async function ipcListGuardianChannels(): Promise<{
+  contact: {
+    id: string;
+    displayName: string;
+    role: string;
+    principalId: string | null;
+    notes: string | null;
+    userFile: string | null;
+    contactType: string;
+    createdAt: number;
+    updatedAt: number;
+  };
+  channels: {
+    id: string;
+    contactId: string;
+    type: string;
+    address: string;
+    isPrimary: boolean;
+    externalUserId: string | null;
+    externalChatId: string | null;
+    status: string;
+    policy: string;
+    verifiedAt: number | null;
+    verifiedVia: string | null;
+    inviteId: string | null;
+    revokedReason: string | null;
+    blockedReason: string | null;
+    lastSeenAt: number | null;
+    interactionCount: number;
+    lastInteraction: number | null;
+    createdAt: number;
+    updatedAt: number | null;
+  }[];
+} | null> {
+  const result = await ipcCall("list_guardian_channels");
+  if (
+    result &&
+    typeof result === "object" &&
+    !Array.isArray(result) &&
+    "contact" in result &&
+    "channels" in result
+  ) {
+    return result as Awaited<ReturnType<typeof ipcListGuardianChannels>>;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Socket path
 // ---------------------------------------------------------------------------

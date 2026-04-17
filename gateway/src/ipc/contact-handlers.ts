@@ -38,6 +38,10 @@ export const contactRoutes: IpcRoute[] = [
     handler: () => getStore().listContacts(),
   },
   {
+    method: "list_guardian_channels",
+    handler: () => getStore().listGuardianChannels(),
+  },
+  {
     method: "get_contact",
     schema: GetContactParamsSchema,
     handler: (params?: Record<string, unknown>) => {
