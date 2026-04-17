@@ -250,31 +250,31 @@ struct DisplayGallerySection: View {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
                 // MARK: - VAvatarImage
-                #if os(macOS)
                 GallerySectionHeader(
                     title: "VAvatarImage",
                     description: "Avatar with transparency-aware clip shape. Transparent images show full artwork; opaque images clip to a circle."
                 )
 
-                HStack(spacing: VSpacing.lg) {
-                    ForEach([
-                        ("24pt", CGFloat(24)),
-                        ("28pt", CGFloat(28)),
-                        ("40pt", CGFloat(40)),
-                        ("52pt", CGFloat(52)),
-                    ], id: \.0) { label, size in
-                        VStack(spacing: VSpacing.xs) {
-                            VAvatarImage(
-                                image: NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)!,
-                                size: size
-                            )
-                            Text(label)
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
+                if let sampleImage = gallerySampleAvatarImage {
+                    HStack(spacing: VSpacing.lg) {
+                        ForEach([
+                            ("24pt", CGFloat(24)),
+                            ("28pt", CGFloat(28)),
+                            ("40pt", CGFloat(40)),
+                            ("52pt", CGFloat(52)),
+                        ], id: \.0) { label, size in
+                            VStack(spacing: VSpacing.xs) {
+                                VAvatarImage(
+                                    image: sampleImage,
+                                    size: size
+                                )
+                                Text(label)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                            }
                         }
                     }
                 }
-                #endif
 
             }
 
@@ -685,6 +685,17 @@ struct DisplayGallerySection: View {
        verbose: false,
      };
     """
+}
+
+// MARK: - Gallery Helpers
+
+/// Creates a sample `PlatformImage` from an SF Symbol for use in gallery previews.
+private var gallerySampleAvatarImage: PlatformImage? {
+    #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+    return NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil)
+    #elseif canImport(UIKit)
+    return UIImage(systemName: "person.circle.fill")
+    #endif
 }
 
 // MARK: - Component Page Router
