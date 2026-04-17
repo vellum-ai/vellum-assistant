@@ -15,9 +15,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Assis
 /// from the gateway API.  The ``feature_flags_changed`` SSE event triggers
 /// subsequent gateway refreshes when flag files change on disk.
 ///
-/// Uses the `@Observable` macro so views only re-evaluate when the specific
-/// flags they read via ``isEnabled(_:)`` actually change, eliminating
-/// objectWillChange cascades into every observing view.
+/// Marked `@Observable` so views are only invalidated when the specific flag
+/// they read via ``isEnabled(_:)`` changes, not on every refresh of the
+/// internal `resolvedFlags` dictionary.
 @MainActor
 @Observable
 final class AssistantFeatureFlagStore {

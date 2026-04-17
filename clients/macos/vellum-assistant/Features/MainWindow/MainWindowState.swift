@@ -13,12 +13,10 @@ enum ViewSelection: Equatable {
 /// Cross-view UI state for the main window, extracted from `MainWindowView`
 /// to make it explicit, injectable, and easier to preview.
 ///
-/// Uses the `@Observable` macro for property-level SwiftUI tracking. This
-/// prevents the re-entrant `AttributeGraph` cascades that `ObservableObject`
-/// triggered when multiple properties mutated synchronously (e.g. `selection`
-/// updating `persistentConversationId` in its `didSet`). With `@Observable`
-/// there is no `objectWillChange.send()`, so property mutation order no
-/// longer causes `MainWindowView.body` re-evaluation to hang.
+/// Marked `@Observable` so SwiftUI tracks each property independently — views
+/// observe exactly the properties they read, and `didSet` chains that mutate
+/// several properties in sequence (e.g. `selection` updating
+/// `persistentConversationId`) do not cascade view invalidations.
 @MainActor
 @Observable
 public final class MainWindowState {

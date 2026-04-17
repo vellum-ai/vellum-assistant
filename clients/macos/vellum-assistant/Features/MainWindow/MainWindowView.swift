@@ -18,11 +18,10 @@ struct MainWindowView: View {
     /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
-    /// Plain `var` properties instead of `@ObservedObject`. All four managers
-    /// below are `@Observable`, so SwiftUI tracks only the specific properties
-    /// read inside `body` (and inside the modifier chain). This prevents full
-    /// `MainWindowView.body` re-evaluation on every `@Published` mutation that
-    /// the previous `ObservableObject` design required.
+    /// The four managers below are `@Observable`, so plain stored properties
+    /// are sufficient — SwiftUI's Observation machinery tracks only the
+    /// specific properties read inside `body` (and inside the modifier chain)
+    /// rather than invalidating the entire view on any change.
     var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?

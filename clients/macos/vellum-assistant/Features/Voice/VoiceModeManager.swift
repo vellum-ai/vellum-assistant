@@ -8,10 +8,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Voice
 
 /// Voice-mode state model.
 ///
-/// Uses the `@Observable` macro for property-level SwiftUI tracking — views
-/// reading only `state` no longer re-evaluate on transcription deltas, and
-/// synchronous property mutations inside `handleStateTransition` no longer
-/// cause re-entrant `AttributeGraph` cascades.
+/// Marked `@Observable` so views reading only `state` are not invalidated by
+/// high-frequency writes to `partialTranscription` / `liveTranscription`, and
+/// synchronous property mutations inside `handleStateTransition` do not fan
+/// out to unrelated observers.
 @MainActor
 @Observable
 final class VoiceModeManager {

@@ -11,10 +11,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Updat
 /// The appcast URL points to the public releases repo where CI publishes
 /// signed ZIPs alongside an `appcast.xml`.
 ///
-/// Uses the `@Observable` macro for property-level SwiftUI tracking. Sparkle
-/// delegate callbacks (e.g. `didFindValidUpdate`) write multiple properties
-/// synchronously; with `@Observable` this no longer triggers re-entrant
-/// `objectWillChange.send()` cascades through the AttributeGraph.
+/// Marked `@Observable` for property-level SwiftUI tracking: Sparkle
+/// delegate callbacks write several properties synchronously, and views
+/// should only re-evaluate when the specific property they read changes.
 @MainActor
 @Observable
 public final class UpdateManager: NSObject, SPUUpdaterDelegate {
@@ -50,19 +49,12 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
     /// `applicationWillTerminate` call.
     @ObservationIgnored private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
 
-    /// Monotonically increasing counter bumped by Sparkle delegate callbacks
-    /// (`didFindValidUpdate` / `updaterDidNotFindUpdate`) whenever an update
-    /// check completes. `checkForUpdatesAsync` observes this counter to detect
-    /// completion even when the resulting `isUpdateAvailable` value equals the
-    /// previous one (e.g. re-check that finds the same known update, or
-    /// re-check that finds no update when none was available).
-    ///
-    /// `observationStream` deduplicates by `Equatable`, so we need a value that
-    /// always changes between checks to signal "a new check completed".  The
-    /// previous `@Published $isUpdateAvailable.values` projection emitted on
-    /// every assignment regardless of equality; this counter restores that
-    /// behavior without coupling the async-completion signal to
-    /// `isUpdateAvailable`'s value-change semantics.
+    /// Monotonically increasing counter bumped by `didFindValidUpdate` and
+    /// `updaterDidNotFindUpdate` whenever an update check completes.
+    /// `checkForUpdatesAsync` observes this counter so it can return as soon
+    /// as Sparkle's callback fires, regardless of whether `isUpdateAvailable`
+    /// actually changed value (e.g. a re-check that confirms the same known
+    /// update, or a re-check that finds no update when none was available).
     private(set) var updateCheckCompletionGeneration: UInt64 = 0
 
     override init() {
@@ -112,17 +104,13 @@ public final class UpdateManager: NSObject, SPUUpdaterDelegate {
         updaterController.updater.checkForUpdatesInBackground()
 
         return await withTaskGroup(of: Bool.self) { group in
-            // Race: delegate callback vs timeout
+            // Race: delegate callback vs timeout.  Observe the completion
+            // counter rather than `isUpdateAvailable` itself because
+            // `observationStream` deduplicates by `Equatable`, and a
+            // same-value write (already-known update, or no update when
+            // none was available) would otherwise never yield.
             group.addTask { @MainActor [weak self] in
                 guard let self else { return false }
-                // Observe the completion-generation counter rather than
-                // `isUpdateAvailable` directly: `observationStream` is
-                // deduplicated by `Equatable`, so a same-value write
-                // (e.g. re-check that finds the same already-known update,
-                // or re-check that finds no update when none was available)
-                // would not emit and this task would hang until the timeout.
-                // The counter strictly increments on each delegate callback,
-                // so every completion yields a new value.
                 for await _ in observationStream({ self.updateCheckCompletionGeneration }).dropFirst() {
                     return self.isUpdateAvailable
                 }
