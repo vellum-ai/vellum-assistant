@@ -1327,7 +1327,7 @@ jobs:
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
-    needs: [extract-version, ci-cli]
+    needs: [extract-version, ci-cli, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
