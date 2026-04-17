@@ -48,7 +48,7 @@ public final class EventStreamClient {
         public let stream: AsyncStream<ServerMessage>
         private let state: SubscriptionState
 
-        init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
+        private init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
             self.stream = stream
             self.state = state
         }
@@ -632,7 +632,7 @@ public final class EventStreamClient {
         sseSession?.invalidateAndCancel()
         let activeSubscribers = Array(subscribers.values)
         for subscriber in activeSubscribers {
-            subscriber.state.finish()
+            subscriber.continuation.finish()
         }
     }
 }
