@@ -20,6 +20,7 @@ export interface OpenAIResponsesProviderOptions {
   providerName?: string;
   providerLabel?: string;
   streamTimeoutMs?: number;
+  useNativeWebSearch?: boolean;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -77,6 +78,7 @@ export class OpenAIResponsesProvider implements Provider {
   private client: OpenAI;
   private model: string;
   private streamTimeoutMs: number;
+  private useNativeWebSearch: boolean;
 
   constructor(
     apiKey: string,
@@ -91,6 +93,7 @@ export class OpenAIResponsesProvider implements Provider {
     });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
   async sendMessage(
@@ -133,13 +136,31 @@ export class OpenAIResponsesProvider implements Provider {
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t) => ({
-          type: "function" as const,
-          name: t.name,
-          description: t.description,
-          parameters: t.input_schema,
-          strict: null,
-        }));
+        if (
+          this.useNativeWebSearch &&
+          tools.some((t) => t.name === "web_search")
+        ) {
+          const otherTools = tools.filter((t) => t.name !== "web_search");
+          const mappedOther = otherTools.map((t) => ({
+            type: "function" as const,
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema,
+            strict: null,
+          }));
+          const webSearchTool = {
+            type: "web_search_preview" as const,
+          };
+          params.tools = [...mappedOther, webSearchTool];
+        } else {
+          params.tools = tools.map((t) => ({
+            type: "function" as const,
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema,
+            strict: null,
+          }));
+        }
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
