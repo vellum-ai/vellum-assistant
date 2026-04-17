@@ -55,38 +55,43 @@ function extractCommandPrefix(cmd: string): string {
   return words.join(" ");
 }
 
+// Patterns are anchored at `^` so they only match the leading executable
+// (and its subcommand), never tokens that appear in positional arguments.
+// Without the anchor, `cat tsc.log` would match `\btsc\b` and be
+// misclassified as build-lint, and `echo pytest` would match `\bpytest\b`
+// and be routed into the test-runner compressor.
 const CATEGORIES: Array<{ category: CommandCategory; pattern: RegExp }> = [
   // Test runners — highest priority
   {
     category: "test-runner",
     pattern:
-      /\b(cargo\s+test|pytest|python\s+-m\s+pytest|jest|vitest|npx\s+(jest|vitest)|go\s+test|bun\s+test|rspec|playwright)\b/,
+      /^(cargo\s+test|pytest|python\s+-m\s+pytest|jest|vitest|npx\s+(jest|vitest)|go\s+test|bun\s+test|rspec|playwright)\b/,
   },
   // git diff / git show
   {
     category: "git-diff",
-    pattern: /\bgit\s+(diff|show)\b/,
+    pattern: /^git\s+(diff|show)\b/,
   },
   // git status
   {
     category: "git-status",
-    pattern: /\bgit\s+status\b/,
+    pattern: /^git\s+status\b/,
   },
   // Directory listing
   {
     category: "directory-listing",
-    pattern: /\b(ls|find|tree)\b/,
+    pattern: /^(ls|find|tree)\b/,
   },
   // Search tools
   {
     category: "search-results",
-    pattern: /\b(grep|rg|ripgrep|ag)\b/,
+    pattern: /^(grep|rg|ripgrep|ag)\b/,
   },
   // Build / lint tools
   {
     category: "build-lint",
     pattern:
-      /\b(tsc|eslint|cargo\s+(build|check|clippy)|npm\s+run\s+(build|lint)|ruff)\b/,
+      /^(tsc|eslint|cargo\s+(build|check|clippy)|npm\s+run\s+(build|lint)|ruff)\b/,
   },
 ];
 
