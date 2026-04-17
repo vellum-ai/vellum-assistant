@@ -88,9 +88,39 @@ export function __setRtkAvailableForTest(value: boolean | null): void {
 }
 
 /**
+ * Find the offset of the first `|` in `s` that is not inside a
+ * single- or double-quoted string. Returns -1 if none.
+ *
+ * Quote-aware so commands like `git log --grep="a|b" | less` split on
+ * the outer pipe instead of the one inside the quoted argument.
+ */
+function findUnquotedPipe(s: string): number {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\" && i + 1 < s.length) {
+      i++;
+      continue;
+    }
+    if (c === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (c === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === "|" && !inSingle && !inDouble) return i;
+  }
+  return -1;
+}
+
+/**
  * Find the byte offset in `command` where the head executable token
  * begins, after stripping `cd <path> &&`, env-var assignments, and
- * `sudo` prefixes in any order.
+ * `sudo` prefixes in any order. The `cd` form accepts a quoted path
+ * (single or double) so paths with spaces still strip cleanly.
  */
 function findHeadIndex(command: string): number {
   let i = 0;
@@ -100,7 +130,7 @@ function findHeadIndex(command: string): number {
   for (;;) {
     const rest = command.slice(i);
 
-    const cd = /^cd\s+\S+\s*&&\s*/.exec(rest);
+    const cd = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*&&\s*/.exec(rest);
     if (cd) {
       i += cd[0].length;
       continue;
@@ -147,9 +177,11 @@ export function rewriteForRtk(command: string, pathEnv: string): string {
   if (!command || !command.trim()) return command;
   if (!isRtkAvailable(pathEnv)) return command;
 
-  // Pipes: only consider the head segment for classification. Insertion
+  // Pipes: only consider the head segment for classification. Use
+  // quote-aware detection so a `|` inside a quoted argument doesn't
+  // truncate the classifier's view of the head command. Insertion
   // still uses the original-command offset, so the tail is unchanged.
-  const pipeIndex = command.indexOf("|");
+  const pipeIndex = findUnquotedPipe(command);
   const headSegment = pipeIndex >= 0 ? command.slice(0, pipeIndex) : command;
 
   const headIdx = findHeadIndex(headSegment);

@@ -55,6 +55,18 @@ describe("rewriteForRtk", () => {
         "cd /x && FOO=bar rtk git log",
       );
     });
+
+    test("handles cd with a double-quoted path containing spaces", () => {
+      expect(rewrite('cd "/path with spaces" && git status')).toBe(
+        'cd "/path with spaces" && rtk git status',
+      );
+    });
+
+    test("handles cd with a single-quoted path containing spaces", () => {
+      expect(rewrite("cd '/my dir' && pytest -v")).toBe(
+        "cd '/my dir' && rtk pytest -v",
+      );
+    });
   });
 
   describe("pipes", () => {
@@ -64,6 +76,22 @@ describe("rewriteForRtk", () => {
 
     test("leaves pipelines whose head isn't rtk-eligible", () => {
       expect(rewrite("cat foo.txt | grep bar")).toBe("cat foo.txt | grep bar");
+    });
+
+    test("ignores `|` inside double-quoted arguments", () => {
+      // The `|` inside the grep pattern must not truncate the head
+      // segment — otherwise the classifier sees a broken token and
+      // decides the result by accident. Quote-aware detection picks
+      // the outer pipe.
+      expect(rewrite('git log --grep="a|b" | less')).toBe(
+        'rtk git log --grep="a|b" | less',
+      );
+    });
+
+    test("ignores `|` inside single-quoted arguments", () => {
+      expect(rewrite("grep -E 'foo|bar' file.txt")).toBe(
+        "rtk grep -E 'foo|bar' file.txt",
+      );
     });
   });
 
