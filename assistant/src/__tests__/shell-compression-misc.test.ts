@@ -222,7 +222,7 @@ Found 2 errors.`;
     expect(result).toContain("Found 2 errors.");
   });
 
-  test("collapses info/note/help lines on failure", () => {
+  test("preserves rust note/help lines but collapses info lines on failure", () => {
     const stdout = [
       "error[E0308]: mismatched types",
       "note: expected i32, found &str",
@@ -233,7 +233,10 @@ Found 2 errors.`;
     const result = compressBuildOutput(stdout, "", 1);
     expect(result).toContain("error[E0308]");
     expect(result).toContain("error[E0277]");
-    expect(result).toContain("info/note/help lines omitted");
+    expect(result).toContain("note: expected i32, found &str");
+    expect(result).toContain("help: try using a conversion method");
+    expect(result).toContain("info lines omitted");
+    expect(result).not.toContain("info: some extra context");
   });
 
   test("preserves eslint errors", () => {

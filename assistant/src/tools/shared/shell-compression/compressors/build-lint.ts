@@ -70,7 +70,7 @@ function compressFailureOutput(lines: string[]): string {
   const result: string[] = [...errorLines, ...warningLines];
 
   if (infoCount > 0) {
-    result.push(`(${infoCount} info/note/help lines omitted)`);
+    result.push(`(${infoCount} info lines omitted)`);
   }
 
   return result.join("\n");
@@ -95,13 +95,13 @@ function isWarningLine(line: string): boolean {
   );
 }
 
+// `note:` and `help:` are intentionally NOT treated as info lines here.
+// In Rust compiler output, `note: expected i32, found &str` and `help:
+// try using a conversion method` carry the actual type-mismatch detail
+// and suggested fix for the preceding error, so collapsing them would
+// strip the diagnostic context the assistant needs to reason about the
+// failure. They fall through to the non-categorized branch of
+// compressFailureOutput and are preserved alongside the error.
 function isInfoLine(line: string): boolean {
-  return (
-    /\binfo\b/i.test(line) ||
-    /\bnote\b/i.test(line) ||
-    /\bhelp\b/i.test(line) ||
-    /\bINFO\b/.test(line) ||
-    /\bNOTE\b/.test(line) ||
-    /\bHELP\b/.test(line)
-  );
+  return /\binfo\b/i.test(line) || /\bINFO\b/.test(line);
 }
