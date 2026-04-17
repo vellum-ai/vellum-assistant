@@ -78,17 +78,49 @@ public struct VSelectableTextView: NSViewRepresentable {
         return tc
     }()
 
+    /// Skip-guard cache for ``measureSize`` keyed on the attributed string's
+    /// hash plus the wrapping width and line spacing. `ensureLayout` is O(n)
+    /// in glyph count and runs synchronously on the main thread, so repeat
+    /// calls with identical inputs — which happen routinely when
+    /// `ChatBubble` cells in a `LazyVStack` re-measure during scroll/resize
+    /// cascades — must hit this cache instead of reflowing text again.
+    ///
+    /// Bounded FIFO eviction keeps memory flat during long conversations
+    /// (hundreds of messages): once the cache saturates we drop the whole
+    /// dictionary. Dropping is cheap and avoids per-entry bookkeeping;
+    /// the next measurement rehydrates the working set.
+    @MainActor private static var measurementSizeCache: [MeasurementKey: CGSize] = [:]
+    @MainActor private static let measurementCacheLimit = 256
+
+    private struct MeasurementKey: Hashable {
+        let attributedHash: Int
+        let maxWidth: CGFloat
+        let lineSpacing: CGFloat
+    }
+
     /// Precomputes the layout size for a given attributed string at a given
     /// width using a shared TextKit 1 stack. Call from the SwiftUI side
     /// before creating the `NSViewRepresentable`, then apply the result via
     /// `.frame(width:height:)` to avoid `sizeThatFits` being called during
     /// the `LazyVStack` layout pass.
+    ///
+    /// Results are cached by `(attributedString.hash, maxWidth, lineSpacing)`
+    /// so repeat calls with identical inputs skip `ensureLayout` entirely.
     @MainActor
     public static func measureSize(
         attributedString: NSAttributedString,
         lineSpacing: CGFloat,
         maxWidth: CGFloat
     ) -> CGSize {
+        let key = MeasurementKey(
+            attributedHash: attributedString.hash,
+            maxWidth: maxWidth,
+            lineSpacing: lineSpacing
+        )
+        if let cached = measurementSizeCache[key] {
+            return cached
+        }
+
         let mutable = NSMutableAttributedString(attributedString: attributedString)
         let fullRange = NSRange(location: 0, length: mutable.length)
 
@@ -107,10 +139,16 @@ public struct VSelectableTextView: NSViewRepresentable {
         measurementLayoutManager.ensureLayout(for: measurementTextContainer)
         let usedRect = measurementLayoutManager.usedRect(for: measurementTextContainer)
 
-        return CGSize(
+        let size = CGSize(
             width: ceil(min(usedRect.width, maxWidth)),
             height: ceil(usedRect.height)
         )
+
+        if measurementSizeCache.count >= measurementCacheLimit {
+            measurementSizeCache.removeAll(keepingCapacity: true)
+        }
+        measurementSizeCache[key] = size
+        return size
     }
 
     // MARK: - NSViewRepresentable
@@ -180,12 +218,30 @@ public struct VSelectableTextView: NSViewRepresentable {
 
         let width = maxWidth ?? proposal.width ?? 400
         guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return nil }
+              let textContainer = textView.textContainer,
+              let textStorage = textView.textStorage else { return nil }
+
+        // Skip-guard: SwiftUI re-queries `sizeThatFits` on every LazyVStack
+        // layout pass, so without this check a cell with unchanged text and
+        // unchanged width would rerun `ensureLayout` (O(n) in glyph count)
+        // on every scroll/resize. Invalidation is driven by the Coordinator
+        // inside `applyAttributedString` whenever the text storage mutates.
+        let coordinator = context.coordinator
+        let length = textStorage.length
+        if length == coordinator.lastMeasuredLength,
+           width == coordinator.lastMeasuredWidth {
+            return coordinator.lastMeasuredSize
+        }
 
         textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
-        return CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
+        let size = CGSize(width: ceil(min(usedRect.width, width)), height: ceil(usedRect.height))
+
+        coordinator.lastMeasuredLength = length
+        coordinator.lastMeasuredWidth = width
+        coordinator.lastMeasuredSize = size
+        return size
     }
 
     public static func dismantleNSView(_ textView: NSTextView, coordinator: Coordinator) {
@@ -203,6 +259,15 @@ public struct VSelectableTextView: NSViewRepresentable {
         private weak var pendingTextView: NSTextView?
         private var hasScheduledApply = false
 
+        // Skip-guard state for `sizeThatFits`. Tracks the text storage length
+        // and wrapping width of the last successful measurement so repeat
+        // layout passes with identical keys return the cached size instead
+        // of rerunning `ensureLayout`. Invalidated whenever the text storage
+        // is mutated via `applyAttributedString`.
+        var lastMeasuredLength: Int = -1
+        var lastMeasuredWidth: CGFloat = -1
+        var lastMeasuredSize: CGSize = .zero
+
         func reset() {
             lastAttributedString = nil
             lastLineSpacing = 0
@@ -210,6 +275,13 @@ public struct VSelectableTextView: NSViewRepresentable {
             pendingLineSpacing = nil
             pendingTextView = nil
             hasScheduledApply = false
+            invalidateMeasurementCache()
+        }
+
+        func invalidateMeasurementCache() {
+            lastMeasuredLength = -1
+            lastMeasuredWidth = -1
+            lastMeasuredSize = .zero
         }
 
         func cancelPendingApply() {
@@ -265,6 +337,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         ) {
             lastAttributedString = attributedString
             lastLineSpacing = lineSpacing
+            invalidateMeasurementCache()
 
             guard let textStorage = textView.textStorage else { return }
 

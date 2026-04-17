@@ -287,7 +287,7 @@ private struct CodeTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
-            context.coordinator.cachedHeight = nil
+            context.coordinator.invalidateMeasurementCache()
             let selectedRanges = textView.selectedRanges
             textView.string = text
             let length = (text as NSString).length
@@ -312,17 +312,32 @@ private struct CodeTextView: NSViewRepresentable {
     ) -> CGSize? {
         guard let textView = nsView.documentView as? CodeNSTextView,
               let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return nil }
-        let height: CGFloat
-        if let cached = context.coordinator.cachedHeight {
-            height = cached
-        } else {
-            layoutManager.ensureLayout(for: textContainer)
-            let usedRect = layoutManager.usedRect(for: textContainer)
-            height = usedRect.height + textView.textContainerInset.height * 2
-            context.coordinator.cachedHeight = height
+              let textContainer = textView.textContainer,
+              let textStorage = textView.textStorage else { return nil }
+
+        let width = proposal.width ?? 400
+
+        // Skip-guard: SwiftUI re-queries `sizeThatFits` for every cell on
+        // each LazyVStack layout pass. Keying the cache on `(textLength,
+        // width)` ensures we only rerun `ensureLayout` (O(n) in glyph count)
+        // when either the content or wrapping width actually changes.
+        // Invalidation happens in `updateNSView` on text replacement and in
+        // the Coordinator's `textDidChange` on user edits.
+        let coordinator = context.coordinator
+        let length = textStorage.length
+        if length == coordinator.lastMeasuredLength,
+           width == coordinator.lastMeasuredWidth {
+            return CGSize(width: width, height: coordinator.lastMeasuredHeight)
         }
-        return CGSize(width: proposal.width ?? 400, height: height)
+
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let height = usedRect.height + textView.textContainerInset.height * 2
+
+        coordinator.lastMeasuredLength = length
+        coordinator.lastMeasuredWidth = width
+        coordinator.lastMeasuredHeight = height
+        return CGSize(width: width, height: height)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -331,15 +346,27 @@ private struct CodeTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeTextView
-        var cachedHeight: CGFloat?
+
+        // Skip-guard state for `sizeThatFits`. Tracks the text length and
+        // wrapping width of the last successful measurement so redundant
+        // layout passes collapse into a cache hit.
+        var lastMeasuredLength: Int = -1
+        var lastMeasuredWidth: CGFloat = -1
+        var lastMeasuredHeight: CGFloat = 0
 
         init(parent: CodeTextView) {
             self.parent = parent
         }
 
+        func invalidateMeasurementCache() {
+            lastMeasuredLength = -1
+            lastMeasuredWidth = -1
+            lastMeasuredHeight = 0
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            cachedHeight = nil
+            invalidateMeasurementCache()
             parent.text = textView.string
             parent.onTextChange?(textView.string)
         }
