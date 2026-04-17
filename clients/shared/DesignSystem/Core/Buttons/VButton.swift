@@ -304,6 +304,11 @@ private struct ButtonLayoutModifier: ViewModifier {
                 .frame(height: 24)
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else {
+            // Covers both `.regular` and `.pillRegular`. They intentionally
+            // share layout (32pt height, 10pt horizontal padding); only
+            // the corner radius differs between them, which is resolved in
+            // `VButtonStyle.makeBody` (pill radius for `.pillRegular`,
+            // `VRadius.md` for `.regular`).
             content
                 .padding(.horizontal, 10)
                 .frame(height: 32)
