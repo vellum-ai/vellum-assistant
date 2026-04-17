@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -20,6 +21,7 @@ import {
   getSessionEnv,
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
+import { rewriteForRtk } from "../shared/rtk-rewrite.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
@@ -327,10 +329,28 @@ class ShellTool implements Tool {
         ? buildCesProtectedPaths()
         : undefined;
 
-      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
-        networkMode,
-        denyReadPaths,
-      });
+      // When shell-output-compression is on, rewrite supported head
+      // commands (git, pytest, tsc, …) to `rtk <cmd>` so rtk does the
+      // compression before output reaches the context window. Probe
+      // rtk against the PATH the subprocess will actually see (`env`
+      // above), not `process.env.PATH`. Falls through to the original
+      // command when rtk isn't installed or the head isn't rtk-eligible.
+      const effectiveCommand = isAssistantFeatureFlagEnabled(
+        "shell-output-compression",
+        config,
+      )
+        ? rewriteForRtk(command, env.PATH ?? "")
+        : command;
+
+      const wrapped = wrapCommand(
+        effectiveCommand,
+        context.workingDir,
+        sandboxConfig,
+        {
+          networkMode,
+          denyReadPaths,
+        },
+      );
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env,
