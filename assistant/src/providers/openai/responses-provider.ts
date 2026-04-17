@@ -298,8 +298,18 @@ export class OpenAIResponsesProvider implements Provider {
         cleanupTimeout();
       }
 
-      // Build content blocks
+      // Build content blocks.
+      // Inject server_tool_use blocks before text so conversation history
+      // matches the shape Anthropic produces for native web search.
       const content: ContentBlock[] = [];
+      for (const toolUseId of webSearchCallIds) {
+        content.push({
+          type: "server_tool_use",
+          id: toolUseId,
+          name: "web_search",
+          input: {},
+        });
+      }
       if (contentText) {
         content.push({ type: "text", text: contentText });
       }
