@@ -8,9 +8,6 @@ import type { TrustRuleBase } from "@vellumai/ces-contracts";
  * don't carry `executionTarget` or `allowHighRisk`. To maintain backward
  * compatibility with existing callsites that access those fields on any rule,
  * we flatten the union here by intersecting the base with the optional fields.
- *
- * PR 4 of this plan will tighten callsites to narrow the union properly,
- * at which point this re-export can be simplified to a direct re-export.
  */
 export type TrustRule = TrustRuleBase & {
   executionTarget?: string;
