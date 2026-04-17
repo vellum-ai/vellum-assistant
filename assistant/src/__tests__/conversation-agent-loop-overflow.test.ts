@@ -2215,18 +2215,19 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // At least one mid-loop compaction was invoked.
-    expect(capturedOptions.length).toBeGreaterThan(0);
+    // Isolate mid-loop calls from the pre-turn auto-compact at line 535
+    // (which is invoked unconditionally without `force`).
+    const midLoopCalls = capturedOptions.filter((opts) => {
+      const o = opts as { force?: boolean };
+      return o.force === true;
+    });
+    expect(midLoopCalls.length).toBeGreaterThan(0);
 
-    // Every mid-loop compaction must use `force: true` but omit
-    // `targetInputTokensOverride` so the manager uses its configured
-    // post-compaction target (~50k) rather than a near-cap value.
+    // No call — mid-loop or otherwise — may pass
+    // `targetInputTokensOverride` via this path. Doing so was the bug
+    // that made compaction a silent no-op.
     for (const opts of capturedOptions) {
-      const o = opts as {
-        force?: boolean;
-        targetInputTokensOverride?: number;
-      };
-      expect(o.force).toBe(true);
+      const o = opts as { targetInputTokensOverride?: number };
       expect(o.targetInputTokensOverride).toBeUndefined();
     }
   });
@@ -2318,14 +2319,21 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     // Mid-loop compaction always returns compactedPersistedMessages: 0
-    // — simulating the truncate-only no-op path.
-    let compactionCallCount = 0;
+    // — simulating the truncate-only no-op path. `midLoopCompactionCount`
+    // counts only the forced (mid-loop) calls so we ignore the pre-turn
+    // auto-compact at line 535 which is invoked without `force`.
+    let midLoopCompactionCount = 0;
     const ctx = makeCtx({
       agentLoopRun,
       contextWindowManager: {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        maybeCompact: async () => {
-          compactionCallCount++;
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal | undefined,
+          options: unknown,
+        ) => {
+          const opts = options as { force?: boolean };
+          if (opts?.force === true) midLoopCompactionCount++;
           return {
             compacted: true,
             messages: [
@@ -2352,9 +2360,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // Without the guardrail: 3 mid-loop attempts would fire.
+    // Without the guardrail: 3 mid-loop attempts would fire (maxAttempts).
     // With the guardrail: break after 2 consecutive no-ops → 2 attempts.
-    expect(compactionCallCount).toBe(2);
+    expect(midLoopCompactionCount).toBe(2);
 
     // After breaking out, the convergence reducer must take over.
     expect(convergenceReducerCalled).toBe(true);
