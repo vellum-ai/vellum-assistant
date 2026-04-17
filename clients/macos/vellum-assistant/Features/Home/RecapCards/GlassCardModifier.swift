@@ -19,12 +19,13 @@ enum RecapCard {
 ///                                    (approximates Figma Light = -45° @ 80%)
 ///   - single `.shadow(...)`        — Figma drop shadow 0/4/12 black 5%
 ///
-/// Light mode renders a single bright plateau at the top-left corner that
-/// fades symmetrically into the adjacent top and left edges; everywhere
-/// else is clear. Dark mode renders a dual-corner pattern: uniform bright
-/// stroke along the whole border with narrow clear "dips" at BL and TR,
-/// plus thicker 1pt highlights at TL and BR — matches Figma's Glass
-/// shader producing a refraction "exit" highlight on dark backdrops.
+/// Both modes render the same dual-corner pattern: uniform bright stroke
+/// along the whole border with narrow clear "dips" at BL and TR, plus
+/// thicker 1pt highlights at TL and BR. This mirrors the Figma source,
+/// which uses identical Drop Shadow and Glass parameters across light
+/// and dark variants — the apparent per-mode difference in Figma is
+/// just the Glass shader rendering its specular/refraction against
+/// different backdrop colors, not a difference in authored values.
 /// Token alpha (80%) keeps the rim slightly translucent to read as
 /// reflected glass rather than a hard painted line.
 ///
@@ -46,12 +47,15 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     let shape: S
     let padding: CGFloat
 
-    @Environment(\.colorScheme) private var colorScheme
-
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(backgroundFill)
+            .background(
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(VColor.glassFill)
+                }
+            )
             .overlay(
                 GeometryReader { proxy in
                     ZStack {
@@ -59,8 +63,7 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
                         // highlight pattern along the whole border.
                         shape.strokeBorder(edgeHighlight(size: proxy.size), lineWidth: 0.5)
                         // Concentric 1pt stroke only paints at the corner
-                        // highlights (TL in light mode, TL + BR in dark),
-                        // clear elsewhere. Where it paints, the corner
+                        // highlights (TL + BR). Where it paints, the corner
                         // reads as a full 1pt line; everywhere else only
                         // the thin 0.5pt stroke shows through.
                         shape.strokeBorder(cornerHighlight(size: proxy.size), lineWidth: 1)
@@ -71,33 +74,6 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
             .shadow(color: VColor.glassDropShadow, radius: 6, x: 0, y: 4)
     }
 
-    /// Card fill, branched per color scheme.
-    ///
-    /// Dark mode keeps the `.ultraThinMaterial + glassFill` stack: real
-    /// backdrop blur matters over dark/varied content, and Material's rim
-    /// is invisible against the existing bright edge stroke.
-    ///
-    /// Light mode uses a solid `surfaceLift` fill instead. Material
-    /// produces a faint grey rim where it meets the surrounding canvas,
-    /// which in light mode (where our edge stroke is clear everywhere
-    /// except the TL corner + adjacent edges) shows through as a grey
-    /// outline around the rest of the border. Dropping Material here
-    /// removes the rim at the cost of backdrop blur — an acceptable
-    /// trade since the light-mode backdrop is near-white and blur was
-    /// contributing very little visually.
-    @ViewBuilder
-    private var backgroundFill: some View {
-        switch colorScheme {
-        case .dark:
-            ZStack {
-                shape.fill(.ultraThinMaterial)
-                shape.fill(VColor.glassFill)
-            }
-        default:
-            shape.fill(VColor.surfaceLift)
-        }
-    }
-
     /// Aspect-ratio-aware angular gradient for the edge-highlight stroke.
     ///
     /// The four corners sit at normalized angles derived from `atan2(h, w)`:
@@ -106,44 +82,26 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     /// fraction of the full circle. Using the actual corner angles instead
     /// of axis-projected locations keeps the bright/clear regions aligned
     /// to the real geometric corners regardless of the card's shape.
+    ///
+    /// Dual-corner: bright plateau covers all four edges, narrow clear
+    /// dips land exactly at BL and TR.
     private func edgeHighlight(size: CGSize) -> AngularGradient {
         let w = max(size.width, 1)
         let h = max(size.height, 1)
         let f = atan2(h, w) / (2 * .pi)
         let bright = VColor.glassEdgeHighlight
+        let dip: CGFloat = 0.02
 
-        let stops: [Gradient.Stop]
-        switch colorScheme {
-        case .dark:
-            // Dual-corner: bright plateau covers all four edges, narrow
-            // clear dips land exactly at BL and TR.
-            let dip: CGFloat = 0.02
-            stops = [
-                .init(color: bright, location: 0),
-                .init(color: bright, location: 0.5 - f - dip),
-                .init(color: .clear, location: 0.5 - f),
-                .init(color: bright, location: 0.5 - f + dip),
-                .init(color: bright, location: 1 - f - dip),
-                .init(color: .clear, location: 1 - f),
-                .init(color: bright, location: 1 - f + dip),
-                .init(color: bright, location: 1),
-            ]
-        default:
-            // Single-corner: flat bright plateau centered on TL that fades
-            // symmetrically into the adjacent top and left edges. Fade
-            // boundaries sit inside the corner→BL and corner→TR arcs so
-            // BR, TR, and BL remain strictly clear (no fade ghosting onto
-            // the right or bottom edges).
-            let tl = 0.5 + f
-            stops = [
-                .init(color: .clear, location: 0),
-                .init(color: .clear, location: tl - 0.06),
-                .init(color: bright, location: tl - 0.03),
-                .init(color: bright, location: tl + 0.03),
-                .init(color: .clear, location: tl + 0.06),
-                .init(color: .clear, location: 1),
-            ]
-        }
+        let stops: [Gradient.Stop] = [
+            .init(color: bright, location: 0),
+            .init(color: bright, location: 0.5 - f - dip),
+            .init(color: .clear, location: 0.5 - f),
+            .init(color: bright, location: 0.5 - f + dip),
+            .init(color: bright, location: 1 - f - dip),
+            .init(color: .clear, location: 1 - f),
+            .init(color: bright, location: 1 - f + dip),
+            .init(color: bright, location: 1),
+        ]
 
         return AngularGradient(stops: stops, center: .center)
     }
@@ -153,45 +111,32 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     /// Layered on top of the thin edge stroke, this gives the bright
     /// corners a heavier 1pt stroke while leaving the rest of the border
     /// at the thinner 0.5pt weight.
+    ///
+    /// Two plateaus: BR (near location f) and TL (near 0.5 + f). Flat
+    /// bright plateau ±0.01 around each corner covers the rounded arc's
+    /// angular span (~0.012 for typical cards), with a fade to clear
+    /// between 0.01 and 0.02 on each side.
     private func cornerHighlight(size: CGSize) -> AngularGradient {
         let w = max(size.width, 1)
         let h = max(size.height, 1)
         let f = atan2(h, w) / (2 * .pi)
-        // Flat bright plateau ±0.01 around each corner (covers the rounded
-        // arc's angular span of ~0.012 for typical cards), with a fade to
-        // clear between 0.01 and 0.02 on each side.
         let plateau: CGFloat = 0.01
         let fade: CGFloat = 0.02
         let bright = VColor.glassEdgeHighlight
         let tl = 0.5 + f
 
-        let stops: [Gradient.Stop]
-        switch colorScheme {
-        case .dark:
-            // Two plateaus: BR (near location f) and TL (near 0.5 + f).
-            stops = [
-                .init(color: .clear, location: 0),
-                .init(color: .clear, location: f - fade),
-                .init(color: bright, location: f - plateau),
-                .init(color: bright, location: f + plateau),
-                .init(color: .clear, location: f + fade),
-                .init(color: .clear, location: tl - fade),
-                .init(color: bright, location: tl - plateau),
-                .init(color: bright, location: tl + plateau),
-                .init(color: .clear, location: tl + fade),
-                .init(color: .clear, location: 1),
-            ]
-        default:
-            // One flat plateau at TL only (light mode is single-corner).
-            stops = [
-                .init(color: .clear, location: 0),
-                .init(color: .clear, location: tl - fade),
-                .init(color: bright, location: tl - plateau),
-                .init(color: bright, location: tl + plateau),
-                .init(color: .clear, location: tl + fade),
-                .init(color: .clear, location: 1),
-            ]
-        }
+        let stops: [Gradient.Stop] = [
+            .init(color: .clear, location: 0),
+            .init(color: .clear, location: f - fade),
+            .init(color: bright, location: f - plateau),
+            .init(color: bright, location: f + plateau),
+            .init(color: .clear, location: f + fade),
+            .init(color: .clear, location: tl - fade),
+            .init(color: bright, location: tl - plateau),
+            .init(color: bright, location: tl + plateau),
+            .init(color: .clear, location: tl + fade),
+            .init(color: .clear, location: 1),
+        ]
 
         return AngularGradient(stops: stops, center: .center)
     }
