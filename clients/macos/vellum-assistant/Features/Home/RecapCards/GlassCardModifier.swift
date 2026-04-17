@@ -107,16 +107,18 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
                 .init(color: bright, location: 1),
             ]
         default:
-            // Single-corner: narrow bright plateau centered on TL that
-            // fades symmetrically into the adjacent top and left edges.
-            // BR, TR, and BL remain clear.
+            // Single-corner: flat bright plateau centered on TL that fades
+            // symmetrically into the adjacent top and left edges. Fade
+            // boundaries sit inside the corner→BL and corner→TR arcs so
+            // BR, TR, and BL remain strictly clear (no fade ghosting onto
+            // the right or bottom edges).
             let tl = 0.5 + f
             stops = [
                 .init(color: .clear, location: 0),
-                .init(color: .clear, location: tl - 0.10),
-                .init(color: bright, location: tl - 0.05),
-                .init(color: bright, location: tl + 0.05),
-                .init(color: .clear, location: tl + 0.10),
+                .init(color: .clear, location: tl - 0.06),
+                .init(color: bright, location: tl - 0.03),
+                .init(color: bright, location: tl + 0.03),
+                .init(color: .clear, location: tl + 0.06),
                 .init(color: .clear, location: 1),
             ]
         }
