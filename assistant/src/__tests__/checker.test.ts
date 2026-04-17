@@ -2429,7 +2429,8 @@ describe("Permission Checker", () => {
   //
   // Validates that trust rules conform to canonical family-aware shapes
   // after disk round-trips. The canonical parser in ces-contracts strips
-  // fields that are invalid for a rule's tool family.
+  // fields that are invalid for a rule's tool family (for example,
+  // executionTarget on non-scoped tools).
   //
   // Platform proxy compatibility gate: test_runtime_proxy_api.py (245 tests)
   // was validated as part of the trust-rule-union-compat plan. The proxy
@@ -2459,9 +2460,9 @@ describe("Permission Checker", () => {
       expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
     });
 
-    test("URL tool (web_fetch) has allowHighRisk stripped immediately by addRule", () => {
-      // addRule canonicalizes through parseTrustRule, which strips
-      // allowHighRisk for URL-family tools both in-memory and on disk.
+    test("URL tool (web_fetch) preserves allowHighRisk after disk round-trip", () => {
+      // addRule canonicalizes rule shape but preserves allowHighRisk for URL
+      // tools for backward compatibility with persistent high-risk approvals.
       const rule = addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
@@ -2470,10 +2471,9 @@ describe("Permission Checker", () => {
         100,
         { allowHighRisk: true },
       );
-      // allowHighRisk is stripped immediately by addRule's canonicalization
-      expect(rule.allowHighRisk).toBeUndefined();
+      expect(rule.allowHighRisk).toBe(true);
 
-      // Force a disk round-trip — still stripped
+      // Force a disk round-trip.
       clearCache();
       const reloaded = findHighestPriorityRule(
         "web_fetch",
@@ -2481,8 +2481,7 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(reloaded).not.toBeNull();
-      // URL tools lose allowHighRisk after canonical normalization
-      expect(reloaded!.allowHighRisk).toBeUndefined();
+      expect(reloaded!.allowHighRisk).toBe(true);
     });
 
     test("generic tool (skill_test_tool) preserves optional fields through round-trip", () => {

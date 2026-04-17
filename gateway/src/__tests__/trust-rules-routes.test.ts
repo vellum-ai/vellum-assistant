@@ -1,9 +1,9 @@
 /**
  * Tests for gateway trust-rule route handlers.
  *
- * Verifies that the route handlers canonicalize payloads through the shared
- * parseTrustRule parser before persistence: fields invalid for a tool's
- * family are stripped, and legacy request shapes are accepted without 4xx.
+ * Verifies that route handlers (via trust-store canonicalization) normalize
+ * payloads before persistence: fields invalid for a tool's family are
+ * stripped, and legacy request shapes are accepted without 4xx.
  */
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -68,9 +68,10 @@ describe("POST /v1/trust-rules — canonicalization", () => {
 
     const body = (await res.json()) as { rule: Record<string, unknown> };
     expect(body.rule.tool).toBe("web_fetch");
-    // URL rules should NOT have executionTarget or allowHighRisk after canonicalization
+    // URL rules should NOT have executionTarget after canonicalization.
+    // allowHighRisk is preserved for backward compatibility.
     expect("executionTarget" in body.rule).toBe(false);
-    expect("allowHighRisk" in body.rule).toBe(false);
+    expect(body.rule.allowHighRisk).toBe(true);
   });
 
   test("preserves executionTarget and allowHighRisk for scoped tool rules", async () => {
@@ -187,9 +188,10 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     expect(res.status).toBe(201);
 
     const body = (await res.json()) as { rule: Record<string, unknown> };
-    // But the persisted rule should have the invalid fields stripped
+    // The persisted rule should strip invalid executionTarget but keep
+    // allowHighRisk for compatibility with existing high-risk trust rules.
     expect("executionTarget" in body.rule).toBe(false);
-    expect("allowHighRisk" in body.rule).toBe(false);
+    expect(body.rule.allowHighRisk).toBe(true);
   });
 });
 
@@ -240,10 +242,10 @@ describe("GET /v1/trust-rules — list", () => {
     };
     expect(body.rules).toHaveLength(2);
 
-    // URL rule should have been normalized (fields stripped on load)
+    // URL rule should have been normalized: executionTarget stripped.
     const urlRule = body.rules.find((r) => r.id === "r-url")!;
     expect("executionTarget" in urlRule).toBe(false);
-    expect("allowHighRisk" in urlRule).toBe(false);
+    expect(urlRule.allowHighRisk).toBe(true);
 
     // Scoped rule should preserve fields
     const bashRule = body.rules.find((r) => r.id === "r-bash")!;

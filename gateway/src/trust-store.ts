@@ -351,7 +351,10 @@ export function addRule(
   // Re-read from disk to avoid lost updates
   cachedRules = null;
   const rules = [...getRules()];
-  const rule: TrustRule = {
+
+  // Canonicalize through the shared parser so fields invalid for the tool's
+  // family are stripped before persistence, regardless of callsite.
+  const { rule: canonical } = parseTrustRule({
     id: uuid(),
     tool,
     pattern,
@@ -359,13 +362,14 @@ export function addRule(
     decision,
     priority,
     createdAt: Date.now(),
-  };
-  if (options?.allowHighRisk != null) {
-    rule.allowHighRisk = options.allowHighRisk;
-  }
-  if (options?.executionTarget != null) {
-    rule.executionTarget = options.executionTarget;
-  }
+    ...(options?.allowHighRisk != null
+      ? { allowHighRisk: options.allowHighRisk }
+      : {}),
+    ...(options?.executionTarget != null
+      ? { executionTarget: options.executionTarget }
+      : {}),
+  });
+  const rule = canonical;
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -404,8 +408,8 @@ export function updateRule(
 
   // Canonicalize through parseTrustRule so that fields invalid for the
   // (potentially changed) tool family are stripped. For example, if a rule's
-  // tool is changed from "bash" to "web_fetch", executionTarget and
-  // allowHighRisk are dropped because URL-family tools don't support them.
+  // tool is changed from "bash" to "web_fetch", executionTarget is dropped
+  // because URL-family tools don't support target scoping.
   const { rule } = parseTrustRule(merged as unknown as Record<string, unknown>);
   rules[index] = rule;
   rules.sort(ruleOrder);

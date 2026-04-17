@@ -5,13 +5,11 @@
  * endpoints instead of reading trust.json directly once the migration is
  * complete (PR 14-16 in the docker-volume-security plan).
  *
- * Payloads are canonicalized through the shared `parseTrustRule` parser
- * before persistence: legacy clients can keep sending current shapes
- * without 4xx regressions, but fields invalid for a tool's family
- * (e.g. `executionTarget` on a URL-tool rule) are silently stripped.
+ * Payloads are canonicalized centrally in trust-store addRule/updateRule:
+ * legacy clients can keep sending current shapes without 4xx regressions,
+ * but fields invalid for a tool's family (e.g. `executionTarget` on a
+ * URL-tool rule) are silently stripped before persistence.
  */
-
-import { parseTrustRule } from "@vellumai/ces-contracts/trust-rules";
 
 import { getLogger } from "../../logger.js";
 import {
@@ -132,48 +130,17 @@ export function createTrustRulesAddHandler() {
     }
 
     try {
-      // Canonicalize through the shared parser so fields invalid for the
-      // tool's family are stripped before persistence. Legacy callers that
-      // send e.g. executionTarget on a URL-tool rule won't get a 4xx —
-      // the field is simply dropped during normalization.
-      const { rule: canonical } = parseTrustRule({
-        id: "",
-        tool: tool as string,
-        pattern: pattern as string,
-        scope: scope as string,
-        decision: (decision as TrustDecision) ?? "allow",
-        priority: (priority as number) ?? 100,
-        createdAt: 0,
-        ...(allowHighRisk != null ? { allowHighRisk } : {}),
-        ...(executionTarget != null ? { executionTarget } : {}),
-      });
-      const canonicalOpts: {
-        allowHighRisk?: boolean;
-        executionTarget?: string;
-      } = {};
-      if (
-        "allowHighRisk" in canonical &&
-        (canonical as { allowHighRisk?: boolean }).allowHighRisk != null
-      ) {
-        canonicalOpts.allowHighRisk = (
-          canonical as { allowHighRisk?: boolean }
-        ).allowHighRisk;
-      }
-      if (
-        "executionTarget" in canonical &&
-        (canonical as { executionTarget?: string }).executionTarget != null
-      ) {
-        canonicalOpts.executionTarget = (
-          canonical as { executionTarget?: string }
-        ).executionTarget;
-      }
+      // Canonicalization is handled inside trust-store addRule.
       const rule = addRule(
-        canonical.tool,
-        canonical.pattern,
-        canonical.scope,
-        canonical.decision,
-        canonical.priority,
-        Object.keys(canonicalOpts).length > 0 ? canonicalOpts : undefined,
+        tool as string,
+        pattern as string,
+        scope as string,
+        (decision as TrustDecision) ?? "allow",
+        (priority as number) ?? 100,
+        {
+          ...(allowHighRisk != null ? { allowHighRisk } : {}),
+          ...(executionTarget != null ? { executionTarget } : {}),
+        },
       );
       return Response.json({ rule }, { status: 201 });
     } catch (err) {

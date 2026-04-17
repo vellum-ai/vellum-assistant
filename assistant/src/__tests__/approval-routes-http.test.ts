@@ -977,11 +977,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("strips allowHighRisk for non-scoped tool families via canonicalization", async () => {
+    test("passes allowHighRisk through for URL tools (canonicalized in trust store)", async () => {
       const session = makeIdleSession();
       await startServer(() => session);
 
-      // web_fetch is a URL-family tool — allowHighRisk should be stripped
+      // web_fetch is a URL-family tool. The route forwards allowHighRisk and
+      // trust-store canonicalization decides final persisted shape.
       pendingInteractions.register("req-url-hr", {
         conversation: session,
         conversationId: "conv-1",
@@ -1014,9 +1015,8 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
 
       expect(res.status).toBe(200);
-      // The route handler passes raw options through to addRule; canonicalization
-      // (stripping allowHighRisk for non-scoped families) now happens inside
-      // addRule itself. The mock captures pre-canonicalization args.
+      // Route layer passes raw options through to addRule; canonicalization
+      // happens in trust-store and the mock captures pre-canonicalization args.
       expect(addRuleCalls).toHaveLength(1);
       expect(addRuleCalls[0].options?.allowHighRisk).toBe(true);
 

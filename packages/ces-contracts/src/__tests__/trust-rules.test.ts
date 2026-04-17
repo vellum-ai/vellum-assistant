@@ -3,7 +3,8 @@
  *
  * Verifies:
  * 1. Scoped-rule parsing preserves executionTarget and allowHighRisk.
- * 2. Non-scoped known-tool rules have executionTarget/allowHighRisk stripped.
+ * 2. Non-scoped known-tool rules strip executionTarget but preserve boolean
+ *    allowHighRisk for backward compatibility.
  * 3. Unknown-tool rules preserve all fields for forward compatibility.
  * 4. Normalization flag behavior signals when a re-save is warranted.
  * 5. parseTrustFileData handles full trust file objects.
@@ -89,18 +90,21 @@ describe("parseTrustRule — scoped tools", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseTrustRule — URL tools strip invalid fields", () => {
-  test.each([...URL_TOOLS])("strips executionTarget and allowHighRisk from %s", (tool) => {
-    const raw = makeRaw({
-      tool,
-      executionTarget: "should-be-stripped",
-      allowHighRisk: true,
-    });
-    const { rule, normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(true);
-    expect(rule.tool).toBe(tool);
-    expect("executionTarget" in rule).toBe(false);
-    expect("allowHighRisk" in rule).toBe(false);
-  });
+  test.each([...URL_TOOLS])(
+    "strips executionTarget but preserves allowHighRisk on %s",
+    (tool) => {
+      const raw = makeRaw({
+        tool,
+        executionTarget: "should-be-stripped",
+        allowHighRisk: true,
+      });
+      const { rule, normalized } = parseTrustRule(raw);
+      expect(normalized).toBe(true);
+      expect(rule.tool).toBe(tool);
+      expect("executionTarget" in rule).toBe(false);
+      expect((rule as UrlTrustRule).allowHighRisk).toBe(true);
+    },
+  );
 
   test("URL tool without invalid fields is not normalized", () => {
     const raw = makeRaw({ tool: "web_fetch" });
@@ -117,17 +121,20 @@ describe("parseTrustRule — URL tools strip invalid fields", () => {
 });
 
 describe("parseTrustRule — managed skill tools strip invalid fields", () => {
-  test.each([...MANAGED_SKILL_TOOLS])("strips executionTarget and allowHighRisk from %s", (tool) => {
-    const raw = makeRaw({
-      tool,
-      executionTarget: "x",
-      allowHighRisk: false,
-    });
-    const { rule, normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(true);
-    expect("executionTarget" in rule).toBe(false);
-    expect("allowHighRisk" in rule).toBe(false);
-  });
+  test.each([...MANAGED_SKILL_TOOLS])(
+    "strips executionTarget but preserves allowHighRisk on %s",
+    (tool) => {
+      const raw = makeRaw({
+        tool,
+        executionTarget: "x",
+        allowHighRisk: false,
+      });
+      const { rule, normalized } = parseTrustRule(raw);
+      expect(normalized).toBe(true);
+      expect("executionTarget" in rule).toBe(false);
+      expect((rule as ManagedSkillTrustRule).allowHighRisk).toBe(false);
+    },
+  );
 
   test("type guard isManagedSkillRule narrows correctly", () => {
     const { rule } = parseTrustRule(makeRaw({ tool: "scaffold_managed_skill" }));
@@ -137,7 +144,7 @@ describe("parseTrustRule — managed skill tools strip invalid fields", () => {
 });
 
 describe("parseTrustRule — skill_load strips invalid fields", () => {
-  test("strips executionTarget and allowHighRisk from skill_load", () => {
+  test("strips executionTarget but preserves allowHighRisk on skill_load", () => {
     const raw = makeRaw({
       tool: SKILL_LOAD_TOOL,
       executionTarget: "container-b",
@@ -147,7 +154,7 @@ describe("parseTrustRule — skill_load strips invalid fields", () => {
     expect(normalized).toBe(true);
     expect(rule.tool).toBe(SKILL_LOAD_TOOL);
     expect("executionTarget" in rule).toBe(false);
-    expect("allowHighRisk" in rule).toBe(false);
+    expect((rule as SkillLoadTrustRule).allowHighRisk).toBe(true);
   });
 
   test("skill_load without invalid fields is not normalized", () => {
@@ -214,7 +221,7 @@ describe("parseTrustRule — normalization flag", () => {
   test("normalized is true when invalid fields are stripped", () => {
     const raw = makeRaw({ tool: "web_fetch", allowHighRisk: true });
     const { normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(true);
+    expect(normalized).toBe(false);
   });
 
   test("normalized is true when decision is coerced", () => {

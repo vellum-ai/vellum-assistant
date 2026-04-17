@@ -310,7 +310,8 @@ function loadFromDisk(): TrustRule[] {
 
         // Apply canonical parser for family-aware normalization.
         // The parser strips fields that are invalid for a rule's tool family
-        // (e.g. executionTarget on URL rules) and coerces malformed values.
+        // (e.g. executionTarget on URL rules), preserves compatible optional
+        // fields like allowHighRisk, and coerces malformed values.
         const { data: parsedData, normalized } = parseTrustFileData({
           ...data,
           rules: sanitizedRules,
@@ -490,8 +491,8 @@ function fileUpdateRule(
 
   // Canonicalize through parseTrustRule so that fields invalid for the
   // (potentially changed) tool family are stripped. For example, if a rule's
-  // tool is changed from "bash" to "web_fetch", executionTarget and
-  // allowHighRisk are dropped because URL-family tools don't support them.
+  // tool is changed from "bash" to "web_fetch", executionTarget is dropped
+  // because URL-family tools don't support target scoping.
   const { rule } = parseTrustRule(merged as unknown as Record<string, unknown>);
   rules[index] = rule;
   rules.sort(ruleOrder);

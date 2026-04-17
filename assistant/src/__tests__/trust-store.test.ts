@@ -1729,7 +1729,7 @@ describe("canonical parser normalization-on-load", () => {
     expect(diskRule).not.toHaveProperty("executionTarget");
   });
 
-  test("URL rule with allowHighRisk is stripped on load and re-saved", () => {
+  test("URL rule with allowHighRisk is preserved on load", () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1753,7 +1753,7 @@ describe("canonical parser normalization-on-load", () => {
     const rules = getAllRules();
     const found = rules.find((r) => r.id === "url-rule-with-ahr");
     expect(found).toBeDefined();
-    expect(found).not.toHaveProperty("allowHighRisk");
+    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
   });
 
   test("scoped rule preserves executionTarget and allowHighRisk on load", () => {

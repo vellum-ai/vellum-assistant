@@ -109,11 +109,12 @@ export interface ScopedTrustRule extends TrustRuleBase {
 /**
  * A trust rule for a URL-based tool.
  *
- * URL rules do not use `executionTarget` or `allowHighRisk` — those
- * semantics are specific to scoped (filesystem/shell) tools.
+ * URL rules do not use `executionTarget`, but they may carry `allowHighRisk`
+ * for backward compatibility with persistent high-risk allow rules.
  */
 export interface UrlTrustRule extends TrustRuleBase {
   tool: (typeof URL_TOOLS)[number];
+  allowHighRisk?: boolean;
 }
 
 /**
@@ -121,6 +122,7 @@ export interface UrlTrustRule extends TrustRuleBase {
  */
 export interface ManagedSkillTrustRule extends TrustRuleBase {
   tool: (typeof MANAGED_SKILL_TOOLS)[number];
+  allowHighRisk?: boolean;
 }
 
 /**
@@ -128,6 +130,7 @@ export interface ManagedSkillTrustRule extends TrustRuleBase {
  */
 export interface SkillLoadTrustRule extends TrustRuleBase {
   tool: typeof SKILL_LOAD_TOOL;
+  allowHighRisk?: boolean;
 }
 
 /**
@@ -205,11 +208,11 @@ export interface ParsedTrustRule {
  * Parse and normalize a raw trust rule object into a canonical `TrustRule`.
  *
  * Normalization strips fields that are invalid for the rule's tool family:
- * - URL rules: `executionTarget` and `allowHighRisk` are stripped (URL tools
- *   don't support these semantics).
- * - Managed skill rules: `executionTarget` and `allowHighRisk` are stripped.
- * - Skill load rules: `executionTarget` and `allowHighRisk` are stripped.
- * - Scoped rules and generic rules: all fields are preserved.
+ * - URL rules: `executionTarget` is stripped (URL tools don't support it).
+ * - Managed skill rules: `executionTarget` is stripped.
+ * - Skill load rules: `executionTarget` is stripped.
+ * - Scoped rules, generic rules, and all families with `allowHighRisk`: the
+ *   field is preserved when it is a boolean.
  *
  * Unknown tools (generic family) preserve all fields for forward compatibility
  * — we don't know what semantics future tools may require.
@@ -251,32 +254,50 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
 
   // Determine the family and strip invalid fields
   if (URL_TOOLS_SET.has(tool)) {
-    // URL rules must not carry executionTarget or allowHighRisk
-    if (raw.executionTarget !== undefined || raw.allowHighRisk !== undefined) {
+    // URL rules must not carry executionTarget, but allowHighRisk is preserved
+    // for backward compatibility with persistent high-risk allow rules.
+    if (raw.executionTarget !== undefined) {
       normalized = true;
     }
     const rule: UrlTrustRule = { ...base, tool: tool as UrlTrustRule["tool"] };
+    if (typeof raw.allowHighRisk === "boolean") {
+      rule.allowHighRisk = raw.allowHighRisk;
+    } else if (raw.allowHighRisk !== undefined) {
+      normalized = true;
+    }
     return { rule, normalized };
   }
 
   if (MANAGED_SKILL_TOOLS_SET.has(tool)) {
-    // Managed skill rules must not carry executionTarget or allowHighRisk
-    if (raw.executionTarget !== undefined || raw.allowHighRisk !== undefined) {
+    // Managed skill rules must not carry executionTarget, but allowHighRisk is
+    // preserved for backward compatibility.
+    if (raw.executionTarget !== undefined) {
       normalized = true;
     }
     const rule: ManagedSkillTrustRule = {
       ...base,
       tool: tool as ManagedSkillTrustRule["tool"],
     };
+    if (typeof raw.allowHighRisk === "boolean") {
+      rule.allowHighRisk = raw.allowHighRisk;
+    } else if (raw.allowHighRisk !== undefined) {
+      normalized = true;
+    }
     return { rule, normalized };
   }
 
   if (tool === SKILL_LOAD_TOOL) {
-    // Skill load rules must not carry executionTarget or allowHighRisk
-    if (raw.executionTarget !== undefined || raw.allowHighRisk !== undefined) {
+    // Skill-load rules must not carry executionTarget, but allowHighRisk is
+    // preserved for backward compatibility.
+    if (raw.executionTarget !== undefined) {
       normalized = true;
     }
     const rule: SkillLoadTrustRule = { ...base, tool: SKILL_LOAD_TOOL };
+    if (typeof raw.allowHighRisk === "boolean") {
+      rule.allowHighRisk = raw.allowHighRisk;
+    } else if (raw.allowHighRisk !== undefined) {
+      normalized = true;
+    }
     return { rule, normalized };
   }
 
