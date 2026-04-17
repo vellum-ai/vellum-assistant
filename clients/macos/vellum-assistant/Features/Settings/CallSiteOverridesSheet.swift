@@ -252,7 +252,11 @@ struct CallSiteOverridesSheet: View {
     private func save(id: String) {
         guard let draft = drafts[id] else { return }
         if draft.hasOverride {
-            store.setCallSiteOverride(
+            // Use replace (clear-then-set) so any stale daemon-side
+            // leaves (maxTokens, effort, profile set externally, etc.)
+            // are removed. The partial-update setCallSiteOverride
+            // would silently retain fields the draft has nil'd.
+            store.replaceCallSiteOverride(
                 id,
                 provider: draft.provider,
                 model: draft.model,

@@ -232,24 +232,27 @@ function stripNullLeaves(value: unknown): unknown {
  * Recursively merges nested objects; scalars and arrays from `overrides`
  * replace corresponding values in `target`.
  *
- * JSON `null` is treated as a deletion sentinel: any key whose override
- * value is `null` is deleted from `target` instead of being assigned.
- * This applies recursively, so merging `{ a: { b: null } }` removes the
- * nested `b` while preserving `a` and any other siblings of `b`. When an
- * override assigns a whole object subtree to a key that does not yet
- * exist on `target` (or whose existing value is a scalar/array),
- * `stripNullLeaves` drops any `null` leaves inside that subtree before
- * assignment so no `null`s ever get persisted.
+ * JSON `null` semantics depend on what the target currently holds at
+ * that key:
  *
- * These deletion semantics apply to **every** caller of
- * `deepMergeOverwrite`, not just the HTTP PATCH path. That includes
- * `mergeDefaultWorkspaceConfig` and any future in-process consumer.
- * Today the HTTP PATCH path is the only producer that emits `null`
- * values (for example, the macOS SettingsStore clearing call-site
- * overrides), so no in-process caller is affected — but contributors
- * adding new callers should be aware that emitting `null` will delete
- * the corresponding key, and prefer omitting the key entirely if that
- * is not the intent.
+ * - **Target holds a non-null object** (not array): `null` deletes the
+ *   key, removing the entire subtree. This supports "clear entry"
+ *   semantics (e.g. the macOS SettingsStore clearing a call-site
+ *   override via `{ callSites: { memoryRetrieval: null } }`).
+ *
+ * - **Target holds a scalar, null, or array**: `null` is assigned as the
+ *   value, preserving nullable config fields like `activeHoursStart`
+ *   and `llmRequestLogRetentionMs` where `null` is a valid schema
+ *   value meaning "disabled / no limit".
+ *
+ * - **Key absent from target**: no-op. Assigning null to a missing key
+ *   would create a spurious entry; callers that want to establish a
+ *   null value should set the key to its default first.
+ *
+ * When an override assigns a whole object subtree to a key that does
+ * not yet exist on `target` (or whose existing value is a scalar/array),
+ * `stripNullLeaves` drops any `null` leaves inside that subtree before
+ * assignment so no invalid nulls get persisted for non-nullable fields.
  */
 export function deepMergeOverwrite(
   target: Record<string, unknown>,
@@ -258,7 +261,17 @@ export function deepMergeOverwrite(
   for (const key of Object.keys(overrides)) {
     const ov = overrides[key];
     if (ov === null) {
-      delete target[key];
+      if (!(key in target)) continue;
+      const existing = target[key];
+      if (
+        existing != null &&
+        typeof existing === "object" &&
+        !Array.isArray(existing)
+      ) {
+        delete target[key];
+      } else {
+        target[key] = null;
+      }
     } else if (
       ov !== undefined &&
       typeof ov === "object" &&

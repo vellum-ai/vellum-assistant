@@ -173,20 +173,32 @@ describe("deepMergeOverwrite", () => {
     expect(target).toEqual({ items: [9] });
   });
 
-  test("treats top-level null as key deletion", () => {
+  test("assigns null to scalar fields (preserves nullable config values)", () => {
     const target: Record<string, unknown> = { a: 1, b: 2 };
     deepMergeOverwrite(target, { a: null });
-    expect(target).toEqual({ b: 2 });
-    expect("a" in target).toBe(false);
+    expect(target).toEqual({ a: null, b: 2 });
+    expect("a" in target).toBe(true);
   });
 
-  test("treats nested null as key deletion, preserving siblings", () => {
+  test("assigns null to nested scalar fields, preserving siblings", () => {
     const target: Record<string, unknown> = {
       a: { b: 1, c: 2, d: 3 },
     };
     deepMergeOverwrite(target, { a: { b: null } });
-    expect(target).toEqual({ a: { c: 2, d: 3 } });
-    expect("b" in (target.a as Record<string, unknown>)).toBe(false);
+    expect(target).toEqual({ a: { b: null, c: 2, d: 3 } });
+    expect("b" in (target.a as Record<string, unknown>)).toBe(true);
+  });
+
+  test("assigns null to existing null fields (no-op for already-null)", () => {
+    const target: Record<string, unknown> = {
+      heartbeat: { activeHoursStart: null, intervalMs: 6000 },
+    };
+    deepMergeOverwrite(target, {
+      heartbeat: { activeHoursStart: null },
+    });
+    expect(target).toEqual({
+      heartbeat: { activeHoursStart: null, intervalMs: 6000 },
+    });
   });
 
   test("deletion of a nested key whose value is itself an object", () => {
@@ -249,6 +261,43 @@ describe("deepMergeOverwrite", () => {
     const target: Record<string, unknown> = { a: 1 };
     deepMergeOverwrite(target, { a: { b: null, c: 5, d: { e: null, f: 6 } } });
     expect(target).toEqual({ a: { c: 5, d: { f: 6 } } });
+  });
+
+  test("nullable config fields: null replaces scalar default, not deleted", () => {
+    // Models PATCH { heartbeat: { activeHoursStart: null, activeHoursEnd: null } }
+    // on a config where the defaults (8, 22) are in place. The nullable fields
+    // must store null (meaning "disabled") — NOT be deleted (which would
+    // re-apply schema defaults on next load).
+    const target: Record<string, unknown> = {
+      heartbeat: { intervalMs: 6000, activeHoursStart: 8, activeHoursEnd: 22 },
+    };
+    deepMergeOverwrite(target, {
+      heartbeat: { activeHoursStart: null, activeHoursEnd: null },
+    });
+    expect(target).toEqual({
+      heartbeat: { intervalMs: 6000, activeHoursStart: null, activeHoursEnd: null },
+    });
+  });
+
+  test("mixed: deletes object entries, assigns null to scalars in same merge", () => {
+    // Verifies both behaviors coexist in a single merge: object entries are
+    // deleted (call-site clearing) while scalar nulls are assigned (nullable fields).
+    const target: Record<string, unknown> = {
+      llm: {
+        callSites: {
+          commitMessage: { provider: "openai" },
+        },
+      },
+      heartbeat: { activeHoursStart: 8 },
+    };
+    deepMergeOverwrite(target, {
+      llm: { callSites: { commitMessage: null } },
+      heartbeat: { activeHoursStart: null },
+    });
+    expect(target).toEqual({
+      llm: { callSites: {} },
+      heartbeat: { activeHoursStart: null },
+    });
   });
 
   test("preserves explicit boolean false and zero (not treated as null)", () => {
