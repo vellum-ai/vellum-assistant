@@ -90,11 +90,7 @@ The fastest way to build and launch the app locally:
 ./build.sh run
 ```
 
-To point managed sign-in at a specific platform host for a local run:
-
-```bash
-VELLUM_PLATFORM_URL=https://platform.vellum.ai ./build.sh run
-```
+The managed sign-in platform host is resolved from `VELLUM_ENVIRONMENT` (`local`, `dev`, `test`, `staging`, `production`) — set the environment to target a different platform host. See `VellumEnvironment.platformURL` in `clients/shared/App/VellumEnvironment.swift`.
 
 To point in-app docs links at a staging or local docs server for a local run:
 

@@ -29,7 +29,6 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
-#   VELLUM_PLATFORM_URL  Override managed sign-in platform URL for app launches
 #   VELLUM_DOCS_BASE_URL Override docs base URL for in-app docs links (e.g. staging)
 #   SKIP_BUN_REBUILD    Set to 1 to skip Bun binary staleness checks (use pre-built binaries as-is)
 #   VELLUM_ENVIRONMENT   Runtime environment (local|dev|test|staging|production).
@@ -1061,11 +1060,6 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
     fi
 done
 
-# Default VELLUM_PLATFORM_URL for `run` builds (local dev against dev platform)
-if [ "$CMD" = "run" ] && [ -z "${VELLUM_PLATFORM_URL:-}" ]; then
-    export VELLUM_PLATFORM_URL="https://dev-platform.vellum.ai"
-fi
-
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
 COMMIT_SHA_PLIST=""
 if [ -n "${COMMIT_SHA:-}" ]; then
@@ -1079,21 +1073,14 @@ fi
 
 LSE_ENVIRONMENT_PLIST=""
 _LSE_ENTRIES=""
-if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
-    PLATFORM_URL_OVERRIDE="${VELLUM_PLATFORM_URL%/}"
-    echo "Embedding app platform URL override: $PLATFORM_URL_OVERRIDE"
-    _LSE_ENTRIES+="
-        <key>VELLUM_PLATFORM_URL</key>
-        <string>$PLATFORM_URL_OVERRIDE</string>"
-fi
 if [ -n "${VELLUM_DOCS_BASE_URL:-}" ]; then
     DOCS_BASE_URL_OVERRIDE="${VELLUM_DOCS_BASE_URL%/}"
     # XML-escape ampersand/lt/gt before embedding into Info.plist so a
     # malformed override (e.g. one containing `&` in a URL path) cannot
     # corrupt the entire plist and prevent the app from launching.
-    # Note: the sibling VELLUM_PLATFORM_URL / SENTRY_DSN_* blocks below
-    # have the same unescaped pattern; that's a pre-existing concern that
-    # should be addressed in a separate cleanup PR.
+    # Note: the sibling SENTRY_DSN_* blocks below have the same unescaped
+    # pattern; that's a pre-existing concern that should be addressed in
+    # a separate cleanup PR.
     DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//&/&amp;}"
     DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//</&lt;}"
     DOCS_BASE_URL_OVERRIDE="${DOCS_BASE_URL_OVERRIDE//>/&gt;}"
