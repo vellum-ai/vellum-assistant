@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { parseTrustFileData } from "@vellumai/ces-contracts";
+import { parseTrustFileData, parseTrustRule } from "@vellumai/ces-contracts";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
@@ -475,12 +475,18 @@ function fileUpdateRule(
   const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) throw new Error(`Trust rule not found: ${id}`);
-  const rule = { ...rules[index] };
-  if (updates.tool != null) rule.tool = updates.tool;
-  if (updates.pattern != null) rule.pattern = updates.pattern;
-  if (updates.scope != null) rule.scope = updates.scope;
-  if (updates.decision != null) rule.decision = updates.decision;
-  if (updates.priority != null) rule.priority = updates.priority;
+  const merged = { ...rules[index] };
+  if (updates.tool != null) merged.tool = updates.tool;
+  if (updates.pattern != null) merged.pattern = updates.pattern;
+  if (updates.scope != null) merged.scope = updates.scope;
+  if (updates.decision != null) merged.decision = updates.decision;
+  if (updates.priority != null) merged.priority = updates.priority;
+
+  // Canonicalize through parseTrustRule so that fields invalid for the
+  // (potentially changed) tool family are stripped. For example, if a rule's
+  // tool is changed from "bash" to "web_fetch", executionTarget and
+  // allowHighRisk are dropped because URL-family tools don't support them.
+  const { rule } = parseTrustRule(merged as unknown as Record<string, unknown>);
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;
