@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -5,6 +9,7 @@ import type {
   Message,
   Provider,
 } from "../providers/types.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
 import {
@@ -26,19 +31,29 @@ const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
-const SUMMARY_SYSTEM_PROMPT = [
-  "You compress long assistant conversations into durable working memory.",
-  "Focus on actionable state, not prose.",
-  "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
-  "Remove repetition and stale details that were superseded.",
-  "Return concise markdown using these section headers exactly:",
-  "## Goals",
-  "## Constraints",
-  "## Decisions",
-  "## Open Conversations",
-  "## Key Artifacts",
-  "## Recent Progress",
-].join("\n");
+/**
+ * Load the compaction summary system prompt from the bundled markdown asset.
+ *
+ * Resolved via `import.meta.url` + `fileURLToPath` so this works in both
+ * source mode (`prompts/compact.md` sits next to this TS file) and bundled
+ * forms. `resolveBundledDir` handles the compiled-binary case where the
+ * caller path points to `/$bunfs/` and the asset lives next to the
+ * executable (macOS app bundle `Contents/Resources/` or sibling dir).
+ */
+export function loadCompactPrompt(): string {
+  const callerDir = dirname(fileURLToPath(import.meta.url));
+  const promptsDir = resolveBundledDir(callerDir, "prompts", "compact-prompts");
+  const promptPath = join(promptsDir, "compact.md");
+  const contents = readFileSync(promptPath, "utf-8");
+  if (contents.length === 0) {
+    throw new Error(
+      `compact.md at ${promptPath} is empty — compaction summary prompt missing`,
+    );
+  }
+  return contents;
+}
+
+const SUMMARY_SYSTEM_PROMPT = loadCompactPrompt();
 
 export interface ContextWindowResult {
   messages: Message[];
@@ -499,7 +514,9 @@ export class ContextWindowManager {
     // the summary at index 0 as child-owned.
     this.nonPersistedPrefixCount = Math.max(
       0,
-      this.nonPersistedPrefixCount - injectedInCompactable - injectedSummaryOffset,
+      this.nonPersistedPrefixCount -
+        injectedInCompactable -
+        injectedSummaryOffset,
     );
     this.summaryIsInjected = false;
 
@@ -643,7 +660,9 @@ export class ContextWindowManager {
     );
 
     const estimateBlockTokens = (b: ContentBlock): number =>
-      estimateContentBlockTokens(b, { providerName: this.estimationProviderName });
+      estimateContentBlockTokens(b, {
+        providerName: this.estimationProviderName,
+      });
 
     let totalTokens = 0;
     for (const block of blocks) {
@@ -656,7 +675,11 @@ export class ContextWindowManager {
     // images to drop. Images are high-cost and their text context (message
     // headers, surrounding tool_use/tool_result serializations) is preserved.
     const result = [...blocks];
-    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+    for (
+      let i = 0;
+      i < result.length && totalTokens > maxTranscriptTokens;
+      i++
+    ) {
       if (result[i].type === "image") {
         totalTokens -= estimateBlockTokens(result[i]);
         const stub: ContentBlock = {
@@ -674,7 +697,11 @@ export class ContextWindowManager {
     // than dropping it entirely so the summarizer always has content to work with.
     let dropUntil = 0;
     let droppedTokens = 0;
-    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+    for (
+      let i = 0;
+      i < result.length && totalTokens > maxTranscriptTokens;
+      i++
+    ) {
       const blockTokens = estimateBlockTokens(result[i]);
       const excess = totalTokens - maxTranscriptTokens;
       if (blockTokens > excess && result[i].type === "text") {
@@ -767,7 +794,9 @@ export class ContextWindowManager {
 
     // Fallback: extract text-only transcript for local summary generation.
     const textTranscript = transcriptBlocks
-      .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
       .map((b) => b.text)
       .join("\n\n");
 
@@ -854,7 +883,11 @@ function adjustForToolPairs(
     // Collect tool_use_ids referenced by tool_results in this user message
     const referencedIds = new Set<string>();
     for (const block of msg.content) {
-      if ((block.type === "tool_result" || block.type === "web_search_tool_result") && "tool_use_id" in block) {
+      if (
+        (block.type === "tool_result" ||
+          block.type === "web_search_tool_result") &&
+        "tool_use_id" in block
+      ) {
         referencedIds.add((block as { tool_use_id: string }).tool_use_id);
       }
     }
@@ -970,7 +1003,8 @@ function serializeMessagesToContentBlocks(messages: Message[]): ContentBlock[] {
           textLines.length = 0;
         }
         blocks.push(block);
-      } else if (block.type === "tool_result") { // guard:allow-tool-result-only — web_search_tool_result handled by serializeBlock via else branch
+      } else if (block.type === "tool_result") {
+        // guard:allow-tool-result-only — web_search_tool_result handled by serializeBlock via else branch
         // Extract images from tool_result contentBlocks before serializing.
         const collectedImages: ImageContent[] = [];
         textLines.push(serializeToolResultBlock(block, collectedImages));
