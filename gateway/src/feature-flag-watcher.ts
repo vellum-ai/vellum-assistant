@@ -59,6 +59,12 @@ export class FeatureFlagWatcher {
         this.scheduleInvalidation(filename ?? undefined);
       });
 
+      // Prevent unhandled FSWatcher errors (e.g. ENXIO when the watched
+      // directory is removed) from crashing the process.
+      this.watcher.on("error", (err) => {
+        log.warn({ err, path: dir }, "Feature flag file watcher error");
+      });
+
       log.info({ path: dir }, "Watching for feature flag file changes");
     } catch (err) {
       log.warn({ err, path: dir }, "Failed to start feature flag file watcher");

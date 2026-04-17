@@ -101,6 +101,7 @@ extension MainWindowView {
         if showConversationSwitcher {
             ConversationSwitcherDrawer(
                 conversationManager: conversationManager,
+                listStore: listStore,
                 windowState: windowState,
                 sidebar: sidebar,
                 customGroupsEnabled: assistantFeatureFlagStore.isEnabled("conversation-groups-ui"),

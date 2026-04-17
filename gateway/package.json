@@ -12,6 +12,7 @@
     "dev:proxy": "bun run src/cli/enable-proxy.ts && bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "schema": "bun run src/cli/schema.ts",
+    "db:generate": "drizzle-kit generate --dialect sqlite --schema src/db/schema.ts --out src/db/migrations",
     "start": "bun run src/index.ts",
     "test": "bash scripts/test.sh",
     "format": "prettier --write .",
@@ -24,6 +25,8 @@
   },
   "dependencies": {
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
+    "drizzle-kit": "0.30.6",
+    "drizzle-orm": "0.45.2",
     "file-type": "21.3.0",
     "minimatch": "10.2.4",
     "pino": "9.14.0",

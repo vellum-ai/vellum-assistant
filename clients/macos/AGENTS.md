@@ -346,7 +346,8 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 
 ### Accessibility APIs
 - All accessibility tree enumeration goes through `AccessibilityTreeProviding` protocol. Do not call AX APIs directly outside of the `AccessibilityTreeEnumerator` implementation.
-- AX operations can be slow — always run enumeration off the main thread and cache results where appropriate.
+- **Never call `AXUIElement*` APIs from `@MainActor`** — they are synchronous cross-process IPC and will stall the caller. Wrap in `Task.detached` and expose via `async`. See [`AXUIElement.h`](https://developer.apple.com/documentation/applicationservices/axuielement_h).
+- Always set [`AXUIElementSetMessagingTimeout`](https://developer.apple.com/documentation/applicationservices/1462085-axuielementsetmessagingtimeout) on the app element before querying.
 
 ### Screen Capture
 - Screen capture uses `ScreenCaptureProviding` protocol for testability. The concrete `ScreenCapture` implementation uses ScreenCaptureKit.

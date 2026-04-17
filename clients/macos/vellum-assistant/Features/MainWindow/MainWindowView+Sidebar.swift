@@ -49,7 +49,7 @@ extension MainWindowView {
 
     /// All non-schedule/non-background conversations for the collapsed sidebar switcher.
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter {
+        listStore.visibleConversations.filter {
             !$0.isScheduleConversation
                 && !$0.isBackgroundConversation
                 && !$0.isChannelConversation
@@ -61,7 +61,7 @@ extension MainWindowView {
     /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
     /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
-        conversationManager.conversations
+        listStore.conversations
             .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
@@ -297,7 +297,7 @@ extension MainWindowView {
             onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
             } : nil,
-            moveToGroups: conversationManager.groups.filter { group in
+            moveToGroups: listStore.groups.filter { group in
                 group.id != conversation.groupId &&
                 group.id != ConversationGroup.scheduled.id &&
                 (assistantFeatureFlagStore.isEnabled("conversation-groups-ui") || group.isSystemGroup)
@@ -318,18 +318,25 @@ extension MainWindowView {
     @ViewBuilder
     private var conversationGroupsList: some View {
         LazyVStack(spacing: 0) {
-            if showDaemonLoading && !assistantLoadingTimedOut && conversationManager.visibleConversations.isEmpty {
+            if showDaemonLoading && !assistantLoadingTimedOut && listStore.visibleConversations.isEmpty {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            // Read the pre-partitioned system/custom arrays from the store
-            // rather than re-filtering `sidebarGroupEntries` on every layout
-            // pass. Inline `.filter` allocations produce new array identities
-            // each render and force `ForEachState.update` to re-diff every
-            // entry via `KeyPath._projectReadOnly`, which is the stall
-            // reported in Sentry (LUM-919).
-            let systemEntries = conversationManager.systemSidebarGroupEntries
-            let customEntries = conversationManager.customSidebarGroupEntries
+            // Read the pre-partitioned system/custom arrays directly from the
+            // `ConversationListStore`. Anchoring on the store (rather than on
+            // a `ConversationManager` forwarder) keeps the Observation
+            // dependency graph flat — the body re-evaluates exactly when the
+            // object that owns the mutation publishes a change, which is the
+            // pattern recommended for `@Observable` state by
+            // https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app
+            //
+            // Using the pre-partitioned arrays also avoids re-filtering
+            // `sidebarGroupEntries` on every layout pass — inline `.filter`
+            // allocations produce new array identities each render and force
+            // `ForEachState.update` to re-diff every entry via
+            // `KeyPath._projectReadOnly`.
+            let systemEntries = listStore.systemSidebarGroupEntries
+            let customEntries = listStore.customSidebarGroupEntries
 
             ForEach(systemEntries) { entry in
                 makeSectionView(group: entry.group, conversations: entry.conversations)
@@ -351,13 +358,13 @@ extension MainWindowView {
             // so we treat them as fitting — in the rare case they have >5 subgroups
             // they already have their own "Show more", and the extra fetch is benign.
             let maxCollapsed = 5
-            let allSectionsFit = conversationManager.sidebarGroupEntries.allSatisfy { entry in
+            let allSectionsFit = listStore.sidebarGroupEntries.allSatisfy { entry in
                 entry.group.id == ConversationGroup.pinned.id
                     || entry.group.id == ConversationGroup.scheduled.id
                     || entry.group.id == ConversationGroup.background.id
                     || entry.conversations.count <= maxCollapsed
             }
-            if conversationManager.hasMoreConversations && allSectionsFit {
+            if listStore.hasMoreConversations && allSectionsFit {
                 Color.clear
                     .frame(height: 0)
                     .onAppear {
@@ -435,7 +442,7 @@ extension MainWindowView {
 
             // MARK: Conversations (scrollable)
             SidebarConversationsHeader(
-                hasUnseenConversations: conversationManager.unseenVisibleConversationCount > 0,
+                hasUnseenConversations: listStore.unseenVisibleConversationCount > 0,
                 isLoading: showDaemonLoading,
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()

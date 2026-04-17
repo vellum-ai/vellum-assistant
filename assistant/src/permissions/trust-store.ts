@@ -1082,22 +1082,10 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       );
     this.ensureInitialized();
 
-    // Canonicalize the merged rule so fields invalid for the (possibly new)
-    // tool family are stripped before sending to the gateway.
-    const existing = this.rules.find((r) => r.id === id);
-    if (existing) {
-      const merged = { ...existing, ...updates };
-      const { rule: canonical } = parseTrustRule(merged);
-      // Send the canonical fields as the update
-      updates = {
-        tool: canonical.tool,
-        pattern: canonical.pattern,
-        scope: canonical.scope,
-        decision: canonical.decision,
-        priority: canonical.priority,
-      };
-    }
-
+    // Send only the caller's partial updates to the gateway.  The gateway's
+    // own updateRule merges and canonicalizes via parseTrustRule, so doing a
+    // full-rule merge here against the local cache would risk overwriting
+    // concurrent edits with stale cached values.
     const rule = trustClient.updateRuleSync(id, updates);
     // Update local cache
     const idx = this.rules.findIndex((r) => r.id === id);

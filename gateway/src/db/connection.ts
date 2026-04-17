@@ -1,10 +1,14 @@
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import { runDataMigrations } from "./data-migrations/index.js";
+import * as schema from "./schema.js";
 
-let db: Database | null = null;
+export type GatewayDb = ReturnType<typeof drizzle<typeof schema>>;
+
+let db: GatewayDb | null = null;
 
 /**
  * One-time migration: move gateway.sqlite from the legacy path
@@ -21,22 +25,15 @@ function migrateLegacyDb(newPath: string): void {
   try {
     renameSync(legacyPath, newPath);
   } catch {
-    // Cross-device rename not possible (e.g. Docker volumes) — the
-    // legacy DB was on ephemeral storage anyway, so just let the
-    // new DB be created fresh.
     return;
   }
 
-  // Move WAL/SHM sidecar files if present. Done in a separate
-  // try/catch so a sidecar failure doesn't mask that the main
-  // DB file was already moved successfully.
   for (const suffix of ["-wal", "-shm"]) {
     try {
       const old = legacyPath + suffix;
       if (existsSync(old)) renameSync(old, newPath + suffix);
     } catch {
-      // Best-effort — SQLite will recover from a missing WAL/SHM
-      // by rolling back to the last checkpointed state.
+      // Best-effort
     }
   }
 }
@@ -51,85 +48,73 @@ function getDbPath(): string {
   return dbPath;
 }
 
-export function getGatewayDb(): Database {
+/**
+ * Initialize the gateway database: open connection, push schema, run
+ * data migrations. Must be called (and awaited) once at startup before
+ * any code calls getGatewayDb().
+ *
+ * Uses drizzle-kit's pushSQLiteSchema to diff schema.ts against the
+ * live database and apply any missing tables/columns/indexes. No
+ * migration files needed — schema.ts is the single source of truth.
+ */
+export async function initGatewayDb(): Promise<void> {
+  if (db) return;
+
+  const raw = new Database(getDbPath());
+  raw.exec("PRAGMA journal_mode=WAL");
+  raw.exec("PRAGMA synchronous=FULL");
+  raw.exec("PRAGMA busy_timeout=5000");
+  raw.exec("PRAGMA foreign_keys=ON");
+
+  db = drizzle(raw, { schema });
+
+  const { pushSQLiteSchema } = await import("drizzle-kit/api");
+  const { statementsToExecute, apply } = await pushSQLiteSchema(
+    schema,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pushSQLiteSchema types against LibSQLDatabase; BunSQLiteDatabase is duck-type compatible
+    db as any,
+  );
+  if (statementsToExecute.length > 0) {
+    await apply();
+  }
+
+  runDataMigrations(getRawDb(db));
+}
+
+/**
+ * Get the typed Drizzle ORM instance for the gateway database.
+ *
+ * Requires initGatewayDb() to have been called first.
+ */
+export function getGatewayDb(): GatewayDb {
   if (!db) {
-    db = new Database(getDbPath());
-    db.exec("PRAGMA journal_mode=WAL");
-    db.exec("PRAGMA synchronous=FULL");
-    db.exec("PRAGMA busy_timeout=5000");
-    db.exec("PRAGMA foreign_keys=ON");
-    migrate(db);
-    runDataMigrations(db);
+    throw new Error(
+      "Gateway DB not initialized — call initGatewayDb() at startup",
+    );
   }
   return db;
 }
 
-function migrate(db: Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS slack_active_threads (
-      thread_ts TEXT PRIMARY KEY,
-      tracked_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
-    )
-  `);
+/**
+ * Extract the underlying bun:sqlite Database from a Drizzle instance.
+ * Internal helper — not exported. Production code should use getGatewayDb()
+ * with Drizzle's query API. Only needed for data migrations and test cleanup.
+ */
+function getRawDb(drizzleDb: GatewayDb): Database {
+  return (drizzleDb as unknown as { $client: Database }).$client;
+}
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS slack_seen_events (
-      event_id TEXT PRIMARY KEY,
-      seen_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
-    )
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS one_time_migrations (
-      key TEXT PRIMARY KEY,
-      ran_at INTEGER NOT NULL
-    )
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS contacts (
-      id TEXT PRIMARY KEY,
-      display_name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'contact',
-      principal_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS contact_channels (
-      id TEXT PRIMARY KEY,
-      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      address TEXT NOT NULL,
-      is_primary INTEGER NOT NULL DEFAULT 0,
-      external_user_id TEXT,
-      external_chat_id TEXT,
-      status TEXT NOT NULL DEFAULT 'unverified',
-      policy TEXT NOT NULL DEFAULT 'allow',
-      verified_at INTEGER,
-      verified_via TEXT,
-      invite_id TEXT,
-      revoked_reason TEXT,
-      blocked_reason TEXT,
-      last_seen_at INTEGER,
-      interaction_count INTEGER NOT NULL DEFAULT 0,
-      last_interaction INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER
-    )
-  `);
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_contact_channels_type_ext_user
-      ON contact_channels(type, external_user_id)
-  `);
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_contact_channels_type_ext_chat
-      ON contact_channels(type, external_chat_id)
-  `);
+/**
+ * Reset the singleton so the next initGatewayDb() creates a fresh
+ * connection. Test-only — never call in production code.
+ */
+export function resetGatewayDb(): void {
+  if (db) {
+    try {
+      getRawDb(db).close();
+    } catch {
+      // best effort
+    }
+  }
+  db = null;
 }
