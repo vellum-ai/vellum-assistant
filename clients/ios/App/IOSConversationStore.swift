@@ -219,10 +219,9 @@ class IOSConversationStore: ObservableObject {
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Per-domain generation counters for observation loops. Each observation type
-    /// (fork, title, activity) has its own counter so that starting/restarting one
+    /// (fork, activity) has its own counter so that starting/restarting one
     /// loop does not invalidate the others. All are cleared when a conversation is deleted.
     private var forkGenerations: [UUID: Int] = [:]
-    private var titleGenerations: [UUID: Int] = [:]
     private var activityGenerations: [UUID: Int] = [:]
     /// Last observed fork-availability tip ID per conversation, for change detection.
     private var lastObservedForkTipIds: [UUID: String?] = [:]
@@ -1095,12 +1094,6 @@ class IOSConversationStore: ObservableObject {
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
         observeForForkAvailability(vm: vm, conversationLocalId: conversationLocalId)
         updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId)
-
-        // Only auto-title conversations without a daemon conversation (new local conversations).
-        // Daemon conversations already have titles from the conversation list.
-        if conversations.first(where: { $0.id == conversationLocalId })?.conversationId == nil {
-            observeForTitleGeneration(vm: vm, conversationLocalId: conversationLocalId)
-        }
         observeForActivityTracking(vm: vm, conversationLocalId: conversationLocalId)
         return vm
     }
@@ -1174,47 +1167,6 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    /// Watch for the first completed assistant reply to auto-title the conversation.
-    private func observeForTitleGeneration(vm: ChatViewModel, conversationLocalId: UUID) {
-        // Find the conversation's default title; skip if already customized.
-        guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
-        let generation = nextGeneration(in: &titleGenerations, for: conversationLocalId)
-        observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
-    }
-
-    private func observeTitleGenerationLoop(vm: ChatViewModel, conversationLocalId: UUID, generation: Int) {
-        guard titleGenerations[conversationLocalId] == generation else { return }
-        let messageManager = vm.messageManager
-        withObservationTracking {
-            _ = messageManager.messages
-        } onChange: { [weak self, weak vm] in
-            Task { @MainActor [weak self, weak vm] in
-                guard let self, let vm,
-                      self.titleGenerations[conversationLocalId] == generation else { return }
-                let messages = vm.messageManager.messages
-                guard let firstUser = messages.first(where: { $0.role == .user }),
-                      !firstUser.text.isEmpty,
-                      messages.contains(where: { $0.role == .assistant && !$0.isStreaming }) else {
-                    // Not ready yet — re-arm.
-                    self.observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
-                    return
-                }
-                // One-shot: do not re-arm after triggering.
-                let firstUserMessage = firstUser.text
-                Task {
-                    if let title = await TitleGenerator.shared.generateTitle(
-                        for: conversationLocalId,
-                        firstUserMessage: firstUserMessage
-                    ) {
-                        await MainActor.run {
-                            self.updateTitle(title, for: conversationLocalId)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
     /// Skips updates while the VM is loading history so that hydrating old messages
     /// doesn't stamp the conversation as recently active.
@@ -1260,13 +1212,11 @@ class IOSConversationStore: ObservableObject {
     /// guards will pass.
     private func invalidateObservationGenerations(for conversationLocalId: UUID) {
         forkGenerations.removeValue(forKey: conversationLocalId)
-        titleGenerations.removeValue(forKey: conversationLocalId)
         activityGenerations.removeValue(forKey: conversationLocalId)
     }
 
     private func invalidateAllObservationGenerations() {
         forkGenerations.removeAll()
-        titleGenerations.removeAll()
         activityGenerations.removeAll()
     }
 

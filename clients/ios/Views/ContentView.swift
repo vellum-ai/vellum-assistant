@@ -5,7 +5,6 @@ import VellumAssistantShared
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @ObservedObject var ambientAgent: AmbientAgentManager
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .chats
     @State private var navigateToConnect = false
@@ -14,9 +13,8 @@ struct ContentView: View {
     /// independent stores each overwrite the other's UserDefaults writes in standalone mode.
     @StateObject private var conversationStore: IOSConversationStore
 
-    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
+    init(authManager: AuthManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         self.authManager = authManager
-        self.ambientAgent = ambientAgent
         _conversationStore = StateObject(wrappedValue: IOSConversationStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
