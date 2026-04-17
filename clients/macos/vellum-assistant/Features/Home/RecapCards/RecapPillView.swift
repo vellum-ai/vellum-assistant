@@ -51,6 +51,9 @@ struct RecapPillView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
         .accessibilityAddTraits(onTap != nil ? .isButton : [])
+        .accessibilityAction {
+            onTap?()
+        }
     }
 
     // MARK: - Helpers
