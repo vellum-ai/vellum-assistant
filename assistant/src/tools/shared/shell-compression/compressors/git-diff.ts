@@ -162,7 +162,8 @@ export function compressGitDiff(
   // Error case: non-zero exit, null exit (killed by signal), or stderr with
   // no exit code — return raw output so diagnostics aren't lost.
   if ((exitCode !== 0 && exitCode !== null) || (exitCode === null && stderr)) {
-    return stderr ? `${stderr}\n${stdout}` : stdout;
+    if (stderr && stdout) return `${stderr}\n${stdout}`;
+    return stderr || stdout;
   }
 
   if (!stdout.trim()) return stdout;
