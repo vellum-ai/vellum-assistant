@@ -127,8 +127,9 @@ export interface MeetConsentMonitorDeps {
   config: MeetConsentMonitorConfig;
   /**
    * Ask the LLM for an objection verdict. Defaults to a wrapper around the
-   * repo-wide provider abstraction using {@link CONSENT_LLM_MAX_TOKENS} and
-   * `modelIntent: "latency-optimized"`. Tests inject scripted responses.
+   * repo-wide provider abstraction using {@link CONSENT_LLM_MAX_TOKENS}
+   * under the `meetConsentMonitor` call site. Tests inject scripted
+   * responses.
    */
   llmAsk?: ObjectionLLMAsk;
   /** Override the dispatcher subscribe (tests). */
@@ -693,7 +694,7 @@ const OBJECTION_TOOL: ToolDefinition = {
 
 /**
  * Default {@link ObjectionLLMAsk} — routes through the repo-wide provider
- * abstraction with `modelIntent: "latency-optimized"`, times out at
+ * abstraction under the `meetConsentMonitor` call site, times out at
  * {@link CONSENT_LLM_TIMEOUT_MS}, and extracts the tool-use input as the
  * structured verdict.
  *
@@ -701,7 +702,8 @@ const OBJECTION_TOOL: ToolDefinition = {
  * real provider.
  */
 async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
-  const provider: Provider | null = await getConfiguredProvider();
+  const provider: Provider | null =
+    await getConfiguredProvider("meetConsentMonitor");
   if (!provider) {
     // No provider available — conservatively assume no objection so the
     // monitor doesn't interrupt a meeting based on missing infra.
@@ -716,7 +718,7 @@ async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
       "You are a strict JSON classifier. Only respond via the report_objection tool.",
       {
         config: {
-          modelIntent: "latency-optimized",
+          callSite: "meetConsentMonitor",
           max_tokens: CONSENT_LLM_MAX_TOKENS,
           tool_choice: { type: "tool" as const, name: OBJECTION_TOOL.name },
         },
