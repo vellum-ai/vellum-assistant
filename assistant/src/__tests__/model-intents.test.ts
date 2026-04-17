@@ -31,9 +31,9 @@ describe("model intents", () => {
   });
 
   test("falls back to provider default for unknown providers", () => {
-    expect(getProviderDefaultModel("unknown-provider")).toBe("claude-opus-4-6");
+    expect(getProviderDefaultModel("unknown-provider")).toBe("claude-opus-4-7");
     expect(resolveModelIntent("unknown-provider", "quality-optimized")).toBe(
-      "claude-opus-4-6",
+      "claude-opus-4-7",
     );
   });
 });

@@ -176,6 +176,7 @@ export class MeetChatOpportunityDetector {
   private readonly now: () => number;
 
   private unsubscribe: MeetEventUnsubscribe | null = null;
+  private disposed = false;
 
   /** Compiled Tier 1 regexes. Empty when `config.enabled === false`. */
   private readonly patterns: RegExp[];
@@ -234,6 +235,7 @@ export class MeetChatOpportunityDetector {
    * vocabulary ("dispose") called out in the phase plan.
    */
   dispose(): void {
+    this.disposed = true;
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
@@ -410,6 +412,7 @@ export class MeetChatOpportunityDetector {
     const prompt = this.buildPrompt(triggerReason, triggerText);
     try {
       const decision = await this.callDetectorLLM(prompt);
+      if (this.disposed) return;
       if (!decision.shouldRespond) {
         log.debug(
           {

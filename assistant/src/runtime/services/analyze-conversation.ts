@@ -216,10 +216,6 @@ export async function analyzeConversation(
   // still-running prior agent loop on the rolling conversation and bail out
   // before mutating any state. See concurrency guard below.
   //
-  // Per-call model selection is no longer threaded through `getOrCreateConversation`;
-  // the runAgentLoop call below passes `callSite: 'analyzeConversation'` so the
-  // unified call-site resolver picks up provider/model from
-  // `llm.callSites.analyzeConversation`.
   const analysisConversation =
     await deps.sendMessageDeps.getOrCreateConversation(
       analysisConversationId,

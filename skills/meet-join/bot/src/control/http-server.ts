@@ -144,6 +144,15 @@ export function createHttpServer(
    */
   let playbackChain: Promise<void> = Promise.resolve();
 
+  /**
+   * Tail of the chat-send queue. Concurrent POST /send_chat requests must
+   * not interleave Playwright operations on the shared chat input — one
+   * fill()/press() sequence must complete before the next begins, otherwise
+   * two messages race on the same DOM element and both may be lost or
+   * garbled. Identical pattern to `playbackChain` above.
+   */
+  let chatChain: Promise<void> = Promise.resolve();
+
   const app = new Hono();
 
   // -------------------------------------------------------------------------
@@ -232,11 +241,20 @@ export function createHttpServer(
         400,
       );
     }
+    const previousChat = chatChain;
+    let releaseChatChain!: () => void;
+    chatChain = new Promise<void>((resolve) => {
+      releaseChatChain = resolve;
+    });
+    await previousChat;
+
     try {
       await onSendChat(parsed.data.text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ sent: false, error: message }, 502);
+    } finally {
+      releaseChatChain();
     }
     return c.json({ sent: true, timestamp: new Date().toISOString() }, 200);
   });
@@ -304,14 +322,12 @@ export function createHttpServer(
     // awaiting it directly is safe.
     await previousChain;
 
+    try {
     let handle: AudioPlaybackHandle;
     try {
       handle = playbackFactory(playbackSpawnOptions);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Release our slot so the next POST in the chain isn't blocked on a
-      // handler that failed before it even registered.
-      releaseChain();
       return c.json({ error: `failed to start playback: ${message}` }, 500);
     }
 
@@ -324,15 +340,14 @@ export function createHttpServer(
 
     const body = c.req.raw.body;
     if (!body) {
-      activeStreams.delete(streamId);
-      // No body is treated as an empty stream — flush trailing silence for
-      // symmetry and return success.
+      if (activeStreams.get(streamId)?.controller === controller) {
+        activeStreams.delete(streamId);
+      }
       try {
         await handle.flushSilence(TRAILING_SILENCE_MS);
       } catch {
         // Best-effort; silence is cosmetic.
       }
-      releaseChain();
       return c.json({ streamId, bytes: 0 }, 200);
     }
 
@@ -393,18 +408,14 @@ export function createHttpServer(
       } catch {
         // Lock may already be released after `cancel()`; fine.
       }
-      activeStreams.delete(streamId);
-      // Always flush trailing silence so we don't "pop" — even on cancel,
-      // which intentionally stops PCM mid-frame.
+      if (activeStreams.get(streamId)?.controller === controller) {
+        activeStreams.delete(streamId);
+      }
       try {
         await handle.flushSilence(TRAILING_SILENCE_MS);
       } catch {
         // Best-effort.
       }
-      // Release our slot in the playback chain *after* the silence flush
-      // so any POST queued behind us only unblocks once the shared pacat
-      // stdin is fully quiesced.
-      releaseChain();
     }
 
     if (writeError) {
@@ -428,6 +439,9 @@ export function createHttpServer(
       );
     }
     return c.json({ streamId, bytes }, 200);
+    } finally {
+      releaseChain();
+    }
   });
 
   // -------------------------------------------------------------------------

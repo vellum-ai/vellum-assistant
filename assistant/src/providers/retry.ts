@@ -188,6 +188,10 @@ function normalizeSendMessageOptions(
 export class RetryProvider implements Provider {
   public readonly name: string;
 
+  get tokenEstimationProvider(): string | undefined {
+    return this.inner.tokenEstimationProvider;
+  }
+
   constructor(private readonly inner: Provider) {
     this.name = inner.name;
   }

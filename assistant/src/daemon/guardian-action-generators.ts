@@ -1,5 +1,4 @@
-import { loadConfig } from "../config/loader.js";
-import { getProvider } from "../providers/registry.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
@@ -26,13 +25,8 @@ import type {
  */
 export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator {
   return async (context, options = {}) => {
-    const config = loadConfig();
-    let provider;
-    try {
-      provider = getProvider(config.llm.default.provider);
-    } catch {
-      return null;
-    }
+    const provider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!provider) return null;
 
     const fallbackText =
       options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
@@ -130,8 +124,10 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
  */
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
-    const config = loadConfig();
-    const provider = getProvider(config.llm.default.provider);
+    const provider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!provider) {
+      throw new Error("No configured provider available for follow-up conversation");
+    }
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,

@@ -152,8 +152,8 @@ export class MeetBargeInWatcher {
   /** Bot's DOM participant id, captured from the first `isSelf` joiner. */
   private botSpeakerId: string | null = null;
 
-  /** True between `meet.speaking_started` and `meet.speaking_ended`. */
-  private isBotSpeaking = false;
+  /** Active bot TTS stream ids — non-empty means the bot is speaking. */
+  private activeSpeakingStreams = new Set<string>();
 
   /** Debounce timer for a pending cancel. `null` when no cancel is queued. */
   private pendingCancelHandle: unknown = null;
@@ -227,9 +227,7 @@ export class MeetBargeInWatcher {
       this.hubSubscription = null;
     }
 
-    // Reset speaking state so a re-start (e.g. test) doesn't inherit the
-    // last meeting's flag.
-    this.isBotSpeaking = false;
+    this.activeSpeakingStreams.clear();
   }
 
   /** Test-only: read the bot's discovered speaker id. */
@@ -239,7 +237,7 @@ export class MeetBargeInWatcher {
 
   /** Test-only: read the bot-speaking flag. */
   _isBotSpeaking(): boolean {
-    return this.isBotSpeaking;
+    return this.activeSpeakingStreams.size > 0;
   }
 
   /** Test-only: true while a debounced cancel is queued. */
@@ -282,19 +280,18 @@ export class MeetBargeInWatcher {
     if (message.meetingId !== this.meetingId) return;
 
     if (message.type === "meet.speaking_started") {
-      this.isBotSpeaking = true;
-      // Speaking_started arrives *before* any audio has hit the wire, so
-      // there's no in-flight cancel state to clear here. We still drop a
-      // potentially-stale pending cancel just in case the previous
-      // utterance ended in a barge-in that we never fired (defensive).
+      const streamId = (message as { streamId?: string }).streamId;
+      if (streamId) this.activeSpeakingStreams.add(streamId);
       this.clearPendingCancel();
       return;
     }
 
     if (message.type === "meet.speaking_ended") {
-      this.isBotSpeaking = false;
-      // Stream is over — any pending cancel for this stream is moot.
-      this.clearPendingCancel();
+      const streamId = (message as { streamId?: string }).streamId;
+      if (streamId) this.activeSpeakingStreams.delete(streamId);
+      if (this.activeSpeakingStreams.size === 0) {
+        this.clearPendingCancel();
+      }
       return;
     }
   }
@@ -315,7 +312,7 @@ export class MeetBargeInWatcher {
   }
 
   private onSpeakerChange(event: SpeakerChangeEvent): void {
-    if (!this.isBotSpeaking) return;
+    if (this.activeSpeakingStreams.size === 0) return;
 
     if (this.botSpeakerId !== null && event.speakerId === this.botSpeakerId) {
       // Floor returned to the bot — cancel any debounced cancel that was
@@ -331,7 +328,7 @@ export class MeetBargeInWatcher {
   }
 
   private onTranscriptChunk(event: TranscriptChunkEvent): void {
-    if (!this.isBotSpeaking) return;
+    if (this.activeSpeakingStreams.size === 0) return;
     // Only interim chunks count for barge-in: finals are too late to be
     // a useful real-time signal, and the speaker.change path covers the
     // authoritative DOM-derived signal.
@@ -371,10 +368,9 @@ export class MeetBargeInWatcher {
 
     this.pendingCancelHandle = this.setTimeoutFn(() => {
       this.pendingCancelHandle = null;
-      // Re-check at fire time — `isBotSpeaking` may have been flipped
-      // off by `meet.speaking_ended` between scheduling and firing, in
-      // which case there's nothing left to cancel.
-      if (!this.isBotSpeaking) return;
+      // Re-check at fire time — all streams may have ended between
+      // scheduling and firing, in which case there's nothing to cancel.
+      if (this.activeSpeakingStreams.size === 0) return;
 
       log.info(
         { meetingId: this.meetingId, trigger },

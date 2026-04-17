@@ -258,6 +258,38 @@ export const LLMCallSiteConfig = LLMConfigFragment.extend({
 export type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 
 // ---------------------------------------------------------------------------
+// Latency-optimized call-site defaults
+//
+// Call sites that previously used `modelIntent: "latency-optimized"` need a
+// fast model, disabled thinking, and low effort so they don't fall through to
+// the expensive `llm.default` (opus with max effort). These defaults match the
+// Anthropic provider; users on other providers override via config.
+// ---------------------------------------------------------------------------
+
+const LATENCY_OPTIMIZED_FRAGMENT = {
+  model: "claude-haiku-4-5-20251001",
+  effort: "low" as const,
+  thinking: { enabled: false },
+};
+
+export const LATENCY_OPTIMIZED_CALLSITE_DEFAULTS: Partial<
+  Record<LLMCallSite, z.input<typeof LLMCallSiteConfig>>
+> = {
+  guardianQuestionCopy: LATENCY_OPTIMIZED_FRAGMENT,
+  watchCommentary: LATENCY_OPTIMIZED_FRAGMENT,
+  interactionClassifier: LATENCY_OPTIMIZED_FRAGMENT,
+  skillCategoryInference: LATENCY_OPTIMIZED_FRAGMENT,
+  inviteInstructionGenerator: LATENCY_OPTIMIZED_FRAGMENT,
+  notificationDecision: LATENCY_OPTIMIZED_FRAGMENT,
+  preferenceExtraction: LATENCY_OPTIMIZED_FRAGMENT,
+  commitMessage: {
+    ...LATENCY_OPTIMIZED_FRAGMENT,
+    maxTokens: 120,
+    temperature: 0.2,
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Top-level LLM schema
 // ---------------------------------------------------------------------------
 
@@ -269,7 +301,9 @@ export const LLMSchema = z
     // rejecting keys that aren't members of `LLMCallSiteEnum` — exactly the
     // behavior we want (typo detection without requiring callers to declare
     // every call site).
-    callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
+    callSites: z
+      .partialRecord(LLMCallSiteEnum, LLMCallSiteConfig)
+      .default(LATENCY_OPTIMIZED_CALLSITE_DEFAULTS),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {

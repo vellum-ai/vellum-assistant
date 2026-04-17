@@ -460,12 +460,13 @@ export class AgentLoop {
           for (let i = history.length - 1; i >= 0; i--) {
             const msg = history[i];
             if (msg.role !== "assistant") continue;
-            return msg.content.some(
+            const hasText = msg.content.some(
               (block) =>
                 block.type === "text" &&
                 typeof (block as { text?: unknown }).text === "string" &&
                 (block as { text: string }).text.trim().length > 0,
             );
+            if (hasText) return true;
           }
           return false;
         })();
