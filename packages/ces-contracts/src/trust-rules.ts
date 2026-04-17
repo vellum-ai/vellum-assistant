@@ -217,19 +217,26 @@ export interface ParsedTrustRule {
 export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   let normalized = false;
 
-  // Extract base fields with coercion for safety
-  const id = typeof raw.id === "string" ? raw.id : "";
-  const tool = typeof raw.tool === "string" ? raw.tool : "";
-  const pattern = typeof raw.pattern === "string" ? raw.pattern : "";
-  const scope = typeof raw.scope === "string" ? raw.scope : "everywhere";
-  const decision = isValidDecision(raw.decision) ? raw.decision : "ask";
-  const priority = typeof raw.priority === "number" ? raw.priority : 100;
-  const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : 0;
-
-  // Coerce decision if it was invalid
-  if (!isValidDecision(raw.decision)) {
-    normalized = true;
-  }
+  // Extract base fields with coercion for safety — mark normalized whenever
+  // a field is coerced to its default so callers know to re-save.
+  const id = typeof raw.id === "string" ? raw.id : ((normalized = true), "");
+  const tool =
+    typeof raw.tool === "string" ? raw.tool : ((normalized = true), "");
+  const pattern =
+    typeof raw.pattern === "string" ? raw.pattern : ((normalized = true), "");
+  const scope =
+    typeof raw.scope === "string"
+      ? raw.scope
+      : ((normalized = true), "everywhere");
+  const decision = isValidDecision(raw.decision)
+    ? raw.decision
+    : ((normalized = true), "ask" as const);
+  const priority =
+    typeof raw.priority === "number" ? raw.priority : ((normalized = true), 100);
+  const createdAt =
+    typeof raw.createdAt === "number"
+      ? raw.createdAt
+      : ((normalized = true), 0);
 
   // Build the base rule
   const base: TrustRuleBase = {
@@ -350,7 +357,7 @@ export function parseTrustFileData(
   const rules: TrustRule[] = [];
 
   for (const rawRule of rawRules) {
-    if (rawRule == null || typeof rawRule !== "object") {
+    if (rawRule == null || typeof rawRule !== "object" || Array.isArray(rawRule)) {
       anyNormalized = true;
       continue;
     }
