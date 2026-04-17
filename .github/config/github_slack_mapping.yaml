@@ -9,7 +9,7 @@ github_to_slack_all_notifications:
   alex-nork: U095KUZ3L20
   tkheyfets: U09AWSU8XM1
   Jasonnnz: U09DVL1JN3V
-  "vex-assistant-bot[bot]": U0ALUGLCUFJ
+  vex-assistant-bot[bot]: U0ALUGLCUFJ
 
 github_to_slack_failure_notifications: # neutral good
   asharma53: U04BTP01B2S
