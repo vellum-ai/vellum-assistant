@@ -39,6 +39,11 @@ const computeDeviceIdMock = spyOn(
   "computeDeviceId",
 ).mockReturnValue("device-id-123");
 
+const loadGuardianTokenMock = spyOn(
+  guardianToken,
+  "loadGuardianToken",
+).mockReturnValue(null);
+
 const fetchCurrentUserMock = spyOn(
   platformClient,
   "fetchCurrentUser",
@@ -92,6 +97,8 @@ describe("login command", () => {
     loadLatestAssistantMock.mockReturnValue(null);
     computeDeviceIdMock.mockReset();
     computeDeviceIdMock.mockReturnValue("device-id-123");
+    loadGuardianTokenMock.mockReset();
+    loadGuardianTokenMock.mockReturnValue(null);
     fetchCurrentUserMock.mockReset();
     fetchCurrentUserMock.mockResolvedValue({
       id: "user-1",
@@ -126,6 +133,7 @@ describe("login command", () => {
     findAssistantByNameMock.mockRestore();
     loadLatestAssistantMock.mockRestore();
     computeDeviceIdMock.mockRestore();
+    loadGuardianTokenMock.mockRestore();
     fetchCurrentUserMock.mockRestore();
     savePlatformTokenMock.mockRestore();
     fetchOrganizationIdMock.mockRestore();
@@ -138,27 +146,56 @@ describe("login command", () => {
 
     expect(savePlatformTokenMock).toHaveBeenCalledWith("session-token");
     expect(fetchCurrentUserMock).toHaveBeenCalledWith("session-token");
-    expect(bootstrapSelfHostedLocalAssistantCredentialsMock).toHaveBeenCalledWith(
-      {
-        token: "session-token",
-        organizationId: "org-1",
-        clientInstallationId: "device-id-123",
-        clientPlatform: "cli",
-        entry: {
-          assistantId: "my-local",
-          runtimeUrl: "http://my-machine.local:7821",
-          localUrl: "http://127.0.0.1:7821",
-          bearerToken: "local-bearer",
-          cloud: "local",
-        },
-        userId: "user-1",
-        platformUrl: "https://platform.vellum.ai",
+    expect(
+      bootstrapSelfHostedLocalAssistantCredentialsMock,
+    ).toHaveBeenCalledWith({
+      token: "session-token",
+      organizationId: "org-1",
+      clientInstallationId: "device-id-123",
+      clientPlatform: "cli",
+      entry: {
+        assistantId: "my-local",
+        runtimeUrl: "http://my-machine.local:7821",
+        localUrl: "http://127.0.0.1:7821",
+        bearerToken: "local-bearer",
+        cloud: "local",
       },
-    );
+      userId: "user-1",
+      platformUrl: "https://platform.vellum.ai",
+    });
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       "Warning: logged in, but local assistant registration did not complete: assistant unavailable",
     );
     expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test("prefers guardian token over lockfile bearerToken for gateway auth", async () => {
+    loadGuardianTokenMock.mockReturnValue({
+      accessToken: "guardian-access",
+    } as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
+    bootstrapSelfHostedLocalAssistantCredentialsMock.mockResolvedValue({
+      registration: {
+        assistant: { id: "platform-asst-1", name: "Asst" },
+        assistant_api_key: "new-key",
+        webhook_secret: "wh",
+      },
+      allInjected: true,
+      assistantApiKeySource: "ensure-registration",
+    } as never);
+
+    await login();
+
+    expect(loadGuardianTokenMock).toHaveBeenCalledWith("my-local");
+    expect(
+      bootstrapSelfHostedLocalAssistantCredentialsMock,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry: expect.objectContaining({
+          assistantId: "my-local",
+          bearerToken: "guardian-access",
+        }),
+      }),
+    );
   });
 });
 

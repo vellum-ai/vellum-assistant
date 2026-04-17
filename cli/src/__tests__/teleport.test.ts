@@ -2313,7 +2313,7 @@ describe("teleport platform credential injection", () => {
         organizationId: "org-1",
         clientInstallationId: "device-id-123",
         clientPlatform: "cli",
-        entry: localEntry,
+        entry: { ...localEntry, bearerToken: "local-token" },
         userId: "user-1",
         platformUrl: "https://platform.vellum.ai",
       });

@@ -7,7 +7,7 @@ import {
   getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
-import { computeDeviceId } from "../lib/guardian-token";
+import { computeDeviceId, loadGuardianToken } from "../lib/guardian-token";
 import {
   clearPlatformToken,
   fetchCurrentUser,
@@ -189,12 +189,15 @@ export async function login(): Promise<void> {
       if (entry && entry.cloud !== "vellum") {
         const orgId = await fetchOrganizationId(token);
         const clientInstallationId = computeDeviceId();
+        const gatewayBearer =
+          loadGuardianToken(entry.assistantId)?.accessToken ??
+          entry.bearerToken;
         const result = await bootstrapSelfHostedLocalAssistantCredentials({
           token,
           organizationId: orgId,
           clientInstallationId,
           clientPlatform: "cli",
-          entry,
+          entry: { ...entry, bearerToken: gatewayBearer },
           userId: user.id,
           platformUrl: getPlatformUrl(),
         });
