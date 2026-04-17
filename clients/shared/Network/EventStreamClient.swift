@@ -187,13 +187,14 @@ public final class EventStreamClient {
         }
     }
 
-    /// Terminal cleanup for the client. Stops SSE and finishes all subscriber streams.
-    private func teardown() {
-        shouldReconnect = false
-        stopSSE()
-        let activeSubscribers = Array(subscribers.values)
-        for subscriber in activeSubscribers {
-            subscriber.state.finish()
+    /// Terminal cleanup for the client. Invalidates the session and finishes all subscriber streams.
+    private nonisolated static func teardown(
+        session: URLSession?,
+        continuations: [AsyncStream<ServerMessage>.Continuation]
+    ) {
+        session?.invalidateAndCancel()
+        for continuation in continuations {
+            continuation.finish()
         }
     }
 
@@ -631,6 +632,11 @@ public final class EventStreamClient {
     }
 
     deinit {
-        teardown()
+        shouldReconnect = false
+        tokenRotationTask?.cancel()
+        sseReconnectTask?.cancel()
+        sseTask?.cancel()
+        let continuations = subscribers.values.map(\.continuation)
+        Self.teardown(session: sseSession, continuations: continuations)
     }
 }
