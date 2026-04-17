@@ -260,7 +260,7 @@ struct InferenceServiceCard: View {
                 let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
                 if !isCurrentModelAnthropic {
                     let defaultModel = store.dynamicProviderDefaultModel("anthropic")
-                    draftModel = defaultModel.isEmpty ? "claude-opus-4-6" : defaultModel
+                    draftModel = defaultModel.isEmpty ? "claude-opus-4-7" : defaultModel
                 }
             } else if newMode == "your-own" {
                 let providerModels = store.dynamicProviderModels(draftProvider)

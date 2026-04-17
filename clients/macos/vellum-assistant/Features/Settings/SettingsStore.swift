@@ -47,7 +47,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Selection
 
-    @Published var selectedModel: String = "claude-opus-4-6"
+    @Published var selectedModel: String = "claude-opus-4-7"
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
