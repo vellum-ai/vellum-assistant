@@ -36,7 +36,7 @@ clients/
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
-│   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, Models, Privacy, etc.)
+│   │   └── Settings/          # Settings sections (Connection pairing + Developer diagnostics)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist
 └── chrome-extension/          # Chrome browser extension
@@ -142,7 +142,6 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
-- ✅ Settings parity — Models & Services, Privacy permissions, Channels & Guardian sections
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 

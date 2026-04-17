@@ -40,8 +40,8 @@ final class TTSProviderRegistryIOSTests: XCTestCase {
 
     func testFallbackToFirstProviderForUnknownPersistedValue() {
         let registry = loadTTSProviderRegistry()
-        // Simulate the fallback logic used in VoiceSettingsSection:
-        // registry.provider(withId: raw) ?? registry.providers.first
+        // Callers resolve a persisted id with `registry.provider(withId:) ?? registry.providers.first`,
+        // so an unknown id must resolve to the first registry entry rather than nil.
         let unknownRaw = "deleted-provider"
         let resolved = registry.provider(withId: unknownRaw) ?? registry.providers.first
         XCTAssertNotNil(resolved, "Fallback should resolve to the first registry provider")
@@ -76,7 +76,7 @@ final class TTSProviderRegistryIOSTests: XCTestCase {
 
     func testDefaultProviderIdMatchesRegistryEntry() {
         let registry = loadTTSProviderRegistry()
-        let defaultId = "elevenlabs" // matches the @AppStorage default in VoiceSettingsSection
+        let defaultId = "elevenlabs"
         let entry = registry.provider(withId: defaultId)
         XCTAssertNotNil(entry, "Default provider ID '\(defaultId)' should exist in the registry")
     }

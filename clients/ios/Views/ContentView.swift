@@ -9,10 +9,9 @@ struct ContentView: View {
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .chats
     @State private var navigateToConnect = false
-    /// Single conversation store shared between the Chats tab (ConversationListView) and the
-    /// Private Conversations settings panel (PrivateConversationsSection). Keeping one store
-    /// prevents the dual-store data-loss race where two independent stores each
-    /// overwrite the other's UserDefaults writes in standalone mode.
+    /// Single conversation store shared between the Chats tab and the Developer section's
+    /// diagnostics. Keeping one store prevents the dual-store data-loss race where two
+    /// independent stores each overwrite the other's UserDefaults writes in standalone mode.
     @StateObject private var conversationStore: IOSConversationStore
 
     init(authManager: AuthManager, ambientAgent: AmbientAgentManager, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
