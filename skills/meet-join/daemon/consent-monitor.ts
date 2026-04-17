@@ -202,6 +202,9 @@ export class MeetConsentMonitor {
   /** Flips to true after the first positive objection verdict. */
   private decided = false;
 
+  /** Flips to true when `stop()` is called so in-flight LLM verdicts are discarded. */
+  private stopped = false;
+
   /** In-flight flag so overlapping keyword hits don't fan out LLM calls. */
   private llmInFlight = false;
 
@@ -293,6 +296,7 @@ export class MeetConsentMonitor {
    * Tear down the subscription and timer. Idempotent.
    */
   stop(): void {
+    this.stopped = true;
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
@@ -500,7 +504,7 @@ export class MeetConsentMonitor {
    * checks (there shouldn't be any, but defense-in-depth).
    */
   private async maybeRunLLMCheck(trigger: string): Promise<void> {
-    if (this.decided || this.llmInFlight) return;
+    if (this.decided || this.llmInFlight || this.stopped) return;
     // Don't call the LLM on the tick path when both buffers are empty.
     if (
       trigger === "tick" &&
@@ -550,15 +554,6 @@ export class MeetConsentMonitor {
       return;
     }
 
-    // Advance the content watermark to the current content timestamp
-    // before firing. Every LLM call that actually fires advances the
-    // watermark so the next tick will correctly skip if no new content
-    // has arrived since the call — whether this call was tick-driven or
-    // keyword-driven. (The keyword path still fires whenever it hits,
-    // because the watermark check is tick-only; the debounce above is
-    // what rate-limits keyword-triggered calls.)
-    this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
-
     // Stamp the debounce clock BEFORE the async LLM call begins so a
     // second trigger arriving while this call is in flight is debounced
     // (in addition to being collapsed by the in-flight flag below).
@@ -569,10 +564,22 @@ export class MeetConsentMonitor {
     const prevLlmCheckAt = this.lastLlmCheckAt;
     this.lastLlmCheckAt = now;
 
+    // Capture the content timestamp we're about to check so we can
+    // advance the watermark only after a successful LLM call. Advancing
+    // before the call would prevent retry on failure.
+    const contentTimestampAtCheck = this.lastContentTimestamp;
+
+    this.trimTranscriptBuffer();
     const prompt = this.buildPrompt();
     this.llmInFlight = true;
     try {
       const decision = await this.llmAsk(prompt);
+      if (this.stopped) return;
+
+      // Advance the content watermark only after a successful LLM call
+      // so that a failed call doesn't prevent the next tick from retrying.
+      this.lastLlmCheckContentTimestamp = contentTimestampAtCheck;
+
       if (!decision.objected) {
         log.debug(
           {

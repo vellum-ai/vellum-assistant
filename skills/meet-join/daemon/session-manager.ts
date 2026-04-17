@@ -8,9 +8,7 @@
  *     workspace volume.
  *   - Resolve a placeholder TTS key reserved for Phase 3 via the
  *     secure-keys abstraction. STT credentials are resolved inside the
- *     audio-ingest via the configured `services.stt.provider` — the
- *     session manager no longer needs to know which STT provider is in
- *     use or how to fetch its key.
+ *     audio-ingest via the configured `services.stt.provider`.
  *   - Drive `DockerRunner` to create + start the Meet-bot container with the
  *     right env/workspaceMounts/port mappings.
  *   - Register the per-meeting handler with `MeetSessionEventRouter` via
@@ -157,7 +155,7 @@ export const CHAT_OPPORTUNITY_LLM_MAX_TOKENS = 256;
  * before `IDENTITY.md` has been written. Matches the tool-side fallback
  * in `skills/meet-join/tools/meet-join-tool.ts`.
  */
-export const MEET_JOIN_NAME_FALLBACK = "AI Assistant";
+export const MEET_JOIN_NAME_FALLBACK = "Vellum";
 
 // ---------------------------------------------------------------------------
 // Domain errors
@@ -550,6 +548,8 @@ export interface MeetSessionManagerDeps {
 
 class MeetSessionManagerImpl {
   private sessions = new Map<string, ActiveSession>();
+  /** True while {@link shutdownAll} is in progress — blocks new joins. */
+  private shuttingDown = false;
   /**
    * Bot API tokens for sessions whose container has been spawned but whose
    * full {@link ActiveSession} record has not yet been inserted into
@@ -669,6 +669,12 @@ class MeetSessionManagerImpl {
   async join(input: JoinInput): Promise<MeetSession> {
     const { url, meetingId, conversationId, consentMessage } = input;
 
+    if (this.shuttingDown) {
+      throw new Error(
+        "MeetSessionManager is shutting down — new joins are not accepted",
+      );
+    }
+
     if (this.sessions.has(meetingId)) {
       throw new Error(
         `MeetSession already exists for meetingId=${meetingId}; leave the existing session before re-joining`,
@@ -686,26 +692,46 @@ class MeetSessionManagerImpl {
       { url },
     );
 
-    const meet = getMeetConfig();
+    let meet: ReturnType<typeof getMeetConfig>;
+    let workspaceDir: string;
+    let meetingDir: string;
+    let socketsDir: string;
+    let outDir: string;
+    let botApiToken: string;
+    let ttsKey: string;
+    try {
+      meet = getMeetConfig();
 
-    const workspaceDir = this.deps.getWorkspaceDir();
-    const meetingDir = join(workspaceDir, "meets", meetingId);
-    const socketsDir = join(meetingDir, "sockets");
-    const outDir = join(meetingDir, "out");
-    mkdirSync(socketsDir, { recursive: true });
-    mkdirSync(outDir, { recursive: true });
+      workspaceDir = this.deps.getWorkspaceDir();
+      meetingDir = join(workspaceDir, "meets", meetingId);
+      socketsDir = join(meetingDir, "sockets");
+      outDir = join(meetingDir, "out");
+      mkdirSync(socketsDir, { recursive: true });
+      mkdirSync(outDir, { recursive: true });
 
-    const botApiToken = generateBotApiToken();
-    // Pre-register the token so `/v1/internal/meet/:id/events` can
-    // authenticate the bot's earliest `lifecycle:joining` POST — which
-    // fires before the `ActiveSession` record lands in `this.sessions`
-    // (that happens only after the audio-ingest handshake completes).
-    // Cleared on every join-rollback path below and replaced by the
-    // authoritative `this.sessions` lookup once the session is in the map.
-    this.pendingBotTokens.set(meetingId, botApiToken);
+      botApiToken = generateBotApiToken();
+      // Pre-register the token so `/v1/internal/meet/:id/events` can
+      // authenticate the bot's earliest `lifecycle:joining` POST — which
+      // fires before the `ActiveSession` record lands in `this.sessions`
+      // (that happens only after the audio-ingest handshake completes).
+      // Cleared on every join-rollback path below and replaced by the
+      // authoritative `this.sessions` lookup once the session is in the map.
+      this.pendingBotTokens.set(meetingId, botApiToken);
 
-    // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
-    const ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
+      // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
+      ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
+    } catch (err) {
+      // Pre-container setup failed — emit a terminal `meet.error` so clients
+      // that observed `meet.joining` don't get stuck in that state forever.
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      this.pendingBotTokens.delete(meetingId);
+      throw err;
+    }
 
     const daemonUrl = this.deps.resolveDaemonUrl();
 
@@ -757,6 +783,13 @@ class MeetSessionManagerImpl {
     const audioSocketPath = join(socketsDir, "audio.sock");
     const audioIngest = this.deps.audioIngestFactory();
     const audioIngestPromise = audioIngest.start(meetingId, audioSocketPath);
+    // Guard the ingest promise immediately so a rejection between here and
+    // the first explicit `await audioIngestPromise` (after `runner.run()`)
+    // does not surface as an unhandled rejection. The global handler in
+    // `shutdown-handlers.ts` calls `process.exit(1)` on unhandled
+    // rejections, so without this guard a transient STT failure during
+    // container spawn would crash the entire daemon.
+    audioIngestPromise.catch(() => {});
 
     const env: Record<string, string> = {
       MEET_URL: url,
@@ -813,9 +846,6 @@ class MeetSessionManagerImpl {
       );
       // Tear down the concurrently-started audio ingest so we don't leak
       // a listening socket or a streaming STT session on the spawn-failure path.
-      // Swallow its in-flight promise before stopping to prevent unhandled
-      // rejections from surfacing in the caller's context.
-      audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
@@ -836,7 +866,6 @@ class MeetSessionManagerImpl {
       // bot. Best-effort — surface the original error either way.
       await captureBotLogs(runner, runResult.containerId, meetingDir);
       await runner.remove(runResult.containerId).catch(() => {});
-      audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
@@ -1024,11 +1053,33 @@ class MeetSessionManagerImpl {
     );
 
     // Subscribe the conversation bridge + start the storage writer now
-    // that the session record is in place. The writer subscribes to the
-    // dispatcher via its own `start()`; it reads live PCM off the audio
-    // ingest's tee once the source adapter is wired in.
-    conversationBridge.subscribe();
-    storageWriter.start();
+    // that the session record is in place. If either throws, roll back the
+    // container and audio ingest so we don't leak a running bot.
+    try {
+      conversationBridge.subscribe();
+      storageWriter.start();
+    } catch (err) {
+      log.error(
+        { err, meetingId, containerId: runResult.containerId },
+        "Bridge/writer subscribe failed — rolling back container and audio ingest",
+      );
+      this.sessions.delete(meetingId);
+      for (const unsubscribe of session.eventUnsubscribes) {
+        try { unsubscribe(); } catch { }
+      }
+      unregisterMeetingDispatcher(meetingId);
+      await audioIngest.stop().catch(() => {});
+      await runner.stop(runResult.containerId).catch(() => {});
+      await captureBotLogs(runner, runResult.containerId, meetingDir);
+      await runner.remove(runResult.containerId).catch(() => {});
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
     const pcmSource: PcmSource = {
       subscribe: (cb) => audioIngest.subscribePcm(cb),
     };
@@ -1467,6 +1518,7 @@ class MeetSessionManagerImpl {
     reason: string,
     totalDeadlineMs = MEET_SHUTDOWN_DEADLINE_MS,
   ): Promise<void> {
+    this.shuttingDown = true;
     // Snapshot what we need for the straggler path BEFORE launching the
     // leaves, since `leave()` drops sessions from the map early.
     const snapshot = Array.from(this.sessions.values()).map((session) => ({
@@ -1498,13 +1550,15 @@ class MeetSessionManagerImpl {
           resolved.add(entry.meetingId);
         }),
     );
-    const deadline = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), totalDeadlineMs),
-    );
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<"timeout">((resolve) => {
+      deadlineTimer = setTimeout(() => resolve("timeout"), totalDeadlineMs);
+    });
     const outcome = await Promise.race([
       Promise.all(leaves).then(() => "completed" as const),
       deadline,
     ]);
+    if (deadlineTimer !== null) clearTimeout(deadlineTimer);
 
     if (outcome === "timeout") {
       const stragglers = snapshot.filter((s) => !resolved.has(s.meetingId));

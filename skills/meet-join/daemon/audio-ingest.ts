@@ -28,8 +28,7 @@
  *     catalog. Meet transcription therefore honors the same provider
  *     selection as the rest of the assistant.
  *   - Provider-specific options (e.g. Deepgram's `smartFormatting` /
- *     `interimResults`) are now owned by the individual provider's config
- *     schema; this module no longer threads them through.
+ *     `interimResults`) are owned by each provider's config schema.
  *   - All external dependencies (transcriber factory, socket listener) are
  *     swapped via constructor-level factories so tests can drive the class
  *     without touching real sockets or a real STT provider account.
@@ -271,6 +270,7 @@ export class MeetAudioIngest {
       this.socketPath = null;
       throw err;
     }
+    if (this.stopped) return;
     this.transcriber = transcriber;
 
     try {
@@ -283,6 +283,7 @@ export class MeetAudioIngest {
       this.socketPath = null;
       throw err;
     }
+    if (this.stopped) return;
 
     // Open the Unix-socket server. The bot will dial this path from inside
     // its container as soon as it boots.
