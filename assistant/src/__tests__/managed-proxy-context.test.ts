@@ -112,10 +112,12 @@ describe("buildManagedBaseUrl", () => {
     expect(await buildManagedBaseUrl("gemini")).toBe(
       "https://platform.example.com/v1/runtime-proxy/gemini",
     );
+    expect(await buildManagedBaseUrl("openai")).toBe(
+      "https://platform.example.com/v1/runtime-proxy/openai",
+    );
   });
 
   test("returns undefined for non-managed providers", async () => {
-    expect(await buildManagedBaseUrl("openai")).toBeUndefined();
     expect(await buildManagedBaseUrl("fireworks")).toBeUndefined();
     expect(await buildManagedBaseUrl("openrouter")).toBeUndefined();
     expect(await buildManagedBaseUrl("ollama")).toBeUndefined();
@@ -130,6 +132,7 @@ describe("buildManagedBaseUrl", () => {
     mockAssistantApiKey = null;
     expect(await buildManagedBaseUrl("anthropic")).toBeUndefined();
     expect(await buildManagedBaseUrl("gemini")).toBeUndefined();
+    expect(await buildManagedBaseUrl("openai")).toBeUndefined();
   });
 });
 
@@ -142,7 +145,7 @@ describe("managedFallbackEnabledFor", () => {
   test("returns true only for managed fallback providers with prerequisites", async () => {
     expect(await managedFallbackEnabledFor("anthropic")).toBe(true);
     expect(await managedFallbackEnabledFor("gemini")).toBe(true);
-    expect(await managedFallbackEnabledFor("openai")).toBe(false);
+    expect(await managedFallbackEnabledFor("openai")).toBe(true);
   });
 
   test("returns false for non-managed provider", async () => {
@@ -158,5 +161,6 @@ describe("managedFallbackEnabledFor", () => {
     mockAssistantApiKey = null;
     expect(await managedFallbackEnabledFor("anthropic")).toBe(false);
     expect(await managedFallbackEnabledFor("gemini")).toBe(false);
+    expect(await managedFallbackEnabledFor("openai")).toBe(false);
   });
 });

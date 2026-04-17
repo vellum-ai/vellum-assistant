@@ -28,7 +28,8 @@ export interface ManagedProviderMeta {
 export const MANAGED_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   openai: {
     name: "openai",
-    managed: false,
+    managed: true,
+    proxyPath: "/v1/runtime-proxy/openai",
   },
   anthropic: {
     name: "anthropic",
