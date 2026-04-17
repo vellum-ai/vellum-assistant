@@ -95,6 +95,7 @@ function listTextFilesRecursively(root: string): string[] {
     ".turbo",
     ".idea",
     ".vscode",
+    ".codex-worktrees",
   ]);
 
   const allowedExtensions = new Set([
@@ -196,12 +197,20 @@ describe("Chrome extension allowlist guard", () => {
     expect(new Set(ALLOWED_EXTENSION_ORIGINS)).toEqual(expectedOrigins);
   });
 
-  test("concrete extension IDs appear only in canonical config", () => {
+  test("concrete extension IDs appear only in canonical config or CWS URLs", () => {
+    // The canonical extension ID may also appear in Chrome Web Store URLs
+    // (e.g. chromewebstore.google.com/detail/.../ID) or in documentation
+    // referencing the published extension. Those are acceptable — they
+    // reference the published extension, not duplicate config. We flag
+    // files where the ID appears outside of a CWS URL context.
     const config = parseCanonicalConfig();
     const allFiles = listTextFilesRecursively(repoRoot);
 
+    const CWS_URL_PATTERN =
+      /chromewebstore\.google\.com\/detail\/[^/]+\/[a-p]{32}/;
+
     for (const extensionId of config.allowedExtensionIds) {
-      const matches: string[] = [];
+      const unexpectedMatches: string[] = [];
       for (const absPath of allFiles) {
         const relPath = absPath.replace(`${repoRoot}/`, "");
         let content: string;
@@ -212,11 +221,17 @@ describe("Chrome extension allowlist guard", () => {
           if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
           throw err;
         }
-        if (content.includes(extensionId)) {
-          matches.push(relPath);
+        if (!content.includes(extensionId)) continue;
+        if (relPath === CANONICAL_CONFIG_REL_PATH) continue;
+
+        // Strip all CWS URLs and check if the ID still appears — if it
+        // does, the file is using the ID as a standalone config value.
+        const stripped = content.replace(CWS_URL_PATTERN, "");
+        if (stripped.includes(extensionId)) {
+          unexpectedMatches.push(relPath);
         }
       }
-      expect(matches).toEqual([CANONICAL_CONFIG_REL_PATH]);
+      expect(unexpectedMatches).toEqual([]);
     }
   });
 });
