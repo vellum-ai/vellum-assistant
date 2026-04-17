@@ -291,9 +291,13 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
       raw.executionTarget.length > 0
     ) {
       rule.executionTarget = raw.executionTarget;
+    } else if (raw.executionTarget !== undefined) {
+      normalized = true;
     }
     if (typeof raw.allowHighRisk === "boolean") {
       rule.allowHighRisk = raw.allowHighRisk;
+    } else if (raw.allowHighRisk !== undefined) {
+      normalized = true;
     }
     return { rule, normalized };
   }
@@ -305,9 +309,13 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     raw.executionTarget.length > 0
   ) {
     rule.executionTarget = raw.executionTarget;
+  } else if (raw.executionTarget !== undefined) {
+    normalized = true;
   }
   if (typeof raw.allowHighRisk === "boolean") {
     rule.allowHighRisk = raw.allowHighRisk;
+  } else if (raw.allowHighRisk !== undefined) {
+    normalized = true;
   }
   return { rule, normalized };
 }
