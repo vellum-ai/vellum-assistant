@@ -33,6 +33,7 @@ export const SAFE_ENV_VARS = [
   "VELLUM_WORKSPACE_DIR",
   "CES_BOOTSTRAP_SOCKET_DIR",
   "GATEWAY_INTERNAL_URL",
+  "GATEWAY_SECURITY_DIR",
   "VELLUM_PLATFORM_URL",
   "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_DOCS_BASE_URL",
@@ -82,8 +83,7 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
   // arrows, etc.) survive piping through tools like pbcopy without corruption.
   // macOS (Darwin) does not provide C.UTF-8, so use en_US.UTF-8 there.
-  const utf8Locale =
-    process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+  const utf8Locale = process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
   if (!env.LANG) env.LANG = utf8Locale;
   if (!env.LC_ALL) env.LC_ALL = utf8Locale;
   return env;
