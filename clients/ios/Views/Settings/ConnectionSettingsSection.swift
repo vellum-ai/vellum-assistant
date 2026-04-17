@@ -37,7 +37,7 @@ struct DaemonConnectionSection: View {
                         }
                     }
                     HStack {
-                        Text("Gateway")
+                        Text("Platform")
                             .foregroundStyle(VColor.contentSecondary)
                         Spacer()
                         Text(url)
