@@ -86,6 +86,11 @@ struct PTTActivator: Codable, Equatable {
     /// Access via `cached`; mutated only by `refreshCache()` / `updateCache()`.
     @MainActor private static var _cached: PTTActivator?
 
+    /// Pre-computed human-readable name for `_cached`. Refreshed alongside
+    /// `_cached` so hot paths (menu bar tooltip, settings row) read a cached
+    /// string instead of re-running the `displayName` switch on every call.
+    @MainActor private static var _cachedDisplayName: String = PTTActivator.defaultActivator.displayName
+
     /// In-flight cache load task. Stored so `ensureCacheReady()` can await
     /// a previously-started `warmCache()` without launching a second read.
     @MainActor private static var _cacheTask: Task<PTTActivator, Never>?
@@ -98,6 +103,23 @@ struct PTTActivator: Codable, Equatable {
     /// until the cache is populated.
     @MainActor static var cached: PTTActivator {
         _cached ?? .defaultActivator
+    }
+
+    /// Returns the cached `displayName` for the current activator. Paired
+    /// with `cached` so callers on the main thread (e.g. the menu bar
+    /// tooltip that fires on every connection-status change) avoid running
+    /// the `displayName` switch during UI updates.
+    @MainActor static var cachedDisplayName: String {
+        _cachedDisplayName
+    }
+
+    /// Atomically writes the cache and its precomputed display name and
+    /// bumps the generation counter. All mutators funnel through here so
+    /// `_cached` and `_cachedDisplayName` never drift apart.
+    @MainActor private static func applyCache(_ activator: PTTActivator) {
+        _cached = activator
+        _cachedDisplayName = activator.displayName
+        _cacheGeneration += 1
     }
 
     /// Kicks off an async UserDefaults read without blocking the caller.
@@ -117,13 +139,12 @@ struct PTTActivator: Codable, Equatable {
             let result = await task.value
             // Only apply if no fresher write happened while we were awaiting.
             if _cacheGeneration == gen {
-                _cached = result
-                _cacheGeneration += 1
+                applyCache(result)
             }
             _cacheTask = nil
         } else if _cached == nil {
-            _cached = await Task.detached { Self.fromStored() }.value
-            _cacheGeneration += 1
+            let result = await Task.detached { Self.fromStored() }.value
+            applyCache(result)
         }
     }
 
@@ -135,16 +156,14 @@ struct PTTActivator: Codable, Equatable {
         let result = await Task.detached { Self.fromStored() }.value
         // Only apply if no fresher write happened while we were awaiting.
         if _cacheGeneration == gen {
-            _cached = result
-            _cacheGeneration += 1
+            applyCache(result)
         }
     }
 
     /// Synchronously updates the cache after a local write (e.g. settings change).
     @MainActor static func updateCache(_ activator: PTTActivator) {
-        _cached = activator
         _cacheTask = nil
-        _cacheGeneration += 1
+        applyCache(activator)
     }
 
     // MARK: - Persistence
