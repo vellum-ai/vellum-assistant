@@ -28,10 +28,15 @@ export const BaseServiceSchema = z.object({
 });
 export type BaseService = z.infer<typeof BaseServiceSchema>;
 
-export const InferenceServiceSchema = BaseServiceSchema.extend({
-  provider: z.enum(VALID_INFERENCE_PROVIDERS).default("anthropic"),
-  model: z.string().default("claude-opus-4-6"),
-});
+/**
+ * Inference service entry. Carries only the routing `mode`
+ * (`managed` vs `your-own`) — the provider and model live under
+ * `llm.default.{provider, model}` (see `schemas/llm.ts`). PR 19 of the
+ * unify-llm-callsites plan removed the `provider` and `model` fields here;
+ * legacy configs that still carry them have those keys stripped by
+ * workspace migration `039-drop-legacy-llm-keys`.
+ */
+export const InferenceServiceSchema = BaseServiceSchema;
 export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 
 export const ImageGenerationServiceSchema = BaseServiceSchema.extend({

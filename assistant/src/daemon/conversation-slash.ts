@@ -78,8 +78,8 @@ async function resolveModelList(): Promise<SlashResolution> {
     lines.push(`**${providerName}** ${status}`);
     for (const { id, displayName } of models) {
       const isCurrent =
-        config.services.inference.provider === provider &&
-        config.services.inference.model === id;
+        config.llm.default.provider === provider &&
+        config.llm.default.model === id;
       const current = isCurrent ? " **[current]**" : "";
       lines.push(`  - ${displayName} (\`${id}\`)${current}`);
     }

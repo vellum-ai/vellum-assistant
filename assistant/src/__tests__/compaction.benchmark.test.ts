@@ -71,7 +71,7 @@ function makeLongMessages(turns: number): Message[] {
 
 function makeConfig() {
   return {
-    ...DEFAULT_CONFIG.contextWindow,
+    ...DEFAULT_CONFIG.llm.default.contextWindow,
     maxInputTokens: 6000,
     targetBudgetRatio: 0.58,
     compactThreshold: 0.6,

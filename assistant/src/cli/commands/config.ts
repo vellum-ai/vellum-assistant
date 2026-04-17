@@ -54,9 +54,9 @@ and "assistant keys set <provider> <key>" to view and manage API keys.
 
 Examples:
   $ assistant config list
-  $ assistant config get services.inference.provider
+  $ assistant config get llm.default.provider
   $ assistant config schema services
-  $ assistant config set services.inference.provider anthropic
+  $ assistant config set llm.default.provider anthropic
   $ assistant config set calls.enabled true`,
   );
 
@@ -69,7 +69,7 @@ Examples:
       "after",
       `
 Arguments:
-  key     Dotted path to the config key (e.g. services.inference.provider,
+  key     Dotted path to the config key (e.g. llm.default.provider,
           calls.enabled, twilio.accountSid). Intermediate objects are created
           automatically.
   value   The value to store. Parsed as JSON first (so "true" becomes boolean
@@ -81,7 +81,7 @@ After writing the value to config.json, the change takes effect immediately.
 To manage API keys, use "assistant keys set <provider> <key>" instead.
 
 Examples:
-  $ assistant config set services.inference.provider anthropic
+  $ assistant config set llm.default.provider anthropic
   $ assistant config set calls.enabled true`,
     )
     .action(
@@ -114,7 +114,7 @@ Examples:
       "after",
       `
 Arguments:
-  key   Dotted path to the config key (e.g. services.inference.provider,
+  key   Dotted path to the config key (e.g. llm.default.provider,
         calls.enabled)
 
 Prints the value at the given key path. If the key is not set, prints
@@ -123,7 +123,7 @@ Prints the value at the given key path. If the key is not set, prints
 To view API keys, use "assistant keys list" instead.
 
 Examples:
-  $ assistant config get services.inference.provider
+  $ assistant config get llm.default.provider
   $ assistant config get calls.enabled`,
     )
     .action((key: string) => {

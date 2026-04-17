@@ -36,6 +36,7 @@ import { seedSlackChannelPersonaMigration } from "./035-seed-slack-channel-perso
 import { updatePkbIndexBarMigration } from "./036-update-pkb-index-bar.js";
 import { createMeetsDirMigration } from "./037-create-meets-dir.js";
 import { unifyLlmCallSiteConfigsMigration } from "./038-unify-llm-callsite-configs.js";
+import { dropLegacyLlmKeysMigration } from "./039-drop-legacy-llm-keys.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -83,4 +84,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   updatePkbIndexBarMigration,
   createMeetsDirMigration,
   unifyLlmCallSiteConfigsMigration,
+  dropLegacyLlmKeysMigration,
 ];

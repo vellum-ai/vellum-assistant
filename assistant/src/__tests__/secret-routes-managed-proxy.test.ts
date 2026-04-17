@@ -19,8 +19,6 @@ const mockConfig = {
   services: {
     inference: {
       mode: "your-own" as const,
-      provider: "anthropic",
-      model: "test-model",
     },
     "image-generation": {
       mode: "your-own" as const,
@@ -32,6 +30,7 @@ const mockConfig = {
       provider: "inference-provider-native",
     },
   },
+  llm: { default: { provider: "anthropic", model: "test-model" } },
 };
 
 mock.module("@google/genai", () => ({

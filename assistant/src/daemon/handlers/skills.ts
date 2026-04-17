@@ -1517,7 +1517,7 @@ export async function draftSkill(
     if (missing.length > 0) {
       let llmGenerated = false;
       try {
-        const provider = await getConfiguredProvider();
+        const provider = await getConfiguredProvider("skillCategoryInference");
         if (provider) {
           const { signal, cleanup } = createTimeout(LLM_DRAFT_TIMEOUT_MS);
           try {

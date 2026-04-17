@@ -261,9 +261,9 @@ function buildSlashContext(
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    model: config.llm.default.model,
+    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
   };

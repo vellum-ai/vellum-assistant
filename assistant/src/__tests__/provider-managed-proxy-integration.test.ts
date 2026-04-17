@@ -65,7 +65,7 @@ import {
 function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
   return {
     services: {
-      inference: { mode: "your-own", provider, model },
+      inference: { mode: "your-own" },
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
@@ -73,6 +73,7 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
+    llm: { default: { provider, model } },
   };
 }
 

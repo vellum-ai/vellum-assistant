@@ -196,7 +196,7 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
     const requestLogsByConversation = buildRequestLogMap(requestLogRows);
     const requestOffsets = new Map<string, number>();
     const previousUsageEventCreatedAt = new Map<string, number>();
-    const pricingOverrides = getConfig().pricingOverrides;
+    const pricingOverrides = getConfig().llm.pricingOverrides;
 
     let scannedAnthropicRows = 0;
     let updatedRows = 0;

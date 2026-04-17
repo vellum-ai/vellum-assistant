@@ -435,7 +435,7 @@ export function handleUsageRequest(
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
     estimatedCost: conversation.totalEstimatedCost,
-    model: config.services.inference.model,
+    model: config.llm.default.model,
   });
 }
 

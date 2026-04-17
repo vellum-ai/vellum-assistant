@@ -1,5 +1,5 @@
-import { getConfig } from "../config/loader.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -9,7 +9,6 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
-import { isModelIntent, resolveModelIntent } from "./model-intents.js";
 import type {
   Message,
   Provider,
@@ -71,6 +70,23 @@ function isRetryableError(error: unknown): boolean {
   return isRetryableNetworkError(error);
 }
 
+/**
+ * Normalize per-call options before handing them to the wrapped provider.
+ *
+ * When `config.callSite` is set, resolves provider/model/maxTokens/effort/
+ * speed/temperature/thinking/contextWindow via `resolveCallSiteConfig` and
+ * writes them into `nextConfig` using the wire-format names that downstream
+ * provider clients consume (`max_tokens` snake-case for the token cap;
+ * camelCase for the rest, which matches the resolver's shape). Per-call
+ * explicit overrides on the original `config` object win over the resolved
+ * values, so callers can pin a model or other parameter for a single request.
+ *
+ * Whether or not `callSite` is set, this function applies per-provider
+ * stripping (`thinking`/`effort`/`speed`) based on the wrapped provider's
+ * name — agent-loop callers that pre-resolve provider/model still need this
+ * stripping so they don't accidentally send Anthropic-only knobs to OpenAI
+ * etc.
+ */
 function normalizeSendMessageOptions(
   providerName: string,
   options?: SendMessageOptions,
@@ -78,143 +94,47 @@ function normalizeSendMessageOptions(
   const config = options?.config;
   if (!config) return options;
 
-  // ── Call-site path ──────────────────────────────────────────────────
-  // When `config.callSite` is set, route through `resolveCallSiteConfig`
-  // to fully resolve provider/model/maxTokens/effort/speed/temperature/
-  // thinking/contextWindow from `llm.default + profile + site` overrides.
-  // This is the new unified path; the legacy `modelIntent` branch below is
-  // preserved unchanged for unmigrated callers.
+  const nextConfig: Record<string, unknown> = { ...config };
+
   if (config.callSite !== undefined) {
-    return normalizeViaCallSite(providerName, options, config);
-  }
+    const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm);
 
-  // ── Legacy `modelIntent` path (preserved) ───────────────────────────
-  const explicitModel =
-    typeof config.model === "string" && config.model.trim().length > 0
-      ? config.model.trim()
-      : undefined;
-  const intent = isModelIntent(config.modelIntent)
-    ? config.modelIntent
-    : undefined;
-  const hasIntent = config.modelIntent !== undefined;
+    const explicitModel =
+      typeof config.model === "string" && config.model.trim().length > 0
+        ? config.model.trim()
+        : undefined;
 
-  const needsThinkingStrip =
-    !THINKING_AWARE_PROVIDERS.has(providerName) && config.thinking !== undefined;
-  const needsEffortStrip =
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
-  const needsSpeedStrip =
-    providerName !== "anthropic" && config.speed !== undefined;
+    // Routing key is consumed by the RetryProvider layer and must not leak
+    // downstream.
+    delete nextConfig.callSite;
 
-  if (
-    !hasIntent &&
-    explicitModel === config.model &&
-    !needsThinkingStrip &&
-    !needsEffortStrip &&
-    !needsSpeedStrip
-  ) {
-    return options;
-  }
-
-  const nextConfig: Record<string, unknown> = { ...config };
-  delete nextConfig.modelIntent;
-
-  // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
-  // signal for its unified reasoning parameter. Strip it for other providers.
-  if (
-    !THINKING_AWARE_PROVIDERS.has(providerName) &&
-    nextConfig.thinking !== undefined
-  ) {
-    delete nextConfig.thinking;
-  }
-
-  // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
-  if (
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
-    nextConfig.effort !== undefined
-  ) {
-    delete nextConfig.effort;
-  }
-
-  // speed (fast mode) is Anthropic-specific; strip for other providers
-  if (providerName !== "anthropic" && nextConfig.speed !== undefined) {
-    delete nextConfig.speed;
-  }
-
-  if (explicitModel) {
-    nextConfig.model = explicitModel;
-  } else if (intent) {
-    nextConfig.model = resolveModelIntent(providerName, intent);
-  } else {
-    delete nextConfig.model;
-  }
-
-  return {
-    ...options,
-    config: nextConfig,
-  };
-}
-
-/**
- * Normalize options when the caller opted into call-site resolution.
- *
- * Resolves provider/model/maxTokens/effort/speed/temperature/thinking/
- * contextWindow via `resolveCallSiteConfig` and writes them into `nextConfig`
- * using the wire-format names that downstream provider clients consume
- * (`max_tokens` snake-case for the token cap; camelCase for the rest, which
- * matches the resolver's shape). Per-call explicit overrides on the original
- * `config` object win over the resolved values, mirroring the legacy
- * "explicit `config.model` beats `modelIntent`" semantics so unmigrated
- * callers that pass both can't be silently broken.
- *
- * Both `callSite` and `modelIntent` are stripped from the downstream config.
- * Per-provider stripping (`thinking`/`effort`/`speed`) is applied based on
- * the wrapped provider's name, identical to the legacy path.
- */
-function normalizeViaCallSite(
-  providerName: string,
-  options: SendMessageOptions | undefined,
-  config: NonNullable<SendMessageOptions["config"]>,
-): SendMessageOptions | undefined {
-  const callSite = config.callSite!;
-  const resolved = resolveCallSiteConfig(callSite, getConfig().llm);
-
-  const explicitModel =
-    typeof config.model === "string" && config.model.trim().length > 0
-      ? config.model.trim()
-      : undefined;
-
-  const nextConfig: Record<string, unknown> = { ...config };
-  // Both opt-in routing keys are consumed by the RetryProvider layer and
-  // must not leak downstream.
-  delete nextConfig.callSite;
-  delete nextConfig.modelIntent;
-
-  // Apply resolved values, letting per-call explicit fields win where set.
-  nextConfig.model = explicitModel ?? resolved.model;
-  if (nextConfig.max_tokens === undefined) {
-    nextConfig.max_tokens = resolved.maxTokens;
-  }
-  if (nextConfig.effort === undefined) {
-    nextConfig.effort = resolved.effort;
-  }
-  if (nextConfig.speed === undefined) {
-    nextConfig.speed = resolved.speed;
-  }
-  if (nextConfig.temperature === undefined) {
-    nextConfig.temperature = resolved.temperature;
-  }
-  if (nextConfig.thinking === undefined) {
-    nextConfig.thinking = resolved.thinking;
-  }
-  if (nextConfig.contextWindow === undefined) {
-    nextConfig.contextWindow = resolved.contextWindow;
-  }
-  // Provider name from the resolver — informational; the wrapped provider
-  // is the actual transport. Downstream consumers may inspect this for
-  // diagnostics or wire-format decisions, but the request still routes
-  // through the inner provider that this RetryProvider wraps.
-  if (nextConfig.provider === undefined) {
-    nextConfig.provider = resolved.provider;
+    // Apply resolved values, letting per-call explicit fields win where set.
+    nextConfig.model = explicitModel ?? resolved.model;
+    if (nextConfig.max_tokens === undefined) {
+      nextConfig.max_tokens = resolved.maxTokens;
+    }
+    if (nextConfig.effort === undefined) {
+      nextConfig.effort = resolved.effort;
+    }
+    if (nextConfig.speed === undefined) {
+      nextConfig.speed = resolved.speed;
+    }
+    if (nextConfig.temperature === undefined) {
+      nextConfig.temperature = resolved.temperature;
+    }
+    if (nextConfig.thinking === undefined) {
+      nextConfig.thinking = resolved.thinking;
+    }
+    if (nextConfig.contextWindow === undefined) {
+      nextConfig.contextWindow = resolved.contextWindow;
+    }
+    // Provider name from the resolver — informational; the wrapped provider
+    // is the actual transport. Downstream consumers may inspect this for
+    // diagnostics or wire-format decisions, but the request still routes
+    // through the inner provider that this RetryProvider wraps.
+    if (nextConfig.provider === undefined) {
+      nextConfig.provider = resolved.provider;
+    }
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a

@@ -74,21 +74,6 @@ export const WorkspaceGitConfigSchema = z
           })
           .default(false)
           .describe("Whether to use an LLM to generate commit messages"),
-        useConfiguredProvider: z
-          .boolean({
-            error:
-              "workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean",
-          })
-          .default(true)
-          .describe(
-            "Whether to use the globally configured LLM provider for commit messages",
-          ),
-        providerFastModelOverrides: z
-          .record(z.string(), z.string())
-          .default({} as Record<string, string>)
-          .describe(
-            "Map of provider names to fast model overrides for commit message generation",
-          ),
         timeoutMs: z
           .number({
             error: "workspaceGit.commitMessageLLM.timeoutMs must be a number",
@@ -99,26 +84,6 @@ export const WorkspaceGitConfigSchema = z
           )
           .default(600)
           .describe("Timeout for LLM commit message generation (ms)"),
-        maxTokens: z
-          .number({
-            error: "workspaceGit.commitMessageLLM.maxTokens must be a number",
-          })
-          .int("workspaceGit.commitMessageLLM.maxTokens must be an integer")
-          .positive(
-            "workspaceGit.commitMessageLLM.maxTokens must be a positive integer",
-          )
-          .default(120)
-          .describe("Maximum number of tokens in the generated commit message"),
-        temperature: z
-          .number({
-            error: "workspaceGit.commitMessageLLM.temperature must be a number",
-          })
-          .min(0, "workspaceGit.commitMessageLLM.temperature must be >= 0")
-          .max(2, "workspaceGit.commitMessageLLM.temperature must be <= 2")
-          .default(0.2)
-          .describe(
-            "LLM sampling temperature for commit message generation (lower = more deterministic)",
-          ),
         maxFilesInPrompt: z
           .number({
             error:
@@ -203,11 +168,7 @@ export const WorkspaceGitConfigSchema = z
       })
       .default({
         enabled: false,
-        useConfiguredProvider: true,
-        providerFastModelOverrides: {},
         timeoutMs: 600,
-        maxTokens: 120,
-        temperature: 0.2,
         maxFilesInPrompt: 30,
         maxDiffBytes: 12000,
         minRemainingTurnBudgetMs: 1000,
@@ -217,7 +178,9 @@ export const WorkspaceGitConfigSchema = z
           backoffMaxMs: 60000,
         },
       })
-      .describe("LLM-powered commit message generation settings"),
+      .describe(
+        "LLM-powered commit message generation operational settings. Provider/model/maxTokens/temperature live under llm.callSites.commitMessage.",
+      ),
   })
   .describe(
     "Workspace git integration — auto-commits, enrichment, and LLM-generated commit messages",

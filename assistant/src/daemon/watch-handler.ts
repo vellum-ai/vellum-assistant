@@ -113,7 +113,7 @@ export async function handleWatchObservation(
 
 async function generateCommentary(session: WatchSession): Promise<void> {
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("watchCommentary");
     if (!provider) {
       log.warn(
         { watchId: session.watchId },
@@ -225,7 +225,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       },
       "generateSummary starting — calling LLM",
     );
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("watchSummary");
     if (!provider) {
       log.warn(
         { watchId: session.watchId },

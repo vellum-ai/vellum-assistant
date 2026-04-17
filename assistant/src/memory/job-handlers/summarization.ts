@@ -161,7 +161,7 @@ async function summarizeWithLLM(
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("conversationSummarization");
   if (!provider) {
     log.debug(
       { label },

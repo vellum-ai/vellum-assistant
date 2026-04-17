@@ -9,16 +9,15 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 // Mutable test fixtures for `getConfig()`. Each test rebuilds the relevant
-// pieces via `setLlmConfig(...)` / `setInferenceProvider(...)` before
-// exercising the path. The mock is registered once and reads from these
-// closures so subsequent tests don't need to remock the module.
+// pieces via `setLlmConfig(...)` before exercising the path. The mock is
+// registered once and reads from these closures so subsequent tests don't
+// need to remock the module.
 let mockLlmConfig: Record<string, unknown> = {};
-let mockInferenceProvider = "anthropic";
 
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: { provider: mockInferenceProvider } },
+    services: { inference: { mode: "your-own" } },
   }),
 }));
 
@@ -39,10 +38,7 @@ mock.module("../registry.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { LLMSchema } from "../../config/schemas/llm.js";
-import {
-  getConfiguredProvider,
-  resolveConfiguredProvider,
-} from "../provider-send-message.js";
+import { getConfiguredProvider } from "../provider-send-message.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -90,7 +86,6 @@ function setLlmConfig(raw: unknown): void {
 
 beforeEach(() => {
   mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
-  mockInferenceProvider = "anthropic";
   mockProviders.clear();
 });
 
@@ -244,12 +239,13 @@ describe("RetryProvider — callSite resolution", () => {
   });
 });
 
-// ── RetryProvider — legacy modelIntent path is preserved ────────────────────
+// ── RetryProvider — pre-resolved model fast-path ────────────────────────────
 
-describe("RetryProvider — legacy modelIntent path (no callSite)", () => {
-  test("passing only modelIntent does not consult llm.* config", async () => {
-    // Seed the llm config with a value that, if accidentally consulted, would
-    // produce a clearly-wrong model. The legacy path must ignore it entirely.
+describe("RetryProvider — no callSite (pre-resolved config passes through)", () => {
+  test("config without callSite is forwarded untouched (no llm.* lookup)", async () => {
+    // Seed the llm config with a value that, if accidentally consulted,
+    // would clobber the explicit model. The pre-resolved fast-path must
+    // ignore it entirely.
     setLlmConfig({
       default: { provider: "anthropic", model: "MUST-NOT-LEAK" },
       callSites: {
@@ -265,34 +261,14 @@ describe("RetryProvider — legacy modelIntent path (no callSite)", () => {
     );
 
     await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { modelIntent: "quality-optimized" },
-    });
-
-    const config = seen?.config as Record<string, unknown>;
-    // Legacy path uses model-intents.ts mapping for "quality-optimized" on
-    // anthropic, which is "claude-opus-4-7". It must NOT be the llm.default
-    // value, which would indicate the new path was triggered.
-    expect(config.model).toBe("claude-opus-4-7");
-    expect(config.model).not.toBe("MUST-NOT-LEAK");
-    expect(config.model).not.toBe("ALSO-MUST-NOT-LEAK");
-    expect(config.modelIntent).toBeUndefined();
-  });
-
-  test("no callSite and no modelIntent leaves config untouched (existing fast-path)", async () => {
-    let seen: SendMessageOptions | undefined;
-    const wrapped = new RetryProvider(
-      makeProvider("anthropic", (options) => {
-        seen = options;
-      }),
-    );
-
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
       config: { model: "explicit-model", max_tokens: 1234 },
     });
 
     const config = seen?.config as Record<string, unknown>;
     expect(config.model).toBe("explicit-model");
     expect(config.max_tokens).toBe(1234);
+    expect(config.model).not.toBe("MUST-NOT-LEAK");
+    expect(config.model).not.toBe("ALSO-MUST-NOT-LEAK");
   });
 });
 
@@ -327,15 +303,4 @@ describe("getConfiguredProvider — callSite routing", () => {
     expect(provider?.name).toBe("anthropic");
   });
 
-  test("legacy call (no callSite arg) uses services.inference.provider", async () => {
-    // The legacy path consults `services.inference.provider`. The shared
-    // loader mock reads `mockInferenceProvider` at call time, so we just
-    // overwrite it for this test.
-    mockInferenceProvider = "fireworks";
-    mockProviders.set("fireworks", { name: "fireworks" });
-
-    const result = await resolveConfiguredProvider();
-    expect(result?.configuredProviderName).toBe("fireworks");
-    expect(result?.provider.name).toBe("fireworks");
-  });
 });

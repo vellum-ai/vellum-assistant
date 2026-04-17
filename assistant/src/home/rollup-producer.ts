@@ -261,10 +261,10 @@ export async function runRollupProducer(
 
 function resolveDefaultProvider(): ReturnType<typeof getProvider> | null {
   const config = loadConfig();
-  if (!listProviders().includes(config.services.inference.provider)) {
+  if (!listProviders().includes(config.llm.default.provider)) {
     return null;
   }
-  return getProvider(config.services.inference.provider);
+  return getProvider(config.llm.default.provider);
 }
 
 /**

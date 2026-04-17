@@ -8,7 +8,6 @@ import {
 } from "../providers/provider-send-message.js";
 import type {
   Message,
-  ModelIntent,
   Provider,
   ProviderEvent,
   ProviderResponse,
@@ -30,12 +29,10 @@ export interface RunBtwSidechainParams {
   systemPrompt?: string;
   tools?: ToolDefinition[];
   maxTokens?: number;
-  modelIntent?: ModelIntent;
   /**
-   * Unified call-site identifier. When set, the provider layer resolves
+   * Unified call-site identifier. The provider layer resolves
    * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
-   * via `resolveCallSiteConfig(callSite, config.llm)`. `callSite` wins over
-   * `modelIntent` when both are passed. When neither is passed, defaults to
+   * via `resolveCallSiteConfig(callSite, config.llm)`. Defaults to
    * `'identityIntro'` since this side-chain runner was originally introduced
    * for the identity intro generation path; callers (greeting, title, etc.)
    * override it with their own call-site ID.
@@ -100,16 +97,11 @@ export async function runBtwSidechain(
       config: {
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },
-        // Resolution precedence: explicit callSite → explicit modelIntent →
-        // default callSite "identityIntro" (the original purpose of this
-        // side-chain runner). PR 5's contract says `callSite` wins over
-        // `modelIntent` when both are present, so we set them mutually
-        // exclusively here for clarity.
-        ...(params.callSite !== undefined
-          ? { callSite: params.callSite }
-          : params.modelIntent !== undefined
-            ? { modelIntent: params.modelIntent }
-            : { callSite: "identityIntro" as LLMCallSite }),
+        // Resolution: explicit callSite → default "identityIntro" (the
+        // original purpose of this side-chain runner). The legacy
+        // `modelIntent` parameter was removed in PR 19 of the
+        // unify-llm-callsites plan.
+        callSite: params.callSite ?? ("identityIntro" as LLMCallSite),
       },
       onEvent: (event) => {
         if (event.type === "text_delta") {

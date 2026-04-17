@@ -174,7 +174,7 @@ interface GeneratedStarter {
 }
 
 async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("conversationStarters");
   if (!provider) {
     log.info("No configured provider for conversation starters generation");
     return [];

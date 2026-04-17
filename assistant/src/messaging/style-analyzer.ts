@@ -127,7 +127,7 @@ export async function extractStylePatterns(
     .map((e, i) => `--- Message ${i + 1} ---\n${e}`)
     .join("\n\n");
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("styleAnalyzer");
   if (!provider) {
     return { stylePatterns: [], contactObservations: [] };
   }

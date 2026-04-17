@@ -907,8 +907,8 @@ export async function runAgentLoopImpl(
     // and proactively invoke the reducer if already above budget. This avoids
     // a wasted provider round-trip that would just fail with context_too_large.
     const config = getConfig();
-    const overflowRecovery = config.contextWindow.overflowRecovery;
-    const providerMaxTokens = config.contextWindow.maxInputTokens;
+    const overflowRecovery = config.llm.default.contextWindow.overflowRecovery;
+    const providerMaxTokens = config.llm.default.contextWindow.maxInputTokens;
     // Widen safety margin for large conversations where estimation error
     // compounds across many messages with tool results.
     const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
@@ -954,7 +954,7 @@ export async function runAgentLoopImpl(
           {
             providerName: ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
-            contextWindow: config.contextWindow,
+            contextWindow: config.llm.default.contextWindow,
             targetTokens: preflightBudget,
             toolTokenBudget,
           },
@@ -1388,7 +1388,7 @@ export async function runAgentLoopImpl(
           {
             providerName: ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
-            contextWindow: config.contextWindow,
+            contextWindow: config.llm.default.contextWindow,
             targetTokens: correctedTarget,
             toolTokenBudget,
           },
@@ -1899,7 +1899,7 @@ export async function runAgentLoopImpl(
       state.exchangeLlmCallCount,
       {
         tokens: state.lastCallInputTokens,
-        maxTokens: config.contextWindow.maxInputTokens,
+        maxTokens: config.llm.default.contextWindow.maxInputTokens,
       },
     );
 

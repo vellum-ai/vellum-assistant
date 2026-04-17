@@ -383,7 +383,7 @@ describe("GET /v1/suggestion", () => {
     expect(body.suggestion).toBeNull();
   });
 
-  test("uses latency-optimized model intent", async () => {
+  test("uses conversationStarters call site", async () => {
     const provider = makeMockProvider("Quick reply");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
     mockGetConversationByKey.mockImplementation(() => ({
@@ -407,8 +407,8 @@ describe("GET /v1/suggestion", () => {
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
     const options = callArgs[3] as
-      | { config?: { modelIntent?: string } }
+      | { config?: { callSite?: string } }
       | undefined;
-    expect(options?.config?.modelIntent).toBe("latency-optimized");
+    expect(options?.config?.callSite).toBe("conversationStarters");
   });
 });
