@@ -80,6 +80,7 @@ struct HomeReplyCard: View {
                 .onSubmit {
                     if !inputText.isEmpty {
                         onSend(inputText)
+                        inputText = ""
                     }
                 }
         }
