@@ -40,9 +40,7 @@ struct HomeInvoicePreview: View {
                 )
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.top, VSpacing.lg)
-        .padding(.bottom, VSpacing.lg)
+        .padding(VSpacing.lg)
         .frame(maxWidth: .infinity)
     }
 }

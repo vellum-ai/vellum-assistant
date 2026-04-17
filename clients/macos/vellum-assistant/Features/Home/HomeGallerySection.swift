@@ -287,19 +287,17 @@ struct HomeGallerySection: View {
                     description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
                 )
 
-                VCard(background: VColor.surfaceBase) {
-                    HomeDetailPanel(
-                        icon: .file,
-                        title: "Panel title",
-                        primaryAction: .init(label: "Primary", action: {}),
-                        secondaryAction: .init(label: "Secondary", style: .danger, action: {}),
-                        onDismiss: {}
-                    ) {
-                        Text("Detail content goes here.")
-                            .padding(VSpacing.lg)
-                    }
-                    .frame(height: 520)
+                HomeDetailPanel(
+                    icon: .file,
+                    title: "Panel title",
+                    primaryAction: .init(label: "Primary", action: {}),
+                    secondaryAction: .init(label: "Secondary", style: .danger, action: {}),
+                    onDismiss: {}
+                ) {
+                    Text("Detail content goes here.")
+                        .padding(VSpacing.lg)
                 }
+                .frame(height: 520)
             }
 
             // MARK: - HomeEmailEditor
@@ -314,9 +312,7 @@ struct HomeGallerySection: View {
                     description: "Pure body content for the email editor variant of the Home detail panel."
                 )
 
-                VCard(background: VColor.surfaceBase) {
-                    _HomeEmailEditorDemo()
-                }
+                HomeEmailEditorDemo()
             }
 
             // MARK: - HomeInvoicePreview
@@ -331,18 +327,16 @@ struct HomeGallerySection: View {
                     description: "Pure body content showing a document / invoice image in the Home detail panel."
                 )
 
-                VCard(background: VColor.surfaceBase) {
-                    HomeDetailPanel(
-                        icon: .file,
-                        title: "Authorise Payment to Slack",
-                        primaryAction: .init(label: "Authorise", action: {}),
-                        secondaryAction: .init(label: "Deny", style: .danger, action: {}),
-                        onDismiss: {}
-                    ) {
-                        HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
-                    }
-                    .frame(height: 520)
+                HomeDetailPanel(
+                    icon: .file,
+                    title: "Authorise Payment to Slack",
+                    primaryAction: .init(label: "Authorise", action: {}),
+                    secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                    onDismiss: {}
+                ) {
+                    HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
                 }
+                .frame(height: 520)
             }
 
             // MARK: - HomeSplitLayout
@@ -354,12 +348,10 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeSplitLayout",
-                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout. Use the toggle to flip the trailing content between the email editor and the invoice preview."
                 )
 
-                VCard(background: VColor.surfaceBase) {
-                    _HomeSplitLayoutDemo()
-                }
+                HomeSplitLayoutDemo()
             }
         }
     }
@@ -371,7 +363,7 @@ struct HomeGallerySection: View {
 /// sample content matching the Figma mock (thread name, recipient, subject,
 /// body, and a single attachment). Kept private to the gallery so it can
 /// own the `@State` bindings required by the editor's field text.
-private struct _HomeEmailEditorDemo: View {
+private struct HomeEmailEditorDemo: View {
     private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
         .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
     ]
@@ -409,17 +401,30 @@ private struct _HomeEmailEditorDemo: View {
 }
 
 /// Demo wrapper that renders the side-by-side layout from the Figma mocks
-/// — a placeholder home column on the leading side and the email editor
-/// detail panel on the trailing side. `HomePageView` requires far too much
-/// setup (`HomeStore`, `HomeFeedStore`, etc.) to make a realistic full
-/// demo worthwhile here, so the leading column is intentionally a minimal
-/// placeholder. The intent is to show the visual relationship between the
-/// two columns, not to exercise the real home page.
-private struct _HomeSplitLayoutDemo: View {
+/// — a placeholder home column on the leading side and either the email
+/// editor or the invoice preview on the trailing side, toggleable via a
+/// segmented picker. `HomePageView` requires far too much setup
+/// (`HomeStore`, `HomeFeedStore`, etc.) to make a realistic full demo
+/// worthwhile here, so the leading column is intentionally a minimal
+/// placeholder. The intent is to show the visual relationship between
+/// the two columns, not to exercise the real home page.
+private struct HomeSplitLayoutDemo: View {
+    private enum Variant: String, CaseIterable, Identifiable {
+        case email, invoice
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .email: return "Email editor"
+            case .invoice: return "Invoice preview"
+            }
+        }
+    }
+
     private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
         .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
     ]
 
+    @State private var variant: Variant = .email
     @State private var toAddress: String = "john@johnstown.com"
     @State private var subject: String = "looking for a basketball scholarship"
     @State private var bodyText: String = """
@@ -434,15 +439,34 @@ private struct _HomeSplitLayoutDemo: View {
     """
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Home placeholder")
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentSecondary)
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Picker("Trailing content", selection: $variant) {
+                ForEach(Variant.allCases) { v in
+                    Text(v.label).tag(v)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(VSpacing.xxl)
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
 
+            HStack(alignment: .top, spacing: VSpacing.lg) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Home placeholder")
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(VSpacing.xxl)
+
+                trailingPanel
+            }
+            .frame(height: 640)
+        }
+    }
+
+    @ViewBuilder
+    private var trailingPanel: some View {
+        switch variant {
+        case .email:
             HomeDetailPanel(
                 icon: nil,
                 title: "Thread Name Here",
@@ -457,9 +481,17 @@ private struct _HomeSplitLayoutDemo: View {
                     onAttachmentTap: { _ in }
                 )
             }
+        case .invoice:
+            HomeDetailPanel(
+                icon: .file,
+                title: "Authorise Payment to Slack",
+                primaryAction: .init(label: "Authorise", action: {}),
+                secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                onDismiss: {}
+            ) {
+                HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+            }
         }
-        .frame(width: 1200, height: 640)
-        .padding(VSpacing.lg)
     }
 }
 
