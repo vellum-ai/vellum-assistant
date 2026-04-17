@@ -110,6 +110,30 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
                 GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
                 GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
+                GalleryComponent(
+                    "homeDetailPanel",
+                    "HomeDetailPanel",
+                    keywords: ["detail panel", "side panel", "home", "container"],
+                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                ),
+                GalleryComponent(
+                    "homeEmailEditor",
+                    "HomeEmailEditor",
+                    keywords: ["email editor", "compose", "side panel", "detail"],
+                    description: "Pure body content for the email editor variant of the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeInvoicePreview",
+                    "HomeInvoicePreview",
+                    keywords: ["invoice", "document", "preview", "detail"],
+                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeSplitLayout",
+                    "HomeSplitLayout",
+                    keywords: ["home", "split", "side by side", "layout"],
+                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                ),
             ]
         case .icons:
             return [
@@ -123,6 +147,12 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vTextEditor", "VTextEditor", keywords: ["text editor", "multiline"], description: "Multi-line text editor with placeholder and configurable min/max height."),
                 GalleryComponent("vToggle", "VToggle", keywords: ["toggle", "switch"], description: "Custom toggle switch with optional label and animated knob transition."),
                 GalleryComponent("vDropdown", "VDropdown", keywords: ["dropdown", "select", "picker"], description: "Generic dropdown picker with label, error, icon, and size variants (.regular, .small).", useInsteadOf: "Raw Menu + Picker with manual styling"),
+                GalleryComponent(
+                    "vFormattingToolbar",
+                    "VFormattingToolbar",
+                    keywords: ["formatting", "toolbar", "rich text", "bold italic underline"],
+                    description: "Horizontal row of icon-only formatting action buttons (B/I/U, alignment, link, lists, quote). Stateless — fires callbacks on tap."
+                ),
                 GalleryComponent("combinedForm", "Combined Form", keywords: ["form", "combined"], description: "Example of VTextField and VDropdown composed together in a form layout."),
             ]
         case .layout:
