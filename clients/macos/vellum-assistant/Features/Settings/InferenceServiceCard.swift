@@ -507,16 +507,21 @@ struct InferenceServiceCard: View {
         // force-persist provider/model even when IDs happen to match.
         let modeChanged = draftMode != store.inferenceMode
 
-        // Persist mode if changed
-        let pendingMode = modeChanged ? store.setInferenceMode(draftMode) : nil
+        // Persist mode if changed. The mode write is independent of the
+        // provider/model PATCH below — the daemon stores it under
+        // `services.inference.mode`, not `llm.default` — so it can fly
+        // off in parallel without affecting atomicity.
+        if modeChanged {
+            _ = store.setInferenceMode(draftMode)
+        }
 
-        // Persist provider if changed. Also re-persist when the mode
-        // changed — switching between managed and your-own implies a
-        // provider change even if the resolved provider ID happens to
-        // match initialProvider (ensures config stays consistent).
+        // Resolve the provider that will land in `llm.default.provider`.
+        // Also flag re-persist when the mode changed — switching between
+        // managed and your-own implies a provider change even if the
+        // resolved provider ID happens to match initialProvider (ensures
+        // config stays consistent).
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
         let providerChanged = persistProvider != initialProvider || modeChanged
-        let pendingProvider = providerChanged ? store.setLLMDefaultProvider(persistProvider) : nil
         if providerChanged {
             initialProvider = persistProvider
         }
@@ -540,20 +545,18 @@ struct InferenceServiceCard: View {
             })
         }
 
-        // Await the mode and provider patches before writing the model so the
-        // daemon's read-modify-write cycle for the model doesn't overwrite them.
-        store.selectedModel = draftModel
-        let capturedModel = draftModel
-        let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        let forceSend = modeChanged
-        Task {
-            if let pendingMode { _ = await pendingMode.value }
-            if let pendingProvider { _ = await pendingProvider.value }
-            _ = await store.setLLMDefaultModel(
-                capturedModel,
-                provider: saveProvider,
-                force: forceSend
-            ).value
+        // Persist provider+model atomically in a single PATCH when either
+        // changed (or when the mode toggled, which forces a re-persist
+        // even when the resolved IDs match). Splitting the write into two
+        // PATCHes (provider first, model second) lets the daemon's
+        // ConfigWatcher fire between them and reload providers with the
+        // new provider but the OLD model — potentially incompatible
+        // (e.g. an OpenAI model ID against the Anthropic provider). The
+        // combined setter writes both keys in one round-trip so the
+        // daemon never observes a half-applied state.
+        let modelChanged = draftModel != initialModel
+        if providerChanged || modelChanged {
+            _ = store.setLLMDefault(provider: persistProvider, model: draftModel)
         }
         initialModel = draftModel
     }

@@ -2983,6 +2983,13 @@ public final class SettingsStore: ObservableObject {
     /// the unified `llm.default.provider` key. This is the canonical write
     /// path now that the workspace migration consolidates LLM call-site
     /// settings under `llm.*` (see PR 4 of the unify-llm-callsites plan).
+    ///
+    /// Prefer `setLLMDefault(provider:model:)` when both keys change together
+    /// — it writes them atomically in a single PATCH so the daemon's
+    /// `ConfigWatcher` cannot observe a half-applied state with the new
+    /// provider but the old (potentially incompatible) model. This single-key
+    /// variant is kept for future flows that legitimately want to change just
+    /// the provider without touching the model.
     @discardableResult
     func setLLMDefaultProvider(_ provider: String) -> Task<Bool, Never> {
         selectedInferenceProvider = provider
@@ -3002,6 +3009,14 @@ public final class SettingsStore: ObservableObject {
     /// Persists the default LLM provider+model pair under `llm.default`.
     /// Both keys are written together so the daemon's read-modify-write cycle
     /// observes a consistent pair.
+    ///
+    /// Prefer `setLLMDefault(provider:model:)` when both keys are being
+    /// changed in response to a single user action — it skips the dedup
+    /// gating below and writes a clean atomic PATCH. This entry point is
+    /// retained for flows that want the dedup-aware "only patch if the
+    /// resolved pair actually moved" semantics, e.g. routing-source refresh
+    /// pushing the daemon's authoritative selection back through the same
+    /// helper.
     @discardableResult
     func setLLMDefaultModel(
         _ model: String,
@@ -3015,6 +3030,39 @@ public final class SettingsStore: ObservableObject {
                 return Task { true }
             }
         }
+        lastDaemonModel = model
+        lastDaemonProvider = provider
+        selectedModel = model
+        selectedInferenceProvider = provider
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "llm": ["default": ["provider": provider, "model": model]]
+            ])
+            if !success {
+                log.error("Failed to patch config for llm.default.{provider,model}")
+                if lastDaemonModel == model {
+                    lastDaemonModel = nil
+                    lastDaemonProvider = nil
+                }
+            }
+            return success
+        }
+        scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    /// Persists the default LLM provider+model pair atomically in a single
+    /// `llm.default` PATCH. Use this whenever both keys are being changed in
+    /// response to a single user action (e.g. the inference settings save).
+    ///
+    /// Splitting the write into two PATCH requests (provider first, model
+    /// second) gives the daemon's `ConfigWatcher` a window to fire on the
+    /// provider-only change and reload providers with the OLD model — which
+    /// may not exist in the new provider's catalog (Anthropic provider trying
+    /// to use an OpenAI model ID, etc.). Writing both keys in one PATCH
+    /// closes that window.
+    @discardableResult
+    func setLLMDefault(provider: String, model: String) -> Task<Bool, Never> {
         lastDaemonModel = model
         lastDaemonProvider = provider
         selectedModel = model
