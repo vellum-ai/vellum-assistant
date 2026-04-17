@@ -211,7 +211,7 @@ describe("Chrome extension allowlist guard", () => {
     const allFiles = listTextFilesRecursively(repoRoot);
 
     const CWS_URL_PATTERN =
-      /chromewebstore\.google\.com\/detail\/[^/]+\/[a-p]{32}/;
+      /chromewebstore\.google\.com\/detail\/[^/]+\/[a-p]{32}/g;
 
     for (const extensionId of config.allowedExtensionIds) {
       const unexpectedMatches: string[] = [];
