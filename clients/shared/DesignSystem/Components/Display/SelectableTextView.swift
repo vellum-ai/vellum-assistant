@@ -78,27 +78,25 @@ public struct VSelectableTextView: NSViewRepresentable {
         return tc
     }()
 
-    /// Skip-guard cache for ``measureSize`` keyed on the attributed string's
-    /// hash plus the wrapping width and line spacing. `ensureLayout` is O(n)
-    /// in glyph count and runs synchronously on the main thread, so repeat
-    /// calls with identical inputs — which happen routinely when
-    /// `ChatBubble` cells in a `LazyVStack` re-measure during scroll/resize
-    /// cascades — must hit this cache instead of reflowing text again.
+    /// Memoizes `measureSize` results keyed on content, wrapping width, and
+    /// line spacing. `NSLayoutManager.ensureLayout(for:)` is O(n) in glyph
+    /// count and runs synchronously on the main thread, and SwiftUI calls
+    /// `measureSize` for every visible cell on every `LazyVStack` layout
+    /// pass. Returning the cached size for identical queries keeps scroll
+    /// and resize cascades off the hot path.
     ///
-    /// Bounded FIFO eviction keeps memory flat during long conversations
-    /// (hundreds of messages): once the cache saturates we drop the whole
-    /// dictionary. Dropping is cheap and avoids per-entry bookkeeping;
-    /// the next measurement rehydrates the working set.
+    /// Memory is bounded at ``measurementCacheLimit``; when the cache
+    /// saturates it is cleared wholesale. Bulk eviction avoids per-entry
+    /// LRU bookkeeping and the working set rehydrates on the next pass.
     @MainActor private static var measurementSizeCache: [MeasurementKey: CGSize] = [:]
     @MainActor private static let measurementCacheLimit = 256
 
-    /// Retains the `NSAttributedString` reference so `Dictionary` lookups fall
-    /// through to `NSAttributedString.isEqual(_:)` for exact content
-    /// comparison instead of trusting `hash` alone as a content surrogate.
-    /// `NSAttributedString.hash` is not documented to cover the full 64-bit
-    /// space and may summarize only a subset of content/attributes, so using
-    /// the hash as the sole identity key would allow hash collisions to
-    /// surface as wrong-height chat bubbles.
+    /// Composite key for ``measurementSizeCache``. Stores the
+    /// `NSAttributedString` by reference so `Dictionary` equality falls
+    /// through to `NSAttributedString.isEqual(_:)` rather than relying on
+    /// `NSAttributedString.hash` alone; hash-only equality would admit
+    /// collisions between distinct attributed strings and surface as
+    /// wrong-height cells.
     private struct MeasurementKey: Hashable {
         let attributedString: NSAttributedString
         let maxWidth: CGFloat
@@ -123,9 +121,8 @@ public struct VSelectableTextView: NSViewRepresentable {
     /// `.frame(width:height:)` to avoid `sizeThatFits` being called during
     /// the `LazyVStack` layout pass.
     ///
-    /// Results are cached by the attributed string (compared via
-    /// `isEqual(_:)`), wrapping width, and line spacing, so repeat calls with
-    /// identical inputs skip `ensureLayout` entirely.
+    /// Identical queries hit ``measurementSizeCache`` and skip
+    /// `ensureLayout` entirely.
     @MainActor
     public static func measureSize(
         attributedString: NSAttributedString,
@@ -241,11 +238,11 @@ public struct VSelectableTextView: NSViewRepresentable {
               let textContainer = textView.textContainer,
               let textStorage = textView.textStorage else { return nil }
 
-        // Skip-guard: SwiftUI re-queries `sizeThatFits` on every LazyVStack
-        // layout pass, so without this check a cell with unchanged text and
-        // unchanged width would rerun `ensureLayout` (O(n) in glyph count)
-        // on every scroll/resize. Invalidation is driven by the Coordinator
-        // inside `applyAttributedString` whenever the text storage mutates.
+        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
+        // layout pass. Returning the cached size when
+        // `(textStorage.length, width)` matches the last measurement avoids
+        // rerunning `ensureLayout`, which is O(n) in glyph count.
+        // `applyAttributedString` invalidates the cache on every mutation.
         let coordinator = context.coordinator
         let length = textStorage.length
         if length == coordinator.lastMeasuredLength,
@@ -279,11 +276,8 @@ public struct VSelectableTextView: NSViewRepresentable {
         private weak var pendingTextView: NSTextView?
         private var hasScheduledApply = false
 
-        // Skip-guard state for `sizeThatFits`. Tracks the text storage length
-        // and wrapping width of the last successful measurement so repeat
-        // layout passes with identical keys return the cached size instead
-        // of rerunning `ensureLayout`. Invalidated whenever the text storage
-        // is mutated via `applyAttributedString`.
+        // Last successful `sizeThatFits` measurement. `applyAttributedString`
+        // invalidates these fields whenever the text storage mutates.
         var lastMeasuredLength: Int = -1
         var lastMeasuredWidth: CGFloat = -1
         var lastMeasuredSize: CGSize = .zero

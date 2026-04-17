@@ -317,12 +317,12 @@ private struct CodeTextView: NSViewRepresentable {
 
         let width = proposal.width ?? 400
 
-        // Skip-guard: SwiftUI re-queries `sizeThatFits` for every cell on
-        // each LazyVStack layout pass. Keying the cache on `(textLength,
-        // width)` ensures we only rerun `ensureLayout` (O(n) in glyph count)
-        // when either the content or wrapping width actually changes.
-        // Invalidation happens in `updateNSView` on text replacement and in
-        // the Coordinator's `textDidChange` on user edits.
+        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
+        // layout pass. Returning the cached size when
+        // `(textStorage.length, width)` matches the last measurement avoids
+        // rerunning `ensureLayout`, which is O(n) in glyph count.
+        // `updateNSView` invalidates on text replacement and `textDidChange`
+        // invalidates on user edits.
         let coordinator = context.coordinator
         let length = textStorage.length
         if length == coordinator.lastMeasuredLength,
@@ -347,9 +347,8 @@ private struct CodeTextView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeTextView
 
-        // Skip-guard state for `sizeThatFits`. Tracks the text length and
-        // wrapping width of the last successful measurement so redundant
-        // layout passes collapse into a cache hit.
+        // Last successful `sizeThatFits` measurement. Invalidated whenever
+        // the text storage is replaced (`updateNSView`, `textDidChange`).
         var lastMeasuredLength: Int = -1
         var lastMeasuredWidth: CGFloat = -1
         var lastMeasuredHeight: CGFloat = 0

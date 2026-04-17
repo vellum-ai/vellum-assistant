@@ -333,12 +333,12 @@ struct VCodeTextView: NSViewRepresentable {
 
         let width = proposal.width ?? 400
 
-        // Skip-guard: SwiftUI re-queries `sizeThatFits` for every cell on
-        // each LazyVStack layout pass. Keying the cache on `(textLength,
-        // width)` ensures we only rerun `ensureLayout` (O(n) in glyph count)
-        // when either the content or wrapping width actually changes.
-        // Invalidation happens in the Coordinator's `applyText` whenever the
-        // text storage is mutated (plain text, async syntax highlight).
+        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
+        // layout pass. Returning the cached size when
+        // `(textStorage.length, width)` matches the last measurement avoids
+        // rerunning `ensureLayout`, which is O(n) in glyph count. `applyText`
+        // invalidates on both the plain-text apply and async syntax-highlight
+        // completion (font variants can change line height).
         let coordinator = context.coordinator
         let length = textStorage.length
         if length == coordinator.lastMeasuredLength,
@@ -366,11 +366,9 @@ struct VCodeTextView: NSViewRepresentable {
         var lastMatchCount: Int = 0
         var paragraphStyle: NSParagraphStyle?
 
-        // Skip-guard state for `sizeThatFits`. Tracks the text length and
-        // wrapping width of the last successful measurement so redundant
-        // layout passes collapse into a cache hit. Invalidated whenever the
-        // text storage is mutated (plain-text apply and async syntax
-        // highlight completion).
+        // Last successful `sizeThatFits` measurement. Invalidated wherever
+        // the text storage is replaced: `applyText` and the async
+        // syntax-highlight completion.
         var lastMeasuredLength: Int = -1
         var lastMeasuredWidth: CGFloat = -1
         var lastMeasuredHeight: CGFloat = 0
