@@ -98,6 +98,23 @@ describe("rewriteForRtk", () => {
     });
   });
 
+  describe("PATH override guard", () => {
+    test("skips rewrite when command scopes PATH in the prefix", () => {
+      // We can't know whether rtk is reachable via the overridden PATH,
+      // so leaving the command alone is safer than injecting `rtk`.
+      expect(rewriteForRtk("PATH=/usr/bin git status")).toBe(
+        "PATH=/usr/bin git status",
+      );
+      expect(rewriteForRtk("cd /tmp && PATH=/opt/bin pytest -v")).toBe(
+        "cd /tmp && PATH=/opt/bin pytest -v",
+      );
+    });
+
+    test("still rewrites when a non-PATH env var is scoped", () => {
+      expect(rewriteForRtk("CI=1 pytest -v")).toBe("CI=1 rtk pytest -v");
+    });
+  });
+
   describe("rtk-availability fallback", () => {
     test("passes through when rtk is not on PATH", () => {
       __setRtkAvailableForTest(false);

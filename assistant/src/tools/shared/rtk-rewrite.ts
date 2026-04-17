@@ -46,11 +46,14 @@ const RTK_SUBCOMMANDS = new Set([
   "curl",
 ]);
 
-let cachedAvailable: boolean | null = null;
+// Only positive results are cached. A negative result is rechecked on
+// every call so that installing rtk mid-session (or a later PATH
+// update) starts working without restarting the process.
+let cachedAvailable = false;
 let testOverride: boolean | null = null;
 
 function defaultIsRtkAvailable(): boolean {
-  if (cachedAvailable !== null) return cachedAvailable;
+  if (cachedAvailable) return true;
   const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
   for (const dir of pathEntries) {
     try {
@@ -61,7 +64,6 @@ function defaultIsRtkAvailable(): boolean {
       // Not in this PATH entry — keep looking.
     }
   }
-  cachedAvailable = false;
   return false;
 }
 
@@ -72,11 +74,11 @@ function isRtkAvailable(): boolean {
 
 /**
  * Test-only hook. Pass `true`/`false` to force the availability result,
- * or `null` to revert to the real check (and clear the cache).
+ * or `null` to revert to the real check (and clear the positive cache).
  */
 export function __setRtkAvailableForTest(value: boolean | null): void {
   testOverride = value;
-  if (value === null) cachedAvailable = null;
+  if (value === null) cachedAvailable = false;
 }
 
 /**
@@ -120,6 +122,8 @@ function findHeadIndex(command: string): number {
  *
  * Returns the command unchanged when:
  * - rtk is not on PATH
+ * - the caller overrides `PATH` in the command's env-var prefix
+ *   (we check rtk against the daemon's PATH, which may not apply)
  * - the head executable isn't in {@link RTK_SUBCOMMANDS}
  * - the head can't be identified (empty command, only prefixes)
  *
@@ -138,6 +142,13 @@ export function rewriteForRtk(command: string): string {
 
   const headIdx = findHeadIndex(headSegment);
   if (headIdx < 0) return command;
+
+  // PATH override guard: if the caller scopes `PATH=` to the command
+  // (e.g. `PATH=/usr/bin git status`), the daemon's rtk availability
+  // check doesn't reflect what the subprocess will see — blindly
+  // injecting `rtk` could break an otherwise-valid command. Skip.
+  const prefixBeforeHead = headSegment.slice(0, headIdx);
+  if (/(?:^|\s)PATH\s*=/.test(prefixBeforeHead)) return command;
 
   // Extract the first token — everything up to whitespace or a shell
   // metacharacter. This intentionally skips tokens that start with a
