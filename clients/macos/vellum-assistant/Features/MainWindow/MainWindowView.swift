@@ -58,6 +58,12 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
+    /// True when the sidebar was auto-collapsed by entering an app panel.
+    /// Used to distinguish automatic collapse from manual user collapse so
+    /// we only re-expand the sidebar on app exit when it was our doing.
+    @State private var sidebarAutoCollapsedForApp = false
+    /// Frame saved before auto-widening for an app; restored when leaving.
+    @State private var preAppWidenFrame: NSRect?
     @State var sidebarContentHeight: CGFloat = 0
     @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -400,6 +406,58 @@ struct MainWindowView: View {
                 if oldAppId != newAppId {
                     sharing.publishedUrl = nil
                     sharing.publishError = nil
+                }
+
+                // Collapse the sidebar when an app or document editor opens
+                // to avoid crowding; re-expand when leaving so other panels
+                // see the sidebar.
+                let wasApp: Bool = {
+                    switch oldSelection {
+                    case .app, .appEditing: return true
+                    case .panel(.documentEditor): return true
+                    default: return false
+                    }
+                }()
+                let isApp: Bool = {
+                    switch newSelection {
+                    case .app, .appEditing: return true
+                    case .panel(.documentEditor): return true
+                    default: return false
+                    }
+                }()
+                if sidebarExpanded && isApp {
+                    withAnimation(VAnimation.panel) {
+                        sidebarExpanded = false
+                        sidebarAutoCollapsedForApp = true
+                    }
+                } else if sidebarAutoCollapsedForApp && wasApp && !isApp {
+                    withAnimation(VAnimation.panel) {
+                        sidebarExpanded = true
+                        sidebarAutoCollapsedForApp = false
+                    }
+                }
+
+                // Auto-widen the window when opening an app if it's below
+                // a comfortable minimum; restore the previous size on exit.
+                let minAppWidth: CGFloat = 1200
+                if !wasApp && isApp, let window = NSApp.keyWindow,
+                   window.frame.width < minAppWidth {
+                    let screen = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+                    let maxWidth = screen?.width ?? minAppWidth
+                    let targetWidth = min(minAppWidth, maxWidth)
+                    preAppWidenFrame = window.frame
+                    var newFrame = window.frame
+                    let delta = targetWidth - newFrame.width
+                    newFrame.origin.x -= delta / 2
+                    newFrame.size.width = targetWidth
+                    // Clamp to screen bounds
+                    if let screen {
+                        newFrame.origin.x = max(screen.minX, min(newFrame.origin.x, screen.maxX - targetWidth))
+                    }
+                    window.setFrame(newFrame, display: true, animate: true)
+                } else if wasApp && !isApp, let savedFrame = preAppWidenFrame {
+                    NSApp.keyWindow?.setFrame(savedFrame, display: true, animate: true)
+                    preAppWidenFrame = nil
                 }
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
