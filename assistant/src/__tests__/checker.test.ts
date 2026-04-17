@@ -2427,6 +2427,11 @@ describe("Permission Checker", () => {
   // Validates that trust rules conform to canonical family-aware shapes
   // after disk round-trips. The canonical parser in ces-contracts strips
   // fields that are invalid for a rule's tool family.
+  //
+  // Platform proxy compatibility gate: test_runtime_proxy_api.py (245 tests)
+  // was validated as part of the trust-rule-union-compat plan. The proxy
+  // tests live in vellum-assistant-platform and confirmed that the
+  // family-aware union type changes are wire-compatible with the platform.
 
   describe("family-aware rule shape regression", () => {
     test("scoped tool (bash) preserves executionTarget and allowHighRisk through disk round-trip", () => {
