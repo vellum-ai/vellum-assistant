@@ -82,8 +82,11 @@ import { getSchemaAtPath } from "../config/schema-utils.js";
 // ---------------------------------------------------------------------------
 
 describe("getSchemaAtPath", () => {
-  test("returns full schema for a top-level key (maxTokens → number schema)", () => {
-    const result = getSchemaAtPath(AssistantConfigSchema, "maxTokens");
+  test("returns full schema for a leaf key (llm.default.maxTokens → number schema)", () => {
+    const result = getSchemaAtPath(
+      AssistantConfigSchema,
+      "llm.default.maxTokens",
+    );
     expect(result).not.toBeNull();
     // maxTokens has a default, so it should be parseable
     const parsed = (result as z.ZodType).parse(undefined);
@@ -184,7 +187,7 @@ describe("z.toJSONSchema integration", () => {
     expect(properties).toBeDefined();
     // Check that top-level keys are present
     expect(properties.services).toBeDefined();
-    expect(properties.maxTokens).toBeDefined();
+    expect(properties.llm).toBeDefined();
     expect(properties.calls).toBeDefined();
     expect(properties.memory).toBeDefined();
     expect(properties.timeouts).toBeDefined();
@@ -222,8 +225,11 @@ describe("z.toJSONSchema integration", () => {
     expect(properties!.safety).toBeDefined();
   });
 
-  test("sub-schema at a leaf like maxTokens produces integer schema", () => {
-    const maxTokensSchema = getSchemaAtPath(AssistantConfigSchema, "maxTokens");
+  test("sub-schema at a leaf like llm.default.maxTokens produces integer schema", () => {
+    const maxTokensSchema = getSchemaAtPath(
+      AssistantConfigSchema,
+      "llm.default.maxTokens",
+    );
     expect(maxTokensSchema).not.toBeNull();
     const jsonSchema = z.toJSONSchema(maxTokensSchema!, {
       unrepresentable: "any",

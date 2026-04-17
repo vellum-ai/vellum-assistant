@@ -148,7 +148,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.max_tokens).toBe(32000);
   });
 
-  test("propagates resolved effort/speed/temperature/thinking/contextWindow", async () => {
+  test("propagates resolved effort/speed/temperature/contextWindow", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -179,10 +179,123 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.effort).toBe("high");
     expect(config.speed).toBe("fast");
     expect(config.temperature).toBe(0.7);
-    // Deep-merged: enabled overridden by callSite, streamThinking inherited.
-    expect(config.thinking).toEqual({ enabled: false, streamThinking: true });
+    // Disabled thinking is omitted entirely so providers fall back to their
+    // default behavior — matches the legacy non-callSite path which only sets
+    // `providerConfig.thinking` when `enabled === true`.
+    expect(config.thinking).toBeUndefined();
     // contextWindow comes through from the resolved default.
     expect(config.contextWindow).toBeDefined();
+  });
+
+  test("converts resolved thinking config to Anthropic wire-format `{ type: 'adaptive' }` when enabled", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: {
+        // Inherits `thinking.enabled: true` from default.
+        mainAgent: {},
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    // Must be the Anthropic SDK's `ThinkingConfigAdaptive` shape, NOT the
+    // schema-shape `{ enabled, streamThinking }`. The Anthropic client spreads
+    // `restConfig` directly into `Anthropic.MessageStreamParams` and the SDK
+    // only accepts the `{ type: ... }` discriminator.
+    expect(config.thinking).toEqual({ type: "adaptive" });
+  });
+
+  test("omits thinking when resolved config has thinking.enabled: false", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: {
+        mainAgent: {},
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toBeUndefined();
+  });
+
+  test("does NOT propagate temperature when resolved value is null (schema default)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        // `temperature` defaults to null — "let provider pick".
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    // Must NOT be set — null would either trigger a wire error or override
+    // sensible provider defaults. Mirrors the legacy non-callSite path which
+    // never sets `temperature` on `providerConfig`.
+    expect(config.temperature).toBeUndefined();
+    expect("temperature" in config).toBe(false);
+  });
+
+  test("propagates temperature when explicitly set in resolved config", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+      callSites: {
+        mainAgent: { temperature: 0.5 },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.temperature).toBe(0.5);
   });
 
   test("strips effort/speed/thinking for providers that don't support them", async () => {
@@ -302,5 +415,4 @@ describe("getConfiguredProvider — callSite routing", () => {
     const provider = await getConfiguredProvider("heartbeatAgent");
     expect(provider?.name).toBe("anthropic");
   });
-
 });

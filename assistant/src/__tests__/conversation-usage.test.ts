@@ -16,7 +16,9 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    pricingOverrides: [],
+    llm: {
+      pricingOverrides: [],
+    },
   }),
 }));
 

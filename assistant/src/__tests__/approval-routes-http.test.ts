@@ -27,11 +27,39 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     contextWindow: { maxInputTokens: 200000 },
+    llm: {
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        maxTokens: 64000,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: true, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 200000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
+      },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
+    },
     services: {
       inference: {
         mode: "your-own",
         provider: "anthropic",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-7",
       },
       "image-generation": {
         mode: "your-own",
