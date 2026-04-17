@@ -51,13 +51,9 @@ describe("rewriteForRtk", () => {
       expect(rewriteForRtk("FOO=bar pytest")).toBe("FOO=bar rtk pytest");
     });
 
-    test("preserves sudo", () => {
-      expect(rewriteForRtk("sudo docker ps")).toBe("sudo rtk docker ps");
-    });
-
-    test("preserves stacked prefixes", () => {
-      expect(rewriteForRtk("cd /x && FOO=bar sudo git log")).toBe(
-        "cd /x && FOO=bar sudo rtk git log",
+    test("preserves stacked prefixes without sudo", () => {
+      expect(rewriteForRtk("cd /x && FOO=bar git log")).toBe(
+        "cd /x && FOO=bar rtk git log",
       );
     });
   });
@@ -98,7 +94,7 @@ describe("rewriteForRtk", () => {
     });
   });
 
-  describe("PATH override guard", () => {
+  describe("PATH-visibility guard", () => {
     test("skips rewrite when command scopes PATH in the prefix", () => {
       // We can't know whether rtk is reachable via the overridden PATH,
       // so leaving the command alone is safer than injecting `rtk`.
@@ -107,6 +103,16 @@ describe("rewriteForRtk", () => {
       );
       expect(rewriteForRtk("cd /tmp && PATH=/opt/bin pytest -v")).toBe(
         "cd /tmp && PATH=/opt/bin pytest -v",
+      );
+    });
+
+    test("skips rewrite when the command runs under sudo", () => {
+      // sudo uses `secure_path`, which typically omits user-level bins
+      // where rtk may live — injecting rtk would turn a working
+      // privileged command into `rtk: command not found`.
+      expect(rewriteForRtk("sudo docker ps")).toBe("sudo docker ps");
+      expect(rewriteForRtk("cd /x && FOO=bar sudo git log")).toBe(
+        "cd /x && FOO=bar sudo git log",
       );
     });
 

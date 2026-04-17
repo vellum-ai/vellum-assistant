@@ -122,14 +122,15 @@ function findHeadIndex(command: string): number {
  *
  * Returns the command unchanged when:
  * - rtk is not on PATH
- * - the caller overrides `PATH` in the command's env-var prefix
- *   (we check rtk against the daemon's PATH, which may not apply)
+ * - the caller overrides `PATH` in the command's env-var prefix, or
+ *   the command is run through `sudo` (both execute with a PATH we
+ *   can't probe from the daemon — rtk may be missing there)
  * - the head executable isn't in {@link RTK_SUBCOMMANDS}
  * - the head can't be identified (empty command, only prefixes)
  *
  * Only the head segment of a pipeline is inspected; everything after
- * the first `|` stays verbatim. Prefixes like `cd X && `, env-var
- * assignments (`FOO=bar`), and `sudo` are preserved in place.
+ * the first `|` stays verbatim. Prefixes like `cd X && ` and env-var
+ * assignments (`FOO=bar`) are preserved in place.
  */
 export function rewriteForRtk(command: string): string {
   if (!command || !command.trim()) return command;
@@ -143,12 +144,15 @@ export function rewriteForRtk(command: string): string {
   const headIdx = findHeadIndex(headSegment);
   if (headIdx < 0) return command;
 
-  // PATH override guard: if the caller scopes `PATH=` to the command
-  // (e.g. `PATH=/usr/bin git status`), the daemon's rtk availability
-  // check doesn't reflect what the subprocess will see — blindly
-  // injecting `rtk` could break an otherwise-valid command. Skip.
+  // PATH-visibility guard: if the caller scopes `PATH=` to the command
+  // (e.g. `PATH=/usr/bin git status`) or runs under `sudo` (which uses
+  // its own `secure_path` that typically omits user-level bins like
+  // ~/.bun/bin or /opt/homebrew/bin), the daemon's rtk probe doesn't
+  // reflect what the subprocess will see. Injecting `rtk` there could
+  // turn a working command into `rtk: command not found`. Bail out.
   const prefixBeforeHead = headSegment.slice(0, headIdx);
   if (/(?:^|\s)PATH\s*=/.test(prefixBeforeHead)) return command;
+  if (/(?:^|\s)sudo(?:\s|$)/.test(prefixBeforeHead)) return command;
 
   // Extract the first token — everything up to whitespace or a shell
   // metacharacter. This intentionally skips tokens that start with a
