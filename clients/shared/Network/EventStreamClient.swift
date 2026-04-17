@@ -48,7 +48,7 @@ public final class EventStreamClient {
         public let stream: AsyncStream<ServerMessage>
         private let state: SubscriptionState
 
-        fileprivate init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
+        init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
             self.stream = stream
             self.state = state
         }
