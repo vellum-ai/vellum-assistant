@@ -46,11 +46,11 @@ public final class EventStreamClient {
     @MainActor
     public final class ManagedSubscription {
         public let stream: AsyncStream<ServerMessage>
-        private let state: SubscriptionState
+        private let finishAction: @MainActor () -> Void
 
-        private init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
+        init(stream: AsyncStream<ServerMessage>, finishAction: @escaping @MainActor () -> Void) {
             self.stream = stream
-            self.state = state
+            self.finishAction = finishAction
         }
 
         public func cancel() {
@@ -58,7 +58,7 @@ public final class EventStreamClient {
         }
 
         public func finish() {
-            state.finish()
+            finishAction()
         }
     }
 
@@ -84,7 +84,9 @@ public final class EventStreamClient {
                 self?.subscribers[id]?.state.finish()
             }
         }
-        return ManagedSubscription(stream: stream, state: state)
+        return ManagedSubscription(stream: stream) {
+            state.finish()
+        }
     }
 
     // MARK: - SSE State
