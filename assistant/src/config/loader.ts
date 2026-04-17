@@ -207,9 +207,42 @@ export function deepMergeMissing(
 }
 
 /**
+ * Recursively strip `null` leaves from a plain-object value, returning a
+ * deep clone with all `null`-valued keys removed at every nesting level.
+ * Non-object inputs (scalars, arrays, `null` itself) are returned as-is.
+ *
+ * Used to sanitize `overrides` before assigning whole subtrees in
+ * `deepMergeOverwrite`, so deletion-sentinel semantics apply uniformly
+ * even when the corresponding `target` key does not yet exist.
+ */
+function stripNullLeaves(value: unknown): unknown {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null) continue;
+    out[k] = stripNullLeaves(v);
+  }
+  return out;
+}
+
+/**
  * Deep-merge `overrides` into `target`, overwriting leaf values.
  * Recursively merges nested objects; scalars and arrays from `overrides`
  * replace corresponding values in `target`.
+ *
+ * JSON `null` is treated as a deletion sentinel: any key whose override
+ * value is `null` is deleted from `target` instead of being assigned.
+ * This applies recursively, so PATCHing `{ a: { b: null } }` removes the
+ * nested `b` while preserving `a` and any other siblings of `b`. When an
+ * override assigns a whole object subtree to a key that does not yet
+ * exist on `target` (or whose existing value is a scalar/array), any
+ * `null` leaves inside that subtree are dropped before assignment so no
+ * `null`s ever get persisted. This matches the semantics expected by
+ * HTTP PATCH callers (e.g. macOS SettingsStore clearing call-site
+ * overrides) and prevents invalid `null` entries from accumulating on
+ * disk in `config.json`.
  */
 export function deepMergeOverwrite(
   target: Record<string, unknown>,
@@ -217,8 +250,10 @@ export function deepMergeOverwrite(
 ): void {
   for (const key of Object.keys(overrides)) {
     const ov = overrides[key];
-    if (
-      ov != null &&
+    if (ov === null) {
+      delete target[key];
+    } else if (
+      ov !== undefined &&
       typeof ov === "object" &&
       !Array.isArray(ov) &&
       target[key] != null &&
@@ -230,7 +265,7 @@ export function deepMergeOverwrite(
         ov as Record<string, unknown>,
       );
     } else {
-      target[key] = ov;
+      target[key] = stripNullLeaves(ov);
     }
   }
 }
