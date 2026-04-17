@@ -69,7 +69,6 @@ struct HomeGallerySection: View {
                             title: "Authorise $128.50 payment",
                             subtitle: "Invoice #2024-0391",
                             attachment: (fileName: "invoice-2024-0391.pdf", fileSize: "245 KB"),
-                            showDismiss: true,
                             onAuthorise: {},
                             onDeny: {},
                             onDismiss: {}
@@ -212,7 +211,7 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeImageCard",
-                    description: "Image preview card with Save and Open in Finder actions."
+                    description: "Image preview card with Save and Find a New One actions."
                 )
 
                 VCard(background: VColor.surfaceBase) {
@@ -221,7 +220,7 @@ struct HomeGallerySection: View {
                         threadName: "Data Analysis",
                         image: nil,
                         onSave: {},
-                        onOpenInFinder: {},
+                        onFindNew: {},
                         onDismiss: {}
                     )
                 }

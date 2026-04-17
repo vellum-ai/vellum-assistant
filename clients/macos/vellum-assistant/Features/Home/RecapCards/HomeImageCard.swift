@@ -1,15 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Recap card displaying a large image preview with Save and Open in Finder
-/// action buttons. Uses
-/// `HomeRecapCardHeader` for the icon + title row.
+/// Recap card displaying a large image preview with Save and Find-a-New-One
+/// action buttons. Uses `HomeRecapCardHeader` for the icon + title row.
 struct HomeImageCard: View {
     let title: String
     let threadName: String?
     let image: NSImage?
     let onSave: () -> Void
-    let onOpenInFinder: () -> Void
+    let onFindNew: () -> Void
     let onDismiss: (() -> Void)?
 
     init(
@@ -17,14 +16,14 @@ struct HomeImageCard: View {
         threadName: String? = nil,
         image: NSImage? = nil,
         onSave: @escaping () -> Void,
-        onOpenInFinder: @escaping () -> Void,
+        onFindNew: @escaping () -> Void,
         onDismiss: (() -> Void)? = nil
     ) {
         self.title = title
         self.threadName = threadName
         self.image = image
         self.onSave = onSave
-        self.onOpenInFinder = onOpenInFinder
+        self.onFindNew = onFindNew
         self.onDismiss = onDismiss
     }
 
@@ -71,7 +70,7 @@ struct HomeImageCard: View {
     private var actionButtons: some View {
         HStack(spacing: VSpacing.sm) {
             VButton(label: "Save", style: .primary, size: .pillRegular, action: onSave)
-            VButton(label: "Find a New One", style: .outlined, size: .pillRegular, action: onOpenInFinder)
+            VButton(label: "Find a New One", style: .outlined, size: .pillRegular, action: onFindNew)
             Spacer()
         }
     }
