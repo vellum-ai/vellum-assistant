@@ -797,6 +797,59 @@ describe("ContextWindowManager", () => {
     expect(rawBase64TokenEquivalent).toBeGreaterThan(result.thresholdTokens);
   });
 
+  test("force=true without override uses configured target and summarizes", async () => {
+    // Regression for the "compaction no-op" bug: when mid-loop / forced
+    // compaction passed `targetInputTokensOverride: preflightBudget`
+    // (~170k on a 200k window), pickKeepBoundary would say "all turns
+    // already fit, keep everything" and the compactor would take the
+    // truncate-only early-exit branch, returning compacted:true with
+    // compactedPersistedMessages:0 — a silent no-op that let context
+    // balloon past the provider cap.
+    //
+    // This test asserts that with `force: true` and NO override, the
+    // manager falls back to its configured `targetInputTokens` and
+    // actually summarizes older turns.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- real summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 80, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      // targetBudgetRatio - summaryBudgetRatio = 0.25, so targetInputTokens
+      // is 25% of maxInputTokens — tight enough to force summarization.
+      config: makeConfig({
+        maxInputTokens: 600,
+        targetBudgetRatio: 0.3,
+        summaryBudgetRatio: 0.05,
+        compactThreshold: 0.6,
+      }),
+    });
+    const long = "x".repeat(80);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+      message("user", `u4 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+
+    expect(result.compacted).toBe(true);
+    // The key assertion: persisted messages must be summarized, not just
+    // tool-result-truncated. compactedPersistedMessages > 0 means we
+    // actually did work rather than taking the no-op early-exit.
+    expect(result.compactedPersistedMessages).toBeGreaterThan(0);
+    expect(result.summaryCalls).toBe(1);
+  });
+
   test("minKeepRecentUserTurns: 0 compacts all messages into summary only", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- emergency summary" }],

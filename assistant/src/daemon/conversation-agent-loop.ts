@@ -1111,6 +1111,7 @@ export async function runAgentLoopImpl(
     // from the reactive convergence loop below that fires after a
     // provider rejection — here we compact *before* hitting the limit.
     let midLoopCompactAttempts = 0;
+    let consecutiveNoOpCompactions = 0;
     while (
       yieldedForBudget &&
       midLoopCompactAttempts < overflowRecovery.maxAttempts &&
@@ -1137,13 +1138,20 @@ export async function runAgentLoopImpl(
         reqId,
         "Compacting context",
       );
+      // Do not pass `targetInputTokensOverride` here. The manager's
+      // configured post-compaction target (~50k on a 200k window by
+      // default) is tight enough to force pickKeepBoundary to choose a
+      // real summarize boundary. A looser override (e.g. preflightBudget
+      // at ~170k) lets pickKeepBoundary decide "all turns already fit,
+      // keep everything" and take the truncate-only early-exit branch,
+      // which returns compacted:true with 0 summarized messages and
+      // makes mid-loop compaction a silent no-op.
       const midLoopCompact = await ctx.contextWindowManager.maybeCompact(
         ctx.messages,
         abortController.signal,
         {
           lastCompactedAt: ctx.contextCompactedAt ?? undefined,
           force: true,
-          targetInputTokensOverride: preflightBudget,
         },
       );
       if (midLoopCompact.compacted) {
@@ -1188,6 +1196,38 @@ export async function runAgentLoopImpl(
         );
         ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
         shouldInjectWorkspace = true;
+      }
+
+      // Guardrail: if compaction returned without summarizing any persisted
+      // messages twice in a row, further mid-loop attempts will likely also
+      // be no-ops (same history, same config). Break out early and let the
+      // convergence loop's later reducer tiers (tool-result truncation,
+      // media stubbing, injection downgrade) take over instead of burning
+      // all maxAttempts on no-ops.
+      if (midLoopCompact.compactedPersistedMessages === 0) {
+        consecutiveNoOpCompactions++;
+        if (consecutiveNoOpCompactions >= 2) {
+          rlog.warn(
+            {
+              phase: "mid-loop-compact",
+              midLoopCompactAttempts,
+              consecutiveNoOpCompactions,
+            },
+            "Mid-loop compaction produced no persisted-message reductions twice in a row — escalating to convergence loop",
+          );
+          state.contextTooLargeDetected = true;
+          // Preserve any truncation work compaction did this pass: the
+          // convergence entry at line ~1318 overwrites ctx.messages from
+          // updatedHistory when `updatedHistory.length > preRunHistoryLength`,
+          // which would discard tool-result truncation we already applied.
+          // Sync updatedHistory / preRunHistoryLength to the post-compaction
+          // state so convergence picks up where we left off.
+          updatedHistory = ctx.messages;
+          preRunHistoryLength = ctx.messages.length;
+          break;
+        }
+      } else {
+        consecutiveNoOpCompactions = 0;
       }
 
       // Re-inject runtime context and re-enter the agent loop.
@@ -1484,7 +1524,16 @@ export async function runAgentLoopImpl(
           });
 
           if (approval.approved) {
-            // User approved — force emergency compaction with aggressive settings
+            // User approved — force emergency compaction with aggressive settings.
+            // `correctedTarget` is only passed when the provider's error
+            // exposed an actual token count larger than our estimate; in
+            // that case the corrected value is strictly below the
+            // manager's configured target (safe per the
+            // targetInputTokensOverride contract). Without a correction
+            // it falls back to `preflightBudget`, which is too loose and
+            // would turn compaction into a no-op — so omit the override
+            // in that case.
+            const shouldOverrideTarget = correctedTarget < preflightBudget;
             const emergencyCompact =
               await ctx.contextWindowManager.maybeCompact(
                 ctx.messages,
@@ -1493,7 +1542,9 @@ export async function runAgentLoopImpl(
                   lastCompactedAt: ctx.contextCompactedAt ?? undefined,
                   force: true,
                   minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
+                  ...(shouldOverrideTarget
+                    ? { targetInputTokensOverride: correctedTarget }
+                    : {}),
                 },
               );
             if (emergencyCompact.compacted) {
@@ -1602,13 +1653,17 @@ export async function runAgentLoopImpl(
             state.providerErrorUserMessage = null;
           }
         } else if (action === "auto_compress_latest_turn") {
-          // Non-interactive — auto-compress without asking
+          // Non-interactive — auto-compress without asking.
+          // See comment above on the corrected-target gating: only pass
+          // the override when the provider-reported error gave us a
+          // strictly-lower target than preflightBudget.
           ctx.emitActivityState(
             "thinking",
             "context_compacting",
             "assistant_turn",
             reqId,
           );
+          const shouldOverrideTarget = correctedTarget < preflightBudget;
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,
             abortController.signal,
@@ -1616,7 +1671,9 @@ export async function runAgentLoopImpl(
               lastCompactedAt: ctx.contextCompactedAt ?? undefined,
               force: true,
               minKeepRecentUserTurns: 0,
-              targetInputTokensOverride: correctedTarget,
+              ...(shouldOverrideTarget
+                ? { targetInputTokensOverride: correctedTarget }
+                : {}),
             },
           );
           if (emergencyCompact.compacted) {

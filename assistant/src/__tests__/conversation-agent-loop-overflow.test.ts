@@ -457,7 +457,12 @@ function makeCtx(
 
     graphMemory: {
       onCompacted: () => {},
-      prepareMemory: async () => ({ runMessages: [], injectedTokens: 0, latencyMs: 0, mode: "none" as const }),
+      prepareMemory: async () => ({
+        runMessages: [],
+        injectedTokens: 0,
+        latencyMs: 0,
+        mode: "none" as const,
+      }),
       reinjectCachedMemory: (messages: Message[]) => ({
         runMessages: messages,
         injectedTokens: 0,
@@ -2081,5 +2086,285 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationError).toBeUndefined();
+  });
+
+  // ── Test 10 ───────────────────────────────────────────────────────
+  // Regression: mid-loop compaction must NOT pass
+  // `targetInputTokensOverride: preflightBudget` to maybeCompact.
+  //
+  // When the override was ~170k on a 200k window, pickKeepBoundary
+  // decided "all turns already fit, keep everything" and took the
+  // truncate-only early-exit — returning compacted:true with 0
+  // summarized messages. That turned mid-loop compaction into a
+  // silent no-op and let conversations balloon past the provider
+  // cap. The fix omits the override so the manager falls back to its
+  // configured `targetInputTokens` (~50k).
+  test("mid-loop compaction does not pass targetInputTokensOverride", async () => {
+    const events: ServerMessage[] = [];
+    const capturedOptions: unknown[] = [];
+
+    // Preflight = below budget (no preflight compaction); checkpoint
+    // above mid-loop threshold to trigger mid-loop compaction.
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      if (estimateCallCount === 1) return 100_000;
+      return 170_000;
+    };
+
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `tool ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "out",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: `tool ${agentLoopCallCount}` }],
+        },
+      });
+
+      if (onCheckpoint) {
+        const decision = onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+        if (decision === "yield") return withProgress;
+      }
+      return withProgress;
+    };
+
+    mockReducerStepFn = (msgs: Message[]) => ({
+      messages: msgs,
+      tier: "forced_compaction",
+      state: {
+        appliedTiers: ["forced_compaction"],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      estimatedTokens: 80_000,
+    });
+
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal | undefined,
+          options: unknown,
+        ) => {
+          capturedOptions.push(options);
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 100_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // Isolate mid-loop calls from the pre-turn auto-compact at line 535
+    // (which is invoked unconditionally without `force`).
+    const midLoopCalls = capturedOptions.filter((opts) => {
+      const o = opts as { force?: boolean };
+      return o.force === true;
+    });
+    expect(midLoopCalls.length).toBeGreaterThan(0);
+
+    // No call — mid-loop or otherwise — may pass
+    // `targetInputTokensOverride` via this path. Doing so was the bug
+    // that made compaction a silent no-op.
+    for (const opts of capturedOptions) {
+      const o = opts as { targetInputTokensOverride?: number };
+      expect(o.targetInputTokensOverride).toBeUndefined();
+    }
+  });
+
+  // ── Test 11 ───────────────────────────────────────────────────────
+  // Guardrail: when mid-loop compaction returns
+  // compactedPersistedMessages: 0 twice in a row, the loop must break
+  // out early and escalate to the convergence reducer rather than
+  // burning the remaining maxAttempts on more no-ops.
+  test("two consecutive no-op compactions escalate to convergence", async () => {
+    const events: ServerMessage[] = [];
+
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      if (estimateCallCount === 1) return 100_000;
+      return 170_000;
+    };
+
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (
+      messages,
+      onEvent,
+      _signal,
+      _requestId,
+      onCheckpoint,
+    ) => {
+      agentLoopCallCount++;
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `tool ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "out",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: `tool ${agentLoopCallCount}` }],
+        },
+      });
+
+      if (onCheckpoint) {
+        const decision = onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+        if (decision === "yield") return withProgress;
+      }
+      return withProgress;
+    };
+
+    let convergenceReducerCalled = false;
+    mockReducerStepFn = (msgs: Message[]) => {
+      convergenceReducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 80_000,
+      };
+    };
+
+    // Mid-loop compaction always returns compactedPersistedMessages: 0
+    // — simulating the truncate-only no-op path. `midLoopCompactionCount`
+    // counts only the forced (mid-loop) calls so we ignore the pre-turn
+    // auto-compact at line 535 which is invoked without `force`.
+    let midLoopCompactionCount = 0;
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal | undefined,
+          options: unknown,
+        ) => {
+          const opts = options as { force?: boolean };
+          if (opts?.force === true) midLoopCompactionCount++;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 0,
+            summaryText: "",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 168_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 0,
+            summaryCalls: 0,
+            summaryInputTokens: 0,
+            summaryOutputTokens: 0,
+            summaryModel: "",
+          };
+        },
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // Without the guardrail: 3 mid-loop attempts would fire (maxAttempts).
+    // With the guardrail: break after 2 consecutive no-ops → 2 attempts.
+    expect(midLoopCompactionCount).toBe(2);
+
+    // After breaking out, the convergence reducer must take over.
+    expect(convergenceReducerCalled).toBe(true);
   });
 });
