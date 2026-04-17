@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
     var conversationManager: ConversationManager
-    @ObservedObject var windowState: MainWindowState
+    var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false
     let selectConversation: (ConversationModel) -> Void

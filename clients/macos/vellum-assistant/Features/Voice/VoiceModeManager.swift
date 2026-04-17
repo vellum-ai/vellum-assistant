@@ -6,8 +6,15 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceModeManager")
 
+/// Voice-mode state model.
+///
+/// Uses the `@Observable` macro for property-level SwiftUI tracking — views
+/// reading only `state` no longer re-evaluate on transcription deltas, and
+/// synchronous property mutations inside `handleStateTransition` no longer
+/// cause re-entrant `AttributeGraph` cascades.
 @MainActor
-final class VoiceModeManager: ObservableObject {
+@Observable
+final class VoiceModeManager {
     /// Override set via `client_settings_update` from the daemon.
     /// When non-nil, used instead of the default 30-second conversation timeout.
     static var conversationTimeoutOverride: Int?
@@ -16,53 +23,53 @@ final class VoiceModeManager: ObservableObject {
         case off, idle, listening, processing, speaking
     }
 
-    @Published var state: State = .off {
+    var state: State = .off {
         didSet { handleStateTransition(from: oldValue, to: state) }
     }
-    @Published var partialTranscription: String = ""
-    @Published var liveTranscription: String = ""
-    @Published var errorMessage: String = ""
+    var partialTranscription: String = ""
+    var liveTranscription: String = ""
+    var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
     /// (as opposed to manual deactivation).
-    @Published var wasAutoDeactivated: Bool = false
+    var wasAutoDeactivated: Bool = false
 
     /// How long to wait in `.idle` before auto-deactivating voice mode.
-    var conversationTimeoutInterval: TimeInterval = 30
+    @ObservationIgnored var conversationTimeoutInterval: TimeInterval = 30
 
-    let voiceService: any VoiceServiceProtocol
+    @ObservationIgnored let voiceService: any VoiceServiceProtocol
 
     /// Adapter for speech recognition authorization checks.
     /// Injected separately from `voiceService` so VoiceModeManager does not
     /// need to know about `OpenAIVoiceService` or any concrete voice service type.
-    private let speechRecognizerAdapter: any SpeechRecognizerAdapter
+    @ObservationIgnored private let speechRecognizerAdapter: any SpeechRecognizerAdapter
 
-    /// Typed accessor for UI views that need @Published properties (amplitude, speakingAmplitude).
+    /// Typed accessor for UI views that need observed amplitude properties.
     var openAIVoiceService: OpenAIVoiceService? {
         voiceService as? OpenAIVoiceService
     }
 
-    weak var chatViewModel: ChatViewModel?
-    private weak var settingsStore: SettingsStore?
-    private var previousOnVoiceResponseComplete: ((String) -> Void)?
-    private var previousOnVoiceTextDelta: ((String) -> Void)?
+    @ObservationIgnored weak var chatViewModel: ChatViewModel?
+    @ObservationIgnored private weak var settingsStore: SettingsStore?
+    @ObservationIgnored private var previousOnVoiceResponseComplete: ((String) -> Void)?
+    @ObservationIgnored private var previousOnVoiceTextDelta: ((String) -> Void)?
     /// Guards against async auth callback activating after the panel is closed.
-    private var awaitingAuthorization = false
+    @ObservationIgnored private var awaitingAuthorization = false
     /// Safety timeout to recover from stuck TTS.
-    private var ttsTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
-    private var conversationTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var conversationTimeoutTask: Task<Void, Never>?
     /// When true, `handleStateTransition` will not re-arm the conversation
     /// timeout on transitions to `.idle`. Used during CU escalation so that
     /// `speakTransient`'s completion (which sets state to `.idle`) does not
     /// prematurely restart the 30s timer while the CU session is still running.
-    private var conversationTimeoutPaused = false
+    @ObservationIgnored private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
-    var pendingPermissionIds: [String] = []
+    @ObservationIgnored var pendingPermissionIds: [String] = []
     /// Generation counter controlling the lifetime of the voice-service observation loop.
-    private var voiceObservationGeneration: Int = 0
+    @ObservationIgnored private var voiceObservationGeneration: Int = 0
     /// Last observed value from the isThinking observation loop, used to
     /// deduplicate redundant same-value writes and only act on actual transitions.
-    private var lastObservedIsThinking: Bool = false
+    @ObservationIgnored private var lastObservedIsThinking: Bool = false
 
     init(
         voiceService: any VoiceServiceProtocol = OpenAIVoiceService(),

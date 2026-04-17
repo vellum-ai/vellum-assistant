@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Sparkle
 import VellumAssistantShared
 import os
@@ -9,39 +10,45 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Updat
 ///
 /// The appcast URL points to the public releases repo where CI publishes
 /// signed ZIPs alongside an `appcast.xml`.
+///
+/// Uses the `@Observable` macro for property-level SwiftUI tracking. Sparkle
+/// delegate callbacks (e.g. `didFindValidUpdate`) write multiple properties
+/// synchronously; with `@Observable` this no longer triggers re-entrant
+/// `objectWillChange.send()` cascades through the AttributeGraph.
 @MainActor
-public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate {
+@Observable
+public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
-    private var updaterController: SPUStandardUpdaterController!
+    @ObservationIgnored private var updaterController: SPUStandardUpdaterController!
 
-    @Published public private(set) var isUpdateAvailable = false
-    @Published public private(set) var isDeferredUpdateReady = false
-    @Published public private(set) var availableUpdateVersion: String?
+    public private(set) var isUpdateAvailable = false
+    public private(set) var isDeferredUpdateReady = false
+    public private(set) var availableUpdateVersion: String?
 
     /// The version string of the update that Sparkle has found and is about to
     /// install.  Set in `didFindValidUpdate` so the pre-update hook can include
     /// the target version in progress broadcasts and workspace commits.
-    @Published public var pendingUpdateVersion: String?
+    public var pendingUpdateVersion: String?
 
     /// Whether a newer service group release is available for Docker/managed topologies.
-    @Published public private(set) var isServiceGroupUpdateAvailable = false
+    public private(set) var isServiceGroupUpdateAvailable = false
     /// The version string of the available service group update, if any.
-    @Published public private(set) var serviceGroupUpdateVersion: String?
+    public private(set) var serviceGroupUpdateVersion: String?
 
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.  Async to allow best-effort
     /// backup and progress broadcasts before shutdown.
-    var onWillInstallUpdate: (() async -> Void)?
+    @ObservationIgnored var onWillInstallUpdate: (() async -> Void)?
 
     /// Timer for periodic service group update checks (Docker/managed topologies).
-    private var serviceGroupCheckTimer: Timer?
+    @ObservationIgnored private var serviceGroupCheckTimer: Timer?
 
     /// Lock-protected storage for the deferred install handler.  Written from
     /// any thread by the Sparkle delegate callback and read on MainActor by
     /// `installDeferredUpdateIfAvailable()`.  Using `OSAllocatedUnfairLock`
     /// eliminates the race between an async `Task` hop and a synchronous
     /// `applicationWillTerminate` call.
-    private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
+    @ObservationIgnored private let deferredInstallLock = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
 
     override init() {
         super.init()
@@ -93,7 +100,11 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             // Race: delegate callback vs timeout
             group.addTask { @MainActor [weak self] in
                 guard let self else { return false }
-                for await value in self.$isUpdateAvailable.values.dropFirst() {
+                // `observationStream` yields the current value immediately, so
+                // skip it with `.dropFirst()` to wait for an actual Sparkle
+                // transition (matches the previous `$isUpdateAvailable.values.dropFirst()`
+                // Combine projection behavior).
+                for await value in observationStream({ self.isUpdateAvailable }).dropFirst() {
                     return value
                 }
                 return false

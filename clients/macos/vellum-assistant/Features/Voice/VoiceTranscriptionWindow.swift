@@ -4,7 +4,7 @@ import SwiftUI
 
 struct VoiceTranscriptionView: View {
     @State private var appearance = AvatarAppearanceManager.shared
-    @ObservedObject var voiceModeManager: VoiceModeManager
+    var voiceModeManager: VoiceModeManager
 
     private let circleSize: CGFloat = 80
 

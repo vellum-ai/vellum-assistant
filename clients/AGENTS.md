@@ -165,7 +165,7 @@ private func observeChild() {
     }
 }
 ```
-See `MainWindowState.observeNavigationHistory()` for a production example.
+Prefer migrating the parent to `@Observable` so the bridge becomes unnecessary (reading an `@Observable` child's properties from views naturally tracks through the nested chain).
 
 **Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 

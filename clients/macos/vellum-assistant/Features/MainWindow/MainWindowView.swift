@@ -18,8 +18,13 @@ struct MainWindowView: View {
     /// LogsTabContent itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
     let usageDashboardStore: UsageDashboardStore
-    @ObservedObject var windowState: MainWindowState
-    @ObservedObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
+    /// Plain `var` properties instead of `@ObservedObject`. All four managers
+    /// below are `@Observable`, so SwiftUI tracks only the specific properties
+    /// read inside `body` (and inside the modifier chain). This prevents full
+    /// `MainWindowView.body` re-evaluation on every `@Published` mutation that
+    /// the previous `ObservableObject` design required.
+    var windowState: MainWindowState
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
@@ -56,8 +61,8 @@ struct MainWindowView: View {
     let authManager: AuthManager
     let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
-    @ObservedObject var voiceModeManager: VoiceModeManager
-    @ObservedObject var updateManager: UpdateManager
+    var voiceModeManager: VoiceModeManager
+    var updateManager: UpdateManager
 
     /// Callback to send the wake-up greeting after the "coming alive" transition.
     /// Nil for returning users (no transition).

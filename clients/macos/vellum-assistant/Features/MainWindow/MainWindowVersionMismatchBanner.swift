@@ -6,7 +6,7 @@ import VellumAssistantShared
 /// `MainWindowView` don't force this overlay to re-evaluate.
 struct MainWindowVersionMismatchBanner: View {
     var connectionManager: GatewayConnectionManager
-    @ObservedObject var updateManager: UpdateManager
+    var updateManager: UpdateManager
     let settingsStore: SettingsStore
     let windowState: MainWindowState
 
