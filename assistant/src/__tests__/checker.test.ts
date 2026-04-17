@@ -1131,7 +1131,10 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("web_fetch allowHighRisk rule can approve private-network fetches", async () => {
+    test("web_fetch allowHighRisk is stripped by canonicalization so private-network fetches still prompt", async () => {
+      // URL-family tools (web_fetch) have allowHighRisk stripped by addRule's
+      // canonical parser. High-risk private-network fetches cannot be
+      // auto-approved via allowHighRisk on URL rules.
       addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
@@ -1145,7 +1148,7 @@ describe("Permission Checker", () => {
         { url: "http://localhost:3000/health", allow_private_network: true },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
+      expect(result.decision).toBe("prompt");
     });
 
     test("web_fetch exact allowlist pattern matches query urls literally", async () => {
@@ -2456,9 +2459,9 @@ describe("Permission Checker", () => {
       expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
     });
 
-    test("URL tool (web_fetch) has allowHighRisk stripped after disk round-trip", () => {
-      // addRule stores allowHighRisk in-memory even for URL tools,
-      // but the canonical parser strips it when loading from disk.
+    test("URL tool (web_fetch) has allowHighRisk stripped immediately by addRule", () => {
+      // addRule canonicalizes through parseTrustRule, which strips
+      // allowHighRisk for URL-family tools both in-memory and on disk.
       const rule = addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
@@ -2467,10 +2470,10 @@ describe("Permission Checker", () => {
         100,
         { allowHighRisk: true },
       );
-      // In-memory rule still has allowHighRisk (not yet parsed)
-      expect(rule.allowHighRisk).toBe(true);
+      // allowHighRisk is stripped immediately by addRule's canonicalization
+      expect(rule.allowHighRisk).toBeUndefined();
 
-      // Force a disk round-trip
+      // Force a disk round-trip — still stripped
       clearCache();
       const reloaded = findHighestPriorityRule(
         "web_fetch",
@@ -2713,7 +2716,9 @@ describe("Permission Checker", () => {
       expect(result.reason).not.toContain("high-risk");
     });
 
-    test("high-risk scaffold_managed_skill with allowHighRisk: true returns allow", async () => {
+    test("high-risk scaffold_managed_skill with allowHighRisk: true still prompts (managed-skill family strips allowHighRisk)", async () => {
+      // Managed-skill tools have allowHighRisk stripped by addRule's canonical
+      // parser. They are always High risk and cannot be auto-approved.
       addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
@@ -2727,11 +2732,12 @@ describe("Permission Checker", () => {
         { skill_id: "my-skill" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
+      expect(result.decision).toBe("prompt");
     });
 
-    test("high-risk delete_managed_skill with allowHighRisk: true returns allow", async () => {
+    test("high-risk delete_managed_skill with allowHighRisk: true still prompts (managed-skill family strips allowHighRisk)", async () => {
+      // Managed-skill tools have allowHighRisk stripped by addRule's canonical
+      // parser. They are always High risk and cannot be auto-approved.
       addRule(
         "delete_managed_skill",
         "delete_managed_skill:*",
@@ -2745,8 +2751,7 @@ describe("Permission Checker", () => {
         { skill_id: "any-skill" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
+      expect(result.decision).toBe("prompt");
     });
 
     test("deny rule still takes precedence over allowHighRisk allow rule", async () => {
@@ -2829,8 +2834,10 @@ describe("Permission Checker", () => {
       expect(result.reason).toContain("deny rule");
     });
 
-    test("strict mode: scaffold_managed_skill with allowHighRisk auto-allows", async () => {
+    test("strict mode: scaffold_managed_skill with allowHighRisk still prompts (managed-skill family strips allowHighRisk)", async () => {
       testConfig.permissions.mode = "strict";
+      // Managed-skill tools have allowHighRisk stripped by addRule's canonical
+      // parser. Even in strict mode, they cannot be auto-approved.
       addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
@@ -2844,8 +2851,7 @@ describe("Permission Checker", () => {
         { skill_id: "my-skill" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
+      expect(result.decision).toBe("prompt");
     });
 
     test("strict mode: scaffold_managed_skill without allowHighRisk still prompts", async () => {

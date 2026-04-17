@@ -1014,9 +1014,11 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
 
       expect(res.status).toBe(200);
-      // Verify addRule was called without allowHighRisk (stripped by canonicalization)
+      // The route handler passes raw options through to addRule; canonicalization
+      // (stripping allowHighRisk for non-scoped families) now happens inside
+      // addRule itself. The mock captures pre-canonicalization args.
       expect(addRuleCalls).toHaveLength(1);
-      expect(addRuleCalls[0].options?.allowHighRisk).toBeUndefined();
+      expect(addRuleCalls[0].options?.allowHighRisk).toBe(true);
 
       await stopServer();
     });
