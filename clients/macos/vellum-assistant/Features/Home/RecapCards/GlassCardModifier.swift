@@ -51,12 +51,7 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(VColor.glassFill)
-                }
-            )
+            .background(backgroundFill)
             .overlay(
                 GeometryReader { proxy in
                     ZStack {
@@ -74,6 +69,33 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
             )
             .clipShape(shape)
             .shadow(color: VColor.glassDropShadow, radius: 6, x: 0, y: 4)
+    }
+
+    /// Card fill, branched per color scheme.
+    ///
+    /// Dark mode keeps the `.ultraThinMaterial + glassFill` stack: real
+    /// backdrop blur matters over dark/varied content, and Material's rim
+    /// is invisible against the existing bright edge stroke.
+    ///
+    /// Light mode uses a solid `surfaceLift` fill instead. Material
+    /// produces a faint grey rim where it meets the surrounding canvas,
+    /// which in light mode (where our edge stroke is clear everywhere
+    /// except the TL corner + adjacent edges) shows through as a grey
+    /// outline around the rest of the border. Dropping Material here
+    /// removes the rim at the cost of backdrop blur — an acceptable
+    /// trade since the light-mode backdrop is near-white and blur was
+    /// contributing very little visually.
+    @ViewBuilder
+    private var backgroundFill: some View {
+        switch colorScheme {
+        case .dark:
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(VColor.glassFill)
+            }
+        default:
+            shape.fill(VColor.surfaceLift)
+        }
     }
 
     /// Aspect-ratio-aware angular gradient for the edge-highlight stroke.
