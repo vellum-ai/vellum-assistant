@@ -92,10 +92,29 @@ public struct VSelectableTextView: NSViewRepresentable {
     @MainActor private static var measurementSizeCache: [MeasurementKey: CGSize] = [:]
     @MainActor private static let measurementCacheLimit = 256
 
+    /// Retains the `NSAttributedString` reference so `Dictionary` lookups fall
+    /// through to `NSAttributedString.isEqual(_:)` for exact content
+    /// comparison instead of trusting `hash` alone as a content surrogate.
+    /// `NSAttributedString.hash` is not documented to cover the full 64-bit
+    /// space and may summarize only a subset of content/attributes, so using
+    /// the hash as the sole identity key would allow hash collisions to
+    /// surface as wrong-height chat bubbles.
     private struct MeasurementKey: Hashable {
-        let attributedHash: Int
+        let attributedString: NSAttributedString
         let maxWidth: CGFloat
         let lineSpacing: CGFloat
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(attributedString.hash)
+            hasher.combine(maxWidth)
+            hasher.combine(lineSpacing)
+        }
+
+        static func == (lhs: MeasurementKey, rhs: MeasurementKey) -> Bool {
+            lhs.maxWidth == rhs.maxWidth
+                && lhs.lineSpacing == rhs.lineSpacing
+                && lhs.attributedString.isEqual(rhs.attributedString)
+        }
     }
 
     /// Precomputes the layout size for a given attributed string at a given
@@ -104,8 +123,9 @@ public struct VSelectableTextView: NSViewRepresentable {
     /// `.frame(width:height:)` to avoid `sizeThatFits` being called during
     /// the `LazyVStack` layout pass.
     ///
-    /// Results are cached by `(attributedString.hash, maxWidth, lineSpacing)`
-    /// so repeat calls with identical inputs skip `ensureLayout` entirely.
+    /// Results are cached by the attributed string (compared via
+    /// `isEqual(_:)`), wrapping width, and line spacing, so repeat calls with
+    /// identical inputs skip `ensureLayout` entirely.
     @MainActor
     public static func measureSize(
         attributedString: NSAttributedString,
@@ -113,7 +133,7 @@ public struct VSelectableTextView: NSViewRepresentable {
         maxWidth: CGFloat
     ) -> CGSize {
         let key = MeasurementKey(
-            attributedHash: attributedString.hash,
+            attributedString: attributedString,
             maxWidth: maxWidth,
             lineSpacing: lineSpacing
         )
