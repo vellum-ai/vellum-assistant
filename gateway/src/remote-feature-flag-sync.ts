@@ -119,6 +119,11 @@ export class RemoteFeatureFlagSync {
    * steady-state interval after this fetch completes.
    */
   async syncNow(): Promise<void> {
+    // Re-entrancy guard: if a syncNow is already in-flight (e.g. triggered
+    // by onInvalidate callback during a wake that also calls syncNow
+    // explicitly), skip to avoid leaking duplicate poll timers.
+    if (this.syncNowActive) return;
+
     // Guard: tell poll()'s .finally() not to reschedule — we'll handle it.
     this.syncNowActive = true;
 
