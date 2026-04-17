@@ -24,6 +24,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
     case chat = "Chat"
     case display = "Display"
     case feedback = "Feedback"
+    case home = "Home"
     case icons = "Icons"
     case inputs = "Inputs"
     case layout = "Layout"
@@ -39,6 +40,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .chat: return .messagesSquare
         case .display: return .layers
         case .feedback: return .bell
+        case .home: return .house
         case .icons: return .puzzle
         case .inputs: return .pencil
         case .layout: return .panelLeft
@@ -96,6 +98,18 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vSkillTypePill", "VSkillTypePill", keywords: ["skill type", "pill"], description: "Colored pill showing a skill type category."),
                 GalleryComponent("vInfoTooltip", "VInfoTooltip", keywords: ["info", "tooltip"], description: "Info icon with hover tooltip for contextual help text."),
                 GalleryComponent("vContextWindowIndicator", "VContextWindowIndicator", keywords: ["context window", "progress", "ring"], description: "Circular ring showing context window fill level with hover popover."),
+            ]
+        case .home:
+            return [
+                GalleryComponent("recapPill", "RecapPillView", keywords: ["pill", "chip", "inline", "recap"], description: "Inline interactive pill for recap text"),
+                GalleryComponent("homeAuthCard", "HomeAuthCard", keywords: ["auth", "authorise", "deny", "payment"], description: "Payment authorisation action card"),
+                GalleryComponent("homePermissionCard", "HomePermissionCard", keywords: ["permission", "tool", "action"], description: "Tool permission request card"),
+                GalleryComponent("homeAssistantCard", "HomeAssistantCard", keywords: ["assistant", "a2a", "agent"], description: "Assistant-to-assistant message card"),
+                GalleryComponent("homeReplyCard", "HomeReplyCard", keywords: ["reply", "composer", "input"], description: "Reply prompt with inline composer"),
+                GalleryComponent("homeEmailPreviewCard", "HomeEmailPreviewCard", keywords: ["email", "draft", "preview"], description: "Email draft preview card"),
+                GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
+                GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
+                GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
             ]
         case .icons:
             return [
@@ -163,6 +177,11 @@ enum GalleryPage: Hashable {
 // MARK: - Gallery View
 
 struct ComponentGalleryView: View {
+    /// Registry for platform-specific gallery overview sections (e.g. macOS-only Home components).
+    nonisolated(unsafe) static var externalOverviewFactories: [String: () -> AnyView] = [:]
+    /// Registry for platform-specific gallery component detail pages.
+    nonisolated(unsafe) static var externalComponentPageFactories: [String: (String) -> AnyView] = [:]
+
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
@@ -280,7 +299,7 @@ struct ComponentGalleryView: View {
             .id(selectedPage)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.surfaceOverlay)
+            .background(VColor.surfaceBase)
         }
     }
 
@@ -357,6 +376,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection()
         case .display: DisplayGallerySection()
         case .feedback: FeedbackGallerySection()
+        case .home:
+            if let factory = ComponentGalleryView.externalOverviewFactories["home"] {
+                factory()
+            }
         case .icons: IconsGallerySection()
         case .inputs: InputsGallerySection()
         case .layout: LayoutGallerySection()
@@ -373,6 +396,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection.componentPage(componentID)
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
+        case .home:
+            if let factory = ComponentGalleryView.externalComponentPageFactories["home"] {
+                factory(componentID)
+            }
         case .icons: IconsGallerySection.componentPage(componentID)
         case .inputs: InputsGallerySection.componentPage(componentID)
         case .layout: LayoutGallerySection.componentPage(componentID)
@@ -491,6 +518,19 @@ struct GalleryOverview: View {
 
         Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
     }
+}
+
+/// Register an external gallery overview factory for a category.
+/// Used by platform-specific targets to inject gallery sections for
+/// categories whose components live outside the shared module.
+public func registerGalleryOverview(for categoryKey: String, factory: @escaping () -> AnyView) {
+    ComponentGalleryView.externalOverviewFactories[categoryKey] = factory
+}
+
+/// Register an external gallery component page factory for a category.
+/// Used by platform-specific targets to inject component detail pages.
+public func registerGalleryComponentPage(for categoryKey: String, factory: @escaping (String) -> AnyView) {
+    ComponentGalleryView.externalComponentPageFactories[categoryKey] = factory
 }
 
 #endif
