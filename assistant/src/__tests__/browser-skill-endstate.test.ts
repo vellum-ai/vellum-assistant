@@ -10,6 +10,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
 }));
 
+import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   projectSkillTools,
@@ -26,7 +27,6 @@ import { eagerModuleToolNames } from "../tools/tool-manifest.js";
 import {
   BROWSER_SKILL_ID,
   BROWSER_TOOL_COUNT,
-  BROWSER_TOOL_NAMES,
   buildSkillLoadHistory,
 } from "./test-support/browser-skill-harness.js";
 
@@ -44,37 +44,20 @@ describe("browser skill migration end-state", () => {
     await initializeTools();
   });
 
-  const BROWSER_TOOLS = [
-    "browser_navigate",
-    "browser_snapshot",
-    "browser_screenshot",
-    "browser_close",
-    "browser_attach",
-    "browser_detach",
-    "browser_click",
-    "browser_type",
-    "browser_press_key",
-    "browser_scroll",
-    "browser_select_option",
-    "browser_hover",
-    "browser_wait_for",
-    "browser_extract",
-    "browser_wait_for_download",
-    "browser_fill_credential",
-    "browser_status",
-  ] as const;
+  // Browser tool names sourced from the shared browser operations contract
+  // (BROWSER_TOOL_NAMES) — no independent list maintained here.
 
   // ── 1. Startup payload excludes browser tools ──────────────────────
 
   test("browser tools are NOT in startup core registry", () => {
     const toolNames = getAllTools().map((t) => t.name);
-    for (const name of BROWSER_TOOLS) {
+    for (const name of BROWSER_TOOL_NAMES) {
       expect(toolNames).not.toContain(name);
     }
   });
 
   test("browser tool names are NOT in eagerModuleToolNames", () => {
-    for (const name of BROWSER_TOOLS) {
+    for (const name of BROWSER_TOOL_NAMES) {
       expect(eagerModuleToolNames).not.toContain(name);
     }
   });
@@ -89,7 +72,7 @@ describe("browser skill migration end-state", () => {
     expect(definitions.length).toBeLessThanOrEqual(50);
 
     const defNames = definitions.map((d) => d.name);
-    for (const name of BROWSER_TOOLS) {
+    for (const name of BROWSER_TOOL_NAMES) {
       expect(defNames).not.toContain(name);
     }
 
@@ -122,9 +105,9 @@ describe("browser skill migration end-state", () => {
     );
     const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
     expect(manifest.version).toBe(1);
-    expect(manifest.tools).toHaveLength(BROWSER_TOOLS.length);
+    expect(manifest.tools).toHaveLength(BROWSER_TOOL_NAMES.length);
     const toolNames = manifest.tools.map((t: { name: string }) => t.name);
-    for (const name of BROWSER_TOOLS) {
+    for (const name of BROWSER_TOOL_NAMES) {
       expect(toolNames).toContain(name);
     }
   });
@@ -160,7 +143,7 @@ describe("browser skill migration end-state", () => {
 
   test("all browser tools have default allow rules", () => {
     const templates = getDefaultRuleTemplates();
-    for (const tool of BROWSER_TOOLS) {
+    for (const tool of BROWSER_TOOL_NAMES) {
       const rule = templates.find(
         (t) => t.id === `default:allow-${tool}-global`,
       );
@@ -219,7 +202,7 @@ describe("browser skill migration end-state", () => {
     const content = fs.readFileSync(execPath, "utf-8");
     // browser_wait_for_download uses a standalone wrapper that calls
     // browserManager.waitForDownload() directly — no execute* function.
-    const TOOLS_WITH_EXECUTE_FN = BROWSER_TOOLS.filter(
+    const TOOLS_WITH_EXECUTE_FN = BROWSER_TOOL_NAMES.filter(
       (name) => name !== "browser_wait_for_download",
     );
     for (const name of TOOLS_WITH_EXECUTE_FN) {

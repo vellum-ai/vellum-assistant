@@ -50,6 +50,20 @@ export const BROWSER_OPERATION_NAMES: readonly BrowserOperation[] =
 
 /**
  * All `browser_*` tool names derived from operation identifiers.
+ *
+ * These names are the LLM-facing tool aliases registered by the browser
+ * skill wrappers. They are compatibility adapters: the canonical
+ * identifiers are the operation names in {@link BROWSER_OPERATIONS},
+ * and the `browser_*` prefix is a naming convention for the tool layer.
+ * When the `browser_*` tool wrappers are eventually removed, this
+ * derived list can be dropped — the CLI and operations layer only need
+ * {@link BROWSER_OPERATIONS} and {@link BROWSER_OPERATION_META}.
+ *
+ * Consumed by:
+ *   - Permission default rules (permissions/defaults.ts)
+ *   - Workspace policy classification (permissions/workspace-policy.ts)
+ *   - Side-effect tool classification (tools/side-effects.ts)
+ *   - Test harnesses and parity guards
  */
 export const BROWSER_TOOL_NAMES: readonly string[] = BROWSER_OPERATIONS.map(
   (op) => `browser_${op}`,
