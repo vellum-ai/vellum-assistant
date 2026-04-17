@@ -288,7 +288,7 @@ jobs:
           retention-days: 90
 
   publish-chrome-extension:
-    needs: [extract-version, build-chrome-extension]
+    needs: [extract-version, build-chrome-extension, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: >-
       needs.extract-version.outputs.chrome_extension_changed == 'true'
       && needs.extract-version.outputs.is_staging == 'false'
@@ -1112,7 +1112,8 @@ jobs:
           echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
-    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
+    if: ${{ always() && !cancelled() && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && (needs.extract-version.outputs.is_staging == 'true' || needs.push-dockerhub-image.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -1290,7 +1291,7 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: [extract-version, ci-cli, ci-gateway, ci-playwright]
+    needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1327,7 +1328,7 @@ jobs:
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
-    needs: [extract-version, ci-cli]
+    needs: [extract-version, ci-cli, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1410,8 +1411,16 @@ jobs:
   # arm64 macOS build — builds Swift + Bun binaries in a single job,
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
+  #
+  # `needs:` gates on the three GCR service manifests. We intentionally do NOT
+  # list `push-dockerhub-image` here because this job runs in both staging
+  # and production, and `push-dockerhub-image` is prod-only (skipped in staging)
+  # — a skipped dep would cascade-skip this job in staging. The Docker Hub
+  # gate is applied downstream at the `release` job (GitHub Release), which
+  # is the sole publisher of the DMG produced here, and at `release-ios`
+  # for its sibling TestFlight publish.
   build-macos-arm64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1786,7 +1795,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -2131,7 +2140,7 @@ jobs:
 
   release:
     needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.register-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2363,9 +2372,10 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
-  # ci-assistant runs for visibility in the Slack notification but does not
-  # block the release. It is deliberately excluded from publish-npm's needs
-  # so that a failure here never gates downstream jobs.
+  # ci-assistant runs lint/typecheck/test for the assistant service. It also
+  # transitively gates the release pipeline because push-assistant-image and
+  # push-dockerhub-image depend on it — a failure here blocks Docker image
+  # builds, which in turn blocks npm publish, the macOS DMG, and GitHub Release.
   ci-assistant:
     needs: extract-version
     runs-on: ubuntu-latest-8-cores
@@ -2483,8 +2493,12 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  # iOS build — produces .ipa for TestFlight upload via release-ios.
+  # As with the macOS builds, `needs:` gates on GCR manifests only because
+  # this job runs in staging too; the Docker Hub gate lives on `release-ios`
+  # (prod-only), which is the sole external publisher of this .ipa.
   build-ios:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -2522,7 +2536,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [extract-version, build-ios]
+    needs: [extract-version, build-ios, push-dockerhub-image]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
