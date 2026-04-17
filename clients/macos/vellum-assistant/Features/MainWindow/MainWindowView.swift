@@ -500,15 +500,15 @@ struct MainWindowView: View {
                 ) {
                     if updateManager.isDeferredUpdateReady {
                         updateManager.installDeferredUpdateIfAvailable()
-                    } else if updateManager.isUpdateAvailable {
-                        // App update available — show the native update dialog directly,
-                        // bypassing AppDelegate's topology routing which would redirect
-                        // Docker/managed users to Settings instead.
-                        updateManager.checkForUpdates()
                     } else if updateManager.isServiceGroupUpdateAvailable {
-                        // Service group update only — navigate to Settings
+                        // Service group update available (possibly with app update too)
+                        // — navigate to Settings where the upgrade flow also triggers
+                        // the app update dialog when the client is behind.
                         settingsStore.pendingSettingsTab = .general
                         windowState.selection = .panel(.settings)
+                    } else if updateManager.isUpdateAvailable {
+                        // App update only — show the native update dialog directly.
+                        updateManager.checkForUpdates()
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
