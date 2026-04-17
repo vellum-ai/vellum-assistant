@@ -268,10 +268,10 @@ export class AgentLoop {
 
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
-        // can route through `resolveCallSiteConfig`. PRs 7-11 will switch
-        // individual callers from legacy `modelIntent`/hardcoded providers
-        // to call-site routing one at a time; until then the parameter is
-        // optional and absence preserves the legacy code path.
+        // can route through `resolveCallSiteConfig`. User-initiated
+        // conversation turns default to `mainAgent` in the agent loop's
+        // caller; other invocation contexts (heartbeat, filing, analyze,
+        // etc.) pass their own `callSite`.
         if (callSite) {
           providerConfig.callSite = callSite;
         }
