@@ -89,9 +89,7 @@ struct HomePageView<DetailPanel: View>: View {
             detailPanel()
                 .transition(.move(edge: .trailing).combined(with: .opacity))
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.top, VSpacing.lg)
-        .padding(.bottom, VSpacing.lg)
+        .padding(VSpacing.lg)
     }
 
     // MARK: - Content
