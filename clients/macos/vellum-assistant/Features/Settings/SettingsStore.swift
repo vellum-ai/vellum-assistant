@@ -2169,12 +2169,17 @@ public final class SettingsStore: ObservableObject {
 
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
+    ///
+    /// Inference provider/model are resolved from `llm.default.*` first
+    /// (the canonical unified-LLM location), falling back per-field to
+    /// `services.inference.{provider,model}` when the corresponding
+    /// `llm.default.*` field is absent. The fallback covers unmigrated
+    /// configs and early-return cases (missing config.json, malformed JSON,
+    /// fresh installs that pre-date the workspace migration). The
+    /// `services.inference.mode` field stays under `services` because it
+    /// is an inference-delivery setting (managed vs. your-own), orthogonal
+    /// to model selection.
     func loadServiceModes(config: [String: Any]) {
-        // Resolve inference provider/model from `llm.default.*` — the unified
-        // LLM config block is the only source of truth. The
-        // `services.inference.mode` field stays under `services` because it is
-        // an inference-delivery setting (managed vs. your-own), orthogonal to
-        // model selection.
         let services = config["services"] as? [String: Any]
         let llmDefault = (config["llm"] as? [String: Any])?["default"] as? [String: Any]
         let inference = services?["inference"] as? [String: Any]
@@ -2189,8 +2194,12 @@ public final class SettingsStore: ObservableObject {
         if lastDaemonProvider == nil {
             if let provider = llmDefault?["provider"] as? String {
                 self.selectedInferenceProvider = provider
+            } else if let provider = inference?["provider"] as? String {
+                self.selectedInferenceProvider = provider
             }
             if let model = llmDefault?["model"] as? String {
+                self.selectedModel = model
+            } else if let model = inference?["model"] as? String {
                 self.selectedModel = model
             }
         }

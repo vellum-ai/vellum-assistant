@@ -3,14 +3,10 @@ import { z } from "zod";
 /**
  * Unified LLM configuration schema.
  *
- * Defines the shape of the new top-level `llm` config block that consolidates
+ * Defines the shape of the top-level `llm` config block that consolidates
  * provider/model/effort/speed/thinking/contextWindow/pricingOverrides for all
- * call sites in the assistant.
- *
- * This file only defines the schema — it is not yet wired into the master
- * `AssistantConfigSchema` (PR 3) and is not yet consumed by any resolver
- * (PR 2). Downstream PRs handle migration, provider abstraction, and
- * call-site adoption.
+ * call sites in the assistant. Wired into `AssistantConfigSchema` as the `llm`
+ * field and consumed by `resolveCallSiteConfig` in `llm-resolver.ts`.
  */
 
 // ---------------------------------------------------------------------------

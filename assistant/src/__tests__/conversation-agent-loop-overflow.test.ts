@@ -40,7 +40,7 @@ mock.module("../config/loader.js", () => ({
         thinking: { enabled: false, streamThinking: true },
         contextWindow: {
           enabled: true,
-          maxInputTokens: 100000,
+          maxInputTokens: 200_000,
           targetBudgetRatio: 0.3,
           compactThreshold: 0.8,
           summaryBudgetRatio: 0.05,
