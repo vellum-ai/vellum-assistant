@@ -42,7 +42,7 @@ final class SessionOverlayWindow {
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -padding),
         ])
 
-        let panel = NSPanel(
+        let panel = KeyableOverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 160),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -761,6 +761,17 @@ private class SessionOverlayButtonTarget: NSObject {
     @MainActor @objc func undoClicked() { session.undo() }
     @MainActor @objc func autoApproveClicked() { session.autoApproveTools.toggle() }
     @MainActor @objc func sendGuidanceClicked() { overlayWindow?.sendGuidance() }
+}
+
+// MARK: - Keyable Panel
+
+/// Borderless `NSPanel` subclass that can become key window so the Steer text
+/// field inside the overlay can receive keyboard focus. Without this, the
+/// `[.borderless, .nonactivatingPanel]` style mask leaves `canBecomeKey` as
+/// `false` and `NSTextField` silently drops keystrokes. Same pattern as the
+/// secret-prompt panel (see `SecretPromptManager`).
+private final class KeyableOverlayPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 // MARK: - Background View
