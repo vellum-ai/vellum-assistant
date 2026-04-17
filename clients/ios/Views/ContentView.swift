@@ -77,10 +77,10 @@ struct ContentView: View {
             conversationStore.rebindGatewayConnectionManager(clientProvider.client, eventStreamClient: clientProvider.eventStreamClient)
         }
         // Push notification tap: AppDelegate.userNotificationCenter(_:didReceive:) posts
-        // this notification on the default action with the daemon conversation ID in
-        // userInfo. Switch to the Chats tab and ask the store to select the conversation.
-        // The store handles the deferred case (cold start / cache miss) by holding the
-        // daemon ID until the conversation list loads.
+        // this notification on the default action with the conversation ID in userInfo.
+        // Switch to the Chats tab and ask the store to select the conversation. The store
+        // handles the deferred case (cold start / cache miss) by holding the ID until the
+        // conversation list loads.
         .onReceive(NotificationCenter.default.publisher(for: .iosPushNotificationConversationTap)) { notification in
             guard let conversationId = notification.userInfo?[iosPushNotificationConversationIdKey] as? String else { return }
             // Clear the cold-start latch so the `.task` fallback doesn't re-apply
@@ -88,7 +88,7 @@ struct ContentView: View {
             // backgrounded and ContentView.task re-runs on re-entry).
             _ = PendingPushNavigation.consume()
             selectedTab = .chats
-            conversationStore.requestSelectConversation(daemonConversationId: conversationId)
+            conversationStore.requestSelectConversation(conversationId: conversationId)
         }
     }
 
@@ -98,7 +98,7 @@ struct ContentView: View {
     private func consumePendingPushNavigationIfNeeded() {
         guard let conversationId = PendingPushNavigation.consume() else { return }
         selectedTab = .chats
-        conversationStore.requestSelectConversation(daemonConversationId: conversationId)
+        conversationStore.requestSelectConversation(conversationId: conversationId)
     }
 
     private func navigateToConnectSettings() {

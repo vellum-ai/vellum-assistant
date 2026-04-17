@@ -184,11 +184,11 @@ class IOSConversationStore: ObservableObject {
     @Published var selectionRequest: ConversationSelectionRequest?
     @Published var pendingConversationAnchorRequest: PendingConversationAnchorRequest?
 
-    /// Daemon conversation ID the user tapped on a push notification but whose matching
+    /// Conversation ID the user tapped on a push notification but whose matching
     /// local `IOSConversation` wasn't loaded yet (cold start, reconnect, cache miss).
     /// Applied via `resolvePendingPushNavigationIfPossible()` whenever the conversation
     /// list changes so navigation still completes once the list catches up.
-    private var pendingPushNavigationDaemonConversationId: String?
+    private var pendingPushNavigationConversationId: String?
 
     /// Diagnostic detail from the most recent page-one conversation fetch failure.
     /// Set after both parallel foreground/background fetches resolve so race conditions
@@ -434,18 +434,19 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    /// Request selection of the conversation identified by the given daemon conversation ID.
+    /// Request selection of the conversation identified by the given conversation ID
+    /// (the `String` ID used by the assistant, as opposed to the local `UUID`).
     ///
     /// Used by the push-notification tap handler: if the matching local `IOSConversation`
     /// is already loaded, publishes a selection request immediately. Otherwise defers the
     /// navigation until the conversation list catches up (cold start, reconnect, or the
     /// notification conversation hasn't been surfaced via SSE yet).
-    func requestSelectConversation(daemonConversationId: String) {
-        if let index = existingConversationIndex(forConversationId: daemonConversationId) {
-            pendingPushNavigationDaemonConversationId = nil
+    func requestSelectConversation(conversationId: String) {
+        if let index = existingConversationIndex(forConversationId: conversationId) {
+            pendingPushNavigationConversationId = nil
             publishSelectionRequest(for: conversations[index].id)
         } else {
-            pendingPushNavigationDaemonConversationId = daemonConversationId
+            pendingPushNavigationConversationId = conversationId
         }
     }
 
@@ -454,9 +455,9 @@ class IOSConversationStore: ObservableObject {
     /// (list response, `schedule_conversation_created`, etc.) so the deferred navigation
     /// completes as soon as the target appears.
     private func resolvePendingPushNavigationIfPossible() {
-        guard let daemonConversationId = pendingPushNavigationDaemonConversationId,
-              let index = existingConversationIndex(forConversationId: daemonConversationId) else { return }
-        pendingPushNavigationDaemonConversationId = nil
+        guard let conversationId = pendingPushNavigationConversationId,
+              let index = existingConversationIndex(forConversationId: conversationId) else { return }
+        pendingPushNavigationConversationId = nil
         publishSelectionRequest(for: conversations[index].id)
     }
 
@@ -719,10 +720,10 @@ class IOSConversationStore: ObservableObject {
         pendingAttentionOverrides.removeAll()
         selectionRequest = nil
         pendingConversationAnchorRequest = nil
-        // Stale pending push navigations target daemon conversation IDs that belong
-        // to the previous client. The user is re-pairing or switching daemons, so
-        // the old tap intent no longer applies.
-        pendingPushNavigationDaemonConversationId = nil
+        // Stale pending push navigations target conversation IDs that belong to the
+        // previous connection. The user is re-pairing or switching assistants, so the
+        // old tap intent no longer applies.
+        pendingPushNavigationConversationId = nil
 
         if let daemon = newClient as? GatewayConnectionManager {
             // Connected mode — show cached conversations instantly or spinner on first launch.
