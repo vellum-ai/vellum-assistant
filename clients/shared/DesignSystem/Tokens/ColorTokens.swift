@@ -297,7 +297,7 @@ public enum VColor {
     //   Fill: white 10%, Drop shadow: black 5%, Light: white 80% @ -45°.
     public static let glassFill = Color(hex: 0xFFFFFF, alpha: 0.10)
     public static let glassDropShadow = Color(hex: 0x000000, alpha: 0.05)
-    public static let glassEdgeHighlight = Color(hex: 0xFFFFFF, alpha: 0.80)
+    public static let glassEdgeHighlight = Color(hex: 0xFFFFFF)
 
     // Utility: non-adaptive explicit white/black for overlays, shadows, text-on-filled
     public static let auxWhite = Color(hex: 0xFFFFFF)
