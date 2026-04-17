@@ -51,20 +51,32 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when changing inference mode would invalidate the current web search config.
+    /// True when changing inference mode/provider would invalidate the current web search config.
     private var wouldInvalidateWebSearch: Bool {
         let modeChanging = draftMode != store.inferenceMode
-        guard modeChanging else { return false }
+        let providerChanging = draftProvider != store.selectedInferenceProvider
+        guard modeChanging || providerChanging else { return false }
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
-        if draftMode == "your-own" && store.webSearchMode == "managed" {
+        if modeChanging && draftMode == "your-own" && store.webSearchMode == "managed" {
             return true
         }
-        // Switching to Managed inference while web search uses Provider Native
-        // (Provider Native requires Your Own inference).
-        if draftMode == "managed" && store.webSearchProvider == "inference-provider-native" {
-            return true
+        // Switching to Managed inference while web search uses Provider Native —
+        // only invalidate when the resulting provider cannot support native web search.
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if draftMode == "managed" && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
+        }
+        // Switching providers while web search uses Provider Native — invalidate
+        // when the new provider cannot support native web search.
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
         }
         return false
     }
@@ -292,7 +304,7 @@ struct InferenceServiceCard: View {
             Button("Continue") { performSave() }
         } message: {
             Text(
-                "Changing your inference mode will also update your Web Search settings."
+                "Changing your inference settings will also update your Web Search settings."
                     + " You'll need to review and save them below."
             )
         }

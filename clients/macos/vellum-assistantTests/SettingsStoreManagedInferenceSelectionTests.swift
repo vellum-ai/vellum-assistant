@@ -158,6 +158,70 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
                        "expected gemini to be persisted as the inference provider, got: \(providerPatches)")
     }
 
+    // MARK: - Managed Provider + Native Web Search Capability Gating
+
+    func testManagedOpenAIPlusProviderNativeIsValid() {
+        // OpenAI is both managed-capable and native-web-search-capable,
+        // so managed inference + inference-provider-native should be allowed.
+        XCTAssertTrue(store.isManagedCapable("openai"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("openai"))
+    }
+
+    func testManagedAnthropicPlusProviderNativeIsValid() {
+        // Anthropic is both managed-capable and native-web-search-capable.
+        XCTAssertTrue(store.isManagedCapable("anthropic"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("anthropic"))
+    }
+
+    func testManagedGeminiPlusProviderNativeIsInvalid() {
+        // Gemini is managed-capable but NOT native-web-search-capable,
+        // so managed Gemini + inference-provider-native should be rejected.
+        XCTAssertTrue(store.isManagedCapable("gemini"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("gemini"))
+    }
+
+    func testManagedOpenAIProviderNativeWebSearchCanBePersisted() {
+        let mockClient = MockSettingsClient()
+        mockClient.patchConfigResponse = true
+        let testStore = SettingsStore(settingsClient: mockClient)
+
+        // Configure managed OpenAI inference + provider-native web search
+        testStore.selectedInferenceProvider = "openai"
+        testStore.inferenceMode = "managed"
+        testStore.webSearchProvider = "inference-provider-native"
+
+        // Persist the web search provider
+        testStore.setWebSearchProvider("inference-provider-native")
+
+        let predicate = NSPredicate { _, _ in
+            mockClient.patchConfigCalls.count >= 1
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        // Verify inference-provider-native was persisted (not rewritten to perplexity)
+        let webSearchPatches = mockClient.patchConfigCalls.compactMap { call -> String? in
+            guard let services = call["services"] as? [String: Any],
+                  let webSearch = services["web-search"] as? [String: Any],
+                  let provider = webSearch["provider"] as? String else {
+                return nil
+            }
+            return provider
+        }
+        XCTAssertTrue(webSearchPatches.contains("inference-provider-native"),
+                       "expected inference-provider-native to be persisted with managed OpenAI, got: \(webSearchPatches)")
+    }
+
+    func testNonNativeWebSearchCapableProviderFallsBackToPerplexity() {
+        // When the inference provider doesn't support native web search,
+        // isNativeWebSearchCapable should return false, indicating the UI
+        // should enforce fallback to perplexity or brave.
+        XCTAssertFalse(store.isNativeWebSearchCapable("gemini"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("ollama"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("fireworks"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter"))
+    }
+
     // MARK: - Model Validation Against Selected Provider
 
     func testOpenAIModelsAreAvailableForOpenAIProvider() {
