@@ -419,6 +419,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ChatDiagnosticsStore.shared
 
         MainThreadStallDetector.shared.start()
+        // Begin observing system memory pressure so subsystems that do
+        // periodic main-thread work (e.g. DebugStateWriter) can throttle
+        // under warning/critical events instead of compounding the stall.
+        MemoryPressureMonitor.shared.start()
         metricKitManager = MetricKitManager()
 
         // Prevent macOS from automatically creating window tabs or restoring

@@ -141,9 +141,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
-    /// DispatchSource for system memory pressure events. Triggers an aggressive
-    /// message trim on .warning and .critical events to reclaim memory quickly.
-    @ObservationIgnored private var memoryPressureSource: DispatchSourceMemoryPressure?
+    /// Listener token for the shared ``MemoryPressureMonitor``. Triggers an
+    /// aggressive message trim on warning and critical events to reclaim
+    /// memory quickly.
+    @ObservationIgnored private var memoryPressureListener: MemoryPressureMonitor.ListenerToken?
 
     /// Watchdog task that fires when `isSending` has been `true` for more than
     /// 60 seconds without being reset.  Helps diagnose app freezes where the
@@ -1240,29 +1241,32 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
 
-        // Register for system memory pressure events so we can aggressively
-        // trim the message list when the OS warns of low memory. This prevents
-        // the app from being jettisoned on devices with limited RAM.
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            // Keep only the most recent trimKeepRecent messages to reclaim
-            // as much memory as possible under pressure.
-            let keepCount = Self.trimKeepRecent
-            if self.messages.count > keepCount {
-                self.messages.removeFirst(self.messages.count - keepCount)
-                // Advance cursor to oldest retained message and mark that older
-                // pages are available from the daemon so the user can paginate back.
-                if let oldestRetained = self.messages.first {
-                    self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+        // Subscribe to the shared memory pressure monitor so we can
+        // aggressively trim the message list when the OS warns of low memory.
+        // This prevents the app from being jettisoned on devices with limited
+        // RAM. Using the shared monitor (rather than a private DispatchSource)
+        // keeps a single source of truth for pressure-driven throttling
+        // across the app — see `MemoryPressureMonitor`.
+        self.memoryPressureListener = MemoryPressureMonitor.shared.addListener { [weak self] level in
+            guard level.isElevated else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Keep only the most recent trimKeepRecent messages to reclaim
+                // as much memory as possible under pressure.
+                let keepCount = Self.trimKeepRecent
+                if self.messages.count > keepCount {
+                    self.messages.removeFirst(self.messages.count - keepCount)
+                    // Advance cursor to oldest retained message and mark that older
+                    // pages are available from the daemon so the user can paginate back.
+                    if let oldestRetained = self.messages.first {
+                        self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
+                    }
+                    self.hasMoreHistory = true
+                    self.isShowAllMode = false
+                    self.displayedMessageCount = Self.messagePageSize
                 }
-                self.hasMoreHistory = true
-                self.isShowAllMode = false
-                self.displayedMessageCount = Self.messagePageSize
             }
         }
-        source.resume()
-        self.memoryPressureSource = source
     }
 
     // MARK: - Notification Catch-Up
@@ -2342,7 +2346,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
         guardianDecisionTimeoutTasks.values.forEach { $0.cancel() }
-        memoryPressureSource?.cancel()
+        if let token = memoryPressureListener {
+            MemoryPressureMonitor.shared.removeListener(token)
+        }
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
