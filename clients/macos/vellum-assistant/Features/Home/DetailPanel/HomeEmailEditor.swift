@@ -30,8 +30,8 @@ struct HomeEmailEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             VFormattingToolbar(onAction: onFormatAction)
 
-            Divider()
-                .background(VColor.borderBase)
+            VColor.borderBase
+                .frame(height: 1)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -55,7 +55,6 @@ struct HomeEmailEditor: View {
                 .frame(minHeight: 240, alignment: .topLeading)
                 .padding(VSpacing.md)
 
-
             if !attachments.isEmpty {
                 Divider()
                     .background(VColor.borderBase)
@@ -65,20 +64,23 @@ struct HomeEmailEditor: View {
                     Text("Attachments")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
+                        .accessibilityAddTraits(.isHeader)
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: VSpacing.sm) {
                             ForEach(attachments) { att in
-                                HomeLinkFileRow(
-                                    icon: .file,
-                                    fileName: att.fileName,
-                                    fileSize: att.fileSize
-                                )
-                                .onTapGesture { onAttachmentTap(att) }
+                                Button {
+                                    onAttachmentTap(att)
+                                } label: {
+                                    HomeLinkFileRow(
+                                        icon: .file,
+                                        fileName: att.fileName,
+                                        fileSize: att.fileSize
+                                    )
+                                }
+                                .buttonStyle(.plain)
                                 .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel("\(att.fileName), \(att.fileSize)")
-                                .accessibilityAction { onAttachmentTap(att) }
                             }
                         }
                     }

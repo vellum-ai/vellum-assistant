@@ -39,8 +39,9 @@ struct HomeDetailPanel<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            Divider()
-                .background(VColor.borderBase)
+            VColor.borderBase
+                .frame(height: 1)
+                .accessibilityHidden(true)
 
             ScrollView {
                 content()
@@ -78,9 +79,10 @@ struct HomeDetailPanel<Content: View>: View {
                 Text(title)
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentEmphasized)
+                    .accessibilityAddTraits(.isHeader)
             }
 
-            Spacer(minLength: VSpacing.sm)
+            Spacer(minLength: 0)
 
             HStack(spacing: VSpacing.sm) {
                 if let primaryAction {
@@ -113,7 +115,11 @@ struct HomeDetailPanel<Content: View>: View {
                 }
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
+        .padding(EdgeInsets(
+            top: VSpacing.md,
+            leading: VSpacing.lg,
+            bottom: VSpacing.md,
+            trailing: VSpacing.lg
+        ))
     }
 }

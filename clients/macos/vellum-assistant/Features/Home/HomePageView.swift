@@ -48,35 +48,7 @@ struct HomePageView<DetailPanel: View>: View {
     private let maxContentWidth: CGFloat = 600
 
     var body: some View {
-        Group {
-            if isDetailPanelVisible {
-                splitLayout
-            } else {
-                singleColumn
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(VColor.surfaceBase)
-        .animation(VAnimation.standard, value: isDetailPanelVisible)
-        .task {
-            await store.load()
-            await feedStore.load()
-        }
-    }
-
-    // MARK: - Layouts
-
-    @ViewBuilder
-    private var singleColumn: some View {
-        if let state = store.state {
-            content(for: state)
-        } else {
-            skeleton
-        }
-    }
-
-    private var splitLayout: some View {
-        HStack(alignment: .top, spacing: VSpacing.lg) {
+        HStack(alignment: .top, spacing: isDetailPanelVisible ? VSpacing.lg : 0) {
             Group {
                 if let state = store.state {
                     content(for: state)
@@ -86,10 +58,19 @@ struct HomePageView<DetailPanel: View>: View {
             }
             .frame(maxWidth: .infinity)
 
-            detailPanel()
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+            if isDetailPanelVisible {
+                detailPanel()
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .padding(VSpacing.lg)
+        .padding(isDetailPanelVisible ? VSpacing.lg : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(VColor.surfaceBase)
+        .animation(VAnimation.standard, value: isDetailPanelVisible)
+        .task {
+            await store.load()
+            await feedStore.load()
+        }
     }
 
     // MARK: - Content
