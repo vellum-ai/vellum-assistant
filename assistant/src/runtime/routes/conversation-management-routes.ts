@@ -123,6 +123,25 @@ export function conversationManagementRouteDefinitions(
         if (result.created) {
           updateConversationTitle(result.conversationId, "New Conversation");
         }
+        // Notify all connected clients that the conversation list changed so
+        // sidebars can refresh. Mirrors the emit in handleSendMessage for the
+        // implicit-create path (POST /messages) — gated to standard
+        // conversations to keep private conversations out of other sidebars.
+        if (result.created && result.conversationType === "standard") {
+          assistantEventHub
+            .publish(
+              buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+                type: "conversation_list_invalidated",
+                reason: "created",
+              }),
+            )
+            .catch((err) => {
+              log.warn(
+                { err },
+                "Failed to publish conversation_list_invalidated for create",
+              );
+            });
+        }
         log.info(
           {
             conversationId: result.conversationId,
