@@ -78,7 +78,9 @@ Examples:
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
-        const context = await resolvePlatformCallbackRegistrationContext();
+        const context = await resolvePlatformCallbackRegistrationContext(
+          getSecureKeyViaDaemon,
+        );
 
         const storedBaseUrl =
           (await getSecureKeyViaDaemon(
@@ -234,7 +236,9 @@ Examples:
     )
     .action(async (opts: { path: string; type: string }, cmd: Command) => {
       try {
-        const context = await resolvePlatformCallbackRegistrationContext();
+        const context = await resolvePlatformCallbackRegistrationContext(
+          getSecureKeyViaDaemon,
+        );
         if (!context.enabled) {
           writeOutput(cmd, {
             ok: false,
@@ -286,7 +290,9 @@ Examples:
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       try {
-        const context = await resolvePlatformCallbackRegistrationContext();
+        const context = await resolvePlatformCallbackRegistrationContext(
+          getSecureKeyViaDaemon,
+        );
         if (!context.platformBaseUrl || !context.authHeader) {
           writeOutput(cmd, {
             ok: false,
