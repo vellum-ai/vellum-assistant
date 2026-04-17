@@ -557,6 +557,7 @@ export class MeetConsentMonitor {
     // keyword-driven. (The keyword path still fires whenever it hits,
     // because the watermark check is tick-only; the debounce above is
     // what rate-limits keyword-triggered calls.)
+    const prevLlmCheckContentTimestamp = this.lastLlmCheckContentTimestamp;
     this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
 
     // Stamp the debounce clock BEFORE the async LLM call begins so a
@@ -610,10 +611,13 @@ export class MeetConsentMonitor {
         }
       }
     } catch (err) {
-      // Restore the debounce clock on failure so the next trigger is
-      // not silently suppressed for the remainder of the 8s window.
-      // The `prev` value may be `null` (first-ever call) — that's fine.
+      // Restore both the debounce clock and the content watermark on
+      // failure so the next trigger is not silently suppressed. Without
+      // restoring the watermark, the next tick would see "no new content"
+      // and skip the LLM call even though the previous call never ran to
+      // completion. The `prev` values may be `null` (first-ever call).
       this.lastLlmCheckAt = prevLlmCheckAt;
+      this.lastLlmCheckContentTimestamp = prevLlmCheckContentTimestamp;
       log.warn(
         { err, meetingId: this.meetingId, trigger },
         "MeetConsentMonitor: LLM call failed — staying in the meeting",

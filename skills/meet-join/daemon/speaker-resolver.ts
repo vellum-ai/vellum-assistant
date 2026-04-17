@@ -195,12 +195,18 @@ interface ActiveSpeakerSnapshot {
  * fresh DOM snapshot within the correlation window confirms the mapping.
  * `consecutiveDisagreements` is reset on agreement and grows on a DOM
  * conflict; crossing {@link MAPPING_REPLACE_THRESHOLD} replaces the mapping.
+ *
+ * `lastDisagreeSpeakerId` tracks which DOM speaker drove the current
+ * disagreement streak. If a *different* DOM speaker disagrees, the counter
+ * resets to 1 with the new challenger — random flicker from multiple
+ * speakers should not accumulate toward a mapping replacement.
  */
 interface LabelMapping {
   participantId: string;
   participantName: string;
   agreementCount: number;
   consecutiveDisagreements: number;
+  lastDisagreeSpeakerId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +359,7 @@ export class MeetSpeakerResolver {
         participantName: domMatch.speakerName,
         agreementCount: 1,
         consecutiveDisagreements: 0,
+        lastDisagreeSpeakerId: null,
       });
       return this.emit({
         speakerId: domMatch.speakerId,
@@ -368,6 +375,7 @@ export class MeetSpeakerResolver {
     if (agrees) {
       existing.agreementCount += 1;
       existing.consecutiveDisagreements = 0;
+      existing.lastDisagreeSpeakerId = null;
       return this.emit({
         speakerId: domMatch.speakerId,
         speakerName: domMatch.speakerName,
@@ -375,7 +383,15 @@ export class MeetSpeakerResolver {
       });
     }
 
-    // Disagreement — log and decide whether to replace.
+    // Disagreement — only count consecutive disagreements from the SAME
+    // DOM speaker. A different challenger resets the streak to 1 so random
+    // flicker from multiple speakers can't accumulate toward replacement.
+    const sameChallenger =
+      existing.lastDisagreeSpeakerId === domMatch.speakerId;
+    const newDisagreements = sameChallenger
+      ? existing.consecutiveDisagreements + 1
+      : 1;
+
     this.conflictCount += 1;
     log.warn(
       {
@@ -391,19 +407,19 @@ export class MeetSpeakerResolver {
           speakerId: domMatch.speakerId,
           speakerName: domMatch.speakerName,
         },
-        consecutiveDisagreements: existing.consecutiveDisagreements + 1,
+        consecutiveDisagreements: newDisagreements,
       },
       "Meet speaker resolver: provider-label mapping disagrees with DOM",
     );
 
-    existing.consecutiveDisagreements += 1;
+    existing.consecutiveDisagreements = newDisagreements;
+    existing.lastDisagreeSpeakerId = domMatch.speakerId;
     if (existing.consecutiveDisagreements >= MAPPING_REPLACE_THRESHOLD) {
-      // Mapping has been wrong too many times in a row — replace it and
-      // emit the new DOM speaker authoritatively.
       existing.participantId = domMatch.speakerId;
       existing.participantName = domMatch.speakerName;
       existing.agreementCount = 1;
       existing.consecutiveDisagreements = 0;
+      existing.lastDisagreeSpeakerId = null;
       return this.emit({
         speakerId: domMatch.speakerId,
         speakerName: domMatch.speakerName,

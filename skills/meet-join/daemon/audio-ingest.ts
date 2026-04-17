@@ -171,6 +171,14 @@ export interface MeetAudioIngestDeps {
   listen?: UnixSocketListenFn;
   /** Override the bot-connect timeout (tests). */
   botConnectTimeoutMs?: number;
+  /**
+   * Whether speaker diarization is enabled for this session. When `false`,
+   * `speakerLabel` is stripped from emitted {@link TranscriptChunkEvent}s
+   * even if the provider happens to include one — downstream consumers
+   * (speaker resolver, storage writer) should not attempt label-based
+   * attribution when diarization was not requested. Defaults to `true`.
+   */
+  diarize?: boolean;
 }
 
 /** Callback invoked for each PCM chunk received from the bot. */
@@ -185,6 +193,7 @@ export class MeetAudioIngest {
   private readonly createTranscriber: StreamingTranscriberFactory;
   private readonly listen: UnixSocketListenFn;
   private readonly botConnectTimeoutMs: number;
+  private readonly diarize: boolean;
 
   /** Stored only for teardown — set in `start()`. */
   private socketPath: string | null = null;
@@ -207,6 +216,7 @@ export class MeetAudioIngest {
     this.listen = deps.listen ?? defaultListen;
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
+    this.diarize = deps.diarize ?? true;
   }
 
   /**
@@ -475,11 +485,12 @@ export class MeetAudioIngest {
    * non-transcript events are ignored — the session manager owns the
    * provider's lifecycle, not the ingest.
    *
-   * When the provider emits a `speakerLabel` (Deepgram diarization is
-   * enabled for Meet audio), forward it on the transcript chunk so
-   * {@link MeetSpeakerResolver} can bind the opaque ASR label to a real
-   * participant identity. `confidence` rides along when the provider
-   * surfaces it.
+   * When diarization is enabled and the provider emits a `speakerLabel`,
+   * forward it on the transcript chunk so {@link MeetSpeakerResolver}
+   * can bind the opaque ASR label to a real participant identity.
+   * `confidence` rides along when the provider surfaces it.
+   * When `this.diarize` is false, `speakerLabel` is stripped even if
+   * the provider happens to include one.
    */
   private handleTranscriberEvent(
     meetingId: string,
@@ -491,20 +502,13 @@ export class MeetAudioIngest {
       return;
     }
 
-    // `speakerLabel` is populated by provider adapters that support
-    // diarization (currently Deepgram). Non-diarizing providers leave it
-    // undefined — downstream consumers treat that as "unknown speaker".
-    // Stable `speakerId` remains unset; the speaker resolver (PR 7)
-    // derives it by cross-checking the label against Meet's DOM-sourced
-    // active-speaker signal. `confidence` rides through when the
-    // provider surfaces it so observers can weight low-confidence chunks.
     const transcript: TranscriptChunkEvent = {
       type: "transcript.chunk",
       meetingId,
       timestamp: new Date().toISOString(),
       isFinal: event.type === "final",
       text: event.text,
-      ...(event.speakerLabel !== undefined
+      ...(this.diarize && event.speakerLabel !== undefined
         ? { speakerLabel: String(event.speakerLabel) }
         : {}),
       ...(event.confidence !== undefined
