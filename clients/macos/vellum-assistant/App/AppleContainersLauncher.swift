@@ -465,6 +465,8 @@ final class AppleContainersLauncher: AssistantManagementClient {
         let startTime = ContinuousClock.now
         var currentDelay = guardianInitBaseDelay
 
+        log.info("[DEBUG] Guardian token lease starting: url=\(url.absoluteString, privacy: .public), assistantId=\(assistantId, privacy: .public), maxAttempts=\(guardianInitMaxAttempts), timeout=10s")
+
         for attempt in 1...guardianInitMaxAttempts {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -473,16 +475,27 @@ final class AppleContainersLauncher: AssistantManagementClient {
             request.setValue(bootstrapSecret, forHTTPHeaderField: "x-bootstrap-secret")
             request.timeoutInterval = 10
 
+            let attemptStart = ContinuousClock.now
+            log.info("[DEBUG] Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) starting (delay so far: \(ContinuousClock.now - startTime, privacy: .public))")
+
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
+                let attemptDuration = ContinuousClock.now - attemptStart
                 guard let httpResponse = response as? HTTPURLResponse else {
                     log.error("Guardian token lease: non-HTTP response")
                     return false
                 }
+
+                // Log all response headers for debugging
+                let headerDict = httpResponse.allHeaderFields
+                let headerStr = headerDict.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
+                log.info("[DEBUG] Guardian token lease attempt \(attempt) response: HTTP \(httpResponse.statusCode) in \(attemptDuration, privacy: .public), headers=[\(headerStr, privacy: .public)]")
+
                 guard httpResponse.statusCode == 200 else {
                     let elapsed = ContinuousClock.now - startTime
                     let responseBody = String(data: data, encoding: .utf8) ?? ""
                     log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) failed (HTTP \(httpResponse.statusCode), \(elapsed, privacy: .public)): \(responseBody, privacy: .public)")
+                    log.info("[DEBUG] Response body bytes: \(data.count), body: \(responseBody, privacy: .public)")
 
                     // A 403 means the bootstrap secret was already consumed or
                     // is invalid — retrying won't help.
@@ -526,7 +539,9 @@ final class AppleContainersLauncher: AssistantManagementClient {
                 return true
             } catch {
                 let elapsed = ContinuousClock.now - startTime
+                let attemptDuration = ContinuousClock.now - attemptStart
                 log.warning("Guardian token lease attempt \(attempt)/\(guardianInitMaxAttempts) error (\(elapsed, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                log.info("[DEBUG] Attempt \(attempt) threw after \(attemptDuration, privacy: .public), error type: \(String(describing: type(of: error)), privacy: .public), full: \(String(describing: error), privacy: .public)")
                 if attempt < guardianInitMaxAttempts {
                     if attempt % 5 == 0 {
                         onProgress?("Waiting for assistant runtime (attempt \(attempt)/\(guardianInitMaxAttempts))...")
