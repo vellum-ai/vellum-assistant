@@ -360,6 +360,14 @@
       "label": "Google Meet",
       "description": "Enables the Google Meet joining bot and the meet-join skill.",
       "defaultEnabled": false
+    },
+    {
+      "id": "compaction-v2",
+      "scope": "assistant",
+      "key": "compaction-v2",
+      "label": "Compaction v2",
+      "description": "Boundary-message-based compaction pipeline with forked prompt-cache-shared summarization and microcompact pre-pass. Replaces the four-tier overflow reducer and cursor-based storage.",
+      "defaultEnabled": false
     }
   ]
 }
