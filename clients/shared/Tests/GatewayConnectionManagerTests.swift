@@ -122,6 +122,81 @@ final class GatewayConnectionManagerTests: XCTestCase {
         }
     }
 
+    func testCancelledManagedSubscriptionDoesNotReceiveNextBroadcast() async {
+        let client = GatewayConnectionManager()
+
+        let managedSubscription = client.eventStreamClient.subscribeManaged()
+        let passiveStream = client.eventStreamClient.subscribe()
+
+        let cancelledSubscriberDidReceiveMessage = XCTestExpectation(
+            description: "Cancelled managed subscription should not receive next broadcast"
+        )
+        cancelledSubscriberDidReceiveMessage.isInverted = true
+
+        let activeSubscriberDidReceiveMessage = XCTestExpectation(
+            description: "Active subscriber receives next broadcast"
+        )
+
+        var passiveReceivedMessage: ServerMessage?
+
+        let cancelledTask = Task {
+            for await _ in managedSubscription.stream {
+                cancelledSubscriberDidReceiveMessage.fulfill()
+                break
+            }
+        }
+
+        let passiveTask = Task {
+            for await message in passiveStream {
+                passiveReceivedMessage = message
+                activeSubscriberDidReceiveMessage.fulfill()
+                break
+            }
+        }
+
+        await Task.yield()
+
+        managedSubscription.cancel()
+        client.eventStreamClient.broadcastMessage(
+            .assistantTextDelta(AssistantTextDeltaMessage(text: "after cancel"))
+        )
+
+        await fulfillment(
+            of: [activeSubscriberDidReceiveMessage, cancelledSubscriberDidReceiveMessage],
+            timeout: 1.0
+        )
+
+        await cancelledTask.value
+        await passiveTask.value
+
+        if case .assistantTextDelta(let received) = passiveReceivedMessage {
+            XCTAssertEqual(received.text, "after cancel")
+        } else {
+            XCTFail("Expected active subscriber to receive .assistantTextDelta, got \(String(describing: passiveReceivedMessage))")
+        }
+    }
+
+    func testManagedSubscriptionFinishUnblocksSuspendedConsumerWithoutLaterBroadcast() async {
+        let client = GatewayConnectionManager()
+        let managedSubscription = client.eventStreamClient.subscribeManaged()
+
+        let consumerExited = XCTestExpectation(
+            description: "Consumer exits promptly after managed subscription is finished"
+        )
+
+        let consumerTask = Task {
+            for await _ in managedSubscription.stream {}
+            consumerExited.fulfill()
+        }
+
+        await Task.yield()
+
+        managedSubscription.finish()
+
+        await fulfillment(of: [consumerExited], timeout: 1.0)
+        await consumerTask.value
+    }
+
     // MARK: - Multiple Connect/Disconnect Cycles
 
     func testMultipleConnectDisconnectCycles() async throws {
