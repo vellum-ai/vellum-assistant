@@ -41,11 +41,15 @@ function parseCanonicalConfig(): AllowlistConfig {
   const parsed = JSON.parse(raw) as Partial<AllowlistConfig>;
 
   if (!Number.isInteger(parsed.version) || (parsed.version ?? 0) <= 0) {
-    throw new Error("Invalid canonical config: version must be a positive integer");
+    throw new Error(
+      "Invalid canonical config: version must be a positive integer",
+    );
   }
 
   if (!Array.isArray(parsed.allowedExtensionIds)) {
-    throw new Error("Invalid canonical config: allowedExtensionIds must be an array");
+    throw new Error(
+      "Invalid canonical config: allowedExtensionIds must be an array",
+    );
   }
 
   if (parsed.allowedExtensionIds.length === 0) {
