@@ -569,12 +569,24 @@ Examples:
     );
 
   email
-    .command("send <to>")
+    .command("send <to...>")
     .description("Send an email from this assistant")
     .option("-s, --subject <text>", "Subject line")
     .option("-b, --body <text>", "Email body (plain text)")
     .option("-f, --file <path>", "Read body from file")
     .option("--html <path>", "HTML body file (optional)")
+    .option(
+      "--cc <address>",
+      "CC recipient (repeatable)",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
+    .option(
+      "--bcc <address>",
+      "BCC recipient (repeatable)",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
     .option(
       "--reply-to <email_id>",
       "Reply to an email by its ID (auto-resolves threading headers and subject)",
@@ -583,7 +595,7 @@ Examples:
       "after",
       `
 Arguments:
-  to   Recipient email address
+  to   Recipient email address(es) — one or more
 
 Sends an email from the assistant's registered email address via the
 Vellum runtime proxy. The "from" address is automatically resolved
@@ -599,10 +611,13 @@ Examples:
   $ assistant email send user@example.com -s "Hello" -b "Hi there"
   ✓ Sent to user@example.com (delivery_id: abc123)
 
-  $ assistant email send user@example.com -b "Thanks!" --reply-to 019d96e4-e5d2-7201-890e-04a21e8f95bb
+  $ assistant email send a@example.com b@example.com --cc c@example.com -s "Team" -b "Hi all"
+  ✓ Sent to a@example.com, b@example.com (delivery_id: abc123)
+
+  $ assistant email send user@example.com --bcc boss@example.com -s "FYI" -b "See below"
   ✓ Sent to user@example.com (delivery_id: def456)
 
-  $ echo "Body text" | assistant email send user@example.com -s "Hello"
+  $ assistant email send user@example.com -b "Thanks!" --reply-to 019d96e4-e5d2-7201-890e-04a21e8f95bb
   ✓ Sent to user@example.com (delivery_id: ghi789)
 
   $ assistant email send user@example.com -s "Hello" -b "Hi" --json
@@ -610,12 +625,14 @@ Examples:
     )
     .action(
       async (
-        to: string,
+        to: string[],
         opts: {
           subject?: string;
           body?: string;
           file?: string;
           html?: string;
+          cc?: string[];
+          bcc?: string[];
           replyTo?: string;
         },
         cmd: Command,
@@ -681,13 +698,15 @@ Examples:
           }
 
           // 4. Build payload
-          const payload: Record<string, string> = {
+          const payload: Record<string, unknown> = {
             to,
             from_address: fromAddress,
             text,
           };
           if (opts.subject) payload.subject = opts.subject;
           if (html) payload.html = html;
+          if (opts.cc && opts.cc.length > 0) payload.cc = opts.cc;
+          if (opts.bcc && opts.bcc.length > 0) payload.bcc = opts.bcc;
           if (opts.replyTo) payload.reply_to = opts.replyTo;
 
           // 5. Send via runtime proxy
@@ -714,7 +733,9 @@ Examples:
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, data);
           } else {
-            log.info(`✓ Sent to ${to} (delivery_id: ${data.delivery_id})`);
+            log.info(
+              `✓ Sent to ${to.join(", ")} (delivery_id: ${data.delivery_id})`,
+            );
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
