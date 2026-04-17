@@ -114,19 +114,28 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
         let w = max(size.width, 1)
         let h = max(size.height, 1)
         let f = atan2(h, w) / (2 * .pi)
-        let half: CGFloat = 0.015   // plateau half-width (~5° of arc)
+        // Flat bright plateau ±0.01 around each corner (covers the rounded
+        // arc's angular span of ~0.012 for typical cards), with a fade to
+        // clear between 0.01 and 0.02 on each side.
+        let plateau: CGFloat = 0.01
+        let fade: CGFloat = 0.02
         let bright = VColor.glassEdgeHighlight
         let tl = 0.5 + f
 
-        // Two plateaus: BR (near location f) and TL (near 0.5 + f).
+        // Two plateaus: BR (near location f) and TL (near 0.5 + f). Using
+        // two bright stops per plateau (±plateau) keeps the rounded corner
+        // arc at full 80% alpha instead of ramping from/to clear at a
+        // single centered peak.
         let stops: [Gradient.Stop] = [
             .init(color: .clear, location: 0),
-            .init(color: .clear, location: f - half),
-            .init(color: bright, location: f),
-            .init(color: .clear, location: f + half),
-            .init(color: .clear, location: tl - half),
-            .init(color: bright, location: tl),
-            .init(color: .clear, location: tl + half),
+            .init(color: .clear, location: f - fade),
+            .init(color: bright, location: f - plateau),
+            .init(color: bright, location: f + plateau),
+            .init(color: .clear, location: f + fade),
+            .init(color: .clear, location: tl - fade),
+            .init(color: bright, location: tl - plateau),
+            .init(color: bright, location: tl + plateau),
+            .init(color: .clear, location: tl + fade),
             .init(color: .clear, location: 1),
         ]
 
