@@ -14,6 +14,7 @@ public enum CallSiteDomain: String, CaseIterable, Identifiable, Hashable {
     case notifications
     case voice
     case utility
+    case skills
 
     public var id: String { rawValue }
 
@@ -28,6 +29,7 @@ public enum CallSiteDomain: String, CaseIterable, Identifiable, Hashable {
         case .notifications: return "Notifications"
         case .voice: return "Voice"
         case .utility: return "Utility"
+        case .skills: return "Skills"
         }
     }
 
@@ -42,6 +44,7 @@ public enum CallSiteDomain: String, CaseIterable, Identifiable, Hashable {
         case .notifications: return 4
         case .voice: return 5
         case .utility: return 6
+        case .skills: return 7
         }
     }
 }
@@ -140,6 +143,9 @@ public enum CallSiteCatalog {
         CallSiteOverride(id: "styleAnalyzer", displayName: "Style analyzer", domain: .utility),
         CallSiteOverride(id: "inviteInstructionGenerator", displayName: "Invite instruction generator", domain: .utility),
         CallSiteOverride(id: "skillCategoryInference", displayName: "Skill category inference", domain: .utility),
+        // Skills
+        CallSiteOverride(id: "meetConsentMonitor", displayName: "Meet · Consent monitor", domain: .skills),
+        CallSiteOverride(id: "meetChatOpportunity", displayName: "Meet · Chat opportunity", domain: .skills),
     ]
 
     /// Lookup table from call-site ID to its catalog entry. Constructed

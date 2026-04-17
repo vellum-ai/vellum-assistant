@@ -505,9 +505,9 @@ export interface MeetSessionManagerDeps {
   /**
    * Override the chat-opportunity-detector factory. Default constructs a
    * {@link MeetChatOpportunityDetector} with a Tier 2 LLM callback that
-   * routes through the repo-wide provider abstraction at
-   * `modelIntent: "latency-optimized"`. Tests can inject a fake to
-   * observe start/dispose/stats without spinning up the LLM path.
+   * routes through the repo-wide provider abstraction under the
+   * `meetChatOpportunity` call site. Tests can inject a fake to observe
+   * start/dispose/stats without spinning up the LLM path.
    *
    * Only consulted when `services.meet.proactiveChat.enabled === true`.
    */
@@ -1689,10 +1689,9 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 
 /**
  * Default Tier 2 chat-opportunity LLM callback. Routes through the
- * repo-wide provider abstraction at
- * `modelIntent: "latency-optimized"` — keeping the proactive-chat path
- * on the same latency tier the consent monitor uses so both background
- * loops share tuning. Times out at
+ * repo-wide provider abstraction under the `meetChatOpportunity` call
+ * site, keeping the proactive-chat path on its own configurable lane
+ * alongside the consent monitor. Times out at
  * {@link CHAT_OPPORTUNITY_LLM_TIMEOUT_MS} and extracts the tool-use
  * input as the structured verdict.
  *
@@ -1703,7 +1702,8 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 async function defaultCallDetectorLLM(
   prompt: string,
 ): Promise<ChatOpportunityDecision> {
-  const provider: Provider | null = await getConfiguredProvider();
+  const provider: Provider | null =
+    await getConfiguredProvider("meetChatOpportunity");
   if (!provider) {
     return { shouldRespond: false, reason: "" };
   }
@@ -1716,7 +1716,7 @@ async function defaultCallDetectorLLM(
       "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
       {
         config: {
-          modelIntent: "latency-optimized",
+          callSite: "meetChatOpportunity",
           max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
           tool_choice: {
             type: "tool" as const,
