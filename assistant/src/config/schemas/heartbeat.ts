@@ -38,22 +38,16 @@ export const HeartbeatConfigSchema = z
     const startNull = config.activeHoursStart == null;
     const endNull = config.activeHoursEnd == null;
     if (startNull !== endNull) {
-      // Emit on both fields so validateWithSchema's delete-and-retry strips
-      // both sides in one pass. Single-emit on the null side can cascade when
-      // the explicit value happens to equal the opposite default (e.g.
-      // { start: null, end: 8 } → strip start → default 8 → equal check fires
-      // → loader falls back to full defaults, wiping unrelated keys like
-      // maxTokens).
+      // Emit only on the null side so validateWithSchema's delete-and-retry
+      // preserves the explicit non-null value. Dual-emit would delete both
+      // keys, losing valid explicit values for mixed-null configs like
+      // { activeHoursStart: null, activeHoursEnd: 20 } → (8, 22) instead of
+      // retaining the explicit 20.
       const message =
         "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be null";
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["activeHoursStart"],
-        message,
-      });
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["activeHoursEnd"],
+        path: [startNull ? "activeHoursStart" : "activeHoursEnd"],
         message,
       });
       return;
@@ -63,17 +57,11 @@ export const HeartbeatConfigSchema = z
       config.activeHoursEnd != null &&
       config.activeHoursStart === config.activeHoursEnd
     ) {
-      // Emit on both fields. Single-emit would strip one side and the default
-      // for that side could recreate a new mismatch (e.g. { start: 22, end: 22 }
-      // → strip end → default 22 → equal again), cascading to a full defaults
-      // reset that wipes unrelated fields.
+      // Emit only on activeHoursEnd so the explicit start value is preserved.
+      // Dual-emit would delete both keys, e.g. { start: 5, end: 5 } → (8, 22)
+      // instead of preserving the explicit 5 as start → (5, 22).
       const message =
         "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must not be equal (would create an empty window)";
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["activeHoursStart"],
-        message,
-      });
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["activeHoursEnd"],
