@@ -1877,6 +1877,8 @@ jobs:
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
+          # Meet-join skill needs node_modules for zod to resolve during bundle
+          (cd skills/meet-join && bun install --frozen-lockfile 2>/dev/null || bun install)
 
       - name: Build Bun binaries (x64)
         run: |

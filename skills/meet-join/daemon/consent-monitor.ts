@@ -554,6 +554,8 @@ export class MeetConsentMonitor {
       return;
     }
 
+
+
     // Stamp the debounce clock BEFORE the async LLM call begins so a
     // second trigger arriving while this call is in flight is debounced
     // (in addition to being collapsed by the in-flight flag below).
@@ -617,9 +619,9 @@ export class MeetConsentMonitor {
         }
       }
     } catch (err) {
-      // Restore the debounce clock on failure so the next trigger is
-      // not silently suppressed for the remainder of the 8s window.
-      // The `prev` value may be `null` (first-ever call) — that's fine.
+      // Restore the debounce clock on failure so the next trigger is not
+      // silently suppressed. The content watermark doesn't need restoring
+      // because it's only advanced after a successful LLM call (line above).
       this.lastLlmCheckAt = prevLlmCheckAt;
       log.warn(
         { err, meetingId: this.meetingId, trigger },

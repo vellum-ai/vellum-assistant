@@ -732,12 +732,12 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
                                                          ┌──────────────┼──────────────┐
                                                          │              │              │
                                                   DeepgramRealtime  GoogleGemini   OpenAIWhisper
-                                                  Transcriber       Streaming      Streaming
+                                                  Transcriber       Live Stream    Streaming
                                                   (realtime-ws)     Transcriber    Transcriber
-                                                                    (incr-batch)   (incr-batch)
+                                                                    (realtime-ws)  (incr-batch)
                                                          │              │              │
-                                                  WSS to Deepgram  HTTP polling   HTTP polling
-                                                  /v1/listen       to Gemini API  to Whisper API
+                                                  WSS to Deepgram  WSS to Gemini  HTTP polling
+                                                  /v1/listen       Live API       to Whisper API
 ```
 
 **Provider support matrix:**

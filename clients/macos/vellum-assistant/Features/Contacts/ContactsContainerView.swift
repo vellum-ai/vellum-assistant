@@ -182,7 +182,7 @@ struct ContactsContainerView: View {
                             Text(contact.displayName.hasPrefix("vellum-principal-") ? "You" : "\(contact.displayName) (You)")
                                 .font(VFont.titleSmall)
                                 .foregroundStyle(VColor.contentDefault)
-                            ContactTypeBadge(role: "guardian")
+                            ContactTypeBadge(kind: .guardian)
                         }
                         Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
                             .font(VFont.labelDefault)
@@ -312,7 +312,7 @@ struct ContactsContainerView: View {
                     Text("\(cachedAssistantName) (Your Assistant)")
                         .font(VFont.titleSmall)
                         .foregroundStyle(VColor.contentDefault)
-                    ContactTypeBadge(role: "assistant")
+                    ContactTypeBadge(kind: .assistant)
                 }
                 .padding(.horizontal, VSpacing.lg)
 

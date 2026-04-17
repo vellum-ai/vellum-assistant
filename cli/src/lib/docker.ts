@@ -516,8 +516,8 @@ function serviceImageConfigs(
       tag: imageTags["credential-executor"],
     },
     gateway: {
-      context: join(repoRoot, "gateway"),
-      dockerfile: "Dockerfile",
+      context: repoRoot,
+      dockerfile: "gateway/Dockerfile",
       tag: imageTags.gateway,
     },
   };

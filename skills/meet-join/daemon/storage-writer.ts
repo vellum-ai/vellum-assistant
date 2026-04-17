@@ -268,11 +268,15 @@ export class MeetStorageWriter {
       log.info({ meetingId: this.meetingId, code, signal }, "ffmpeg exited");
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      // ffmpeg writes progress to stderr; keep at debug so prod logs stay
-      // clean but debugging is possible if needed.
       log.debug(
         { meetingId: this.meetingId, stderr: chunk.toString("utf8") },
         "ffmpeg stderr",
+      );
+    });
+    child.stdin.on("error", (err) => {
+      log.debug(
+        { err, meetingId: this.meetingId },
+        "ffmpeg stdin error (suppressed)",
       );
     });
 
@@ -289,9 +293,13 @@ export class MeetStorageWriter {
    */
   async stop(): Promise<void> {
     if (this.stopped) return;
-    this.stopped = true;
 
+    // Perform fallible I/O cleanup before setting stopped=true so that if
+    // this throws, a retry call to stop() won't short-circuit and leak
+    // resources.
     this.closeOpenSegmentAt(new Date().toISOString());
+
+    this.stopped = true;
 
     if (this.eventUnsubscribe) {
       try {
@@ -361,8 +369,7 @@ export class MeetStorageWriter {
             this.closeFfmpegStdin();
           }
           break;
-        // chat.inbound is not persisted by the storage writer — conversation
-        // bridge (PR 17) handles chat surface. Drop silently.
+        // chat.inbound is handled by the conversation bridge. Drop silently.
         default:
           break;
       }
@@ -544,6 +551,7 @@ export class MeetStorageWriter {
   private closeFfmpegStdin(): void {
     const child = this.ffmpegChild;
     if (!child) return;
+    this.ffmpegChild = null;
     try {
       child.stdin?.end();
     } catch (err) {

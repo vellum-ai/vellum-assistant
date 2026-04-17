@@ -43,7 +43,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
 };
 
-const FALLBACK_DEFAULT_MODEL = "claude-opus-4-6";
+const FALLBACK_DEFAULT_MODEL = "claude-opus-4-7";
 
 const MODEL_INTENTS = new Set<ModelIntent>([
   "latency-optimized",

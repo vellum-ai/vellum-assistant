@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
@@ -165,6 +165,10 @@ export function upsertAutoAnalysisJob(
     : never,
 ): void {
   const db = dbOverride ?? getDb();
+  // Match rows with the same triggerGroup OR legacy rows without triggerGroup
+  // (from older builds that used upsertDebouncedJob before triggerGroup was
+  // introduced). Without the IS NULL fallback, the next enqueue would insert
+  // a duplicate pending row for the same conversation.
   const existing = db
     .select()
     .from(memoryJobs)
@@ -173,17 +177,52 @@ export function upsertAutoAnalysisJob(
         eq(memoryJobs.type, "conversation_analyze"),
         eq(memoryJobs.status, "pending"),
         sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-        sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
+        or(
+          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
+          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') IS NULL`,
+        ),
       ),
     )
     .get();
   if (existing) {
+    // Merge triggerGroup into legacy rows so subsequent lookups use the new key.
+    const existingPayload = JSON.parse(existing.payload) as Record<
+      string,
+      unknown
+    >;
+    const needsPayloadUpdate = !existingPayload.triggerGroup;
     db.update(memoryJobs)
-      .set({ runAfter, updatedAt: Date.now() })
+      .set({
+        runAfter,
+        updatedAt: Date.now(),
+        ...(needsPayloadUpdate
+          ? {
+              payload: JSON.stringify({ ...existingPayload, ...payload }),
+            }
+          : {}),
+      })
       .where(eq(memoryJobs.id, existing.id))
       .run();
   } else {
     enqueueMemoryJob("conversation_analyze", payload, runAfter, dbOverride);
+  }
+
+  // When an immediate trigger fires (batch/compaction), cancel any pending
+  // debounced row for the same conversation — the immediate analysis covers
+  // those messages, making the debounced pass redundant. Without this, both
+  // rows fire independently and double the LLM cost per batch crossing.
+  if (payload.triggerGroup === "immediate") {
+    db.update(memoryJobs)
+      .set({ status: "completed", updatedAt: Date.now() })
+      .where(
+        and(
+          eq(memoryJobs.type, "conversation_analyze"),
+          eq(memoryJobs.status, "pending"),
+          sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
+          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = 'debounced'`,
+        ),
+      )
+      .run();
   }
 }
 

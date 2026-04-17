@@ -161,10 +161,9 @@ export function startSpeakerScraper(
       // Swallow — polling fallback covers us.
     });
 
-  // Install the MutationObserver. Guarded by a try/catch because the page
-  // may have closed between the caller obtaining the handle and us
-  // reaching this line.
-  void page
+  // Install the MutationObserver. Track the promise so stop() can wait for
+  // it and tear down any late-installed observer.
+  const observerInstalled = page
     .evaluate(
       ({ selector, callbackName, observerName }) => {
         // Skip if somehow already installed (e.g. hot reload, duplicate
@@ -233,6 +232,25 @@ export function startSpeakerScraper(
     .catch(() => {
       // Swallow — the polling fallback still emits transitions.
     });
+
+  // If stop() was called while the observer was being installed, tear
+  // down the late observer immediately.
+  void observerInstalled.then(() => {
+    if (stopped && !page.isClosed()) {
+      void page
+        .evaluate((observerName) => {
+          const w = window as unknown as Record<string, unknown>;
+          const observer = w[observerName] as
+            | { disconnect: () => void }
+            | undefined;
+          if (observer && typeof observer.disconnect === "function") {
+            observer.disconnect();
+          }
+          delete w[observerName];
+        }, observerGlobal)
+        .catch(() => {});
+    }
+  });
 
   // ----- Fallback path: Node-side polling of the same selector -----
 

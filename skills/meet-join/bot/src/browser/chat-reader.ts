@@ -95,22 +95,20 @@ export async function startChatReader(
 ): Promise<ChatReader> {
   const bindingName = `__meetBotChatBridge_${++bindingCounter}`;
 
-  // Bot-side dedupe: `sender|text|timestampBucketSeconds`. A 1-second bucket
-  // tolerates clock-skew and millisecond jitter between the rendered
-  // timestamp and our DOM read, while still catching identical rapid-fire
-  // re-posts (which would be unusual in practice).
-  const seenKeys = new Set<string>();
-  const dedupeKey = (sender: string, text: string, tsMs: number): string =>
-    `${sender}|${text}|${Math.floor(tsMs / 1000)}`;
+  // Bot-side dedupe keyed on `domId`. The in-page observer already tracks
+  // seen DOM IDs, but across panel close/reopen cycles the in-page set
+  // resets. Using `domId` here preserves legitimate repeated messages
+  // (same sender + text within the same second) while still preventing
+  // double-emit on re-observation.
+  const seenDomIds = new Set<string>();
 
   const handleRaw = (raw: RawChatMessage): void => {
     // Authoritative self-flag wins; otherwise match by display name.
     const isSelf = raw.isSelf || raw.fromName === opts.selfName;
     if (isSelf) return;
 
-    const key = dedupeKey(raw.fromName, raw.text, raw.timestampMs);
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
+    if (seenDomIds.has(raw.domId)) return;
+    seenDomIds.add(raw.domId);
 
     const event: InboundChatEvent = {
       type: "chat.inbound",
@@ -130,9 +128,6 @@ export async function startChatReader(
     }
   };
 
-  // Ensure the chat panel is open. We treat the existence of a message-node
-  // *selector match* (even an empty list) as a signal that the panel is
-  // mounted. If the selector returns nothing, we click the toolbar toggle.
   await ensurePanelOpen(page);
 
   // Prefer the MutationObserver path; on any failure, fall back to polling.
@@ -154,15 +149,15 @@ export async function startChatReader(
 }
 
 /**
- * Click the chat toggle once if the panel isn't already open. Idempotent —
- * if Meet renders the message-list regardless of panel visibility, the
- * query-selector check short-circuits and we never click.
+ * Click the chat toggle once if the panel isn't already open. Detects open
+ * state via the message-list container (mounted even when empty), not
+ * individual message nodes which require at least one message to exist.
  */
 async function ensurePanelOpen(page: Page): Promise<void> {
   try {
     const alreadyOpen = await page.evaluate((sel) => {
       return document.querySelector(sel) !== null;
-    }, chatSelectors.MESSAGE_NODE);
+    }, chatSelectors.MESSAGE_LIST);
     if (alreadyOpen) return;
 
     const toggle = await page.$(chatSelectors.PANEL_BUTTON);

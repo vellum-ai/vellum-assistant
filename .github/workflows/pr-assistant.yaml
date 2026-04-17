@@ -7,6 +7,7 @@ on:
       - 'assistant/**'
       - 'credential-executor/**'
       - 'packages/**'
+      - 'skills/meet-join/contracts/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
