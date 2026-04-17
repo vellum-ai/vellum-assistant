@@ -200,8 +200,8 @@ describe("browser skill migration end-state", () => {
     );
     expect(fs.existsSync(execPath)).toBe(true);
     const content = fs.readFileSync(execPath, "utf-8");
-    // browser_wait_for_download uses a standalone wrapper that calls
-    // browserManager.waitForDownload() directly — no execute* function.
+    // browser_wait_for_download has no matching executeBrowser* function
+    // exported from browser-execution.ts — it is handled via operations.ts.
     const TOOLS_WITH_EXECUTE_FN = BROWSER_TOOL_NAMES.filter(
       (name) => name !== "browser_wait_for_download",
     );

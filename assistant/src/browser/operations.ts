@@ -128,7 +128,7 @@ async function executeWaitForDownload(
   if (mode !== "auto" && mode !== "local") {
     return {
       content:
-        `Error: wait_for_download does not support browser_mode "${mode}". ` +
+        `Error: browser_wait_for_download does not support browser_mode "${mode}". ` +
         `File downloads require the local Playwright backend. ` +
         `Use browser_mode "auto" or "local" instead.`,
       isError: true,
