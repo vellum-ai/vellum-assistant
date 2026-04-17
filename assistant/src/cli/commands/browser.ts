@@ -32,11 +32,14 @@ function toKebab(snakeCase: string): string {
 /**
  * Convert a snake_case field name to a kebab-case CLI option flag
  * (e.g. `allow_private_network` -> `--allow-private-network`).
+ *
+ * Boolean fields use Commander's negation pattern (`--flag / --no-flag`)
+ * so callers can explicitly send both `true` and `false` values.
  */
 function fieldToFlag(field: OperationField): string {
   const kebab = toKebab(field.name);
   if (field.type === "boolean") {
-    return `--${kebab}`;
+    return `--${kebab}, --no-${kebab}`;
   }
   return `--${kebab} <${field.type === "number" ? "number" : "value"}>`;
 }
@@ -59,7 +62,7 @@ function parseFieldValue(
   value: unknown,
   field: OperationField,
 ): string | number | boolean {
-  if (field.type === "boolean") return true;
+  if (field.type === "boolean") return Boolean(value);
   if (field.type === "number") {
     const num = Number(value);
     if (!Number.isFinite(num)) {
@@ -96,6 +99,11 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     } else {
       subcmd.option(flag, field.description);
     }
+  }
+
+  // Append per-operation help text with behavioral notes and examples
+  if (meta.helpText) {
+    subcmd.addHelpText("after", `\n${meta.helpText}`);
   }
 
   // screenshot gets an --output <path> option for writing JPEG to disk
@@ -177,7 +185,23 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     ) {
       const screenshot = result.screenshots[0];
       const buffer = Buffer.from(screenshot.data, "base64");
-      writeFileSync(String(opts.output), buffer);
+      try {
+        writeFileSync(String(opts.output), buffer);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (jsonMode) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: false,
+              error: `Failed to write screenshot to ${opts.output}: ${msg}`,
+            }) + "\n",
+          );
+        } else {
+          log.error(`Failed to write screenshot to ${opts.output}: ${msg}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
       if (!jsonMode) {
         log.info(`Screenshot saved to ${opts.output}`);
       }
@@ -206,7 +230,7 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
 export function registerBrowserCommand(program: Command): void {
   const browser = program
     .command("browser")
-    .description("Control the browser via the assistant daemon.")
+    .description("Control the browser via the running assistant.")
     .option(
       "--session <id>",
       "Session ID to preserve browser state across invocations.",
@@ -217,9 +241,9 @@ export function registerBrowserCommand(program: Command): void {
   browser.addHelpText(
     "after",
     `
-Browser operations are executed through the running assistant daemon.
-Each subcommand maps to a browser operation and communicates via
-the CLI IPC socket.
+Browser operations are executed through the running assistant.
+Each subcommand maps to a browser operation and communicates
+with the assistant process.
 
 The --session flag groups sequential commands so they share browser
 state (same page, cookies, etc.). Different session IDs create

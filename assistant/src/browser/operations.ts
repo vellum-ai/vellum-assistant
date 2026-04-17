@@ -227,12 +227,26 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Loads the given URL and waits for the page to reach a stable state.
+Returns the page title on success.
+
+Examples:
+  $ assistant browser navigate --url https://example.com
+  $ assistant browser navigate --url http://localhost:3000 --allow-private-network
+  $ assistant browser --session s1 navigate --url https://github.com`,
   },
   {
     operation: "snapshot",
     description:
       "List interactive elements on the current page with unique IDs.",
     fields: [],
+    helpText: `Returns a structured list of interactive elements (buttons, links,
+inputs, etc.) with stable element IDs that can be passed to click,
+type, and other element-targeting commands.
+
+Examples:
+  $ assistant browser snapshot
+  $ assistant browser --json snapshot`,
   },
   {
     operation: "screenshot",
@@ -246,6 +260,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Captures a JPEG screenshot. Use --output to save to a file, or
+--json to receive base64-encoded image data in the output.
+
+Examples:
+  $ assistant browser screenshot --output page.jpg
+  $ assistant browser screenshot --full-page --output full.jpg
+  $ assistant browser --json screenshot`,
   },
   {
     operation: "close",
@@ -258,16 +279,35 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Closes the browser page for the current session. Use --close-all-pages
+to tear down the entire browser context including all pages.
+
+Examples:
+  $ assistant browser close
+  $ assistant browser close --close-all-pages
+  $ assistant browser --session s1 close`,
   },
   {
     operation: "attach",
     description: "Attach the Chrome debugger to the active browser tab.",
     fields: [],
+    helpText: `Connects the assistant to a running Chrome instance via the Chrome
+DevTools Protocol. Required before interacting with Chrome-attached tabs.
+
+Examples:
+  $ assistant browser attach
+  $ assistant browser --session s1 attach`,
   },
   {
     operation: "detach",
     description: "Detach the Chrome debugger from the active browser tab.",
     fields: [],
+    helpText: `Disconnects the assistant from the Chrome DevTools Protocol session.
+The browser tab continues running but is no longer controlled.
+
+Examples:
+  $ assistant browser detach
+  $ assistant browser --session s1 detach`,
   },
   {
     operation: "click",
@@ -286,6 +326,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Clicks an element identified by element ID (from snapshot) or CSS
+selector. Provide at least one of --element-id or --selector.
+
+Examples:
+  $ assistant browser click --element-id e14
+  $ assistant browser click --selector "#login-button"
+  $ assistant browser click --selector "a.nav-link"`,
   },
   {
     operation: "type",
@@ -322,6 +369,14 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Types text into the focused or targeted element. By default, existing
+content is cleared first (--clear-first). Use --no-clear-first to
+append to existing content. Use --press-enter to submit after typing.
+
+Examples:
+  $ assistant browser type --text "hello world" --element-id e14
+  $ assistant browser type --text "search query" --selector "#search" --press-enter
+  $ assistant browser type --text "append this" --no-clear-first`,
   },
   {
     operation: "press_key",
@@ -347,6 +402,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Sends a keyboard key press. If --element-id or --selector is given,
+the key is dispatched to that element; otherwise to the focused element.
+
+Examples:
+  $ assistant browser press-key --key Enter
+  $ assistant browser press-key --key Tab --element-id e5
+  $ assistant browser press-key --key Escape`,
   },
   {
     operation: "scroll",
@@ -378,6 +440,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Scrolls the page or a specific scrollable element. Direction is
+required; amount defaults to 500 pixels.
+
+Examples:
+  $ assistant browser scroll --direction down
+  $ assistant browser scroll --direction up --amount 1000
+  $ assistant browser scroll --direction down --element-id e8`,
   },
   {
     operation: "select_option",
@@ -414,6 +483,14 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Selects an option in a <select> element by value, label, or index.
+Provide at least one of --value, --label, or --index to identify
+the option, and --element-id or --selector to identify the <select>.
+
+Examples:
+  $ assistant browser select-option --element-id e12 --label "United States"
+  $ assistant browser select-option --selector "#country" --value "us"
+  $ assistant browser select-option --element-id e12 --index 3`,
   },
   {
     operation: "hover",
@@ -432,6 +509,12 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Moves the mouse cursor over an element to trigger hover effects
+(tooltips, dropdowns, etc.). Provide --element-id or --selector.
+
+Examples:
+  $ assistant browser hover --element-id e7
+  $ assistant browser hover --selector ".dropdown-trigger"`,
   },
   {
     operation: "wait_for",
@@ -464,6 +547,14 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Blocks until a condition is met: an element appears (--selector),
+text appears (--text), or a fixed duration elapses (--duration).
+Provide exactly one condition. --timeout caps the overall wait.
+
+Examples:
+  $ assistant browser wait-for --selector ".results-loaded"
+  $ assistant browser wait-for --text "Success"
+  $ assistant browser wait-for --duration 2000`,
   },
   {
     operation: "extract",
@@ -476,6 +567,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Extracts the visible text content of the current page. Optionally
+includes a list of all links found on the page.
+
+Examples:
+  $ assistant browser extract
+  $ assistant browser extract --include-links
+  $ assistant browser --json extract`,
   },
   {
     operation: "wait_for_download",
@@ -490,6 +588,12 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Waits for an in-progress file download to complete and returns the
+filename and path. Only supported in "auto" and "local" browser modes.
+
+Examples:
+  $ assistant browser wait-for-download
+  $ assistant browser wait-for-download --timeout 60000`,
   },
   {
     operation: "fill_credential",
@@ -527,6 +631,13 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Fills a credential from the assistant's credential vault into a form
+field. The credential value is never exposed in CLI output. Use
+'assistant credentials list' to see available service:field pairs.
+
+Examples:
+  $ assistant browser fill-credential --service github --field token --element-id e9
+  $ assistant browser fill-credential --service github --field password --selector "#password" --press-enter`,
   },
   {
     operation: "status",
@@ -540,6 +651,14 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         required: false,
       },
     ],
+    helpText: `Reports the readiness of available browser backends (local Playwright,
+Chrome extension). Includes remediation steps if a backend is not ready.
+Use --check-local-launch for an active Playwright launch probe (slower).
+
+Examples:
+  $ assistant browser status
+  $ assistant browser status --check-local-launch
+  $ assistant browser --json status`,
   },
 ];
 
