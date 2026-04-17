@@ -51,12 +51,13 @@ final class SettingsStoreCallSiteOverrideTests: XCTestCase {
     // MARK: - Catalog
 
     func testCatalogCoversEveryCallSite() {
-        // The plan calls out 26 sites grouped across 7 domains. If this
-        // count drifts, the catalog and the backend `LLMCallSiteEnum`
-        // have diverged.
-        XCTAssertEqual(CallSiteCatalog.all.count, 26)
-        XCTAssertEqual(CallSiteCatalog.byId.count, 26)
-        XCTAssertEqual(CallSiteCatalog.validIds.count, 26)
+        // The catalog enumerates 28 sites grouped across 8 domains
+        // (agent loop, memory, workspace, UI, notifications, voice,
+        // utility, skills). If this count drifts, the catalog and the
+        // backend `LLMCallSiteEnum` have diverged.
+        XCTAssertEqual(CallSiteCatalog.all.count, 28)
+        XCTAssertEqual(CallSiteCatalog.byId.count, 28)
+        XCTAssertEqual(CallSiteCatalog.validIds.count, 28)
     }
 
     func testCatalogHasUniqueIdsAndNonEmptyDisplayNames() {

@@ -234,15 +234,22 @@ function stripNullLeaves(value: unknown): unknown {
  *
  * JSON `null` is treated as a deletion sentinel: any key whose override
  * value is `null` is deleted from `target` instead of being assigned.
- * This applies recursively, so PATCHing `{ a: { b: null } }` removes the
+ * This applies recursively, so merging `{ a: { b: null } }` removes the
  * nested `b` while preserving `a` and any other siblings of `b`. When an
  * override assigns a whole object subtree to a key that does not yet
- * exist on `target` (or whose existing value is a scalar/array), any
- * `null` leaves inside that subtree are dropped before assignment so no
- * `null`s ever get persisted. This matches the semantics expected by
- * HTTP PATCH callers (e.g. macOS SettingsStore clearing call-site
- * overrides) and prevents invalid `null` entries from accumulating on
- * disk in `config.json`.
+ * exist on `target` (or whose existing value is a scalar/array),
+ * `stripNullLeaves` drops any `null` leaves inside that subtree before
+ * assignment so no `null`s ever get persisted.
+ *
+ * These deletion semantics apply to **every** caller of
+ * `deepMergeOverwrite`, not just the HTTP PATCH path. That includes
+ * `mergeDefaultWorkspaceConfig` and any future in-process consumer.
+ * Today the HTTP PATCH path is the only producer that emits `null`
+ * values (for example, the macOS SettingsStore clearing call-site
+ * overrides), so no in-process caller is affected — but contributors
+ * adding new callers should be aware that emitting `null` will delete
+ * the corresponding key, and prefer omitting the key entirely if that
+ * is not the intent.
  */
 export function deepMergeOverwrite(
   target: Record<string, unknown>,
