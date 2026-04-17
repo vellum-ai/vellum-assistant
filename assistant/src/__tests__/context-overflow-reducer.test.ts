@@ -562,6 +562,37 @@ describe("context-overflow-reducer", () => {
     });
   });
 
+  describe("forced compaction target budget", () => {
+    test("applyForcedCompaction does not pass targetInputTokensOverride", async () => {
+      // Regression test: passing `preflightBudget` (~170k on a 200k window) as
+      // the override lets pickKeepBoundary decide "all turns already fit" and
+      // take the truncate-only early-exit, returning compacted:true with 0
+      // summarized messages. The reducer must let the manager fall back to
+      // its configured `targetInputTokens` (~50k) so summarization actually
+      // happens.
+      const messages: Message[] = [
+        msg("user", "Hello"),
+        msg("assistant", "World"),
+      ];
+
+      let capturedOptions: ContextWindowCompactOptions | undefined;
+      const compactFn = async (
+        _messages: Message[],
+        _signal: AbortSignal | undefined,
+        options: ContextWindowCompactOptions,
+      ): Promise<ContextWindowResult> => {
+        capturedOptions = options;
+        return makeCompactFn()(messages, _signal, options);
+      };
+
+      await reduceContextOverflow(messages, makeConfig(), undefined, compactFn);
+
+      expect(capturedOptions).toBeDefined();
+      expect(capturedOptions!.force).toBe(true);
+      expect(capturedOptions!.targetInputTokensOverride).toBeUndefined();
+    });
+  });
+
   describe("compaction result forwarding", () => {
     test("forced compaction tier includes compactionResult", async () => {
       const messages: Message[] = [

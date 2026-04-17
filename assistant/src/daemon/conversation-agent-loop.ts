@@ -1111,6 +1111,7 @@ export async function runAgentLoopImpl(
     // from the reactive convergence loop below that fires after a
     // provider rejection — here we compact *before* hitting the limit.
     let midLoopCompactAttempts = 0;
+    let consecutiveNoOpCompactions = 0;
     while (
       yieldedForBudget &&
       midLoopCompactAttempts < overflowRecovery.maxAttempts &&
@@ -1137,13 +1138,19 @@ export async function runAgentLoopImpl(
         reqId,
         "Compacting context",
       );
+      // Intentionally omit `targetInputTokensOverride` so the manager uses its
+      // configured post-compaction target (~50k on a 200k window by default).
+      // Passing `preflightBudget` (~170k) here lets pickKeepBoundary decide
+      // "all turns already fit, keep everything" and take the truncate-only
+      // early-exit branch, which returns compacted:true with 0 summarized
+      // messages — turning mid-loop compaction into a silent no-op and
+      // letting the conversation balloon past the provider cap.
       const midLoopCompact = await ctx.contextWindowManager.maybeCompact(
         ctx.messages,
         abortController.signal,
         {
           lastCompactedAt: ctx.contextCompactedAt ?? undefined,
           force: true,
-          targetInputTokensOverride: preflightBudget,
         },
       );
       if (midLoopCompact.compacted) {
@@ -1188,6 +1195,30 @@ export async function runAgentLoopImpl(
         );
         ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
         shouldInjectWorkspace = true;
+      }
+
+      // Guardrail: if compaction returned without summarizing any persisted
+      // messages twice in a row, further mid-loop attempts will likely also
+      // be no-ops (same history, same config). Break out early and let the
+      // convergence loop's later reducer tiers (tool-result truncation,
+      // media stubbing, injection downgrade) take over instead of burning
+      // all maxAttempts on no-ops.
+      if (midLoopCompact.compactedPersistedMessages === 0) {
+        consecutiveNoOpCompactions++;
+        if (consecutiveNoOpCompactions >= 2) {
+          rlog.warn(
+            {
+              phase: "mid-loop-compact",
+              midLoopCompactAttempts,
+              consecutiveNoOpCompactions,
+            },
+            "Mid-loop compaction produced no persisted-message reductions twice in a row — escalating to convergence loop",
+          );
+          state.contextTooLargeDetected = true;
+          break;
+        }
+      } else {
+        consecutiveNoOpCompactions = 0;
       }
 
       // Re-inject runtime context and re-enter the agent loop.
