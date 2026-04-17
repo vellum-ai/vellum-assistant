@@ -162,16 +162,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -246,16 +236,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -345,16 +325,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -428,16 +398,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -526,16 +486,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -607,16 +557,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -1023,5 +963,3 @@ jobs:
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-
-
