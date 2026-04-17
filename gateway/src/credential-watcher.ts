@@ -101,6 +101,16 @@ export class CredentialWatcher {
         }
         this.scheduleCheck(forceChanged);
       });
+
+      // Prevent unhandled FSWatcher errors (e.g. ENXIO when the watched
+      // directory is removed) from crashing the process.
+      watcher.on("error", (err) => {
+        log.warn(
+          { err, path: dir, file: targetFilename },
+          "Credential file watcher error",
+        );
+      });
+
       this.watchers.push(watcher);
 
       log.info(
