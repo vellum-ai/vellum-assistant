@@ -2,9 +2,9 @@
  * Shared browser operations contract.
  *
  * This module is the single execution entrypoint for all browser
- * operations. Both the tool wrappers (bundled-skills/browser/tools/)
- * and the CLI command builder consume this contract. It does NOT
- * read from skill tool JSON definitions — all metadata is defined inline.
+ * operations. Both the existing tool wrappers and the CLI command
+ * builder consume this contract. All metadata is defined inline —
+ * this module has no dependency on skill registration files.
  *
  * Responsibilities:
  *   - Canonical operation <-> tool name mapping (bijective).
