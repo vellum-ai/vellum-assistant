@@ -107,7 +107,7 @@
     {
       "id": "email-setup",
       "name": "email-setup",
-      "description": "Set up this assistant's custom domain and email address (one-time setup)",
+      "description": "Set up this assistant's own [name].vellum.me domain and email address (one-time setup)",
       "metadata": {
         "emoji": "📧",
         "vellum": {

@@ -1,6 +1,6 @@
 ---
 name: email-setup
-description: Set up this assistant's custom domain and email address (one-time setup)
+description: Set up this assistant's own `[name].vellum.me` domain and email address (one-time setup)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📧"
@@ -77,6 +77,7 @@ If `assistant domain register` returns an error (e.g. subdomain taken), try a va
 ### Email registration failed
 
 If `assistant email register` returns an error:
+
 - **"No domain registered"** — run `assistant domain register` first.
 - **Username taken** — try a different local part.
 - **Other errors** — report the error to the user.
@@ -85,10 +86,10 @@ If `assistant email register` returns an error:
 
 Once set up, the assistant has full email capabilities:
 
-| Command | Description |
-|---|---|
+| Command                                               | Description                                            |
+| ----------------------------------------------------- | ------------------------------------------------------ |
 | `assistant email send <to...> -s "Subject" -b "Body"` | Send an email (supports `--cc`, `--bcc`, `--reply-to`) |
-| `assistant email list` | List sent and received emails |
-| `assistant email download <id>` | Download a specific email |
-| `assistant email status` | Check email address status and usage |
-| `assistant email unregister --confirm` | Remove the email address |
+| `assistant email list`                                | List sent and received emails                          |
+| `assistant email download <id>`                       | Download a specific email                              |
+| `assistant email status`                              | Check email address status and usage                   |
+| `assistant email unregister --confirm`                | Remove the email address                               |
