@@ -305,57 +305,96 @@ public final class GatewayConnectionManager {
 
     // MARK: - Health Check (via GatewayHTTPClient)
 
+    /// Decoded result of a single health check round-trip.
+    ///
+    /// Populated off the main actor (see ``performHealthCheck()``) so that
+    /// URL construction, `URLSession` work, and JSON decoding don't occupy
+    /// the main dispatch queue while the `@MainActor` class is otherwise
+    /// busy.
+    private struct HealthCheckOutcome: Sendable {
+        let statusCode: Int
+        let version: String?
+    }
+
     private func performHealthCheck() async throws {
-        do {
-            let healthPath: String
-            #if os(macOS)
-            healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
-            #else
-            healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
-            #endif
+        let healthPath: String
+        #if os(macOS)
+        healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
+        #else
+        healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
+        #endif
+
+        // Run the HTTP GET + JSON decode off the main actor. `GatewayHTTPClient`
+        // is nonisolated but, when called from a `@MainActor` context, its
+        // synchronous work (lockfile read on macOS, URL construction, JSON
+        // parsing of the response) inherits main-actor isolation. Under memory
+        // pressure or a saturated main queue this has been observed to cause
+        // >2000ms hangs (see LUM-914). Offloading via `Task.detached` follows
+        // Apple's guidance to keep state on `@MainActor` and push CPU-bound /
+        // I/O-bound work off it — WWDC25 "Embracing Swift concurrency"
+        // (https://developer.apple.com/videos/play/wwdc2025/268/).
+        //
+        // Detached tasks are unstructured, so cancelling the enclosing
+        // `healthCheckTask` (e.g. from `disconnectInternal()`) does not
+        // automatically propagate to the network call. `withTaskCancellationHandler`
+        // forwards the parent's cancellation to the detached handle, and the
+        // explicit `checkCancellation()` below guards the subsequent
+        // `@MainActor` state mutations so a late-arriving success cannot flip
+        // `isConnected` back to `true` after disconnect.
+        let detachedHealthCheck = Task.detached(priority: .userInitiated) {
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
                 timeout: 10,
                 quiet: true
             )
-
-            guard response.isSuccess else {
-                if response.statusCode == 401 {
-                    handleAuthenticationFailure()
-                } else if response.statusCode == 404, isManaged {
-                    handleManagedAssistantGoneFromPlatform()
-                    throw ConnectionError.healthCheckFailed
-                }
-                throw ConnectionError.healthCheckFailed
+            let version: String? = response.isSuccess
+                ? (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version
+                : nil
+            return HealthCheckOutcome(statusCode: response.statusCode, version: version)
+        }
+        let outcome: HealthCheckOutcome
+        do {
+            outcome = try await withTaskCancellationHandler {
+                try await detachedHealthCheck.value
+            } onCancel: {
+                detachedHealthCheck.cancel()
             }
-
-            if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
-                if let newVersion = decoded.version, newVersion != assistantVersion {
-                    assistantVersion = newVersion
-                    handleDaemonVersionChanged(newVersion)
-                }
-            }
-
-            consecutiveHealthCheckSuccesses += 1
-            if consecutiveHealthCheckSuccesses <= 3 {
-                log.info("Health check passed")
-            }
-            setConnected(true)
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as GatewayHTTPClient.ClientError {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
             throw ConnectionError.healthCheckFailed
-        } catch let error as ConnectionError {
-            consecutiveHealthCheckSuccesses = 0
-            setConnected(false)
-            throw error
         } catch {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
             throw ConnectionError.healthCheckFailed
         }
+
+        guard (200..<300).contains(outcome.statusCode) else {
+            if outcome.statusCode == 401 {
+                handleAuthenticationFailure()
+            } else if outcome.statusCode == 404, isManaged {
+                handleManagedAssistantGoneFromPlatform()
+            }
+            consecutiveHealthCheckSuccesses = 0
+            setConnected(false)
+            throw ConnectionError.healthCheckFailed
+        }
+
+        if let newVersion = outcome.version, newVersion != assistantVersion {
+            assistantVersion = newVersion
+            handleDaemonVersionChanged(newVersion)
+        }
+
+        consecutiveHealthCheckSuccesses += 1
+        if consecutiveHealthCheckSuccesses <= 3 {
+            log.info("Health check passed")
+        }
+        setConnected(true)
     }
 
     private func startHealthCheckLoop() {
