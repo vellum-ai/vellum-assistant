@@ -484,6 +484,53 @@ describe("Anthropic models on OpenRouter", () => {
     expect(result.estimatedCostUsd).toBe(5 + 25);
   });
 
+  test("prices version-first anthropic/claude-4.7-opus-<date> at Opus 4.7 rates", () => {
+    // OpenRouter's response.model for Anthropic calls comes back in the form
+    // `anthropic/claude-<version>-<family>-<date>`, which previously failed
+    // the catalog prefix match (catalog keys are `claude-<family>-<version>`).
+    const result = resolvePricing(
+      "openrouter",
+      "anthropic/claude-4.7-opus-20260416",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("prices version-first dash-form anthropic/claude-4-7-opus-<date>", () => {
+    const result = resolvePricing(
+      "openrouter",
+      "anthropic/claude-4-7-opus-20260416",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("prices version-first anthropic/claude-4.6-sonnet", () => {
+    const result = resolvePricing(
+      "openrouter",
+      "anthropic/claude-4.6-sonnet",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(3 + 15);
+  });
+
+  test("prices version-first anthropic/claude-4.5-haiku", () => {
+    const result = resolvePricing(
+      "openrouter",
+      "anthropic/claude-4.5-haiku",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(0.8 + 4);
+  });
+
   test("returns unpriced for unknown anthropic model on OpenRouter", () => {
     const result = resolvePricing(
       "openrouter",
