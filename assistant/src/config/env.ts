@@ -153,19 +153,19 @@ export function getPlatformBaseUrl(): string {
     // Config not yet available (early bootstrap) — fall through
   }
   // Resolve the default platform URL from VELLUM_ENVIRONMENT.
-  // Known environments map to their hosted platforms; anything else
-  // (including unset) defaults to localhost so local builds don't
-  // silently hit a shared platform.
+  // `local` points at a developer's locally running platform; every
+  // other value (including unset) falls back to dev-platform so we
+  // don't accidentally hit production/staging by default.
   const env = str("VELLUM_ENVIRONMENT")?.trim();
   let defaultUrl: string;
   if (env === "production") {
     defaultUrl = "https://platform.vellum.ai";
   } else if (env === "staging") {
     defaultUrl = "https://staging-platform.vellum.ai";
-  } else if (env === "dev") {
-    defaultUrl = "https://dev-platform.vellum.ai";
-  } else {
+  } else if (env === "local") {
     defaultUrl = "http://localhost:8000";
+  } else {
+    defaultUrl = "https://dev-platform.vellum.ai";
   }
   return (
     configUrl ||
