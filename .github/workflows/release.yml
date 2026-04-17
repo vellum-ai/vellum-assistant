@@ -1410,6 +1410,14 @@ jobs:
   # arm64 macOS build — builds Swift + Bun binaries in a single job,
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
+  #
+  # `needs:` gates on the three GCR service manifests. We intentionally do NOT
+  # list `push-dockerhub-image` here because this job runs in both staging
+  # and production, and `push-dockerhub-image` is prod-only (skipped in staging)
+  # — a skipped dep would cascade-skip this job in staging. The Docker Hub
+  # gate is applied downstream at the `release` job (GitHub Release), which
+  # is the sole publisher of the DMG produced here, and at `release-ios`
+  # for its sibling TestFlight publish.
   build-macos-arm64:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
@@ -2483,6 +2491,10 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  # iOS build — produces .ipa for TestFlight upload via release-ios.
+  # As with the macOS builds, `needs:` gates on GCR manifests only because
+  # this job runs in staging too; the Docker Hub gate lives on `release-ios`
+  # (prod-only), which is the sole external publisher of this .ipa.
   build-ios:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
