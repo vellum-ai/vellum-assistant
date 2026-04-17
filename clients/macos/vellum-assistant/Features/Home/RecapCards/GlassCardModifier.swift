@@ -15,15 +15,27 @@ enum RecapCard {
 /// SwiftUI primitives that exist:
 ///   - `.ultraThinMaterial`         — backdrop blur (Figma Frost ≈ 14)
 ///   - `VColor.glassFill`           — 10% white tint over the blur
-///   - gradient strokeBorder        — edge highlight from upper-left
-///                                    (Figma Light = -45° @ 80%)
+///   - `AngularGradient` stroke     — aspect-ratio-aware edge highlight
+///                                    (approximates Figma Light = -45° @ 80%)
 ///   - single `.shadow(...)`        — Figma drop shadow 0/4/12 black 5%
 ///
-/// In dark mode a second highlight is painted on the lower-right edge to
-/// approximate the Glass effect's refraction (Refraction=80) lensing the
-/// upper-left light catch through to the opposite corner. Refraction,
-/// dispersion, and depth themselves cannot be replicated without a Metal
-/// shader and are deliberately omitted.
+/// Light mode renders a single bright plateau at the top-left corner that
+/// fades symmetrically into the adjacent top and left edges. Dark mode
+/// additionally paints a bright bottom-right corner with narrow clear
+/// dips at the opposite (TR and BL) corners — faking the refraction
+/// "exit" highlight the Figma Glass shader produces on dark backdrops.
+///
+/// Using an `AngularGradient` sweeping by angle from the card's center
+/// (rather than a diagonal `LinearGradient`) is critical: corner
+/// positions in the gradient are computed from `atan2(height, width)`,
+/// so the bright/clear regions land on the correct geometric corners
+/// regardless of aspect ratio. A `GeometryReader` reads the card's size
+/// once per layout pass (effectively free — `atan2` and gradient stop
+/// construction are nanosecond-scale, gradient rendering is GPU-composited
+/// like any other gradient).
+///
+/// Refraction, dispersion, and depth themselves cannot be replicated
+/// without a Metal shader and are deliberately omitted.
 ///
 /// Generic over `InsettableShape` so the same recipe drops into both
 /// rounded-rectangle cards and pill-shaped surfaces.
@@ -42,31 +54,62 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
                     shape.fill(VColor.glassFill)
                 }
             )
-            .overlay(shape.strokeBorder(edgeHighlight, lineWidth: 1))
+            .overlay(
+                GeometryReader { proxy in
+                    shape.strokeBorder(edgeHighlight(size: proxy.size), lineWidth: 1)
+                }
+            )
             .clipShape(shape)
             .shadow(color: VColor.glassDropShadow, radius: 6, x: 0, y: 4)
     }
 
-    /// Linear gradient applied to the edge stroke.
-    /// Light mode: bright at top-leading, fading to clear toward bottom-trailing.
-    /// Dark mode: bright at both top-leading and bottom-trailing, clear in the
-    /// middle — fakes the refraction "exit" highlight on the opposite corner.
-    private var edgeHighlight: LinearGradient {
-        let stops: [Gradient.Stop] = colorScheme == .dark
-            ? [
-                .init(color: VColor.glassEdgeHighlight, location: 0),
-                .init(color: .clear, location: 0.5),
-                .init(color: VColor.glassEdgeHighlight, location: 1),
+    /// Aspect-ratio-aware angular gradient for the edge-highlight stroke.
+    ///
+    /// The four corners sit at normalized angles derived from `atan2(h, w)`:
+    ///   BR ≈ f, BL ≈ 0.5 - f, TL ≈ 0.5 + f, TR ≈ 1 - f
+    /// where `f = atan2(h, w) / (2π)` expresses the corner angle as a
+    /// fraction of the full circle. Using the actual corner angles instead
+    /// of axis-projected locations keeps the bright/clear regions aligned
+    /// to the real geometric corners regardless of the card's shape.
+    private func edgeHighlight(size: CGSize) -> AngularGradient {
+        let w = max(size.width, 1)
+        let h = max(size.height, 1)
+        let f = atan2(h, w) / (2 * .pi)
+        let bright = VColor.glassEdgeHighlight
+
+        let stops: [Gradient.Stop]
+        switch colorScheme {
+        case .dark:
+            // Dual-corner: TL and BR stay bright (bright plateau covers
+            // both, unbroken along all four edges); narrow clear dips
+            // land exactly at BL and TR.
+            let dip: CGFloat = 0.02
+            stops = [
+                .init(color: bright, location: 0),
+                .init(color: bright, location: 0.5 - f - dip),
+                .init(color: .clear, location: 0.5 - f),
+                .init(color: bright, location: 0.5 - f + dip),
+                .init(color: bright, location: 1 - f - dip),
+                .init(color: .clear, location: 1 - f),
+                .init(color: bright, location: 1 - f + dip),
+                .init(color: bright, location: 1),
             ]
-            : [
-                .init(color: VColor.glassEdgeHighlight, location: 0),
+        default:
+            // Single-corner: narrow bright plateau centered on TL that
+            // fades symmetrically into the adjacent top and left edges.
+            // BR, TR, and BL remain clear.
+            let tl = 0.5 + f
+            stops = [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: tl - 0.10),
+                .init(color: bright, location: tl - 0.05),
+                .init(color: bright, location: tl + 0.05),
+                .init(color: .clear, location: tl + 0.10),
                 .init(color: .clear, location: 1),
             ]
-        return LinearGradient(
-            stops: stops,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        }
+
+        return AngularGradient(stops: stops, center: .center)
     }
 }
 
