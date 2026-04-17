@@ -1076,6 +1076,36 @@ public final class SettingsStore: ObservableObject {
         providerCatalog.first { $0.id == provider }?.apiKeyPlaceholder
     }
 
+    // MARK: - Provider Capability Helpers
+
+    /// Provider IDs that support managed proxy routing (i.e., can be used in managed mode).
+    /// Mirrors the `MANAGED_PROVIDER_META` table in the backend.
+    private static let managedCapableProviderIds: Set<String> = ["anthropic", "openai", "gemini"]
+
+    /// Provider IDs that support native web search (inference-provider-native).
+    /// Anthropic and OpenAI pass `useNativeWebSearch` to their providers; others do not.
+    private static let nativeWebSearchCapableProviderIds: Set<String> = ["anthropic", "openai"]
+
+    /// Returns the catalog entries for providers that support managed proxy routing.
+    var managedCapableProviders: [ProviderCatalogEntry] {
+        providerCatalog.filter { Self.managedCapableProviderIds.contains($0.id) }
+    }
+
+    /// Returns the catalog entries for providers that support native web search.
+    var nativeWebSearchCapableProviders: [ProviderCatalogEntry] {
+        providerCatalog.filter { Self.nativeWebSearchCapableProviderIds.contains($0.id) }
+    }
+
+    /// Whether a given provider supports managed proxy routing.
+    func isManagedCapable(_ provider: String) -> Bool {
+        Self.managedCapableProviderIds.contains(provider)
+    }
+
+    /// Whether a given provider supports native web search.
+    func isNativeWebSearchCapable(_ provider: String) -> Bool {
+        Self.nativeWebSearchCapableProviderIds.contains(provider)
+    }
+
     // MARK: - Embedding Config Actions
 
     func refreshEmbeddingConfig() {

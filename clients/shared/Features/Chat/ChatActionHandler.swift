@@ -783,6 +783,21 @@ final class ChatActionHandler {
         }
     }
 
+    /// Returns the index of the queued user message with the lowest position.
+    /// Ties break on the earlier-appended message (chronological order).
+    private static func headOfQueueIndex(in msgs: [ChatMessage]) -> Int? {
+        var minPos = Int.max
+        var headIdx: Int?
+        for (i, msg) in msgs.enumerated() {
+            guard msg.role == .user else { continue }
+            if case .queued(let p) = msg.status, p < minPos {
+                minPos = p
+                headIdx = i
+            }
+        }
+        return headIdx
+    }
+
     private func handleMessageDequeued(_ msg: MessageDequeuedMessage, vm: ChatViewModel) {
         guard belongsToConversation(msg.conversationId) else { return }
         vm.pendingQueuedCount = max(0, vm.pendingQueuedCount - 1)
@@ -824,14 +839,18 @@ final class ChatActionHandler {
                 vm.currentTurnUserText = text
             }
         } else {
-            // No matching messageId — still recompute queued positions and
-            // reconcile any false "Failed to send" state: the daemon is
-            // processing a queued message, so if a user message is marked as
-            // sendFailed, the send actually succeeded (transient HTTP error
-            // between enqueue and 202 response).
+            // No matching messageId — the requestId mapping was likely cleared
+            // by a daemon reconnect or sendingWatchdog. Reconcile any false
+            // "Failed to send" state, or transition the head-of-queue user
+            // message to .processing so the queue drawer doesn't hold onto a
+            // stale row while the daemon processes it. Then decrement the
+            // remaining queued positions.
             var reconciledId: UUID?
             vm.messageManager.batchUpdateMessages { msgs in
                 if let idx = msgs.lastIndex(where: { $0.role == .user && $0.status == .sendFailed }) {
+                    msgs[idx].status = .processing
+                    reconciledId = msgs[idx].id
+                } else if let idx = Self.headOfQueueIndex(in: msgs) {
                     msgs[idx].status = .processing
                     reconciledId = msgs[idx].id
                 }

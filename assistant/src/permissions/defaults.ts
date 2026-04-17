@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
+import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";

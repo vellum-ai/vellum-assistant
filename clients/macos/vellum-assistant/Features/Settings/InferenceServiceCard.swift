@@ -4,9 +4,9 @@ import VellumAssistantShared
 /// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
-/// - **Managed + logged in**: Model picker, Save button
+/// - **Managed + logged in**: Provider picker (managed-capable only), model picker, Save button
 /// - **Managed + not logged in**: Empty state prompting login
-/// - **Your Own**: Provider picker, API key field, model picker, Save + Reset buttons
+/// - **Your Own**: Provider picker (all), API key field, model picker, Save + Reset buttons
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -66,20 +66,32 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when changing inference mode would invalidate the current web search config.
+    /// True when changing inference mode/provider would invalidate the current web search config.
     private var wouldInvalidateWebSearch: Bool {
         let modeChanging = draftMode != store.inferenceMode
-        guard modeChanging else { return false }
+        let providerChanging = draftProvider != store.selectedInferenceProvider
+        guard modeChanging || providerChanging else { return false }
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
-        if draftMode == "your-own" && store.webSearchMode == "managed" {
+        if modeChanging && draftMode == "your-own" && store.webSearchMode == "managed" {
             return true
         }
-        // Switching to Managed inference while web search uses Provider Native
-        // (Provider Native requires Your Own inference).
-        if draftMode == "managed" && store.webSearchProvider == "inference-provider-native" {
-            return true
+        // Switching to Managed inference while web search uses Provider Native —
+        // only invalidate when the resulting provider cannot support native web search.
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if draftMode == "managed" && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
+        }
+        // Switching providers while web search uses Provider Native — invalidate
+        // when the new provider cannot support native web search.
+        // Skip when web search is in managed mode (webSearchProvider is stale).
+        if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider) {
+                return true
+            }
         }
         return false
     }
@@ -97,8 +109,7 @@ struct InferenceServiceCard: View {
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let modelChanged = draftModel != initialModel
-        let effectiveDraftProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        let providerChanged = effectiveDraftProvider != initialProvider
+        let providerChanged = draftProvider != initialProvider
         return modeChanged || hasNewKey || modelChanged || providerChanged
     }
 
@@ -112,12 +123,15 @@ struct InferenceServiceCard: View {
                 draftMode: $draftMode,
                 managedContent: {
                     if isLoggedIn {
-                        PickerWithInlineSave(
-                            hasChanges: hasChanges,
-                            isSaving: store.apiKeySaving,
-                            onSave: { save() }
-                        ) {
-                            modelPicker
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            managedProviderPicker
+                            PickerWithInlineSave(
+                                hasChanges: hasChanges,
+                                isSaving: store.apiKeySaving,
+                                onSave: { save() }
+                            ) {
+                                modelPicker
+                            }
                         }
                     } else {
                         managedLoginPrompt
@@ -184,13 +198,15 @@ struct InferenceServiceCard: View {
             // Symmetric case: if the user is authenticated and the mode is
             // still the default "your-own", switch to "managed" so signed-in
             // users get managed inference out of the box — but only when the
-            // provider requires an API key and the user hasn't configured one.
-            // Providers like Ollama that don't use keys (apiKeyPlaceholder is
-            // nil) are left alone since the user intentionally set up a local
-            // provider.
+            // provider is managed-capable, requires an API key, and the user
+            // hasn't configured one. Providers like Ollama that don't use keys
+            // (apiKeyPlaceholder is nil) or non-managed providers (fireworks,
+            // openrouter) are left alone since the user intentionally set up
+            // that provider.
             let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
             let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !hasLocalKey {
+            let providerIsManagedCapable = store.isManagedCapable(draftProvider)
+            if isLoggedIn && draftMode == "your-own" && providerIsManagedCapable && providerRequiresKey && !hasLocalKey {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -217,12 +233,13 @@ struct InferenceServiceCard: View {
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
             } else if isAuthenticated && store.inferenceMode == "your-own" {
-                // When a user signs in and has no BYO key for a key-based
-                // provider, default to managed. Keyless providers (e.g. Ollama)
-                // are left in your-own mode.
+                // When a user signs in and has no BYO key for a managed-capable,
+                // key-based provider, default to managed. Keyless providers
+                // (e.g. Ollama) and non-managed providers are left in your-own mode.
                 let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
                 let hasLocalKey = APIKeyManager.getKey(for: draftProvider) != nil
-                if requiresKey && !hasLocalKey {
+                let isManagedCapable = store.isManagedCapable(draftProvider)
+                if isManagedCapable && requiresKey && !hasLocalKey {
                     draftMode = "managed"
                     store.setInferenceMode("managed")
                 }
@@ -283,11 +300,19 @@ struct InferenceServiceCard: View {
         }
         .onChange(of: draftMode) { _, newMode in
             if newMode == "managed" {
-                let anthropicModels = store.dynamicProviderModels("anthropic")
-                let isCurrentModelAnthropic = anthropicModels.contains { $0.id == draftModel }
-                if !isCurrentModelAnthropic {
-                    let defaultModel = store.dynamicProviderDefaultModel("anthropic")
-                    draftModel = defaultModel.isEmpty ? "claude-opus-4-7" : defaultModel
+                // When switching to managed mode, fall back to a managed-capable
+                // provider if the current one does not support managed routing.
+                if !store.isManagedCapable(draftProvider) {
+                    draftProvider = "anthropic"
+                }
+                // Validate the model against the selected managed provider's catalog.
+                let managedModels = store.dynamicProviderModels(draftProvider)
+                let isCurrentModelValid = managedModels.contains { $0.id == draftModel }
+                if !isCurrentModelValid {
+                    let defaultModel = store.dynamicProviderDefaultModel(draftProvider)
+                    draftModel = defaultModel.isEmpty
+                        ? (managedModels.first?.id ?? "")
+                        : defaultModel
                 }
             } else if newMode == "your-own" {
                 let providerModels = store.dynamicProviderModels(draftProvider)
@@ -308,7 +333,7 @@ struct InferenceServiceCard: View {
             Button("Continue") { performSave() }
         } message: {
             Text(
-                "Changing your inference mode will also update your Web Search settings."
+                "Changing your inference settings will also update your Web Search settings."
                     + " You'll need to review and save them below."
             )
         }
@@ -398,6 +423,22 @@ struct InferenceServiceCard: View {
         }
     }
 
+    /// Provider picker filtered to managed-capable providers, shown in managed mode.
+    private var managedProviderPicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Provider")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VDropdown(
+                placeholder: "Select a provider\u{2026}",
+                selection: $draftProvider,
+                options: store.managedCapableProviders.map { entry in
+                    (label: entry.displayName, value: entry.id)
+                }
+            )
+        }
+    }
+
     // MARK: - API Key Field
 
     private var apiKeyField: some View {
@@ -427,11 +468,10 @@ struct InferenceServiceCard: View {
 
     /// Per-provider catalog model dropdown.
     private var providerModelPicker: some View {
-        let provider = draftMode == "managed" ? "anthropic" : draftProvider
-        return VDropdown(
+        VDropdown(
             placeholder: "Select a model\u{2026}",
             selection: $draftModel,
-            options: store.dynamicProviderModels(provider).map { model in
+            options: store.dynamicProviderModels(draftProvider).map { model in
                 (label: model.displayName, value: model.id)
             }
         )
@@ -501,13 +541,13 @@ struct InferenceServiceCard: View {
         // force-persist provider/model even when IDs happen to match.
         let modeChanged = draftMode != store.inferenceMode
 
-        // Persist mode if changed. The mode write is independent of the
-        // provider/model PATCH below — the daemon stores it under
-        // `services.inference.mode`, not `llm.default` — so it can fly
-        // off in parallel without affecting atomicity.
-        if modeChanged {
-            _ = store.setInferenceMode(draftMode)
-        }
+        // Persist mode if changed. The mode write goes to
+        // `services.inference.mode`, separate from `llm.default` — but we
+        // capture the pending Task so the provider/model PATCH below can
+        // wait for it. Otherwise the daemon's ConfigWatcher could see the
+        // provider/model write reflect new mode-derived defaults before the
+        // mode itself has been persisted.
+        let pendingMode = modeChanged ? store.setInferenceMode(draftMode) : nil
 
         // Resolve the provider that will land in `llm.default.provider`.
         // Also flag re-persist when the mode changed — switching between
@@ -517,12 +557,7 @@ struct InferenceServiceCard: View {
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
         let providerChanged = persistProvider != initialProvider || modeChanged
         if providerChanged {
-            initialProvider = persistProvider
-        }
-        // Normalize draftProvider to match what was persisted so hasChanges
-        // (which compares draftProvider against initialProvider) stays in sync.
-        if draftProvider != persistProvider {
-            draftProvider = persistProvider
+            initialProvider = draftProvider
         }
 
         // Persist API key if entered and in your-own mode.
@@ -548,9 +583,17 @@ struct InferenceServiceCard: View {
         // (e.g. an OpenAI model ID against the Anthropic provider). The
         // combined setter writes both keys in one round-trip so the
         // daemon never observes a half-applied state.
+        //
+        // Awaiting `pendingMode` first ensures `services.inference.mode`
+        // has landed before the daemon picks up the new provider/model.
         let modelChanged = draftModel != initialModel
         if providerChanged || modelChanged {
-            _ = store.setLLMDefault(provider: persistProvider, model: draftModel)
+            let capturedProvider = persistProvider
+            let capturedModel = draftModel
+            Task {
+                if let pendingMode { _ = await pendingMode.value }
+                _ = await store.setLLMDefault(provider: capturedProvider, model: capturedModel).value
+            }
         }
         initialModel = draftModel
     }

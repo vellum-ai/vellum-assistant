@@ -7,10 +7,14 @@
  * this module has no dependency on skill registration files.
  *
  * Responsibilities:
- *   - Canonical operation <-> tool name mapping (bijective).
  *   - Dispatch to existing browser-execution.ts implementations.
  *   - Command-oriented metadata for CLI subcommand generation.
  *   - `wait_for_download` mode-constraint enforcement.
+ *
+ * Identifier-only exports (BROWSER_TOOL_NAMES, name mapping helpers)
+ * live in `browser/identifiers.ts` to avoid pulling the browser
+ * execution stack into policy/classification modules. This module
+ * re-exports them for backwards compatibility.
  */
 
 import {
@@ -40,64 +44,25 @@ import {
   type BrowserOperationMeta,
 } from "./types.js";
 
-// ── Tool name constants ──────────────────────────────────────────────
+// ── Re-exports from identifiers.ts ───────────────────────────────────
+//
+// Identifier-only constants and helpers are defined in the lightweight
+// `browser/identifiers.ts` module so that policy/classification
+// consumers can import them without pulling in the browser execution
+// stack. Re-exported here for backwards compatibility with existing
+// callers that import from `browser/operations.js`.
+
+export {
+  BROWSER_TOOL_NAMES,
+  browserOperationToToolName,
+  browserToolNameToOperation,
+} from "./identifiers.js";
 
 /**
  * All canonical browser operation identifiers (re-exported from types).
  */
 export const BROWSER_OPERATION_NAMES: readonly BrowserOperation[] =
   BROWSER_OPERATIONS;
-
-/**
- * All `browser_*` tool names derived from operation identifiers.
- *
- * These names are the LLM-facing tool aliases registered by the browser
- * skill wrappers. They are compatibility adapters: the canonical
- * identifiers are the operation names in {@link BROWSER_OPERATIONS},
- * and the `browser_*` prefix is a naming convention for the tool layer.
- * When the `browser_*` tool wrappers are eventually removed, this
- * derived list can be dropped — the CLI and operations layer only need
- * {@link BROWSER_OPERATIONS} and {@link BROWSER_OPERATION_META}.
- *
- * Consumed by:
- *   - Permission default rules (permissions/defaults.ts)
- *   - Workspace policy classification (permissions/workspace-policy.ts)
- *   - Side-effect tool classification (tools/side-effects.ts)
- *   - Test harnesses and parity guards
- */
-export const BROWSER_TOOL_NAMES: readonly string[] = BROWSER_OPERATIONS.map(
-  (op) => `browser_${op}`,
-);
-
-// ── Bidirectional name mapping ───────────────────────────────────────
-
-/**
- * Convert a `browser_*` tool name to its canonical operation ID.
- * Returns `undefined` if the tool name does not match a known operation.
- */
-export function browserToolNameToOperation(
-  toolName: string,
-): BrowserOperation | undefined {
-  if (!toolName.startsWith("browser_")) return undefined;
-  const candidate = toolName.slice("browser_".length);
-  if ((BROWSER_OPERATIONS as readonly string[]).includes(candidate)) {
-    return candidate as BrowserOperation;
-  }
-  return undefined;
-}
-
-/**
- * Convert a canonical operation ID to its `browser_*` tool name.
- * Returns `undefined` if the operation is not a known identifier.
- */
-export function browserOperationToToolName(
-  operation: string,
-): string | undefined {
-  if ((BROWSER_OPERATIONS as readonly string[]).includes(operation)) {
-    return `browser_${operation}`;
-  }
-  return undefined;
-}
 
 // ── Dispatch handlers ────────────────────────────────────────────────
 
@@ -219,9 +184,10 @@ export async function executeBrowserOperation(
  * Metadata for every browser operation, describing fields, types, and
  * constraints. Used by the CLI command builder to generate subcommands.
  *
- * The `browser_mode` and `activity` fields are omitted from per-operation
- * metadata because they are not exposed through the CLI. Operations
- * invoked via the CLI always use the default browser mode.
+ * The `browser_mode` field is handled as a shared parent-level option
+ * on the `assistant browser` command (--browser-mode), not as a
+ * per-operation field. The `activity` field is omitted because it is
+ * an internal execution concern, not a user-facing parameter.
  */
 export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
   {

@@ -118,6 +118,16 @@ function functionCallArgsDoneEvent(
   };
 }
 
+function webSearchCallAddedEvent(itemId: string): FakeStreamEvent {
+  return {
+    type: "response.output_item.added",
+    item: {
+      type: "web_search_call",
+      id: itemId,
+    },
+  };
+}
+
 function completedEvent(
   inputTokens: number,
   outputTokens: number,
@@ -1114,5 +1124,378 @@ describe("OpenAIResponsesProvider", () => {
     ]);
 
     expect(result.stopReason).toBe("incomplete");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native web search tool mapping
+// ---------------------------------------------------------------------------
+
+describe("OpenAIResponsesProvider — Native Web Search", () => {
+  const webSearchTool: ToolDefinition = {
+    name: "web_search",
+    description: "Search the web",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+    },
+  };
+
+  const fileReadTool: ToolDefinition = {
+    name: "file_read",
+    description: "Read a file",
+    input_schema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
+  };
+
+  beforeEach(() => {
+    fakeStreamEvents = [];
+    lastStreamParams = null;
+    lastStreamOptions = null;
+    lastConstructorOptions = null;
+    shouldThrow = null;
+  });
+
+  test("maps web_search to native web_search_preview tool when useNativeWebSearch is enabled", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({ type: "web_search_preview" });
+  });
+
+  test("keeps web_search as function tool when useNativeWebSearch is disabled", async () => {
+    const nonNativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nonNativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "web_search",
+      description: "Search the web",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+      },
+      strict: null,
+    });
+  });
+
+  test("mixes native web_search_preview with regular function tools", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search and read" }] }],
+      [fileReadTool, webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(2);
+    // Non-web-search tools remain as function tools
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "file_read",
+      description: "Read a file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      strict: null,
+    });
+    // web_search is mapped to native tool
+    expect(sentTools[1]).toEqual({ type: "web_search_preview" });
+  });
+
+  test("sends all tools as function tools when no web_search is present and native mode is on", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
+      [fileReadTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "file_read",
+      description: "Read a file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      strict: null,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // web_search_call stream event handling
+  // -----------------------------------------------------------------------
+
+  test("emits server_tool_start when web_search_call output item is added", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Search results here."),
+      completedEvent(50, 30),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const startEvents = events.filter((e) => e.type === "server_tool_start");
+    expect(startEvents).toHaveLength(1);
+    expect(startEvents[0]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_1",
+      input: {},
+    });
+  });
+
+  test("emits server_tool_complete on response.completed for tracked web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Answer with citations."),
+      completedEvent(50, 30),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for dogs" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const completeEvents = events.filter(
+      (e) => e.type === "server_tool_complete",
+    );
+    expect(completeEvents).toHaveLength(1);
+    expect(completeEvents[0]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_1",
+      isError: false,
+    });
+  });
+
+  test("emits server_tool_complete for multiple web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      webSearchCallAddedEvent("ws_call_2"),
+      textDeltaEvent("Combined results."),
+      completedEvent(80, 50),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search multiple" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const startEvents = events.filter((e) => e.type === "server_tool_start");
+    expect(startEvents).toHaveLength(2);
+    expect(startEvents[0]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_1",
+      input: {},
+    });
+    expect(startEvents[1]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_2",
+      input: {},
+    });
+
+    const completeEvents = events.filter(
+      (e) => e.type === "server_tool_complete",
+    );
+    expect(completeEvents).toHaveLength(2);
+    expect(completeEvents[0]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_1",
+      isError: false,
+    });
+    expect(completeEvents[1]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_2",
+      isError: false,
+    });
+  });
+
+  test("does not emit server_tool events for non-web-search output items", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      functionCallAddedEvent("call_1", "file_read"),
+      functionCallArgsDeltaEvent('{"path":"/tmp/a"}', "call_1"),
+      functionCallArgsDoneEvent("call_1", "file_read", '{"path":"/tmp/a"}'),
+      completedEvent(20, 10),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
+      [fileReadTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const serverToolEvents = events.filter(
+      (e) =>
+        e.type === "server_tool_start" || e.type === "server_tool_complete",
+    );
+    expect(serverToolEvents).toHaveLength(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // server_tool_use content blocks in ProviderResponse
+  // -----------------------------------------------------------------------
+
+  test("includes paired server_tool_use + web_search_tool_result content blocks for web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Here are the results."),
+      completedEvent(50, 30),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    // server_tool_use + web_search_tool_result pair should appear before text
+    expect(result.content).toHaveLength(3);
+    expect(result.content[0]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_1",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[1]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_1",
+      content: [],
+    });
+    expect(result.content[2]).toEqual({
+      type: "text",
+      text: "Here are the results.",
+    });
+  });
+
+  test("includes paired server_tool_use + web_search_tool_result for multiple web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      webSearchCallAddedEvent("ws_call_2"),
+      textDeltaEvent("Combined search results."),
+      completedEvent(80, 50),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Search two things" }],
+        },
+      ],
+      [webSearchTool],
+    );
+
+    expect(result.content).toHaveLength(5);
+    expect(result.content[0]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_1",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[1]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_1",
+      content: [],
+    });
+    expect(result.content[2]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_2",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[3]).toEqual({
+      type: "web_search_tool_result",
+      tool_use_id: "ws_call_2",
+      content: [],
+    });
+    expect(result.content[4]).toEqual({
+      type: "text",
+      text: "Combined search results.",
+    });
+  });
+
+  test("does not include server_tool_use blocks when no web search calls occur", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      textDeltaEvent("No search needed."),
+      completedEvent(10, 5),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      [webSearchTool],
+    );
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: "No search needed.",
+    });
   });
 });

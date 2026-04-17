@@ -360,6 +360,37 @@ describe("IPC payload mapping", () => {
     await runCommand(["browser", "snapshot"]);
     expect(lastIpcCall!.params!.sessionId).toBe("default");
   });
+
+  test("--browser-mode injects browser_mode into input", async () => {
+    await runCommand([
+      "browser",
+      "--browser-mode",
+      "local",
+      "navigate",
+      "--url",
+      "http://localhost:3000",
+    ]);
+    expect(lastIpcCall!.params!.operation).toBe("navigate");
+    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    expect(input.browser_mode).toBe("local");
+    expect(input.url).toBe("http://localhost:3000");
+  });
+
+  test("--browser-mode is omitted from input when not specified", async () => {
+    await runCommand(["browser", "snapshot"]);
+    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    expect(input.browser_mode).toBeUndefined();
+  });
+
+  test("--browser-mode rejects invalid modes", async () => {
+    const { exitCode } = await runCommand([
+      "browser",
+      "--browser-mode",
+      "invalid",
+      "snapshot",
+    ]);
+    expect(exitCode).not.toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

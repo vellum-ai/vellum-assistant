@@ -10,7 +10,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
 }));
 
-import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
+import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   projectSkillTools,

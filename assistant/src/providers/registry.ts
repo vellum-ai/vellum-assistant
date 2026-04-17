@@ -179,6 +179,7 @@ export async function initializeProviders(
       "openai",
       new RetryProvider(
         new OpenAIResponsesProvider(openaiCreds.apiKey, model, {
+          useNativeWebSearch,
           streamTimeoutMs,
           ...(openaiCreds.baseURL ? { baseURL: openaiCreds.baseURL } : {}),
         }),

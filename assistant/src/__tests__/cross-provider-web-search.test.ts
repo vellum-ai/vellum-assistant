@@ -313,6 +313,90 @@ describe("Cross-Provider Web Search — OpenAI (Responses API)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// OpenAI Responses API — native web search tool mapping
+// ---------------------------------------------------------------------------
+
+describe("Cross-Provider Web Search — OpenAI (Responses API, native mode)", () => {
+  beforeEach(() => {
+    lastOpenAIResponsesParams = null;
+  });
+
+  test("maps web_search to native web_search_preview tool when useNativeWebSearch is enabled", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o", {
+      useNativeWebSearch: true,
+    });
+
+    const tools = [
+      {
+        name: "file_read",
+        description: "Read a file",
+        input_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+        },
+      },
+      {
+        name: "web_search",
+        description: "Search the web",
+        input_schema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+      },
+    ];
+
+    await provider.sendMessage([userMsg("Search for something")], tools);
+
+    const sentTools = lastOpenAIResponsesParams!.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(sentTools).toHaveLength(2);
+    // Non-web-search tools stay as function tools
+    expect(sentTools[0]).toMatchObject({ type: "function", name: "file_read" });
+    // web_search is replaced with native hosted tool
+    expect(sentTools[1]).toEqual({ type: "web_search_preview" });
+  });
+
+  test("still degrades web search history blocks in native mode", async () => {
+    const provider = new OpenAIResponsesProvider("sk-test", "gpt-4o", {
+      useNativeWebSearch: true,
+    });
+    await provider.sendMessage(webSearchConversation());
+
+    const input = lastOpenAIResponsesParams!.input as Array<{
+      type: string;
+      role?: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
+
+    // server_tool_use in assistant history is still degraded to text placeholder
+    const assistantItems = input.filter(
+      (item) => item.type === "message" && item.role === "assistant",
+    );
+    const hasWebSearchPlaceholder = assistantItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "output_text" &&
+          part.text?.includes("[Web search: web_search]"),
+      ),
+    );
+    expect(hasWebSearchPlaceholder).toBe(true);
+
+    // web_search_tool_result in user history is still degraded to text placeholder
+    const userItems = input.filter(
+      (item) => item.type === "message" && item.role === "user",
+    );
+    const hasWebSearchResult = userItems.some((item) =>
+      item.content?.some(
+        (part) =>
+          part.type === "input_text" && part.text === "[Web search results]",
+      ),
+    );
+    expect(hasWebSearchResult).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OpenAI Chat Completions compatibility provider tests
 // ---------------------------------------------------------------------------
 

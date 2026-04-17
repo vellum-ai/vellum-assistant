@@ -130,15 +130,22 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     const parentOpts = parent.opts() as {
       session?: string;
       json?: boolean;
+      browserMode?: string;
     };
     const sessionId = parentOpts.session ?? "default";
     const jsonMode = parentOpts.json ?? false;
 
     // Map Commander camelCase options back to snake_case input keys,
-    // filtering out parent-level options (session, json) and screenshot
-    // ergonomics (output).
+    // filtering out parent-level options (session, json, browserMode)
+    // and screenshot ergonomics (output).
     const input: Record<string, unknown> = {};
-    const excludeKeys = new Set(["session", "json", "output"]);
+    const excludeKeys = new Set(["session", "json", "output", "browserMode"]);
+
+    // Inject parent-level --browser-mode into the operation input so
+    // the backend receives the mode override for backend pinning.
+    if (parentOpts.browserMode) {
+      input.browser_mode = parentOpts.browserMode;
+    }
 
     for (const [key, value] of Object.entries(opts)) {
       if (excludeKeys.has(key)) continue;
@@ -243,6 +250,20 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
 
 // ── Registration ─────────────────────────────────────────────────────
 
+/**
+ * Valid browser mode values for the --browser-mode option.
+ * Includes canonical values and compatibility aliases accepted by
+ * `normalizeBrowserMode` (cdp-debugger → cdp-inspect, playwright → local).
+ */
+const BROWSER_MODES = [
+  "auto",
+  "extension",
+  "cdp-inspect",
+  "cdp-debugger",
+  "local",
+  "playwright",
+] as const;
+
 export function registerBrowserCommand(program: Command): void {
   const browser = program
     .command("browser")
@@ -252,7 +273,13 @@ export function registerBrowserCommand(program: Command): void {
       "Session ID to preserve browser state across invocations.",
       "default",
     )
-    .option("--json", "Output results as machine-readable JSON.");
+    .option("--json", "Output results as machine-readable JSON.")
+    .addOption(
+      new Option(
+        "--browser-mode <mode>",
+        "Browser backend to use. Overrides automatic selection.",
+      ).choices([...BROWSER_MODES]),
+    );
 
   browser.addHelpText(
     "after",
@@ -265,6 +292,11 @@ The --session flag groups sequential commands so they share browser
 state (same page, cookies, etc.). Different session IDs create
 independent browser contexts.
 
+The --browser-mode flag pins the browser backend for all operations
+in the invocation. Valid modes: auto (default), extension, cdp-inspect,
+local. Useful for debugging or when deterministic backend selection
+is required.
+
 Examples:
   $ assistant browser navigate --url https://example.com
   $ assistant browser snapshot
@@ -272,6 +304,7 @@ Examples:
   $ assistant browser type --text "hello" --element-id e14
   $ assistant browser screenshot --output page.jpg
   $ assistant browser --session myflow navigate --url https://example.com
+  $ assistant browser --browser-mode local navigate --url http://localhost:3000
   $ assistant browser --json screenshot`,
   );
 
