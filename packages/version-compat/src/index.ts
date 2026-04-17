@@ -87,11 +87,48 @@ export function compareVersions(a: string, b: string): number | null {
 }
 
 /**
- * Compare two semver strings, defaulting unparseable versions to 0.0.0.
- * Always returns a number (never null), making it safe for Array.sort().
+ * Lenient version parser that never returns null. Missing segments default to 0,
+ * and non-numeric segments are treated as 0. Matches the legacy parseSemverParts
+ * behavior where any string produces a usable version triple.
+ */
+function parseVersionLenient(version: string): {
+  major: number;
+  minor: number;
+  patch: number;
+  pre: string | null;
+} {
+  const stripped = version.replace(/^[vV]/, "");
+  const [core, ...rest] = stripped.split("-");
+  const pre = rest.length > 0 ? rest.join("-") : null;
+  const segs = (core ?? "").split(".").map(Number);
+  return {
+    major: segs[0] || 0,
+    minor: segs[1] || 0,
+    patch: segs[2] || 0,
+    pre,
+  };
+}
+
+/**
+ * Compare two semver strings leniently. Always returns a number (never null),
+ * making it safe for Array.sort(). Missing version segments default to 0
+ * (e.g., "1" is treated as "1.0.0").
  */
 export function compareSemver(a: string, b: string): number {
-  return compareVersions(a, b) ?? 0;
+  const pa = parseVersionLenient(a);
+  const pb = parseVersionLenient(b);
+
+  const majorDiff = pa.major - pb.major;
+  if (majorDiff !== 0) return majorDiff;
+  const minorDiff = pa.minor - pb.minor;
+  if (minorDiff !== 0) return minorDiff;
+  const patchDiff = pa.patch - pb.patch;
+  if (patchDiff !== 0) return patchDiff;
+
+  if (pa.pre === null && pb.pre === null) return 0;
+  if (pa.pre !== null && pb.pre === null) return -1;
+  if (pa.pre === null && pb.pre !== null) return 1;
+  return comparePreRelease(pa.pre!, pb.pre!);
 }
 
 /**

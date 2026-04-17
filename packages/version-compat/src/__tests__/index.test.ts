@@ -205,9 +205,18 @@ describe("compareSemver", () => {
     expect(compareSemver("0.6.0-staging.1", "0.6.0")).toBeLessThan(0);
   });
 
-  test("returns 0 instead of null for unparseable input", () => {
-    expect(compareSemver("bad", "1.0.0")).toBe(0);
-    expect(compareSemver("1.0.0", "bad")).toBe(0);
+  test("single-segment versions default missing segments to 0", () => {
+    expect(compareSemver("1", "1.0.0")).toBe(0);
+    expect(compareSemver("1", "2.0.0")).toBeLessThan(0);
+    expect(compareSemver("2", "1.0.0")).toBeGreaterThan(0);
+  });
+
+  test("two-segment versions default missing patch to 0", () => {
+    expect(compareSemver("1.2", "1.2.0")).toBe(0);
+  });
+
+  test("non-numeric segments default to 0", () => {
+    expect(compareSemver("bad", "0.0.0")).toBe(0);
   });
 
   test("safe for Array.sort without null coalescing", () => {
