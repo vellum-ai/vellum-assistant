@@ -1066,7 +1066,19 @@ function makeHubPublisher(
       typeof (msg as { conversationId?: unknown }).conversationId === "string"
         ? (msg as { conversationId: string }).conversationId
         : undefined;
-    const resolvedConversationId = msgConversationId ?? conversationId;
+    // List-level events (e.g. title updates, list invalidations) describe a
+    // single conversation but are semantically useful to ALL connected
+    // clients so their sidebars stay in sync — not just the client currently
+    // viewing that conversation. Publish them unscoped so the SSE hub does
+    // not filter them out by the subscriber's `filter.conversationId`.
+    // `conversation_list_invalidated` is already published unscoped by the
+    // management routes; this keeps `conversation_title_updated` consistent.
+    const isListLevelEvent =
+      msg.type === "conversation_title_updated" ||
+      msg.type === "conversation_list_invalidated";
+    const resolvedConversationId = isListLevelEvent
+      ? undefined
+      : (msgConversationId ?? conversationId);
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
