@@ -34,9 +34,9 @@ clients/
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── AGENTS.md              # Agent development guidance (macOS-specific)
 ├── ios/                       # iOS-specific code
-│   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
+│   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, etc.)
 │   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
-│   │   └── Settings/          # Settings sections (Connection pairing + Developer diagnostics)
+│   │   └── Settings/          # Settings sections (Connection + Developer diagnostics)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist
 └── chrome-extension/          # Chrome browser extension
@@ -128,20 +128,16 @@ cd clients/ios
 See [clients/ios/README.md](ios/README.md) for full build, packaging, and configuration instructions.
 
 **Current features:**
-- ✅ Cloud login — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
-- ✅ Connect to assistant — pair via QR code (HTTP+SSE through the gateway with bearer token authentication)
+- ✅ Cloud login — sign in with Vellum to connect to a platform-hosted assistant
 - ✅ Chat interface with streaming, markdown, code blocks
-- ✅ Multiple threads with JSON persistence
-- ✅ Onboarding with adaptive steps per connection mode
+- ✅ Conversation list with JSON persistence
 - ✅ Voice input
 - ✅ Attachment support (photos, files)
-- ✅ Settings with live client switching (no restart needed)
 - ✅ Push notifications (APNS + rich inline reply)
 - ✅ Export conversation (copy as markdown or share sheet)
-- ✅ Siri Shortcuts ("Ask Vellum..." via AppIntents)
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
-- ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
+- ✅ Integration tests (ChatViewModel, threads, attachments, formatting)
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
@@ -192,8 +188,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ### iOS Gateway Networking
 - iOS connects to the assistant exclusively via the HTTP gateway
-- Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
-- LAN pairing is disabled by default for security. To enable, set `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1` on the Mac; when enabled, the QR code includes the local gateway URL for direct LAN connections
+- Cloud login via Vellum (WorkOS SSO) provisions the gateway URL and bearer token automatically
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
@@ -227,6 +222,5 @@ Test files in `clients/ios/Tests/`:
 - `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
 - `ChatViewModelIOSTests.swift` — send/receive flow, streaming, error handling
 - `ConversationLifecycleIOSTests.swift` — session creation, conversation isolation
-- `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 Tests use protocol-based dependency injection with mock implementations defined inline in each test file (e.g. `MockInteractionClient`, `MockConversationForkClient`).
