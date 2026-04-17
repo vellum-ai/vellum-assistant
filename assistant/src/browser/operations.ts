@@ -4,7 +4,7 @@
  * This module is the single execution entrypoint for all browser
  * operations. Both the tool wrappers (bundled-skills/browser/tools/)
  * and the CLI command builder consume this contract. It does NOT
- * read from TOOLS.json — all metadata is defined inline.
+ * read from skill tool JSON definitions — all metadata is defined inline.
  *
  * Responsibilities:
  *   - Canonical operation <-> tool name mapping (bijective).
