@@ -379,7 +379,7 @@ function compressBun(stdout: string): string {
 export function compressTestOutput(
   stdout: string,
   stderr: string,
-  exitCode: number | null,
+  _exitCode: number | null,
 ): string {
   const combined = stdout + "\n" + stderr;
 
@@ -414,10 +414,13 @@ export function compressTestOutput(
       break;
   }
 
-  // Preserve stderr verbatim for abnormal exits. `null` covers
-  // signal-killed processes (e.g., OOM, timeout) where stderr often
-  // holds the only diagnostic ("Killed", "Segmentation fault", etc.).
-  if (exitCode !== 0 && stderr.trim()) {
+  // Preserve stderr verbatim whenever it has content, matching the
+  // behavior of the other compressors. Without this, deprecation
+  // warnings or other diagnostics from successful runs would be lost
+  // because formatShellOutput replaces the combined output with the
+  // compressed string. Abnormal exits (non-zero or signal-killed with
+  // `null`) rely on the same append to surface diagnostics.
+  if (stderr.trim()) {
     compressed = compressed + "\n\n--- stderr ---\n" + stderr.trim();
   }
 

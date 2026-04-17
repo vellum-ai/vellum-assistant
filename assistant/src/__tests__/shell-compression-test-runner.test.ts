@@ -427,10 +427,11 @@ tests/test_foo.py::test_two PASSED
       expect(result).toContain(stderr);
     });
 
-    test("does not include stderr section when exit code is 0", () => {
-      const stderr = "some warning";
+    test("includes stderr section when exit code is 0", () => {
+      const stderr = "DeprecationWarning: foo is deprecated";
       const result = compressTestOutput(PYTEST_ALL_PASS_VERBOSE, stderr, 0);
-      expect(result).not.toContain("--- stderr ---");
+      expect(result).toContain("--- stderr ---");
+      expect(result).toContain(stderr);
     });
 
     test("does not include stderr section when stderr is empty", () => {

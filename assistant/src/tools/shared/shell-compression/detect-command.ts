@@ -65,7 +65,7 @@ const CATEGORIES: Array<{ category: CommandCategory; pattern: RegExp }> = [
   {
     category: "test-runner",
     pattern:
-      /^(cargo\s+test|pytest|python\s+-m\s+pytest|jest|vitest|npx\s+(jest|vitest)|go\s+test|bun\s+test|rspec|playwright)\b/,
+      /^(cargo\s+test|pytest|python\s+-m\s+pytest|jest|vitest|npx\s+(jest|vitest)|go\s+test|bun\s+test|rspec|playwright\s+test)\b/,
   },
   // git diff / git show
   {
