@@ -154,6 +154,9 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
       }
     }
 
+    // Browser operations can be long-running (page loads, auth
+    // challenges, downloads up to 120s, etc.), so use a generous
+    // IPC timeout that exceeds any server-side operation timeout.
     const ipcResult = await cliIpcCall<BrowserExecuteResult>(
       "browser_execute",
       {
@@ -161,6 +164,7 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
         input,
         sessionId,
       },
+      { timeoutMs: 180_000 },
     );
 
     if (!ipcResult.ok) {
