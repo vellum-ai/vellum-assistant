@@ -6,18 +6,20 @@ struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
 
-    /// The currently configured gateway URL, shown as read-only status.
-    private var gatewayURL: String? {
-        UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
+    /// The currently configured platform base URL for the managed cloud assistant,
+    /// written during onboarding's managed bootstrap. Shown as read-only status.
+    /// Absent until a user completes `performManagedBootstrap`.
+    private var managedPlatformURL: String? {
+        UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL)
+            .flatMap { $0.isEmpty ? nil : $0 }
     }
 
     var body: some View {
         Form {
             // Connection status section — always visible
             Section {
-                if let url = gatewayURL {
+                if let url = managedPlatformURL {
                     if clientProvider.isConnected {
-                        // Connected state
                         HStack {
                             VIconView(.circleCheck, size: 16)
                                 .foregroundStyle(VColor.systemPositiveStrong)
@@ -26,7 +28,6 @@ struct DaemonConnectionSection: View {
                                 .foregroundStyle(VColor.contentDefault)
                         }
                     } else {
-                        // Disconnected state — gateway configured but not connected
                         HStack {
                             VIconView(.circleAlert, size: 16)
                                 .foregroundStyle(VColor.systemNegativeStrong)
@@ -46,7 +47,7 @@ struct DaemonConnectionSection: View {
                             .truncationMode(.middle)
                     }
                 } else {
-                    // Not configured state
+                    // Managed bootstrap has not run yet — user must sign in.
                     Text("Log in with Vellum to connect to your cloud assistant.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
