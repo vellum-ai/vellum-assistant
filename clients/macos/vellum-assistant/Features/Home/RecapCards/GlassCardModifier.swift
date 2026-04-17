@@ -136,10 +136,19 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
         let bright = VColor.glassEdgeHighlight
         let tl = 0.5 + f
 
+        // Clamp the BR plateau's fade/plateau boundaries to [0, 1]. For
+        // wide pill-shaped cards (e.g. HomeAuthCard simple Capsule at
+        // 528×54), f ≈ 0.016, so f − fade = −0.004 without clamping —
+        // producing out-of-order gradient stops that render unreliably.
+        // Clamping collapses the duplicate `.clear` stops at 0 (SwiftUI
+        // treats consecutive identical stops as a no-op interpolation).
+        let brFadeStart = max(0, f - fade)
+        let brBrightStart = max(0, f - plateau)
+
         let stops: [Gradient.Stop] = [
             .init(color: .clear, location: 0),
-            .init(color: .clear, location: f - fade),
-            .init(color: bright, location: f - plateau),
+            .init(color: .clear, location: brFadeStart),
+            .init(color: bright, location: brBrightStart),
             .init(color: bright, location: f + plateau),
             .init(color: .clear, location: f + fade),
             .init(color: .clear, location: tl - fade),
