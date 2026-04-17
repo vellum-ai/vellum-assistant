@@ -32,17 +32,20 @@ struct HomeEmailEditor: View {
 
             Divider()
                 .background(VColor.borderBase)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 0) {
                 labeledField("to:", $toAddress)
 
                 Divider()
                     .background(VColor.borderBase)
+                    .accessibilityHidden(true)
 
                 labeledField("subject:", $subject)
 
                 Divider()
                     .background(VColor.borderBase)
+                    .accessibilityHidden(true)
             }
 
             TextField("Compose your reply…", text: $bodyText, axis: .vertical)
@@ -57,6 +60,7 @@ struct HomeEmailEditor: View {
             if !attachments.isEmpty {
                 Divider()
                     .background(VColor.borderBase)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Attachments")
@@ -72,8 +76,10 @@ struct HomeEmailEditor: View {
                                     fileSize: att.fileSize
                                 )
                                 .onTapGesture { onAttachmentTap(att) }
+                                .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel("\(att.fileName), \(att.fileSize)")
+                                .accessibilityAction { onAttachmentTap(att) }
                             }
                         }
                     }
@@ -96,7 +102,6 @@ struct HomeEmailEditor: View {
             .textFieldStyle(.plain)
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
     }
 }
