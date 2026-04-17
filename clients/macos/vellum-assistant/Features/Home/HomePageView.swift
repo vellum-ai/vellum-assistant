@@ -14,7 +14,14 @@ import VellumAssistantShared
 /// driven by `store.load()` / `feedStore.load()` on appear; on transport
 /// failure both stores keep the last-good state so we never blank the UI
 /// between refreshes.
-struct HomePageView: View {
+///
+/// The view is generic over an optional trailing detail panel. When
+/// `isDetailPanelVisible` is true and a non-empty `detailPanel` is
+/// supplied, the body splits into a two-pane layout with the main home
+/// content on the leading side and the supplied panel anchored to the
+/// trailing edge (601pt — the default `HomeDetailPanel` width). When
+/// false, the layout renders identically to the single-column original.
+struct HomePageView<DetailPanel: View>: View {
     @Bindable var store: HomeStore
     @Bindable var feedStore: HomeFeedStore
     let onPrimaryCTA: (Capability) -> Void
@@ -26,6 +33,14 @@ struct HomePageView: View {
     /// parent opens a fresh conversation pre-seeded with the message and
     /// navigates into it.
     let onSubmitMessage: (String) -> Void
+    /// Drives the two-pane split. When false, the home content renders in
+    /// its original single-column layout and the `detailPanel` slot is
+    /// ignored.
+    var isDetailPanelVisible: Bool = false
+    /// Trailing-edge slot. Callers supply a fully-constructed
+    /// `HomeDetailPanel` (or any view) here; ownership of the panel's
+    /// state stays with the caller.
+    @ViewBuilder let detailPanel: () -> DetailPanel
 
     /// Editorial column width. Narrower than the previous two-column
     /// layout (920pt) on purpose — the redesigned Home reads as a single
@@ -34,18 +49,49 @@ struct HomePageView: View {
 
     var body: some View {
         Group {
-            if let state = store.state {
-                content(for: state)
+            if isDetailPanelVisible {
+                splitLayout
             } else {
-                skeleton
+                singleColumn
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(VColor.surfaceBase)
+        .animation(VAnimation.standard, value: isDetailPanelVisible)
         .task {
             await store.load()
             await feedStore.load()
         }
+    }
+
+    // MARK: - Layouts
+
+    @ViewBuilder
+    private var singleColumn: some View {
+        if let state = store.state {
+            content(for: state)
+        } else {
+            skeleton
+        }
+    }
+
+    private var splitLayout: some View {
+        HStack(alignment: .top, spacing: VSpacing.lg) {
+            Group {
+                if let state = store.state {
+                    content(for: state)
+                } else {
+                    skeleton
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            detailPanel()
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.lg)
     }
 
     // MARK: - Content
@@ -196,5 +242,33 @@ struct HomePageView: View {
         .padding(.horizontal, VSpacing.xl)
         .padding(.bottom, VSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+// MARK: - Backward-compatible convenience init
+
+/// Default specialization used by every call site that doesn't opt into
+/// the split layout. The `detailPanel` closure returns `EmptyView`, and
+/// `isDetailPanelVisible` defaults to false so the single-column layout
+/// is rendered unchanged.
+extension HomePageView where DetailPanel == EmptyView {
+    init(
+        store: HomeStore,
+        feedStore: HomeFeedStore,
+        onPrimaryCTA: @escaping (Capability) -> Void,
+        onShortcutCTA: @escaping (Capability) -> Void,
+        onFeedConversationOpened: @escaping (String) -> Void,
+        onSubmitMessage: @escaping (String) -> Void
+    ) {
+        self.init(
+            store: store,
+            feedStore: feedStore,
+            onPrimaryCTA: onPrimaryCTA,
+            onShortcutCTA: onShortcutCTA,
+            onFeedConversationOpened: onFeedConversationOpened,
+            onSubmitMessage: onSubmitMessage,
+            isDetailPanelVisible: false,
+            detailPanel: { EmptyView() }
+        )
     }
 }
