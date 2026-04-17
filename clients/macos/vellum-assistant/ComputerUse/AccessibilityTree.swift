@@ -58,19 +58,15 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
-    /// Timeout (in seconds) for AX API calls to a target app. If an app is
-    /// unresponsive, individual AXUIElement calls return kAXErrorCannotComplete
-    /// after this duration instead of blocking indefinitely. Kept under the 2s
-    /// AppHang threshold so that even if a future regression routes AX calls
-    /// back onto the main thread, a single unresponsive app cannot cause an
-    /// AppHang report.
-    private static let axMessagingTimeoutSeconds: Float = 1.5
-
-    /// Maximum number of non-self running apps to probe when the tracked PID
-    /// fails to yield a focused window. Capped to bound total IPC cost — the
-    /// fallback is meant for edge cases where the tracker is stale, not a
-    /// general "find any window" search.
-    private static let maxPreviousAppProbes = 5
+    /// Per-call timeout (in seconds) for AX API calls to a target app. If the
+    /// target is unresponsive, each `AXUIElement*` call returns
+    /// `kAXErrorCannotComplete` after this duration instead of blocking
+    /// indefinitely. Tuned down from the historical 5s to bound worst-case
+    /// latency for fallback paths (iterating multiple apps), while staying
+    /// generous enough for slow/heavy targets (Chrome with many tabs, Electron
+    /// during GC) where individual attribute reads can momentarily take
+    /// upwards of 1s.
+    private static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -223,12 +219,18 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     /// When our own app is focused, find the previously-active app's window instead.
     /// Prefers the tracked last-focused PID so the agent returns to the correct
-    /// window rather than an arbitrary app from the running-apps list. If the
-    /// fast path fails, probes at most `maxPreviousAppProbes` non-self running
-    /// apps to bound worst-case IPC latency.
+    /// window rather than an arbitrary app from the running-apps list. Falls
+    /// back to probing every regular running app so observation remains
+    /// correct when the tracker is stale (e.g., on startup or after a missed
+    /// workspace activation event). This scan is safe because it runs on a
+    /// detached task — worst-case cumulative latency stays off the main
+    /// actor, and each per-app call is individually bounded by
+    /// `axMessagingTimeoutSeconds`.
     private func enumeratePreviousAppSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
-        // Fast path: try the tracked last-focused PID first
-        if let trackedPID = Self.getLastFocusedPID() {
+        let trackedPID = Self.getLastFocusedPID()
+
+        // Fast path: try the tracked last-focused PID first.
+        if let trackedPID {
             log.debug("enumeratePreviousApp: trying tracked PID \(trackedPID)")
             if let result = enumerateAppByPIDSync(trackedPID) {
                 return result
@@ -236,28 +238,25 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             log.debug("enumeratePreviousApp: tracked PID \(trackedPID) failed, falling back to iteration")
         }
 
-        // Slow fallback: iterate a bounded number of running apps. The previous
-        // implementation scanned every `runningApplications` entry, which on
-        // busy systems could compound IPC delays into multi-second hangs.
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier && !$0.isTerminated }
 
-        // Try the last-known target app first for deterministic behavior
+        // Try the last-known target app next for deterministic behavior.
         if let targetPid = lastTargetPid,
+           targetPid != trackedPID,
            runningApps.contains(where: { $0.processIdentifier == targetPid }),
            let result = enumerateAppByPIDSync(targetPid) {
             return result
         }
 
-        var probes = 0
+        // Full fallback: scan remaining running apps. Each per-app call is
+        // bounded by `axMessagingTimeoutSeconds`, so a single unresponsive
+        // target cannot stall the whole loop.
         for app in runningApps {
-            if app.processIdentifier == lastTargetPid { continue } // already tried
-            guard probes < Self.maxPreviousAppProbes else {
-                log.debug("enumeratePreviousApp: hit probe cap (\(Self.maxPreviousAppProbes)) without finding a focused window")
-                break
-            }
-            probes += 1
-            if let result = enumerateAppByPIDSync(app.processIdentifier) {
+            let pid = app.processIdentifier
+            if pid == trackedPID { continue } // already tried
+            if pid == lastTargetPid { continue } // already tried
+            if let result = enumerateAppByPIDSync(pid) {
                 return result
             }
         }
