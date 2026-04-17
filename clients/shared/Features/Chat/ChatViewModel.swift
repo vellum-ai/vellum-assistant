@@ -2338,7 +2338,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // from incoming publisher events while the remaining cleanup runs.
         cancellables.removeAll()
         messageLoopTask?.cancel()
-        messageLoopSubscription?.cancel()
+        let messageLoopSubscription = messageLoopSubscription
+        Task { @MainActor in
+            messageLoopSubscription?.cancel()
+        }
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
