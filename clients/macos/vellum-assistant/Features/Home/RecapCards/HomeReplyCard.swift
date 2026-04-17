@@ -99,13 +99,22 @@ struct HomeReplyCard: View {
     }
 
     private var sendButton: some View {
-        ZStack {
-            Circle()
-                .fill(VColor.contentDefault)
-                .frame(width: 20, height: 20)
+        Button {
+            guard !inputText.isEmpty else { return }
+            onSend(inputText)
+            inputText = ""
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(VColor.contentDefault)
+                    .frame(width: 20, height: 20)
 
-            VIconView(.audioWaveform, size: 14)
-                .foregroundStyle(VColor.surfaceLift)
+                VIconView(.audioWaveform, size: 14)
+                    .foregroundStyle(VColor.surfaceLift)
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Send")
+        .pointerCursor()
     }
 }
