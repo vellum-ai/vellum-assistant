@@ -494,13 +494,15 @@ struct InferenceServiceCard: View {
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
         let providerChanged = persistProvider != initialProvider || modeChanged
 
-        // If the provider is changing AND the user has any per-call-site
-        // overrides pinned to the OLD provider, ask whether to keep those
-        // pins or reset them to follow the new default. Overrides that
-        // pin a different provider entirely (e.g. commitMessage pinned
-        // to OpenAI while default switches Anthropic -> Gemini) are not
-        // affected and don't trigger the prompt.
-        if providerChanged {
+        // If the resolved provider ID is changing AND the user has any
+        // per-call-site overrides pinned to the OLD provider, ask whether
+        // to keep those pins or reset them. Only check when the actual
+        // provider ID differs — a pure mode toggle (e.g. your-own →
+        // managed) where both old and new resolve to the same provider
+        // (e.g. both "anthropic") should not prompt because there is no
+        // provider switch for overrides to reconcile against.
+        let providerIdChanged = persistProvider != initialProvider
+        if providerIdChanged {
             let overridesPinnedToOldProvider = store.callSiteOverrides.filter {
                 $0.provider == initialProvider
             }

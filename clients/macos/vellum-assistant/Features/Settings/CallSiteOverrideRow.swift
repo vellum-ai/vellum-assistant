@@ -192,8 +192,7 @@ struct CallSiteOverrideRow: View {
                 }
             }
         }
-        .padding(.leading, VSpacing.md)
-        .padding(.top, VSpacing.xs)
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: 0, trailing: 0))
     }
 
     private var providerPicker: some View {

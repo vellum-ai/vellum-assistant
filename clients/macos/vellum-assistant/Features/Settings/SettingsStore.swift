@@ -3216,6 +3216,57 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Full-replacement write for a single call site. Clears the entire
+    /// `llm.callSites.<id>` entry first (removing all leaves including
+    /// non-UI ones like `maxTokens`, `effort`, `speed`, `thinking`,
+    /// `contextWindow`), then writes the new values. The clear and set
+    /// are sequenced so the daemon sees them in order.
+    ///
+    /// Use this instead of `setCallSiteOverride` when the caller needs
+    /// "replace" semantics — e.g. per-row Save in the overrides sheet,
+    /// where toggling off and back on may nil fields that were previously
+    /// set, and those nil fields must be cleared on the daemon rather
+    /// than silently retained.
+    @discardableResult
+    func replaceCallSiteOverride(
+        _ id: String,
+        provider: String? = nil,
+        model: String? = nil,
+        profile: String? = nil
+    ) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("replaceCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            callSiteOverrides[index].provider = provider
+            callSiteOverrides[index].model = model
+            callSiteOverrides[index].profile = profile
+        }
+        let task = Task {
+            let clearSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": [id: NSNull()]]
+            ])
+            if !clearSuccess {
+                log.error("Failed to clear llm.callSites.\(id, privacy: .public) before replace")
+                return false
+            }
+            var entry: [String: Any] = [:]
+            if let provider { entry["provider"] = provider }
+            if let model { entry["model"] = model }
+            if let profile { entry["profile"] = profile }
+            guard !entry.isEmpty else { return true }
+            let setSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": [id: entry]]
+            ])
+            if !setSuccess {
+                log.error("Failed to set llm.callSites.\(id, privacy: .public) after clear")
+            }
+            return setSuccess
+        }
+        return task
+    }
+
     /// Batch update of every entry in `overrides`. Each entry's
     /// `provider`/`model`/`profile` is written verbatim; `nil` fields are
     /// emitted as JSON null so the daemon clears them via the same
