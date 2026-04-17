@@ -30,7 +30,7 @@ struct HomeUpdatesListCard: View {
             updatesList
         }
         .recapCardGlass()
-        .recapCardMaxWidth()
+        .recapCardMaxWidth(fill: true)
     }
 
     // MARK: - Header Row
