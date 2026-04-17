@@ -771,6 +771,13 @@ public enum GatewayHTTPClient {
                 headers["Vellum-Organization-Id"] = orgId
             }
         }
+
+        #if os(iOS)
+        headers["X-Vellum-Client-Platform"] = "ios"
+        #elseif os(macOS)
+        headers["X-Vellum-Client-Platform"] = "macos"
+        #endif
+
         let pathPrefix: String
         if !connection.assistantId.isEmpty {
             pathPrefix = "assistants/\(connection.assistantId)/"
@@ -854,6 +861,13 @@ public enum GatewayHTTPClient {
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
+
+        #if os(iOS)
+        request.setValue("ios", forHTTPHeaderField: "X-Vellum-Client-Platform")
+        #elseif os(macOS)
+        request.setValue("macos", forHTTPHeaderField: "X-Vellum-Client-Platform")
+        #endif
+
         return request
     }
 
@@ -921,6 +935,12 @@ public enum GatewayHTTPClient {
         if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
+
+        #if os(iOS)
+        request.setValue("ios", forHTTPHeaderField: "X-Vellum-Client-Platform")
+        #elseif os(macOS)
+        request.setValue("macos", forHTTPHeaderField: "X-Vellum-Client-Platform")
+        #endif
 
         return request
     }
