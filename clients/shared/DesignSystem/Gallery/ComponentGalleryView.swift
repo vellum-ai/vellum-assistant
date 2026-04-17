@@ -110,6 +110,30 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
                 GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
                 GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
+                GalleryComponent(
+                    "homeDetailPanel",
+                    "HomeDetailPanel",
+                    keywords: ["detail panel", "side panel", "home", "container"],
+                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                ),
+                GalleryComponent(
+                    "homeEmailEditor",
+                    "HomeEmailEditor",
+                    keywords: ["email editor", "compose", "side panel", "detail"],
+                    description: "Pure body content for the email editor variant of the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeInvoicePreview",
+                    "HomeInvoicePreview",
+                    keywords: ["invoice", "document", "preview", "detail"],
+                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeSplitLayout",
+                    "HomeSplitLayout",
+                    keywords: ["home", "split", "side by side", "layout"],
+                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                ),
             ]
         case .icons:
             return [
