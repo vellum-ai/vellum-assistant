@@ -12,21 +12,79 @@ public final class EventStreamClient {
 
     // MARK: - Broadcast Subscribers
 
-    private var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
+    private struct Subscriber {
+        let continuation: AsyncStream<ServerMessage>.Continuation
+        let state: SubscriptionState
+    }
+
+    @MainActor
+    private final class SubscriptionState {
+        weak var client: EventStreamClient?
+        let id: UUID
+        private(set) var continuation: AsyncStream<ServerMessage>.Continuation?
+        private var isFinished = false
+
+        init(
+            client: EventStreamClient,
+            id: UUID,
+            continuation: AsyncStream<ServerMessage>.Continuation
+        ) {
+            self.client = client
+            self.id = id
+            self.continuation = continuation
+        }
+
+        func finish() {
+            guard !isFinished else { return }
+            isFinished = true
+            client?.subscribers.removeValue(forKey: id)
+            continuation?.finish()
+            continuation = nil
+        }
+    }
+
+    @MainActor
+    public final class ManagedSubscription {
+        public let stream: AsyncStream<ServerMessage>
+        private let state: SubscriptionState
+
+        fileprivate init(stream: AsyncStream<ServerMessage>, state: SubscriptionState) {
+            self.stream = stream
+            self.state = state
+        }
+
+        public func cancel() {
+            finish()
+        }
+
+        public func finish() {
+            state.finish()
+        }
+    }
+
+    private var subscribers: [UUID: Subscriber] = [:]
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
     /// independently, enabling multiple consumers to filter for messages relevant to them
     /// without competing for elements.
     public func subscribe() -> AsyncStream<ServerMessage> {
+        subscribeManaged().stream
+    }
+
+    /// Creates a new message stream with an explicit teardown handle.
+    /// Call `finish()` or `cancel()` to synchronously remove the subscriber
+    /// from the broadcast set before finishing the stream.
+    public func subscribeManaged() -> ManagedSubscription {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
-        subscribers[id] = continuation
+        let state = SubscriptionState(client: self, id: id, continuation: continuation)
+        subscribers[id] = Subscriber(continuation: continuation, state: state)
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.subscribers.removeValue(forKey: id)
+                self?.subscribers[id]?.state.finish()
             }
         }
-        return stream
+        return ManagedSubscription(stream: stream, state: state)
     }
 
     // MARK: - SSE State
@@ -131,10 +189,10 @@ public final class EventStreamClient {
     func teardown() {
         shouldReconnect = false
         stopSSE()
-        for continuation in subscribers.values {
-            continuation.finish()
+        let activeSubscribers = Array(subscribers.values)
+        for subscriber in activeSubscribers {
+            subscriber.state.finish()
         }
-        subscribers.removeAll()
     }
 
     // MARK: - Send User Message
@@ -525,8 +583,8 @@ public final class EventStreamClient {
 
     /// Broadcast a message to all subscribers.
     public func broadcastMessage(_ message: ServerMessage) {
-        for continuation in subscribers.values {
-            continuation.yield(message)
+        for subscriber in subscribers.values {
+            subscriber.continuation.yield(message)
         }
     }
 
@@ -572,9 +630,9 @@ public final class EventStreamClient {
 
     deinit {
         sseSession?.invalidateAndCancel()
-        let continuations = subscribers.values
-        for continuation in continuations {
-            continuation.finish()
+        let activeSubscribers = Array(subscribers.values)
+        for subscriber in activeSubscribers {
+            subscriber.state.finish()
         }
     }
 }
