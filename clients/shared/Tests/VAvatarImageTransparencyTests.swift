@@ -162,7 +162,9 @@ final class VAvatarImageTransparencyTests: XCTestCase {
 
     /// Creates a UIImage of the given size filled with a solid color (fully opaque).
     private func makeOpaqueImage(width: Int, height: Int) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
         return renderer.image { context in
             UIColor.blue.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
@@ -171,7 +173,9 @@ final class VAvatarImageTransparencyTests: XCTestCase {
 
     /// Creates a UIImage of the given size with a fully transparent background.
     private func makeTransparentImage(width: Int, height: Int) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
         return renderer.image { context in
             UIColor.clear.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
@@ -181,7 +185,9 @@ final class VAvatarImageTransparencyTests: XCTestCase {
     /// Creates a UIImage with a transparent background and an opaque center circle,
     /// so corners are transparent but the center is not.
     private func makeTransparentCornersImage(width: Int, height: Int) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
         return renderer.image { context in
             UIColor.clear.setFill()
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
