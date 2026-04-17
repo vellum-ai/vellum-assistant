@@ -8,34 +8,34 @@ import VellumAssistantShared
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 extension Notification.Name {
-    /// Posted when the user taps a chat push notification (default action).
-    /// `userInfo` contains the key `"conversationId"` with the daemon conversation ID
-    /// extracted from the notification payload. Observed by `ContentView` so the app
-    /// switches to the Chats tab and selects the target conversation.
+    /// Posted when the user taps a chat push notification's default action. The
+    /// `userInfo` dictionary carries the target conversation ID under
+    /// `iosPushNotificationConversationIdKey`. `ContentView` observes this to switch
+    /// to the Chats tab and select the conversation.
     static let iosPushNotificationConversationTap = Notification.Name("iosPushNotificationConversationTap")
 }
 
-/// Key used in the `iosPushNotificationConversationTap` notification's `userInfo`
-/// for the daemon conversation ID string.
+/// `userInfo` key carrying the conversation ID string for
+/// `.iosPushNotificationConversationTap`.
 let iosPushNotificationConversationIdKey = "conversationId"
 
-/// Durable fallback for the push-tap navigation intent.
+/// Durable one-slot latch for a pending push-notification navigation intent.
 ///
 /// On a cold launch triggered by a notification tap, `userNotificationCenter(_:didReceive:)`
-/// can fire before `ContentView.body` has been evaluated for the first time — meaning the
-/// `.onReceive(.iosPushNotificationConversationTap)` subscriber isn't attached yet and the
-/// posted notification is dropped. The delegate writes the daemon conversation ID here
-/// before posting, and `ContentView.task` consumes it on first appearance so navigation
-/// still happens. The `NotificationCenter` path continues to handle the hot case where
-/// the app is already running when the tap arrives.
+/// can run before `ContentView.body` has been evaluated and before its
+/// `.onReceive(.iosPushNotificationConversationTap)` subscriber is attached. A plain
+/// `NotificationCenter.post` in that window is dropped. The delegate stores the
+/// conversation ID here before posting; `ContentView.task` consumes the latch on first
+/// appearance, and `.onReceive` clears it on the hot path so re-entry doesn't
+/// double-navigate.
 ///
-/// Marked `@MainActor` because both the delegate callback and the SwiftUI consumer run
-/// on the main actor; an `@unchecked` global would risk data races under Swift 6.
+/// Main-actor isolated because both the notification-center delegate callback and the
+/// SwiftUI consumer run on the main actor under Swift 6 strict concurrency.
 @MainActor
 enum PendingPushNavigation {
     static var conversationId: String?
 
-    /// Return and clear the pending daemon conversation ID, if any.
+    /// Return and clear the pending conversation ID, if any.
     static func consume() -> String? {
         let value = conversationId
         conversationId = nil
