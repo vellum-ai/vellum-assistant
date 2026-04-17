@@ -147,7 +147,7 @@ function defaultSpawn(argv: readonly string[]): SpawnedParec {
   const proc: Subprocess = Bun.spawn(argv as string[], {
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "pipe",
+    stderr: "inherit",
   });
   return {
     stdout: proc.stdout as ReadableStream<Uint8Array> | null,
@@ -247,6 +247,7 @@ export async function startAudioCapture(
   async function runOneAttempt(): Promise<{
     outcome: AttemptOutcome;
     error?: Error;
+    hadData: boolean;
   }> {
     let attemptError: Error | undefined;
 
@@ -258,6 +259,7 @@ export async function startAudioCapture(
       return {
         outcome: "parec",
         error: err instanceof Error ? err : new Error(String(err)),
+        hadData: false,
       };
     }
     currentProc = proc;
@@ -276,6 +278,7 @@ export async function startAudioCapture(
       return {
         outcome: "socket",
         error: err instanceof Error ? err : new Error(String(err)),
+        hadData: false,
       };
     }
     currentSocket = sock;
@@ -305,7 +308,8 @@ export async function startAudioCapture(
     // 4. Pipe parec.stdout through the frame chunker into the socket.
     // We deliberately don't `await` the pump — it races against the three
     // promises above and terminates when any of them settles.
-    const pumpDone = pumpFrames(proc.stdout, sock, frameBytes, () => stopping);
+    let framesWritten = false;
+    const pumpDone = pumpFrames(proc.stdout, sock, frameBytes, () => stopping, () => { framesWritten = true; });
 
     const raceOutcome = await Promise.race([
       stoppedP,
@@ -354,9 +358,9 @@ export async function startAudioCapture(
     currentSocket = null;
 
     if (outcome === "stopped") {
-      return { outcome: "stopped" };
+      return { outcome: "stopped", hadData: framesWritten };
     }
-    return { outcome, error: attemptError };
+    return { outcome, error: attemptError, hadData: framesWritten };
   }
 
   /**
@@ -368,13 +372,18 @@ export async function startAudioCapture(
     let consecutiveFailures = 0;
 
     while (!stopping) {
-      const { outcome, error } = await runOneAttempt();
+      const { outcome, error, hadData } = await runOneAttempt();
 
       if (outcome === "stopped") {
         break;
       }
 
-      // Any non-stop outcome counts as a failure toward the budget.
+      // Reset the failure counter if this attempt successfully transferred
+      // data — the pipeline was healthy for a while before it broke.
+      if (hadData) {
+        consecutiveFailures = 0;
+      }
+
       consecutiveFailures += 1;
       if (consecutiveFailures > MAX_RECONNECT_ATTEMPTS) {
         fatalError =
@@ -463,6 +472,7 @@ async function pumpFrames(
   sock: CapturedSocket,
   frameBytes: number,
   isStopping: () => boolean,
+  onFrame?: () => void,
 ): Promise<void> {
   if (!stdout) return;
   const reader = stdout.getReader();
@@ -491,6 +501,7 @@ async function pumpFrames(
         buffer = buffer.slice(frameBytes);
         try {
           sock.write(frame);
+          onFrame?.();
         } catch {
           // Socket write failure aborts the pump; the outer attempt loop
           // will pick it up via the socket's `error`/`close` handlers.

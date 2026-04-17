@@ -100,6 +100,12 @@ export const chatSelectors = {
   SEND_BUTTON: 'button[aria-label="Send a message"]',
 
   /**
+   * Container that holds the list of chat messages. Used to detect whether the
+   * chat panel is open (the container is mounted even when no messages exist).
+   */
+  MESSAGE_LIST: '[role="list"][aria-label="Chat messages"]',
+
+  /**
    * Root node for a single rendered chat message. We use a data attribute
    * rather than a class because Meet's message-list classes change often.
    */
@@ -195,6 +201,7 @@ export const selectors = {
   INGAME_CHAT_PANEL_BUTTON: chatSelectors.PANEL_BUTTON,
   INGAME_CHAT_INPUT: chatSelectors.INPUT,
   INGAME_CHAT_SEND_BUTTON: chatSelectors.SEND_BUTTON,
+  INGAME_CHAT_MESSAGE_LIST: chatSelectors.MESSAGE_LIST,
   INGAME_CHAT_MESSAGE_NODE: chatSelectors.MESSAGE_NODE,
   INGAME_CHAT_MESSAGE_SENDER: chatSelectors.MESSAGE_SENDER,
   INGAME_CHAT_MESSAGE_TEXT: chatSelectors.MESSAGE_TEXT,
