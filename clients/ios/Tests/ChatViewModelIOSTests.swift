@@ -55,7 +55,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     }
 
     func testInitStartsWithDefaultModel() {
-        XCTAssertEqual(viewModel.selectedModel, "claude-opus-4-6")
+        XCTAssertEqual(viewModel.selectedModel, "claude-opus-4-7")
     }
 
     // MARK: - Send Message

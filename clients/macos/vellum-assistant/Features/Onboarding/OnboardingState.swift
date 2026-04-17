@@ -86,7 +86,7 @@ final class OnboardingState {
     var sshUser: String = ""
     var sshPrivateKey: String = ""
     var customQRCodeImageData: Data = Data()
-    var selectedModel: String = "claude-opus-4-6"
+    var selectedModel: String = "claude-opus-4-7"
     var selectedProvider: String = "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
@@ -228,7 +228,7 @@ final class OnboardingState {
         }
 
         selectedProvider = "anthropic"
-        selectedModel = "claude-opus-4-6"
+        selectedModel = "claude-opus-4-7"
 
         // Reset hosting selection and cloud credentials
         selectedHostingMode = .vellumCloud
