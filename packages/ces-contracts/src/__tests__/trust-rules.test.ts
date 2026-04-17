@@ -218,7 +218,7 @@ describe("parseTrustRule — normalization flag", () => {
     expect(normalized).toBe(false);
   });
 
-  test("normalized is true when invalid fields are stripped", () => {
+  test("normalized is false when URL tool has only valid fields (allowHighRisk preserved)", () => {
     const raw = makeRaw({ tool: "web_fetch", allowHighRisk: true });
     const { normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
