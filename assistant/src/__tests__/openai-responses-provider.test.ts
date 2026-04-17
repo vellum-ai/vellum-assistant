@@ -118,6 +118,16 @@ function functionCallArgsDoneEvent(
   };
 }
 
+function webSearchCallAddedEvent(itemId: string): FakeStreamEvent {
+  return {
+    type: "response.output_item.added",
+    item: {
+      type: "web_search_call",
+      id: itemId,
+    },
+  };
+}
+
 function completedEvent(
   inputTokens: number,
   outputTokens: number,
@@ -1240,6 +1250,237 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
         required: ["path"],
       },
       strict: null,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // web_search_call stream event handling
+  // -----------------------------------------------------------------------
+
+  test("emits server_tool_start when web_search_call output item is added", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Search results here."),
+      completedEvent(50, 30),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const startEvents = events.filter((e) => e.type === "server_tool_start");
+    expect(startEvents).toHaveLength(1);
+    expect(startEvents[0]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_1",
+      input: {},
+    });
+  });
+
+  test("emits server_tool_complete on response.completed for tracked web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Answer with citations."),
+      completedEvent(50, 30),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for dogs" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const completeEvents = events.filter(
+      (e) => e.type === "server_tool_complete",
+    );
+    expect(completeEvents).toHaveLength(1);
+    expect(completeEvents[0]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_1",
+      isError: false,
+    });
+  });
+
+  test("emits server_tool_complete for multiple web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      webSearchCallAddedEvent("ws_call_2"),
+      textDeltaEvent("Combined results."),
+      completedEvent(80, 50),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search multiple" }] }],
+      [webSearchTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const startEvents = events.filter((e) => e.type === "server_tool_start");
+    expect(startEvents).toHaveLength(2);
+    expect(startEvents[0]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_1",
+      input: {},
+    });
+    expect(startEvents[1]).toEqual({
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "ws_call_2",
+      input: {},
+    });
+
+    const completeEvents = events.filter(
+      (e) => e.type === "server_tool_complete",
+    );
+    expect(completeEvents).toHaveLength(2);
+    expect(completeEvents[0]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_1",
+      isError: false,
+    });
+    expect(completeEvents[1]).toEqual({
+      type: "server_tool_complete",
+      toolUseId: "ws_call_2",
+      isError: false,
+    });
+  });
+
+  test("does not emit server_tool events for non-web-search output items", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      functionCallAddedEvent("call_1", "file_read"),
+      functionCallArgsDeltaEvent('{"path":"/tmp/a"}', "call_1"),
+      functionCallArgsDoneEvent("call_1", "file_read", '{"path":"/tmp/a"}'),
+      completedEvent(20, 10),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
+      [fileReadTool],
+      undefined,
+      { onEvent: (e) => events.push(e) },
+    );
+
+    const serverToolEvents = events.filter(
+      (e) =>
+        e.type === "server_tool_start" || e.type === "server_tool_complete",
+    );
+    expect(serverToolEvents).toHaveLength(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // server_tool_use content blocks in ProviderResponse
+  // -----------------------------------------------------------------------
+
+  test("includes server_tool_use content blocks in response for web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      textDeltaEvent("Here are the results."),
+      completedEvent(50, 30),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    // server_tool_use should appear before the text content block
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_1",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[1]).toEqual({
+      type: "text",
+      text: "Here are the results.",
+    });
+  });
+
+  test("includes multiple server_tool_use blocks for multiple web search calls", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      webSearchCallAddedEvent("ws_call_1"),
+      webSearchCallAddedEvent("ws_call_2"),
+      textDeltaEvent("Combined search results."),
+      completedEvent(80, 50),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Search two things" }],
+        },
+      ],
+      [webSearchTool],
+    );
+
+    expect(result.content).toHaveLength(3);
+    expect(result.content[0]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_1",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[1]).toEqual({
+      type: "server_tool_use",
+      id: "ws_call_2",
+      name: "web_search",
+      input: {},
+    });
+    expect(result.content[2]).toEqual({
+      type: "text",
+      text: "Combined search results.",
+    });
+  });
+
+  test("does not include server_tool_use blocks when no web search calls occur", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [
+      textDeltaEvent("No search needed."),
+      completedEvent(10, 5),
+    ];
+
+    const result = await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+      [webSearchTool],
+    );
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: "No search needed.",
     });
   });
 });
