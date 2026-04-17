@@ -59,10 +59,6 @@ struct AssistantUpgradeSection: View {
     @State private var escalationTask: Task<Void, Never>?
     @State private var dockerUpgradeTask: Task<Void, Never>?
     @State private var backwardReleasesEnabled = false
-    /// Whether a Sparkle check was triggered as part of the coordinated upgrade flow.
-    @State private var sparkleCheckTriggered = false
-    /// Whether the triggered Sparkle check has actually finished resolving.
-    @State private var sparkleCheckCompleted = false
     private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
@@ -317,7 +313,18 @@ struct AssistantUpgradeSection: View {
                         label: isLoadingReleases ? "Checking..." : "Check for Updates",
                         style: .outlined
                     ) {
-                        Task { await loadReleases() }
+                        Task {
+                            await loadReleases()
+                            // If the client app is behind the latest release,
+                            // also trigger the app update dialog.
+                            if let latest = latestRelease?.version,
+                               let clientVersion = appVersion,
+                               let latestParsed = VersionCompat.parse(latest),
+                               let clientParsed = VersionCompat.parse(clientVersion),
+                               latestParsed > clientParsed {
+                                AppDelegate.shared?.updateManager.checkForUpdates()
+                            }
+                        }
                     }
                     .disabled(isLoadingReleases || isUpgrading)
 
@@ -359,20 +366,6 @@ struct AssistantUpgradeSection: View {
                 Text(success)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.systemPositiveStrong)
-            }
-
-            if sparkleCheckTriggered && sparkleCheckCompleted && successMessage != nil {
-                if updateManager.isUpdateAvailable {
-                    VInlineMessage(
-                        "An app update is available. Follow the Sparkle dialog to install it, or use Check for Updates in the menu bar.",
-                        tone: .info
-                    )
-                } else {
-                    VInlineMessage(
-                        "App update check complete. If the update dialog was dismissed, use Check for Updates in the menu bar to try again.",
-                        tone: .info
-                    )
-                }
             }
 
             if isServiceGroupUpdateInProgress && !isUpgrading && (topology == .managed || topology == .docker) {
@@ -529,11 +522,10 @@ struct AssistantUpgradeSection: View {
             successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
             if !isRollback && isAppBehindTarget {
                 successMessage! += " Checking for app update…"
-                sparkleCheckTriggered = true
-                Task {
-                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
-                    sparkleCheckCompleted = true
-                }
+                // Trigger the interactive app update dialog so the user can
+                // install the client update. The dialog handles download,
+                // verification, and install/restart.
+                AppDelegate.shared?.updateManager.checkForUpdates()
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
@@ -573,15 +565,11 @@ struct AssistantUpgradeSection: View {
                 ? "Rollback initiated. The assistant may be briefly unavailable."
                 : "Upgrade initiated. The assistant may be briefly unavailable."
             if !isRollback && isAppBehindTarget {
-                successMessage! += " Checking for app update in the background…"
-                sparkleCheckTriggered = true
-                // Use background check (no modal) — the managed upgrade only means
-                // the platform accepted the request, not that the service group has
-                // restarted. A modal Sparkle dialog would be premature here.
-                Task {
-                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
-                    sparkleCheckCompleted = true
-                }
+                successMessage! += " Checking for app update…"
+                // Trigger the interactive app update dialog so the user can
+                // install the client update. The dialog handles download,
+                // verification, and install/restart.
+                AppDelegate.shared?.updateManager.checkForUpdates()
             }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
@@ -630,8 +618,6 @@ struct AssistantUpgradeSection: View {
         errorMessage = nil
         successMessage = nil
         showFeedbackOption = false
-        sparkleCheckTriggered = false
-        sparkleCheckCompleted = false
     }
 
     private func guidanceForError(_ error: VellumCli.CliError) -> String {

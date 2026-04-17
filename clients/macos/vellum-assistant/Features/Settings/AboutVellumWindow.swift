@@ -53,6 +53,19 @@ struct AboutVellumView: View {
         return sgParsed.coreEquals(appParsed)
     }
 
+    /// Label for the update action button.
+    /// Shows "Update in Settings" when there is a service group update to manage,
+    /// otherwise plain "Update" for Sparkle-only client app updates.
+    private var updateButtonLabel: String {
+        if topology == .local {
+            return "Update"
+        }
+        if AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true {
+            return "Update in Settings"
+        }
+        return "Update"
+    }
+
     var body: some View {
         VStack(spacing: VSpacing.lg) {
             // App Icon
@@ -183,9 +196,19 @@ struct AboutVellumView: View {
                     Text("Version \(version) available")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.primaryBase)
-                    Button("Update in Settings") {
-                        AppDelegate.shared?.aboutWindow?.close()
-                        AppDelegate.shared?.showSettingsTab("General")
+                    Button(updateButtonLabel) {
+                        if topology == .local {
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            AppDelegate.shared?.aboutWindow?.close()
+                        } else if AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true {
+                            // Service group update — direct to Settings where the upgrade UI lives
+                            AppDelegate.shared?.aboutWindow?.close()
+                            AppDelegate.shared?.showSettingsTab("General")
+                        } else {
+                            // Client app update only — trigger Sparkle directly
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            AppDelegate.shared?.aboutWindow?.close()
+                        }
                     }
                     .buttonStyle(.plain)
                     .font(VFont.labelDefault)
@@ -273,20 +296,27 @@ struct AboutVellumView: View {
             isCheckingForUpdates = false
 
         case .docker, .managed:
-            // Docker/managed: check platform API and show result inline
             defer { isCheckingForUpdates = false }
 
+            // Check service group update
             await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
+            let sgAvailable = AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true
+            let sgVersion = AppDelegate.shared?.updateManager.serviceGroupUpdateVersion
 
-            if let updateManager = AppDelegate.shared?.updateManager {
-                if updateManager.isServiceGroupUpdateAvailable,
-                   let version = updateManager.serviceGroupUpdateVersion {
-                    updateCheckResult = .updateAvailable(version: version)
-                } else {
-                    updateCheckResult = .upToDate
-                }
+            // Also check for client app updates
+            let appUpdateAvailable: Bool
+            if let manager = AppDelegate.shared?.updateManager {
+                appUpdateAvailable = await manager.checkForUpdatesAsync()
             } else {
-                updateCheckResult = .error
+                appUpdateAvailable = false
+            }
+
+            if sgAvailable, let version = sgVersion {
+                updateCheckResult = .updateAvailable(version: version)
+            } else if appUpdateAvailable, let version = AppDelegate.shared?.updateManager.availableUpdateVersion {
+                updateCheckResult = .updateAvailable(version: version)
+            } else {
+                updateCheckResult = .upToDate
             }
 
         case .remote:
