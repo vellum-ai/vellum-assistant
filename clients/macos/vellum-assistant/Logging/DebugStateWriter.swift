@@ -42,13 +42,13 @@ final class DebugStateWriter {
     let fileURL: URL
     private let diagnosticsStore: ChatDiagnosticsStore
     private let memoryPressure: MemoryPressureMonitor
-    private let isAppActive: () -> Bool
+    private let isAppActive: @MainActor () -> Bool
 
     init(
         directory: URL? = nil,
         diagnosticsStore: ChatDiagnosticsStore? = nil,
         memoryPressure: MemoryPressureMonitor = .shared,
-        isAppActive: @escaping () -> Bool = { NSApp?.isActive ?? true }
+        isAppActive: @escaping @MainActor () -> Bool = { NSApp?.isActive ?? true }
     ) {
         let dir: URL
         if let directory {
