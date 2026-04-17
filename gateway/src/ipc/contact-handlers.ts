@@ -42,7 +42,7 @@ export const contactRoutes: IpcRoute[] = [
     schema: GetContactParamsSchema,
     handler: (params?: Record<string, unknown>) => {
       const contactId = params?.contactId as string;
-      return getStore().getContact(contactId);
+      return getStore().getContact(contactId) ?? null;
     },
   },
   {
@@ -51,7 +51,9 @@ export const contactRoutes: IpcRoute[] = [
     handler: (params?: Record<string, unknown>) => {
       const channelType = params?.channelType as string;
       const externalUserId = params?.externalUserId as string;
-      return getStore().getContactByChannel(channelType, externalUserId);
+      return (
+        getStore().getContactByChannel(channelType, externalUserId) ?? null
+      );
     },
   },
   {

@@ -1,22 +1,14 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { randomBytes } from "node:crypto";
 
 import type { CredentialCache } from "../credential-cache.js";
 
 // ---------------------------------------------------------------------------
 // Isolated temp directory (mirrors feature-flags-route.test.ts pattern)
 // ---------------------------------------------------------------------------
-const testDir = join(
-  tmpdir(),
-  `vellum-remote-ff-sync-test-${randomBytes(6).toString("hex")}`,
-);
-const vellumRoot = join(testDir, ".vellum");
-const protectedDir = join(vellumRoot, "protected");
+import { testSecurityDir } from "./test-preload.js";
 
-const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
+const protectedDir = testSecurityDir;
 
 // ---------------------------------------------------------------------------
 // Mock fetchImpl
@@ -74,7 +66,6 @@ const savedPlatformAssistantId = process.env.PLATFORM_ASSISTANT_ID;
 const savedPlatformInternalApiKey = process.env.PLATFORM_INTERNAL_API_KEY;
 
 beforeEach(() => {
-  process.env.GATEWAY_SECURITY_DIR = protectedDir;
   // Clear env vars that the production code falls back to, so tests remain
   // deterministic unless they explicitly set them.
   delete process.env.VELLUM_PLATFORM_URL;
@@ -86,11 +77,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedGatewaySecurityDir === undefined) {
-    delete process.env.GATEWAY_SECURITY_DIR;
-  } else {
-    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
-  }
   // Restore env vars
   const restoreEnv = (key: string, saved: string | undefined): void => {
     if (saved === undefined) {
@@ -103,7 +89,8 @@ afterEach(() => {
   restoreEnv("PLATFORM_ASSISTANT_ID", savedPlatformAssistantId);
   restoreEnv("PLATFORM_INTERNAL_API_KEY", savedPlatformInternalApiKey);
   try {
-    rmSync(testDir, { recursive: true, force: true });
+    rmSync(protectedDir, { recursive: true, force: true });
+    mkdirSync(protectedDir, { recursive: true });
   } catch {
     // best effort cleanup
   }

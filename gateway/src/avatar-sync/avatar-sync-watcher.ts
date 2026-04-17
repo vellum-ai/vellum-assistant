@@ -49,6 +49,12 @@ export class AvatarSyncWatcher {
         },
       );
 
+      // Prevent unhandled FSWatcher errors (e.g. ENXIO when the watched
+      // directory is removed) from crashing the process.
+      this.watcher.on("error", (err) => {
+        log.warn({ err, path: avatarDir }, "Avatar sync watcher error");
+      });
+
       log.info({ path: avatarDir }, "Watching for avatar changes");
     } catch (err) {
       log.warn({ err, path: avatarDir }, "Failed to start avatar sync watcher");

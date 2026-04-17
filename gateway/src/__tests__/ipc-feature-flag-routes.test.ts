@@ -1,17 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
+import { testSecurityDir, testWorkspaceDir } from "./test-preload.js";
 
-// Use an isolated temp directory so tests don't touch the real workspace config
-const testDir = join(
-  tmpdir(),
-  `vellum-ipc-test-${randomBytes(6).toString("hex")}`,
-);
-const vellumRoot = join(testDir, ".vellum");
-const protectedDir = join(vellumRoot, "protected");
+const protectedDir = testSecurityDir;
 const featureFlagStorePath = join(protectedDir, "feature-flags.json");
 const remoteFeatureFlagStorePath = join(
   protectedDir,
@@ -19,10 +13,10 @@ const remoteFeatureFlagStorePath = join(
 );
 
 // Write the test registry to an isolated temp path
-const defaultsPath = join(testDir, "feature-flag-registry.json");
+const defaultsPath = join(protectedDir, "feature-flag-registry.json");
 
 // Socket path for the IPC server
-const socketPath = join(testDir, "gateway.sock");
+const socketPath = join(testWorkspaceDir, "gateway.sock");
 
 const TEST_REGISTRY = {
   version: 1,
@@ -54,12 +48,7 @@ const TEST_REGISTRY = {
   ],
 };
 
-const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
-
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
-  process.env.GATEWAY_SECURITY_DIR = protectedDir;
   mkdirSync(protectedDir, { recursive: true });
   writeFileSync(defaultsPath, JSON.stringify(TEST_REGISTRY, null, 2));
   _setRegistryCandidateOverrides([defaultsPath]);
@@ -69,18 +58,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
-  }
-  if (savedGatewaySecurityDir === undefined) {
-    delete process.env.GATEWAY_SECURITY_DIR;
-  } else {
-    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
-  }
   try {
-    rmSync(testDir, { recursive: true, force: true });
+    rmSync(protectedDir, { recursive: true, force: true });
+    mkdirSync(protectedDir, { recursive: true });
   } catch {
     // best effort cleanup
   }

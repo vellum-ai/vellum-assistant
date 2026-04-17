@@ -1,156 +1,68 @@
-import type { Database, Statement } from "bun:sqlite";
-import { getGatewayDb } from "./connection.js";
+import { desc, eq, and } from "drizzle-orm";
+import { type GatewayDb, getGatewayDb } from "./connection.js";
+import { contacts, contactChannels } from "./schema.js";
 
-export type Contact = {
-  id: string;
-  displayName: string;
-  role: string;
-  principalId: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type ContactChannel = {
-  id: string;
-  contactId: string;
-  type: string;
-  address: string;
-  isPrimary: boolean;
-  externalUserId: string | null;
-  externalChatId: string | null;
-  status: string;
-  policy: string;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
-  createdAt: number;
-  updatedAt: number | null;
-};
-
-type ContactRow = {
-  id: string;
-  display_name: string;
-  role: string;
-  principal_id: string | null;
-  created_at: number;
-  updated_at: number;
-};
-
-type ContactChannelRow = {
-  id: string;
-  contact_id: string;
-  type: string;
-  address: string;
-  is_primary: number;
-  external_user_id: string | null;
-  external_chat_id: string | null;
-  status: string;
-  policy: string;
-  verified_at: number | null;
-  verified_via: string | null;
-  invite_id: string | null;
-  revoked_reason: string | null;
-  blocked_reason: string | null;
-  last_seen_at: number | null;
-  interaction_count: number;
-  last_interaction: number | null;
-  created_at: number;
-  updated_at: number | null;
-};
-
-function toContact(row: ContactRow): Contact {
-  return {
-    id: row.id,
-    displayName: row.display_name,
-    role: row.role,
-    principalId: row.principal_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function toContactChannel(row: ContactChannelRow): ContactChannel {
-  return {
-    id: row.id,
-    contactId: row.contact_id,
-    type: row.type,
-    address: row.address,
-    isPrimary: row.is_primary === 1,
-    externalUserId: row.external_user_id,
-    externalChatId: row.external_chat_id,
-    status: row.status,
-    policy: row.policy,
-    verifiedAt: row.verified_at,
-    verifiedVia: row.verified_via,
-    inviteId: row.invite_id,
-    revokedReason: row.revoked_reason,
-    blockedReason: row.blocked_reason,
-    lastSeenAt: row.last_seen_at,
-    interactionCount: row.interaction_count,
-    lastInteraction: row.last_interaction,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
+export type Contact = typeof contacts.$inferSelect;
+export type ContactChannel = typeof contactChannels.$inferSelect;
 
 export class ContactStore {
-  private db: Database;
+  private injectedDb?: GatewayDb;
 
-  private _getContact: Statement | null = null;
-  private _listContacts: Statement | null = null;
-  private _getContactByChannel: Statement | null = null;
-  private _getChannelsForContact: Statement | null = null;
-
-  constructor(db?: Database) {
-    this.db = db ?? getGatewayDb();
+  constructor(db?: GatewayDb) {
+    this.injectedDb = db;
   }
 
-  getContact(contactId: string): Contact | null {
-    const stmt =
-      this._getContact ??
-      (this._getContact = this.db.prepare(
-        "SELECT * FROM contacts WHERE id = ?",
-      ));
-    const row = stmt.get(contactId) as ContactRow | null;
-    return row ? toContact(row) : null;
+  private get db(): GatewayDb {
+    return this.injectedDb ?? getGatewayDb();
+  }
+
+  getContact(contactId: string): Contact | undefined {
+    return this.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .get();
   }
 
   listContacts(): Contact[] {
-    const stmt =
-      this._listContacts ??
-      (this._listContacts = this.db.prepare(
-        "SELECT * FROM contacts ORDER BY created_at DESC",
-      ));
-    return (stmt.all() as ContactRow[]).map(toContact);
+    return this.db
+      .select()
+      .from(contacts)
+      .orderBy(desc(contacts.createdAt))
+      .all();
   }
 
   getContactByChannel(
     channelType: string,
     externalUserId: string,
-  ): Contact | null {
-    const stmt =
-      this._getContactByChannel ??
-      (this._getContactByChannel = this.db.prepare(
-        `SELECT c.* FROM contacts c
-         JOIN contact_channels cc ON cc.contact_id = c.id
-         WHERE cc.type = ? AND cc.external_user_id = ?
-         LIMIT 1`,
-      ));
-    const row = stmt.get(channelType, externalUserId) as ContactRow | null;
-    return row ? toContact(row) : null;
+  ): Contact | undefined {
+    return this.db
+      .select({
+        id: contacts.id,
+        displayName: contacts.displayName,
+        role: contacts.role,
+        principalId: contacts.principalId,
+        createdAt: contacts.createdAt,
+        updatedAt: contacts.updatedAt,
+      })
+      .from(contacts)
+      .innerJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(
+          eq(contactChannels.type, channelType),
+          eq(contactChannels.externalUserId, externalUserId),
+        ),
+      )
+      .limit(1)
+      .get();
   }
 
   getChannelsForContact(contactId: string): ContactChannel[] {
-    const stmt =
-      this._getChannelsForContact ??
-      (this._getChannelsForContact = this.db.prepare(
-        "SELECT * FROM contact_channels WHERE contact_id = ? ORDER BY created_at ASC",
-      ));
-    return (stmt.all(contactId) as ContactChannelRow[]).map(toContactChannel);
+    return this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.contactId, contactId))
+      .orderBy(contactChannels.createdAt)
+      .all();
   }
 }

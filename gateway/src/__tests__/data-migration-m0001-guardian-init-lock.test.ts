@@ -16,8 +16,9 @@ let testHome: string;
 let legacyDir: string;
 let protectedDir: string;
 
+import { testSecurityDir } from "./test-preload.js";
+
 const savedHome = process.env.HOME;
-const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
 
 function seedLegacy(file: string, contents: string): void {
   mkdirSync(legacyDir, { recursive: true });
@@ -40,11 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
-  if (savedGatewaySecurityDir === undefined) {
-    delete process.env.GATEWAY_SECURITY_DIR;
-  } else {
-    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
-  }
+  process.env.GATEWAY_SECURITY_DIR = testSecurityDir;
   try {
     rmSync(testHome, { recursive: true, force: true });
   } catch {
