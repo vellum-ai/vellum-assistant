@@ -288,7 +288,7 @@ jobs:
           retention-days: 90
 
   publish-chrome-extension:
-    needs: [extract-version, build-chrome-extension]
+    needs: [extract-version, build-chrome-extension, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: >-
       needs.extract-version.outputs.chrome_extension_changed == 'true'
       && needs.extract-version.outputs.is_staging == 'false'
@@ -1411,7 +1411,7 @@ jobs:
   # creates DMG, notarizes, staples, and generates the Sparkle appcast.
   # This is the primary/default build.
   build-macos-arm64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -1786,7 +1786,7 @@ jobs:
   # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
@@ -2484,7 +2484,7 @@ jobs:
         working-directory: credential-executor
 
   build-ios:
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 30
     steps:
