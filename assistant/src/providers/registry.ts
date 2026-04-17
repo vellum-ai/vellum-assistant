@@ -7,6 +7,7 @@ import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "./managed-proxy/context.js";
+import { isModelInCatalog } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { OpenAIResponsesProvider } from "./openai/client.js";
@@ -75,11 +76,15 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
   const inferenceProvider = config.llm.default.provider;
   const inferenceModel = config.llm.default.model;
   if (inferenceProvider === providerName) {
-    // If a non-Anthropic provider is selected with the untouched global default
-    // model, use a provider-appropriate fallback instead.
+    // If a non-Anthropic provider is selected but the configured model is
+    // still an Anthropic catalog model (current or previous default), use a
+    // provider-appropriate fallback instead. Checking the full Anthropic
+    // catalog rather than only the current default prevents stale persisted
+    // defaults (e.g. claude-opus-4-6) from being sent to non-Anthropic APIs
+    // after the catalog default changes.
     if (
       providerName !== "anthropic" &&
-      inferenceModel === getProviderDefaultModel("anthropic")
+      isModelInCatalog("anthropic", inferenceModel)
     ) {
       return getProviderDefaultModel(providerName);
     }
