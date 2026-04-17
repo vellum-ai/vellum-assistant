@@ -8,25 +8,23 @@
  * layer, so no additional actor-token verification is needed here.
  *
  * When `conversationKey` is provided, subscribers receive events scoped to
- * that conversation plus unscoped system events (e.g. conversation list
- * invalidations). When omitted, subscribers receive events from ALL
+ * that conversation. When omitted, subscribers receive events from ALL
  * conversations for this assistant (unfiltered).
  *
- * If the conversationKey has no mapping yet (e.g. a client-generated draft
- * UUID that has not been sent a first message), the subscription is
- * accepted with `filter.conversationId` set to the unresolved key itself.
- * Since the key is a freshly generated UUID distinct from any server-
- * assigned conversation id, no scoped events will match — the subscriber
- * only receives unscoped system events (e.g. `conversation_list_invalidated`)
- * until the first message materialises the conversation and the client
- * reconnects. This avoids eagerly materialising a server-side conversation
- * at subscribe time (which would cause `handleSendMessage` to skip its
- * `conversation_list_invalidated` publish on first message) and also
- * prevents cross-conversation event leakage that an unfiltered subscription
- * would cause.
+ * If the conversationKey has no server-side mapping yet (e.g. a client-
+ * generated draft UUID that has not been sent a first message), this
+ * handler eagerly materialises the conversation so the subscriber's
+ * `filter.conversationId` matches the id under which the first turn's
+ * scoped events (text deltas, tool calls, message_complete) will be
+ * published by `handleSendMessage`. The `conversation_list_invalidated`
+ * notification for other clients is handled in `handleSendMessage` by
+ * checking whether this is the first message in the conversation, rather
+ * than whether the conversation itself was just created — so eager
+ * materialisation here no longer hides the first-message notification
+ * from other clients.
  */
 
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
   AssistantEventFilter,
@@ -89,17 +87,15 @@ export function handleSubscribeAssistantEvents(
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
   };
   if (conversationKey) {
-    // Resolve to the internal conversation id when a mapping exists, but do
-    // NOT create one here. If the key is a fresh draft with no mapping yet,
-    // fall back to the key itself as the conversationId filter. Since the
-    // key is a client-chosen UUID distinct from any server-assigned
-    // conversation id, no published event will match it — the subscriber
-    // only receives unscoped system events (e.g.
-    // `conversation_list_invalidated`). Once the first message materialises
-    // the conversation, the client is expected to reconnect to pick up the
-    // properly scoped stream.
-    const mapping = getConversationByKey(conversationKey);
-    filter.conversationId = mapping?.conversationId ?? conversationKey;
+    // Eagerly resolve (and if necessary create) the conversation so the
+    // subscriber's filter matches the id under which first-turn scoped
+    // events will be published. The previously-skipped
+    // `conversation_list_invalidated` publish is now driven by
+    // `handleSendMessage`'s first-message check, not by `mapping.created`,
+    // so eager materialisation here no longer suppresses the cross-client
+    // notification.
+    const mapping = getOrCreateConversation(conversationKey);
+    filter.conversationId = mapping.conversationId;
   }
   const encoder = new TextEncoder();
 
