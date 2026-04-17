@@ -75,10 +75,13 @@ async function main(): Promise<void> {
   const jsonMode = process.argv.includes("--json");
 
   try {
-    const proc = Bun.spawn(["assistant", "config", "get", "services.inference"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawn(
+      ["assistant", "config", "get", "services.inference"],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
 
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
@@ -120,9 +123,15 @@ async function main(): Promise<void> {
     const mode = config.mode ?? "unknown";
 
     const modelDisplayName = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
-    const providerDisplayName = PROVIDER_DISPLAY_NAMES[providerId] ?? providerId;
+    const providerDisplayName =
+      PROVIDER_DISPLAY_NAMES[providerId] ?? providerId;
 
-    const modeLabel = mode === "your-own" ? "your-own API key" : mode === "managed" ? "managed platform proxy" : mode;
+    const modeLabel =
+      mode === "your-own"
+        ? "your-own API key"
+        : mode === "managed"
+          ? "managed platform proxy"
+          : mode;
 
     const summary = `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`;
 

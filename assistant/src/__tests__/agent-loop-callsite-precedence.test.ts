@@ -33,8 +33,8 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({ llm: mockLlmConfig }),
 }));
 
-import { AgentLoop } from "../agent/loop.js";
 import type { ResolvedSystemPrompt } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
@@ -94,7 +94,11 @@ function makePipeline(providerName: string): {
 describe("AgentLoop — call-site precedence", () => {
   test("call-site maxTokens wins over conversation default when callSite is set", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-default", maxTokens: 64000 },
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+        maxTokens: 64000,
+      },
       callSites: { mainAgent: { maxTokens: 4096 } },
     });
 
@@ -115,7 +119,11 @@ describe("AgentLoop — call-site precedence", () => {
 
   test("call-site effort wins over conversation default when callSite is set", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-default", effort: "high" },
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+        effort: "high",
+      },
       callSites: { mainAgent: { effort: "low" } },
     });
 
@@ -139,7 +147,11 @@ describe("AgentLoop — call-site precedence", () => {
 
   test("call-site speed wins over conversation default when callSite is set", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-default", speed: "standard" },
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+        speed: "standard",
+      },
       callSites: { mainAgent: { speed: "fast" } },
     });
 
@@ -197,15 +209,41 @@ describe("AgentLoop — call-site precedence", () => {
       "mainAgent",
     );
 
-    const thinking = lastConfig()!.thinking as
-      | { enabled?: boolean; type?: string }
-      | undefined;
-    // The resolver fills the schema-shaped object, not the wire-format
-    // `{ type: "adaptive" }`. The important assertion is that the call-site
-    // value reached the provider intact.
-    expect(thinking).toBeDefined();
-    expect(thinking!.enabled).toBe(false);
-    expect(thinking!.type).not.toBe("adaptive");
+    // Call-site override resolves `thinking.enabled: false`, so the
+    // RetryProvider normalizer must omit `thinking` entirely (matching the
+    // legacy non-callSite path which only sets `providerConfig.thinking`
+    // when enabled). Without the fix at agent/loop.ts, the conversation
+    // default's `thinking: { type: "adaptive" }` would be pre-set and mask
+    // the call-site override.
+    expect(lastConfig()!.thinking).toBeUndefined();
+  });
+
+  test("call-site thinking is converted to Anthropic wire-format when enabled", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-default",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    const { provider, lastConfig } = makePipeline("anthropic");
+    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+
+    await loop.run(
+      [userMessage],
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      "mainAgent",
+    );
+
+    // Must be wire-format `{ type: "adaptive" }` so the Anthropic SDK's
+    // `ThinkingConfigParam` accepts it. The schema-shape `{ enabled,
+    // streamThinking }` would be a runtime API error.
+    expect(lastConfig()!.thinking).toEqual({ type: "adaptive" });
   });
 
   test("conversation defaults still apply when callSite is absent", async () => {

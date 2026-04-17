@@ -119,11 +119,31 @@ function normalizeSendMessageOptions(
     if (nextConfig.speed === undefined) {
       nextConfig.speed = resolved.speed;
     }
-    if (nextConfig.temperature === undefined) {
+    // `temperature` defaults to `null` in the LLM schema (meaning "no opinion
+    // — let the provider pick its own default"). Only forward when the
+    // resolved value is an actual number; passing `temperature: null` to
+    // provider clients would either be a wire error or silently override
+    // sensible provider defaults. Mirrors the legacy non-callSite path which
+    // never set `temperature` on `providerConfig`.
+    if (
+      nextConfig.temperature === undefined &&
+      resolved.temperature !== null &&
+      resolved.temperature !== undefined
+    ) {
       nextConfig.temperature = resolved.temperature;
     }
     if (nextConfig.thinking === undefined) {
-      nextConfig.thinking = resolved.thinking;
+      // Convert the schema-shape `{ enabled, streamThinking }` into the
+      // Anthropic wire-format `{ type: "adaptive" }` (or omit when disabled).
+      // Mirrors the non-callSite path in `agent/loop.ts` which sets
+      // `providerConfig.thinking = { type: "adaptive" }` only when enabled.
+      // Without this conversion, `thinking` arrives at `AnthropicProvider`
+      // with a shape the SDK doesn't accept (`ThinkingConfigParam` requires
+      // a `type` discriminator), and OpenRouter's truthy check would treat
+      // a disabled config as enabled.
+      if (resolved.thinking?.enabled === true) {
+        nextConfig.thinking = { type: "adaptive" };
+      }
     }
     if (nextConfig.contextWindow === undefined) {
       nextConfig.contextWindow = resolved.contextWindow;

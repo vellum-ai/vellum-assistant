@@ -1702,8 +1702,9 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 async function defaultCallDetectorLLM(
   prompt: string,
 ): Promise<ChatOpportunityDecision> {
-  const provider: Provider | null =
-    await getConfiguredProvider("meetChatOpportunity");
+  const provider: Provider | null = await getConfiguredProvider(
+    "meetChatOpportunity",
+  );
   if (!provider) {
     return { shouldRespond: false, reason: "" };
   }
