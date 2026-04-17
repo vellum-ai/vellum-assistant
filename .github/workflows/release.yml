@@ -1112,7 +1112,8 @@ jobs:
           echo "**Docker Hub:** \`${{ steps.tags.outputs.image }}:v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
-    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
+    if: ${{ always() && !cancelled() && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && (needs.extract-version.outputs.is_staging == 'true' || needs.push-dockerhub-image.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
