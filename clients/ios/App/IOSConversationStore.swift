@@ -219,8 +219,8 @@ class IOSConversationStore: ObservableObject {
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Per-domain generation counters for observation loops. Each observation type
-    /// (fork, activity) has its own counter so that starting/restarting one loop does
-    /// not invalidate the others. All are cleared when a conversation is deleted.
+    /// (fork, activity) has its own counter so that starting/restarting one
+    /// loop does not invalidate the others. All are cleared when a conversation is deleted.
     private var forkGenerations: [UUID: Int] = [:]
     private var activityGenerations: [UUID: Int] = [:]
     /// Last observed fork-availability tip ID per conversation, for change detection.

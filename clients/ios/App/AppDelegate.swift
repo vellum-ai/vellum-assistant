@@ -336,7 +336,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     /// Performs the initial actor token bootstrap with exponential backoff.
     /// Called only when no actor token exists (first launch or after credential wipe).
-    /// Stable device ID stored in Keychain, used for platform bootstrap.
+    /// Stable device ID stored in Keychain for push-notification device identity.
     private static func getOrCreateDeviceId() -> String {
         if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {
             return existing

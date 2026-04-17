@@ -2,11 +2,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Developer settings section, accessible only when developer mode is enabled.
-///
-/// Contains the debug panel entry point and diagnostic utilities. Exposed via
-/// a NavigationLink in SettingsView after developer mode is unlocked by tapping
-/// the version label 7 times.
+/// Developer settings section with connection diagnostics, assistant picker, and
+/// a connection reset action. Exposed via a NavigationLink in SettingsView.
 struct DeveloperSettingsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
@@ -32,6 +29,12 @@ private struct DeveloperSettingsSectionContent: View {
     @State private var isLoadingAssistants = false
     @State private var assistantLoadError: String?
     @State private var showResetConfirmation = false
+
+    init(clientProvider: ClientProvider, authManager: AuthManager, conversationStore: IOSConversationStore) {
+        self.clientProvider = clientProvider
+        self.authManager = authManager
+        self.conversationStore = conversationStore
+    }
 
     var body: some View {
         Form {
@@ -99,7 +102,7 @@ private struct DeveloperSettingsSectionContent: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will clear all connection credentials and return to onboarding. You will need to log in again.")
+            Text("This will clear all connection credentials and return to onboarding. You will need to log in or pair again.")
         }
         .task {
             await loadAssistants()

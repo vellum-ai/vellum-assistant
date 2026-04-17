@@ -48,7 +48,7 @@ struct DaemonConnectionSection: View {
                     }
                 } else {
                     // Managed bootstrap has not run yet — user must sign in.
-                    Text("Log in with Vellum to connect to your cloud assistant.")
+                    Text("Sign in with your Vellum account to connect.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                 }

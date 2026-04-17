@@ -2,7 +2,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-// Onboarding step identifiers. The iOS MVP uses a cloud-only flow:
+// Onboarding step identifiers for the cloud-login flow:
 //   Welcome → Login → Permissions → Ready
 private enum OnboardingStep: Hashable {
     case welcome
@@ -88,7 +88,7 @@ struct OnboardingView: View {
                 Button("Cancel") {
                     isBootstrappingManaged = false
                     managedBootstrapError = nil
-                    currentStep = .login
+                    currentStep = .welcome
                 }
                 .foregroundStyle(VColor.contentSecondary)
             }

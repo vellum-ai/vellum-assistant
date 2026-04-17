@@ -4,9 +4,7 @@ import VellumAssistantShared
 
 struct SettingsView: View {
     @Bindable var authManager: AuthManager
-    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
-    @State private var versionTapCount: Int = 0
     /// Shared conversation store — forwarded to DeveloperSettingsSection so its diagnostics
     /// (last fetch error, etc.) reflect the same store the Chats view reads from.
     var conversationStore: IOSConversationStore
@@ -30,28 +28,14 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    // Tapping the version label 7 times unlocks the developer toggle.
-                    // This keeps the feature invisible to regular users while remaining
-                    // accessible to developers without a build-time flag.
                     LabeledContent("Version", value: Bundle.main.appVersion)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            versionTapCount += 1
-                            if versionTapCount >= 7 {
-                                developerModeEnabled = true
-                                versionTapCount = 0
-                            }
-                        }
                 }
 
-                if developerModeEnabled {
-                    Section("Developer") {
-                        Toggle("Developer Mode", isOn: $developerModeEnabled)
-                        NavigationLink {
-                            DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
-                        } label: {
-                            Label { Text("Debug Panel") } icon: { VIconView(.bug, size: 14) }
-                        }
+                Section("Developer") {
+                    NavigationLink {
+                        DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
+                    } label: {
+                        Label { Text("Developer") } icon: { VIconView(.bug, size: 14) }
                     }
                 }
             }
