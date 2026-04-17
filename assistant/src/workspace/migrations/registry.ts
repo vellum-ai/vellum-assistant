@@ -37,6 +37,7 @@ import { updatePkbIndexBarMigration } from "./036-update-pkb-index-bar.js";
 import { createMeetsDirMigration } from "./037-create-meets-dir.js";
 import { unifyLlmCallSiteConfigsMigration } from "./038-unify-llm-callsite-configs.js";
 import { dropLegacyLlmKeysMigration } from "./039-drop-legacy-llm-keys.js";
+import { seedLatencyCallSiteDefaultsMigration } from "./040-seed-latency-callsite-defaults.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -85,4 +86,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   createMeetsDirMigration,
   unifyLlmCallSiteConfigsMigration,
   dropLegacyLlmKeysMigration,
+  seedLatencyCallSiteDefaultsMigration,
 ];
