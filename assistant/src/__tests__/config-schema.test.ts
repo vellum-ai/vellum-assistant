@@ -82,7 +82,7 @@ describe("AssistantConfigSchema", () => {
   test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.services.inference.provider).toBe("anthropic");
-    expect(result.services.inference.model).toBe("claude-opus-4-6");
+    expect(result.services.inference.model).toBe("claude-opus-4-7");
     expect(result.services.inference.mode).toBe("your-own");
     expect(result.services["image-generation"].provider).toBe("gemini");
     expect(result.services["image-generation"].model).toBe(
@@ -1953,7 +1953,7 @@ describe("loadConfig with schema validation", () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.services.inference.provider).toBe("anthropic");
-    expect(config.services.inference.model).toBe("claude-opus-4-6");
+    expect(config.services.inference.model).toBe("claude-opus-4-7");
     expect(config.maxTokens).toBe(64000);
     expect(config.thinking).toEqual({
       enabled: true,

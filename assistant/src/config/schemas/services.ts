@@ -30,7 +30,7 @@ export type BaseService = z.infer<typeof BaseServiceSchema>;
 
 export const InferenceServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_INFERENCE_PROVIDERS).default("anthropic"),
-  model: z.string().default("claude-opus-4-6"),
+  model: z.string().default("claude-opus-4-7"),
 });
 export type InferenceService = z.infer<typeof InferenceServiceSchema>;
 
