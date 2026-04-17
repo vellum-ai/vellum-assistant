@@ -7,8 +7,9 @@ import VellumAssistantShared
 /// - **Managed + Managed inference + logged in**: Message that web search is included.
 /// - **Managed + Managed inference + not logged in**: Login prompt.
 /// - **Managed + Your Own inference**: Message that managed web search is not yet available.
-/// - **Your Own + Your Own inference**: Provider picker (Provider Native, Perplexity, Brave) + API key.
-/// - **Your Own + Managed inference**: Provider picker (Perplexity, Brave only) + API key.
+/// - **Your Own**: Provider picker + API key. Provider Native is available whenever the
+///   inference provider supports native web search (e.g. Anthropic, OpenAI), regardless of
+///   inference mode. Perplexity and Brave are always available as key-based alternatives.
 @MainActor
 struct WebSearchServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -44,10 +45,11 @@ struct WebSearchServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// The available providers depend on the current inference mode.
-    /// Provider Native requires Your Own inference (it uses the user's own API key).
+    /// The available providers depend on the current inference provider's capabilities.
+    /// Provider Native is available whenever the inference provider supports native web search
+    /// (e.g. Anthropic, OpenAI), regardless of whether inference is managed or your-own.
     private var availableProviders: [String] {
-        store.inferenceMode == "your-own"
+        store.isNativeWebSearchCapable(store.selectedInferenceProvider)
             ? ["inference-provider-native", "perplexity", "brave"]
             : ["perplexity", "brave"]
     }
@@ -156,7 +158,16 @@ struct WebSearchServiceCard: View {
                 draftMode = "your-own"
             }
             if newValue == "managed" && draftProvider == "inference-provider-native" {
-                // Provider Native requires Your Own inference.
+                // Only auto-correct when the managed provider lacks native web search support.
+                if !store.isNativeWebSearchCapable(store.selectedInferenceProvider) {
+                    draftProvider = "perplexity"
+                }
+            }
+        }
+        .onChange(of: store.selectedInferenceProvider) { _, newProvider in
+            // Auto-correct when the inference provider changes to one that
+            // does not support native web search while provider-native is selected.
+            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider) {
                 draftProvider = "perplexity"
             }
         }

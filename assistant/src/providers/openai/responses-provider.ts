@@ -20,6 +20,7 @@ export interface OpenAIResponsesProviderOptions {
   providerName?: string;
   providerLabel?: string;
   streamTimeoutMs?: number;
+  useNativeWebSearch?: boolean;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -77,6 +78,7 @@ export class OpenAIResponsesProvider implements Provider {
   private client: OpenAI;
   private model: string;
   private streamTimeoutMs: number;
+  private useNativeWebSearch: boolean;
 
   constructor(
     apiKey: string,
@@ -91,6 +93,7 @@ export class OpenAIResponsesProvider implements Provider {
     });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
   async sendMessage(
@@ -133,13 +136,31 @@ export class OpenAIResponsesProvider implements Provider {
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t) => ({
-          type: "function" as const,
-          name: t.name,
-          description: t.description,
-          parameters: t.input_schema,
-          strict: null,
-        }));
+        if (
+          this.useNativeWebSearch &&
+          tools.some((t) => t.name === "web_search")
+        ) {
+          const otherTools = tools.filter((t) => t.name !== "web_search");
+          const mappedOther = otherTools.map((t) => ({
+            type: "function" as const,
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema,
+            strict: null,
+          }));
+          const webSearchTool = {
+            type: "web_search_preview" as const,
+          };
+          params.tools = [...mappedOther, webSearchTool];
+        } else {
+          params.tools = tools.map((t) => ({
+            type: "function" as const,
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema,
+            strict: null,
+          }));
+        }
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
@@ -154,6 +175,8 @@ export class OpenAIResponsesProvider implements Provider {
       >();
       // Maps item_id → callId so we can look up tool calls from delta events.
       const itemIdToCallId = new Map<string, string>();
+      // Track web search call item IDs so we can emit server_tool_complete.
+      const webSearchCallIds: string[] = [];
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let inputTokens = 0;
@@ -197,6 +220,15 @@ export class OpenAIResponsesProvider implements Provider {
                   args: "",
                 });
                 itemIdToCallId.set(itemId, callId);
+              } else if (item?.type === "web_search_call") {
+                const toolUseId = item.id ?? "";
+                webSearchCallIds.push(toolUseId);
+                onEvent?.({
+                  type: "server_tool_start",
+                  name: "web_search",
+                  toolUseId,
+                  input: {},
+                });
               }
               break;
             }
@@ -250,6 +282,14 @@ export class OpenAIResponsesProvider implements Provider {
                 }
                 finishReason = response.status ?? "completed";
               }
+              // Emit server_tool_complete for any web search calls that were started.
+              for (const toolUseId of webSearchCallIds) {
+                onEvent?.({
+                  type: "server_tool_complete",
+                  toolUseId,
+                  isError: false,
+                });
+              }
               break;
             }
           }
@@ -258,8 +298,28 @@ export class OpenAIResponsesProvider implements Provider {
         cleanupTimeout();
       }
 
-      // Build content blocks
+      // Build content blocks.
+      // Inject server_tool_use + web_search_tool_result pairs before text so
+      // conversation history matches the shape Anthropic produces for native
+      // web search. The paired result block prevents repairHistory() from
+      // treating completed searches as interrupted (which would inject a
+      // synthetic web_search_tool_result_error and corrupt history). OpenAI
+      // weaves search results into the text output, so the result content is
+      // an empty array — the actual results are in the text block that follows.
       const content: ContentBlock[] = [];
+      for (const toolUseId of webSearchCallIds) {
+        content.push({
+          type: "server_tool_use",
+          id: toolUseId,
+          name: "web_search",
+          input: {},
+        });
+        content.push({
+          type: "web_search_tool_result",
+          tool_use_id: toolUseId,
+          content: [],
+        });
+      }
       if (contentText) {
         content.push({ type: "text", text: contentText });
       }
