@@ -42,18 +42,21 @@ struct RecapPillView: View {
             VColor.auxWhite.opacity(backgroundOpacity)
         )
         .clipShape(Capsule())
-        .pointerCursor(onHover: { hovering in
-            isHovered = hovering
-        })
-        .onTapGesture {
-            onTap?()
+        .if(onTap != nil) { view in
+            view
+                .pointerCursor(onHover: { hovering in
+                    isHovered = hovering
+                })
+                .onTapGesture {
+                    onTap?()
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    onTap?()
+                }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
-        .accessibilityAddTraits(onTap != nil ? .isButton : [])
-        .accessibilityAction {
-            onTap?()
-        }
     }
 
     // MARK: - Helpers
