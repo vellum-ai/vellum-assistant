@@ -19,6 +19,30 @@ extension Notification.Name {
 /// for the daemon conversation ID string.
 let iosPushNotificationConversationIdKey = "conversationId"
 
+/// Durable fallback for the push-tap navigation intent.
+///
+/// On a cold launch triggered by a notification tap, `userNotificationCenter(_:didReceive:)`
+/// can fire before `ContentView.body` has been evaluated for the first time — meaning the
+/// `.onReceive(.iosPushNotificationConversationTap)` subscriber isn't attached yet and the
+/// posted notification is dropped. The delegate writes the daemon conversation ID here
+/// before posting, and `ContentView.task` consumes it on first appearance so navigation
+/// still happens. The `NotificationCenter` path continues to handle the hot case where
+/// the app is already running when the tap arrives.
+///
+/// Marked `@MainActor` because both the delegate callback and the SwiftUI consumer run
+/// on the main actor; an `@unchecked` global would risk data races under Swift 6.
+@MainActor
+enum PendingPushNavigation {
+    static var conversationId: String?
+
+    /// Return and clear the pending daemon conversation ID, if any.
+    static func consume() -> String? {
+        let value = conversationId
+        conversationId = nil
+        return value
+    }
+}
+
 /// Resolve the conversation key from UserDefaults for host tool filtering.
 private func resolveConversationKey() -> String? {
     // Managed assistant uses assistantId as conversation key
@@ -371,6 +395,11 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             // IOSConversationStore selection.
             if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
                let conversationId {
+                // Latch the intent before posting. On a cold launch, this callback can
+                // run before ContentView's `.onReceive` subscriber is attached, which
+                // would drop the posted notification. `ContentView.task` reads and
+                // clears this on first appearance so the navigation still happens.
+                PendingPushNavigation.conversationId = conversationId
                 NotificationCenter.default.post(
                     name: .iosPushNotificationConversationTap,
                     object: nil,

@@ -60,6 +60,10 @@ struct ContentView: View {
             }
         }
         .task {
+            // Consume any push-notification tap that arrived before this view's
+            // `.onReceive` subscriber was attached (cold launch from notification).
+            // The hot path is handled by `.onReceive` below; this covers the race.
+            consumePendingPushNavigationIfNeeded()
             await authManager.checkSession()
             await attemptInitialConnection()
         }
@@ -79,9 +83,22 @@ struct ContentView: View {
         // daemon ID until the conversation list loads.
         .onReceive(NotificationCenter.default.publisher(for: .iosPushNotificationConversationTap)) { notification in
             guard let conversationId = notification.userInfo?[iosPushNotificationConversationIdKey] as? String else { return }
+            // Clear the cold-start latch so the `.task` fallback doesn't re-apply
+            // this navigation when the view later appears (e.g. if the app was
+            // backgrounded and ContentView.task re-runs on re-entry).
+            _ = PendingPushNavigation.consume()
             selectedTab = .chats
             conversationStore.requestSelectConversation(daemonConversationId: conversationId)
         }
+    }
+
+    /// Consume the cold-start push-tap latch set by `AppDelegate.userNotificationCenter(_:didReceive:)`
+    /// when the delegate callback fires before this view's `.onReceive` subscriber is attached.
+    /// No-op when the latch is empty (hot path already handled the tap via `.onReceive`).
+    private func consumePendingPushNavigationIfNeeded() {
+        guard let conversationId = PendingPushNavigation.consume() else { return }
+        selectedTab = .chats
+        conversationStore.requestSelectConversation(daemonConversationId: conversationId)
     }
 
     private func navigateToConnectSettings() {
