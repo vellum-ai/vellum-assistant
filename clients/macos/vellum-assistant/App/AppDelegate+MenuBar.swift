@@ -624,18 +624,17 @@ extension AppDelegate {
     }
 
     @objc public func checkForUpdates() {
-        // Docker/managed topologies: always navigate to Settings > General
-        // where the Software Update card lives and auto-loads releases.
-        // Sparkle is only relevant for local topology.
         let assistants = LockfileAssistant.loadAll()
         let connectedId = LockfileAssistant.loadActiveAssistantId()
         if let id = connectedId,
            let assistant = assistants.first(where: { $0.assistantId == id }),
            assistant.isDocker || assistant.isManaged {
             showSettingsTab("General")
+            // Also check for client app updates — Sparkle handles this independently
+            // of the service group update shown in Settings.
+            updateManager.checkForUpdates()
             return
         }
-        // Local topology: use Sparkle
         updateManager.checkForUpdates()
     }
 

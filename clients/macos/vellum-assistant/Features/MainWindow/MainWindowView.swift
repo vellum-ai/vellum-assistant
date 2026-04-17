@@ -499,17 +499,16 @@ struct MainWindowView: View {
                             : "A new version is available")
                 ) {
                     if updateManager.isDeferredUpdateReady {
-                        // Trigger Sparkle's installer directly — it handles
-                        // termination and relaunch.  Calling NSApp.terminate
-                        // first creates a race where the installer starts
-                        // mid-teardown and can't coordinate the relaunch.
                         updateManager.installDeferredUpdateIfAvailable()
-                    } else if updateManager.isServiceGroupUpdateAvailable && !updateManager.isUpdateAvailable {
-                        // Service group update only — navigate to Settings where the upgrade controls live
+                    } else if updateManager.isUpdateAvailable {
+                        // App update available — show the native update dialog directly,
+                        // bypassing AppDelegate's topology routing which would redirect
+                        // Docker/managed users to Settings instead.
+                        updateManager.checkForUpdates()
+                    } else if updateManager.isServiceGroupUpdateAvailable {
+                        // Service group update only — navigate to Settings
                         settingsStore.pendingSettingsTab = .general
                         windowState.selection = .panel(.settings)
-                    } else {
-                        AppDelegate.shared?.checkForUpdates()
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))

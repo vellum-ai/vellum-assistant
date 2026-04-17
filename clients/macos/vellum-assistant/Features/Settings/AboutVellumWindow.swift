@@ -183,9 +183,14 @@ struct AboutVellumView: View {
                     Text("Version \(version) available")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.primaryBase)
-                    Button("Update in Settings") {
-                        AppDelegate.shared?.aboutWindow?.close()
-                        AppDelegate.shared?.showSettingsTab("General")
+                    Button(topology == .local ? "Update" : "Update in Settings") {
+                        if topology == .local {
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            AppDelegate.shared?.aboutWindow?.close()
+                        } else {
+                            AppDelegate.shared?.aboutWindow?.close()
+                            AppDelegate.shared?.showSettingsTab("General")
+                        }
                     }
                     .buttonStyle(.plain)
                     .font(VFont.labelDefault)
@@ -273,20 +278,27 @@ struct AboutVellumView: View {
             isCheckingForUpdates = false
 
         case .docker, .managed:
-            // Docker/managed: check platform API and show result inline
             defer { isCheckingForUpdates = false }
 
+            // Check service group update
             await AppDelegate.shared?.updateManager.checkServiceGroupUpdate()
+            let sgAvailable = AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true
+            let sgVersion = AppDelegate.shared?.updateManager.serviceGroupUpdateVersion
 
-            if let updateManager = AppDelegate.shared?.updateManager {
-                if updateManager.isServiceGroupUpdateAvailable,
-                   let version = updateManager.serviceGroupUpdateVersion {
-                    updateCheckResult = .updateAvailable(version: version)
-                } else {
-                    updateCheckResult = .upToDate
-                }
+            // Also check for client app updates
+            let appUpdateAvailable: Bool
+            if let manager = AppDelegate.shared?.updateManager {
+                appUpdateAvailable = await manager.checkForUpdatesAsync()
             } else {
-                updateCheckResult = .error
+                appUpdateAvailable = false
+            }
+
+            if sgAvailable, let version = sgVersion {
+                updateCheckResult = .updateAvailable(version: version)
+            } else if appUpdateAvailable, let version = AppDelegate.shared?.updateManager.availableUpdateVersion {
+                updateCheckResult = .updateAvailable(version: version)
+            } else {
+                updateCheckResult = .upToDate
             }
 
         case .remote:
