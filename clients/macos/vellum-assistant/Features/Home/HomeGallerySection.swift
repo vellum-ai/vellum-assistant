@@ -26,7 +26,7 @@ struct HomeGallerySection: View {
                     description: "Inline interactive pill for recap text with optional priority icon."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HStack(spacing: VSpacing.lg) {
                         RecapPillView(text: "3 payments", priority: .high)
                         RecapPillView(text: "2 emails", priority: .medium)
@@ -47,7 +47,7 @@ struct HomeGallerySection: View {
                     description: "Payment authorisation action card with Authorise/Deny buttons."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Simple variant")
                             .font(VFont.bodySmallEmphasised)
@@ -90,7 +90,7 @@ struct HomeGallerySection: View {
                     description: "Tool permission request card with action details and Authorise/Deny buttons."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("With content")
                             .font(VFont.bodySmallEmphasised)
@@ -135,7 +135,7 @@ struct HomeGallerySection: View {
                     description: "Assistant-to-assistant message card with Allow Once/Deny actions."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeAssistantCard(
                         title: "John’s assistant wants to send a message to your assistant",
                         threadName: "Thread Name",
@@ -158,7 +158,7 @@ struct HomeGallerySection: View {
                     description: "Reply prompt with inline composer for responding to assistant questions."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeReplyCard(
                         title: "What time should I schedule the meeting?",
                         threadName: "Calendar Management",
@@ -180,7 +180,7 @@ struct HomeGallerySection: View {
                     description: "Email draft preview card with to/subject/body fields and Send/Rework actions."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeEmailPreviewCard(
                         title: "Draft email ready",
                         threadName: "Client Follow-up",
@@ -215,7 +215,7 @@ struct HomeGallerySection: View {
                     description: "Image preview card with Save and Open in Finder actions."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeImageCard(
                         title: "Generated chart preview",
                         threadName: "Data Analysis",
@@ -239,7 +239,7 @@ struct HomeGallerySection: View {
                     description: "File reference card showing file name and size."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeFileCard(
                         title: "File saved",
                         threadName: "Document Processing",
@@ -262,7 +262,7 @@ struct HomeGallerySection: View {
                     description: "Grouped update notifications card with a list of items."
                 )
 
-                VCard {
+                VCard(background: VColor.surfaceBase) {
                     HomeUpdatesListCard(
                         updates: [
                             .init(icon: .mail, title: "New email from Alice", threadName: "Inbox"),

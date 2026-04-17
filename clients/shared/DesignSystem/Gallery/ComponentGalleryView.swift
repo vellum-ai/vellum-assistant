@@ -299,7 +299,7 @@ struct ComponentGalleryView: View {
             .id(selectedPage)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.surfaceOverlay)
+            .background(VColor.surfaceBase)
         }
     }
 
