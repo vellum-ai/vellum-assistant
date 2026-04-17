@@ -32,21 +32,16 @@ protocol AccessibilityTreeProviding: Sendable {
 
 /// Enumerates macOS accessibility trees for the focused window and any
 /// secondary windows of interest. All AX IPC runs off the main thread so a
-/// slow or unresponsive target app cannot stall the caller's actor (typically
-/// `@MainActor`) past the system AppHang threshold.
+/// slow or unresponsive target app cannot stall the caller past the system
+/// AppHang threshold — AX operations are synchronous Mach IPC bound to the
+/// *target* process's run loop, not the caller's, so running them on a
+/// background queue keeps the caller responsive without changing AX semantics.
 ///
-/// AX operations are synchronous Mach IPC bound to the *target* process's run
-/// loop, not the caller's — so running them on a background queue keeps the
-/// caller responsive without changing AX semantics. See AltTab's 2020 rework
-/// (https://github.com/lwouis/alt-tab-macos/commit/19130f7) for a production
-/// precedent and AXSwift's `UIElement.swift` for a third-party wrapper that
-/// documents the same IPC behavior.
-///
-/// Each `HostCuActionRunner.perform()` call creates a fresh enumerator that is
-/// used from a single detached task at a time; instance state (`nextId`,
-/// `lastTargetPid`, `totalElementsEnumerated`) therefore has no cross-task
-/// contention. Static caches shared across calls (`enhancedAXEnabled`,
-/// `lastFocusedPID`) are guarded by `stateLock`.
+/// Thread safety: each caller is expected to create a fresh enumerator and
+/// await calls on it sequentially. Under that invariant, instance state
+/// (`nextId`, `lastTargetPid`, `totalElementsEnumerated`) has no cross-task
+/// contention. Static caches (`_enhancedAXEnabled`, `_lastFocusedPID`) are
+/// shared across enumerators and are guarded by `stateLock`.
 final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked Sendable {
     private var nextId = 1
     /// PID of the last successfully enumerated target app, used to resolve the
@@ -61,11 +56,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// Per-call timeout (in seconds) for AX API calls to a target app. If the
     /// target is unresponsive, each `AXUIElement*` call returns
     /// `kAXErrorCannotComplete` after this duration instead of blocking
-    /// indefinitely. Tuned down from the historical 5s to bound worst-case
-    /// latency for fallback paths (iterating multiple apps), while staying
-    /// generous enough for slow/heavy targets (Chrome with many tabs, Electron
-    /// during GC) where individual attribute reads can momentarily take
-    /// upwards of 1s.
+    /// indefinitely. Sized to bound worst-case latency in fallback paths that
+    /// probe multiple apps, while staying generous enough for slow/heavy
+    /// targets (Chrome with many tabs, Electron during GC) where individual
+    /// attribute reads can momentarily take upwards of 1s.
     private static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
@@ -150,9 +144,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         _enhancedAXEnabled.removeAll()
     }
 
-    /// Async entry point. Runs the enumeration on a detached task so the
-    /// caller (typically `@MainActor`) is not blocked by synchronous AX IPC
-    /// to a slow or unresponsive target app.
+    /// Enumerate the focused window of the frontmost non-self app.
+    ///
+    /// Runs the synchronous AX work on a detached task so a slow or
+    /// unresponsive target app cannot block the caller (typically
+    /// `@MainActor`) on Mach IPC.
     func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         await Task.detached { [self] in
             enumerateCurrentWindowSync()
@@ -217,15 +213,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
-    /// When our own app is focused, find the previously-active app's window instead.
-    /// Prefers the tracked last-focused PID so the agent returns to the correct
-    /// window rather than an arbitrary app from the running-apps list. Falls
-    /// back to probing every regular running app so observation remains
-    /// correct when the tracker is stale (e.g., on startup or after a missed
-    /// workspace activation event). This scan is safe because it runs on a
-    /// detached task — worst-case cumulative latency stays off the main
-    /// actor, and each per-app call is individually bounded by
-    /// `axMessagingTimeoutSeconds`.
+    /// When our own app is focused, find the previously-active app's window
+    /// instead. Prefers the tracked last-focused PID so the agent returns to
+    /// the correct window rather than an arbitrary app from the running-apps
+    /// list, and falls back to probing every regular running app so
+    /// observation remains correct when the tracker is stale (e.g., on
+    /// startup or after a missed workspace activation). Each per-app call
+    /// is individually bounded by `axMessagingTimeoutSeconds`.
     private func enumeratePreviousAppSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         let trackedPID = Self.getLastFocusedPID()
 
@@ -249,9 +243,6 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             return result
         }
 
-        // Full fallback: scan remaining running apps. Each per-app call is
-        // bounded by `axMessagingTimeoutSeconds`, so a single unresponsive
-        // target cannot stall the whole loop.
         for app in runningApps {
             let pid = app.processIdentifier
             if pid == trackedPID { continue } // already tried
@@ -295,8 +286,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
-    /// Async entry point. Offloads AX IPC to a detached task — see
-    /// `enumerateCurrentWindow()` for rationale.
+    /// Enumerate the focused windows of up to `maxWindows` non-primary apps,
+    /// useful for cross-app observation. Runs off the main thread for the
+    /// same reason as `enumerateCurrentWindow()`.
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) async -> [WindowInfo] {
         await Task.detached { [self] in
             enumerateSecondaryWindowsSync(excludingPID: excludingPID, maxWindows: maxWindows)
