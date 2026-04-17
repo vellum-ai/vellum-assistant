@@ -222,6 +222,11 @@ private struct CodeTextView: NSViewRepresentable {
         // TextKit 1 stack — matches the gutter's NSLayoutManager.defaultLineHeight computation
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        // Confine glyph generation to the requested bounding rect so that
+        // attaching the text view to its scroll view does not force full
+        // document layout on the main thread.
+        // https://developer.apple.com/documentation/appkit/nslayoutmanager/allowsnoncontiguouslayout
+        layoutManager.allowsNonContiguousLayout = true
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: CGFloat.greatestFiniteMagnitude,
@@ -271,6 +276,7 @@ private struct CodeTextView: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onCommandF = onCommandF
         textView.string = text
+        context.coordinator.lineCount = VCodeView.countLines(in: text)
 
         let scrollView = VCodeHorizontalScrollView()
         scrollView.documentView = textView
@@ -287,7 +293,7 @@ private struct CodeTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? CodeNSTextView else { return }
         if textView.string != text {
-            context.coordinator.invalidateMeasurementCache()
+            context.coordinator.lineCount = VCodeView.countLines(in: text)
             let selectedRanges = textView.selectedRanges
             textView.string = text
             let length = (text as NSString).length
@@ -310,33 +316,20 @@ private struct CodeTextView: NSViewRepresentable {
         nsView: VCodeHorizontalScrollView,
         context: Context
     ) -> CGSize? {
-        guard let textView = nsView.documentView as? CodeNSTextView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let textStorage = textView.textStorage else { return nil }
+        guard let textView = nsView.documentView as? CodeNSTextView else { return nil }
 
         let width = proposal.width ?? 400
 
-        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
-        // layout pass. Returning the cached size when
-        // `(textStorage.length, width)` matches the last measurement avoids
-        // rerunning `ensureLayout`, which is O(n) in glyph count.
-        // `updateNSView` invalidates on text replacement and `textDidChange`
-        // invalidates on user edits.
-        let coordinator = context.coordinator
-        let length = textStorage.length
-        if length == coordinator.lastMeasuredLength,
-           width == coordinator.lastMeasuredWidth {
-            return CGSize(width: width, height: coordinator.lastMeasuredHeight)
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let height = usedRect.height + textView.textContainerInset.height * 2
-
-        coordinator.lastMeasuredLength = length
-        coordinator.lastMeasuredWidth = width
-        coordinator.lastMeasuredHeight = height
+        // Height is derived directly from line count and the pinned
+        // per-line height, bypassing `NSLayoutManager.ensureLayout(for:)`.
+        // The text container is unbounded horizontally, so lines never
+        // wrap; `paragraphStyle.minimumLineHeight == maximumLineHeight`
+        // clamps every line to the same `defaultLineHeight`. That makes
+        // the geometry exactly `lineCount * lineHeight + insets`, and
+        // removes an O(glyph count) main-thread layout pass that SwiftUI
+        // would otherwise re-run on every cell during `LazyVStack` layout.
+        let height = CGFloat(context.coordinator.lineCount) * VCodeView.lineHeight
+            + textView.textContainerInset.height * 2
         return CGSize(width: width, height: height)
     }
 
@@ -347,25 +340,17 @@ private struct CodeTextView: NSViewRepresentable {
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeTextView
 
-        // Last successful `sizeThatFits` measurement. Invalidated whenever
-        // the text storage is replaced (`updateNSView`, `textDidChange`).
-        var lastMeasuredLength: Int = -1
-        var lastMeasuredWidth: CGFloat = -1
-        var lastMeasuredHeight: CGFloat = 0
+        // Newline count for the current text. Drives `sizeThatFits`
+        // geometry directly, avoiding `NSLayoutManager.ensureLayout(for:)`.
+        var lineCount: Int = 1
 
         init(parent: CodeTextView) {
             self.parent = parent
         }
 
-        func invalidateMeasurementCache() {
-            lastMeasuredLength = -1
-            lastMeasuredWidth = -1
-            lastMeasuredHeight = 0
-        }
-
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            invalidateMeasurementCache()
+            lineCount = VCodeView.countLines(in: textView.string)
             parent.text = textView.string
             parent.onTextChange?(textView.string)
         }

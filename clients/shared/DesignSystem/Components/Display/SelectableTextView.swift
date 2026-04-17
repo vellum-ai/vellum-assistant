@@ -177,6 +177,11 @@ public struct VSelectableTextView: NSViewRepresentable {
         // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        // Confine glyph generation to the requested bounding rect so that
+        // attaching the text view to its hosting view does not force full
+        // document layout on the main thread.
+        // https://developer.apple.com/documentation/appkit/nslayoutmanager/allowsnoncontiguouslayout
+        layoutManager.allowsNonContiguousLayout = true
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: 0,
