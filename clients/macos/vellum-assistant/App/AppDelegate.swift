@@ -126,9 +126,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the assistant-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     var instanceChangeObserver: NSObjectProtocol?
-    /// Keeps the in-memory assistant topology flags synced with the lockfile's
-    /// active assistant, even when transport setup is not being rebuilt.
-    var activeAssistantTopologyObserver: NSObjectProtocol?
     /// Opaque token for the observer that cleans up local state when the
     /// platform reports the active managed assistant no longer exists.
     var managedAssistantRetiredObserver: NSObjectProtocol?
@@ -400,7 +397,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Self.shared = self
-        observeCurrentAssistantTopology()
 
         // Kick off the PTT activator UserDefaults read on a background
         // thread as early as possible so it completes before proceedToApp()

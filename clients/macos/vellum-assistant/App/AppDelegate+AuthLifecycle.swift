@@ -54,16 +54,6 @@ extension AppDelegate {
         }
     }
 
-    func resumeAuthenticatedAssistantSessionIfNeeded() {
-        guard hasSetupApp else { return }
-        resumeAuthenticatedAssistantSession()
-    }
-
-    private func continueAfterSuccessfulAuthentication() {
-        resumeAuthenticatedAssistantSessionIfNeeded()
-        proceedToApp()
-    }
-
     func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
         if let existing = authWindow {
             existing.makeKeyAndOrderFront(nil)
@@ -79,7 +69,7 @@ extension AppDelegate {
             authView = AnyView(ReauthView(
                 authManager: authManager,
                 onComplete: { [weak self] in
-                    self?.continueAfterSuccessfulAuthentication()
+                    self?.proceedToApp()
                 }
             ))
         } else {
@@ -95,7 +85,7 @@ extension AppDelegate {
                 authManager: authManager,
                 managedBootstrapEnabled: true,
                 onComplete: { [weak self] in
-                    self?.continueAfterSuccessfulAuthentication()
+                    self?.proceedToApp()
                 },
                 onOpenSettings: {}
             ))
@@ -206,7 +196,6 @@ extension AppDelegate {
         // Cancel any in-flight managed switch so it doesn't reconnect after logout.
         managedSwitchTask?.cancel()
         managedSwitchTask = nil
-        _ = refreshCurrentAssistantTopology()
 
         Task {
             // Capture assistant ID before logout clears it
@@ -355,20 +344,6 @@ extension AppDelegate {
         }
     }
 
-    func resumeAuthenticatedAssistantSession() {
-        _ = refreshCurrentAssistantTopology()
-
-        if !isCurrentAssistantManaged {
-            ensureActorCredentials()
-        }
-        localBootstrapDidComplete = false
-        ensureLocalAssistantApiKey()
-
-        if isCurrentAssistantManaged {
-            reconnectManagedAssistant()
-        }
-    }
-
     // MARK: - Local Assistant API Key Provisioning
 
     /// Ensures the current local assistant has a provisioned AssistantAPIKey
@@ -383,20 +358,8 @@ extension AppDelegate {
     /// 10s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
-        let activeAssistantId = LockfileAssistant.loadActiveAssistantId()
-        let currentAssistant = refreshCurrentAssistantTopology()
-
-        guard let currentAssistant else {
-            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set or no longer exists in the lockfile")
-            mainWindow?.windowState.showToast(
-                message: "No active assistant is selected. Create or switch to a local assistant, then try again.",
-                style: .error
-            )
-            return
-        }
-
-        guard !currentAssistant.isManaged, (!currentAssistant.isRemote || currentAssistant.isDocker) else {
-            log.debug("Skipping local assistant API key provisioning because current assistant '\(currentAssistant.assistantId, privacy: .public)' is managed=\(currentAssistant.isManaged, privacy: .public) remote=\(currentAssistant.isRemote, privacy: .public)")
+        guard !isCurrentAssistantManaged, (!isCurrentAssistantRemote || isCurrentAssistantDocker) else {
+            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
             return
         }
         guard authManager.isAuthenticated else {
@@ -404,15 +367,8 @@ extension AppDelegate {
             return
         }
 
-        let assistantId = currentAssistant.assistantId
-        guard !assistantId.isEmpty else {
+        guard let assistantId = LockfileAssistant.loadActiveAssistantId(), !assistantId.isEmpty else {
             log.warning("Skipping local assistant API key provisioning because connectedAssistantId is not set")
-            if activeAssistantId != nil {
-                mainWindow?.windowState.showToast(
-                    message: "The selected assistant could not be resolved from the lockfile. Try switching assistants or restarting the app.",
-                    style: .error
-                )
-            }
             return
         }
 
@@ -774,7 +730,6 @@ extension AppDelegate {
         }
 
         // No assistants left — tear down fully and show onboarding
-        applyCurrentAssistantTopology(for: nil)
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")

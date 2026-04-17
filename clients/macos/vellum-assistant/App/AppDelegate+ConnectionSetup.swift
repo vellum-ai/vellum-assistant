@@ -65,44 +65,14 @@ extension AppDelegate {
         return assistant
     }
 
-    func applyCurrentAssistantTopology(for assistant: LockfileAssistant?) {
-        isCurrentAssistantRemote = assistant?.isRemote ?? false
-        isCurrentAssistantManaged = assistant?.isManaged ?? false
-        isCurrentAssistantDocker = assistant?.isDocker ?? false
-    }
-
-    @discardableResult
-    func refreshCurrentAssistantTopology(lockfilePath: String? = nil) -> LockfileAssistant? {
-        let assistantId = LockfileAssistant.loadActiveAssistantId(lockfilePath: lockfilePath)
-        let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0, lockfilePath: lockfilePath) }
-        applyCurrentAssistantTopology(for: assistant)
-        return assistant
-    }
-
-    func observeCurrentAssistantTopology() {
-        refreshCurrentAssistantTopology()
-
-        if let observer = activeAssistantTopologyObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        activeAssistantTopologyObserver = NotificationCenter.default.addObserver(
-            forName: LockfileAssistant.activeAssistantDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            _ = MainActor.assumeIsolated {
-                self.refreshCurrentAssistantTopology()
-            }
-        }
-    }
-
     /// Configure the connection transport based on the lockfile assistant.
     /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
     /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
     /// Local assistants use HTTP+SSE via the assistant's runtime HTTP server.
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
-        applyCurrentAssistantTopology(for: assistant)
+        isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantManaged = assistant?.isManaged ?? false
+        isCurrentAssistantDocker = assistant?.isDocker ?? false
 
         // Managed assistant: platform proxy with session token auth.
         if let assistant, assistant.isManaged {

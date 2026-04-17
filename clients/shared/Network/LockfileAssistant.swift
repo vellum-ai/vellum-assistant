@@ -229,22 +229,8 @@ public struct LockfileAssistant {
 
     /// Reads the `activeAssistant` field from the lockfile, returning
     /// the assistant ID string the CLI designated as currently active.
-    ///
-    /// - Parameter lockfilePath: Optional explicit lockfile path. When `nil`
-    ///   reads from the standard lockfile candidates.
-    public static func loadActiveAssistantId(lockfilePath: String? = nil) -> String? {
-        let json: [String: Any]?
-        if let lockfilePath {
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: lockfilePath)),
-               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json = parsed
-            } else {
-                json = nil
-            }
-        } else {
-            json = LockfilePaths.read()
-        }
-        guard let json else { return nil }
+    public static func loadActiveAssistantId() -> String? {
+        guard let json = LockfilePaths.read() else { return nil }
         return json["activeAssistant"] as? String
     }
 
