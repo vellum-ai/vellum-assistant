@@ -88,14 +88,14 @@ const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   [BROWSER_STATUS_MODE.EXTENSION]: [
     "This is the preferred approach for all things browser-use.",
     "It requires a one-time install of the Vellum Assistant Chrome Extension.",
-    "More secure than reling on Chrome's native remote debugging functionality.",
+    "More secure than relying on Chrome's native remote debugging functionality.",
     "Requires the Vellum extension to be paired and actively connected.",
   ],
   [BROWSER_STATUS_MODE.CDP_INSPECT]: [
     "This is the second-best approach for all things browser-use, after the native Vellum Assistant Chrome Extension.",
     "It requires Chrome version 146 or greater",
     "It requires toggling on remote debugging in Chrome Settings",
-    "It's prone to phising attacks from other local processes that may try to do their own remote debugging.",
+    "It's prone to phishing attacks from other local processes that may try to do their own remote debugging.",
   ],
   [BROWSER_STATUS_MODE.LOCAL]: [
     "The least-preferred approach for all things browser-use.",
@@ -2098,7 +2098,7 @@ function extensionSetupActions(): string[] {
 function cdpInspectSetupActions(): string[] {
   return [
     "Update Chrome to the latest version by going to chrome://settings/help",
-    "Navigate directly to chrome://inspect#remote-debugging",
+    "Navigate directly to chrome://inspect/#remote-debugging",
     'Check the box next to "Allow remote debugging for this browser instance"',
   ];
 }
