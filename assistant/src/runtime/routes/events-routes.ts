@@ -17,11 +17,9 @@
  * `filter.conversationId` matches the id under which the first turn's
  * scoped events (text deltas, tool calls, message_complete) will be
  * published by `handleSendMessage`. The `conversation_list_invalidated`
- * notification for other clients is handled in `handleSendMessage` by
- * checking whether this is the first message in the conversation, rather
- * than whether the conversation itself was just created — so eager
- * materialisation here no longer hides the first-message notification
- * from other clients.
+ * notification for other clients is driven by `handleSendMessage`'s
+ * first-message check, so eager materialisation here is safe and does
+ * not hide the first-message notification from other clients.
  */
 
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
@@ -89,11 +87,10 @@ export function handleSubscribeAssistantEvents(
   if (conversationKey) {
     // Eagerly resolve (and if necessary create) the conversation so the
     // subscriber's filter matches the id under which first-turn scoped
-    // events will be published. The previously-skipped
-    // `conversation_list_invalidated` publish is now driven by
-    // `handleSendMessage`'s first-message check, not by `mapping.created`,
-    // so eager materialisation here no longer suppresses the cross-client
-    // notification.
+    // events will be published. The `conversation_list_invalidated`
+    // publish is driven by `handleSendMessage`'s first-message check,
+    // so eager materialisation here is safe and does not suppress the
+    // cross-client notification.
     const mapping = getOrCreateConversation(conversationKey);
     filter.conversationId = mapping.conversationId;
   }
