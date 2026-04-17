@@ -17,7 +17,6 @@ public final class AuthService {
         let method: String
         let body: Any?
         let headers: [String: String]
-        let retryAfterSession410: Bool
         let timeoutInterval: TimeInterval?
 
         init(
@@ -25,14 +24,12 @@ public final class AuthService {
             method: String = "GET",
             body: Any? = nil,
             headers: [String: String] = [:],
-            retryAfterSession410: Bool = false,
             timeoutInterval: TimeInterval? = nil
         ) {
             self.path = path
             self.method = method
             self.body = body
             self.headers = headers
-            self.retryAfterSession410 = retryAfterSession410
             self.timeoutInterval = timeoutInterval
         }
     }
@@ -729,14 +726,7 @@ public final class AuthService {
 
         log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; clearing stored session token.")
         await SessionTokenManager.deleteTokenAsync()
-
-        guard requestConfig.retryAfterSession410 else {
-            log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; endpoint policy disables retry.")
-            return false
-        }
-
-        log.debug("Retrying auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) once without session token after 410.")
-        return true
+        return false
     }
 
     private func executeRequestAttempt(
