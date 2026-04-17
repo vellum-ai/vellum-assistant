@@ -71,6 +71,9 @@ struct HomeUpdatesListCard: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("\(item.title), \(item.threadName)")
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityAction {
+                        onSelectUpdate(index)
+                    }
             }
         }
     }
