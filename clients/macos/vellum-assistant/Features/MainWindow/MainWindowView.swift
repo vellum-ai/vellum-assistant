@@ -14,17 +14,15 @@ struct ArchiveAllTarget {
 
 struct MainWindowView: View {
     @Bindable var conversationManager: ConversationManager
-    /// Direct reference to the conversation list store that owns the sidebar-
-    /// shaped state (conversations, groups, cached sidebar partitions, visible/
-    /// unseen counts). Views that render the sidebar read these properties
-    /// straight from the store instead of through `ConversationManager`'s
-    /// forwarding computed properties so that Observation tracking is
-    /// anchored to the store that actually owns the mutation, keeping the
-    /// dependency graph flat and trivially auditable per Apple's
-    /// [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app)
-    /// guidance. Passed in explicitly rather than read as
-    /// `conversationManager.listStore` at every call site to signal the
-    /// sidebar's read-only contract with the store.
+    /// `@Observable` source of truth for the conversation list (conversations,
+    /// groups, cached sidebar partitions, visible / unseen counts). Views
+    /// that render the sidebar read these properties straight from the store
+    /// rather than through `ConversationManager` forwarders so Observation
+    /// tracking is anchored on the object that owns the mutation, as
+    /// recommended by [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
+    /// Taking the store as an explicit parameter (instead of reading
+    /// `conversationManager.listStore` at each call site) documents the
+    /// sidebar's read-only contract with the store at the view boundary.
     let listStore: ConversationListStore
     let appListManager: AppListManager
     let zoomManager: ZoomManager

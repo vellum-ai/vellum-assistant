@@ -4,12 +4,10 @@ import VellumAssistantShared
 struct SettingsArchivedConversationsTab: View {
     var conversationManager: ConversationManager
 
-    /// Read `archivedConversations` straight from the underlying
-    /// `ConversationListStore` rather than through `ConversationManager`'s
-    /// forwarder so the Observation dependency is anchored to the store
-    /// that owns the mutation. Same pattern as the main sidebar fix for
-    /// LUM-1002 — avoids a nested-facade observation hop that was masked
-    /// pre-#26152 by `ObservableObject`'s whole-object invalidation.
+    /// `@Observable` source of truth for `archivedConversations`. Reading
+    /// from the store directly (rather than through a `ConversationManager`
+    /// forwarder) anchors Observation tracking on the object that owns the
+    /// mutation. See [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
     private var listStore: ConversationListStore { conversationManager.listStore }
 
     var body: some View {

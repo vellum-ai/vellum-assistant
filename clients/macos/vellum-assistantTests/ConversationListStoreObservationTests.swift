@@ -5,34 +5,31 @@ import Testing
 import VellumAssistantShared
 
 /// Regression tests for the observation chain that drives the conversation
-/// sidebar. Verifies that SwiftUI's `withObservationTracking` reliably fires
+/// sidebar. Verifies that SwiftUI's `withObservationTracking` fires
 /// `onChange` when the daemon's conversation-list response populates
-/// `ConversationListStore` — including when the mutation is wrapped in the
-/// animation-disabling `Transaction` used by `ConversationRestorer` during
-/// the initial bulk restore path.
+/// `ConversationListStore`, including when the mutation is wrapped in the
+/// animation-disabling `Transaction` used by `ConversationRestorer` on the
+/// initial bulk restore path.
 ///
 /// These tests pin the observation semantics the sidebar depends on:
 ///
-/// - `ConversationListStore` is the source of truth and is `@Observable`.
-///   Reading a stored property from a view body registers a keypath
-///   observation on the store's registrar via the macro-generated getter
-///   (see [Observation framework](https://developer.apple.com/documentation/observation)).
-/// - `ConversationManager` forwards list-shaped state through computed
-///   properties (`conversations`, `systemSidebarGroupEntries`, …) that read
-///   from the underlying store. Per Apple's guidance in [Managing model
-///   data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app)
-///   and the `@Observable` macro semantics, those forwarders participate in
+/// - `ConversationListStore` is the `@Observable` source of truth. Reading
+///   a stored property from a view body registers a keypath observation
+///   on the store's registrar via the macro-generated getter. See the
+///   [Observation framework](https://developer.apple.com/documentation/observation).
+/// - `ConversationManager` exposes list-shaped state through computed
+///   forwarders. Per [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app)
+///   and `@Observable` macro semantics, the forwarders participate in
 ///   observation transparently because the generated getter on the store
-///   still runs — there is no wrapper on the facade.
-/// - `withTransaction(.disablesAnimations)` only tunes how SwiftUI applies
+///   still runs when the forwarder body evaluates.
+/// - `withTransaction(.disablesAnimations)` controls how SwiftUI applies
 ///   the resulting view update; it does not suppress Observation
-///   notifications. The restorer wraps the ~50-row bulk assignment in such
-///   a transaction to avoid per-row animation interpolation (PR #23317),
-///   and the sidebar must still invalidate.
+///   notifications. The restorer wraps the bulk assignment in such a
+///   transaction to avoid per-row animation interpolation, so the sidebar
+///   must still invalidate when the transaction commits.
 ///
-/// If these tests ever regress, the sidebar will render an empty list on
-/// cold launch until an unrelated mutation forces a body re-evaluation —
-/// the symptom reported in LUM-1002.
+/// If these tests regress, the sidebar will render an empty list on cold
+/// launch until an unrelated mutation forces a body re-evaluation.
 @Suite("ConversationListStore sidebar observation", .serialized)
 @MainActor
 struct ConversationListStoreObservationTests {
@@ -69,12 +66,11 @@ struct ConversationListStoreObservationTests {
         #expect(!store.systemSidebarGroupEntries.isEmpty, "populated store must expose at least one system group entry")
     }
 
-    /// Nested-@Observable forwarding path: the sidebar reads its entries
-    /// through `ConversationManager`'s computed forwarders, which read the
-    /// underlying `listStore`. Observation must still fire on the
-    /// populate. If this test fails but the direct path passes, the
-    /// forwarding pattern on `ConversationManager` is swallowing updates
-    /// and views should bind to the store directly (the fix for LUM-1002).
+    /// Nested-@Observable forwarding path: a facade view reads its entries
+    /// through a computed forwarder that reads the underlying store.
+    /// Observation must still fire on the populate. If this test fails
+    /// while the direct path passes, the forwarder is swallowing updates
+    /// and views should bind to the store directly.
     @Test
     func forwardedSystemSidebarGroupEntriesFiresOnInitialPopulate() async {
         let store = ConversationListStore()
@@ -153,12 +149,10 @@ private final class ObservationFlag {
     func set() { value = true }
 }
 
-/// Minimal facade that mirrors how `ConversationManager` exposes the
-/// sidebar-shaped state via computed properties that forward to an
-/// underlying `@Observable` store. Used to reproduce the exact nested
-/// observation chain the sidebar depends on, without pulling in
-/// `ConversationManager`'s full dependency graph (event stream, restorer,
-/// connection manager, …).
+/// Minimal `@Observable` facade that exposes sidebar-shaped state via
+/// computed properties that forward to an underlying `@Observable` store.
+/// Reproduces the nested-forwarder pattern the sidebar depends on without
+/// pulling in `ConversationManager`'s full dependency graph.
 @Observable
 @MainActor
 private final class Facade {

@@ -3,12 +3,11 @@ import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
     var conversationManager: ConversationManager
-    /// Direct reference to the conversation list store, read for the
-    /// observation-critical `groupedConversations` lookup. Anchored to the
-    /// store (which owns the mutation) rather than routed through
-    /// `ConversationManager`'s forwarding computed properties so the
-    /// Observation dependency graph stays flat and the drawer re-renders
-    /// deterministically when conversations populate (LUM-1002).
+    /// `@Observable` source of truth for `groupedConversations`. Reading
+    /// from the store directly (rather than through `ConversationManager`
+    /// forwarders) anchors Observation tracking on the object that owns the
+    /// mutation so the drawer re-renders when conversations populate. See
+    /// [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
     var listStore: ConversationListStore
     var windowState: MainWindowState
     var sidebar: SidebarInteractionState

@@ -323,19 +323,18 @@ extension MainWindowView {
             }
 
             // Read the pre-partitioned system/custom arrays directly from the
-            // `ConversationListStore`. Going through `ConversationManager`
-            // forwarders worked in practice but layered an extra hop into the
-            // Observation dependency graph, and that extra hop is what caused
-            // LUM-1002: pre-#26152 the manager's `objectWillChange` pulled the
-            // sidebar along on unrelated mutations; post-migration,
-            // Observation has to track the exact keypaths being read, so we
-            // anchor them on the store that actually owns the mutation.
+            // `ConversationListStore`. Anchoring on the store (rather than on
+            // a `ConversationManager` forwarder) keeps the Observation
+            // dependency graph flat — the body re-evaluates exactly when the
+            // object that owns the mutation publishes a change, which is the
+            // pattern recommended for `@Observable` state by
+            // https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app
             //
-            // Also avoids re-filtering `sidebarGroupEntries` on every layout
-            // pass — inline `.filter` allocations produce new array identities
-            // each render and force `ForEachState.update` to re-diff every
-            // entry via `KeyPath._projectReadOnly`, which is the stall
-            // reported in Sentry (LUM-919).
+            // Using the pre-partitioned arrays also avoids re-filtering
+            // `sidebarGroupEntries` on every layout pass — inline `.filter`
+            // allocations produce new array identities each render and force
+            // `ForEachState.update` to re-diff every entry via
+            // `KeyPath._projectReadOnly`.
             let systemEntries = listStore.systemSidebarGroupEntries
             let customEntries = listStore.customSidebarGroupEntries
 
