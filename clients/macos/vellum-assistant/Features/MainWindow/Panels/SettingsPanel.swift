@@ -11,6 +11,7 @@ enum SettingsTab: String {
     case billing = "Billing"
     case archivedConversations = "Archive"
     case schedules = "Schedules"
+    case debug = "Debug"
     case developer = "Developer"
 
     var icon: VIcon {
@@ -24,6 +25,7 @@ enum SettingsTab: String {
         case .billing: return .creditCard
         case .archivedConversations: return .archive
         case .schedules: return .calendar
+        case .debug: return .bug
         case .developer: return .terminal
         }
     }
@@ -37,6 +39,7 @@ enum SettingsTab: String {
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         if schedulesEnabled { tabs.append(.schedules) }
+        tabs.append(.debug)
         return tabs
     }
 }
@@ -425,6 +428,8 @@ struct SettingsPanel: View {
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .schedules:
             SettingsSchedulesTab()
+        case .debug:
+            SettingsDebugTab(store: store)
         case .developer:
             SettingsDeveloperTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose)
         }
