@@ -400,7 +400,8 @@ function normalizeOpenAiResponsesResponsePayload(
     output.some(
       (item) =>
         asString(item.type) === "message" ||
-        asString(item.type) === "function_call",
+        asString(item.type) === "function_call" ||
+        asString(item.type) === "web_search_call",
     );
   if (!hasResponsesSignal) {
     return null;
@@ -441,6 +442,22 @@ function normalizeOpenAiResponsesResponsePayload(
         toolName: name,
         data: args,
         text: previewStructuredValue(args),
+      };
+      toolCallSections.push(section);
+      responseSections.push(section);
+      continue;
+    }
+
+    if (itemType === "web_search_call") {
+      toolCallIndex++;
+      const status = asString(item.status);
+      const section: LlmContextSection = {
+        kind: "tool_use",
+        label: `Response tool call ${toolCallIndex}`,
+        role: "assistant",
+        toolName: "web_search",
+        data: omitRecordKeys(item, ["type"]) ?? undefined,
+        text: status ? `[Web search: ${status}]` : "[Web search]",
       };
       toolCallSections.push(section);
       responseSections.push(section);
