@@ -53,6 +53,19 @@ struct AboutVellumView: View {
         return sgParsed.coreEquals(appParsed)
     }
 
+    /// Label for the update action button.
+    /// Shows "Update in Settings" when there is a service group update to manage,
+    /// otherwise plain "Update" for Sparkle-only client app updates.
+    private var updateButtonLabel: String {
+        if topology == .local {
+            return "Update"
+        }
+        if AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true {
+            return "Update in Settings"
+        }
+        return "Update"
+    }
+
     var body: some View {
         VStack(spacing: VSpacing.lg) {
             // App Icon
@@ -183,13 +196,18 @@ struct AboutVellumView: View {
                     Text("Version \(version) available")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.primaryBase)
-                    Button(topology == .local ? "Update" : "Update in Settings") {
+                    Button(updateButtonLabel) {
                         if topology == .local {
                             AppDelegate.shared?.updateManager.checkForUpdates()
                             AppDelegate.shared?.aboutWindow?.close()
-                        } else {
+                        } else if AppDelegate.shared?.updateManager.isServiceGroupUpdateAvailable == true {
+                            // Service group update — direct to Settings where the upgrade UI lives
                             AppDelegate.shared?.aboutWindow?.close()
                             AppDelegate.shared?.showSettingsTab("General")
+                        } else {
+                            // Client app update only — trigger Sparkle directly
+                            AppDelegate.shared?.updateManager.checkForUpdates()
+                            AppDelegate.shared?.aboutWindow?.close()
                         }
                     }
                     .buttonStyle(.plain)
