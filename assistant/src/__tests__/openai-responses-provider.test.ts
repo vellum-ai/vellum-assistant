@@ -1116,3 +1116,130 @@ describe("OpenAIResponsesProvider", () => {
     expect(result.stopReason).toBe("incomplete");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Native web search tool mapping
+// ---------------------------------------------------------------------------
+
+describe("OpenAIResponsesProvider — Native Web Search", () => {
+  const webSearchTool: ToolDefinition = {
+    name: "web_search",
+    description: "Search the web",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+    },
+  };
+
+  const fileReadTool: ToolDefinition = {
+    name: "file_read",
+    description: "Read a file",
+    input_schema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
+  };
+
+  beforeEach(() => {
+    fakeStreamEvents = [];
+    lastStreamParams = null;
+    lastStreamOptions = null;
+    lastConstructorOptions = null;
+    shouldThrow = null;
+  });
+
+  test("maps web_search to native web_search_preview tool when useNativeWebSearch is enabled", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({ type: "web_search_preview" });
+  });
+
+  test("keeps web_search as function tool when useNativeWebSearch is disabled", async () => {
+    const nonNativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nonNativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "web_search",
+      description: "Search the web",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+      },
+      strict: null,
+    });
+  });
+
+  test("mixes native web_search_preview with regular function tools", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search and read" }] }],
+      [fileReadTool, webSearchTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(2);
+    // Non-web-search tools remain as function tools
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "file_read",
+      description: "Read a file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      strict: null,
+    });
+    // web_search is mapped to native tool
+    expect(sentTools[1]).toEqual({ type: "web_search_preview" });
+  });
+
+  test("sends all tools as function tools when no web_search is present and native mode is on", async () => {
+    const nativeProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.2", {
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await nativeProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
+      [fileReadTool],
+    );
+
+    const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toHaveLength(1);
+    expect(sentTools[0]).toEqual({
+      type: "function",
+      name: "file_read",
+      description: "Read a file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+      },
+      strict: null,
+    });
+  });
+});
