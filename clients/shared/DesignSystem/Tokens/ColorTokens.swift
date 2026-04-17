@@ -290,26 +290,14 @@ public enum VColor {
         dark: Color(.sRGB, red: 0.30, green: 0.75, blue: 0.55)
     )
 
-    // Glass surfaces — translucent fills, faint borders, and dual-shadow tones for
+    // Glass surfaces — translucent fill, drop shadow, and edge-highlight tones for
     // floating cards and pills. Applied via the `.glassCard()` modifier
     // (see GlassCardModifier). Opacity is baked into each token so the modifier
-    // code stays declarative.
-    public static let glassFill = adaptiveColor(
-        light: Color(hex: 0xFFFFFF, alpha: 0.72),
-        dark: Color(hex: 0x1E2024, alpha: 0.72)
-    )
-    public static let glassStroke = adaptiveColor(
-        light: Color(hex: 0x000000, alpha: 0.06),
-        dark: Color(hex: 0xFFFFFF, alpha: 0.06)
-    )
-    public static let glassShadowNear = adaptiveColor(
-        light: Color(hex: 0x000000, alpha: 0.08),
-        dark: Color(hex: 0x000000, alpha: 0.30)
-    )
-    public static let glassShadowFar = adaptiveColor(
-        light: Color(hex: 0x000000, alpha: 0.06),
-        dark: Color(hex: 0x000000, alpha: 0.25)
-    )
+    // code stays declarative. Values mirror the Figma "Glass" effect:
+    //   Fill: white 10%, Drop shadow: black 5%, Light: white 80% @ -45°.
+    public static let glassFill = Color(hex: 0xFFFFFF, alpha: 0.10)
+    public static let glassDropShadow = Color(hex: 0x000000, alpha: 0.05)
+    public static let glassEdgeHighlight = Color(hex: 0xFFFFFF, alpha: 0.80)
 
     // Utility: non-adaptive explicit white/black for overlays, shadows, text-on-filled
     public static let auxWhite = Color(hex: 0xFFFFFF)

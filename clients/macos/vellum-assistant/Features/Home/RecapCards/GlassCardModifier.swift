@@ -11,14 +11,27 @@ enum RecapCard {
 
 /// Frosted-glass card recipe for floating notification cards and pills.
 ///
-/// Composes a real backdrop blur (`.ultraThinMaterial`) with a brand-correct
-/// adaptive tint (`VColor.glassFill`), a faint adaptive stroke
-/// (`VColor.glassStroke`), and a layered dual shadow (`glassShadowNear` +
-/// `glassShadowFar`). Generic over `InsettableShape` so the same recipe
-/// drops into both rounded-rectangle cards and pill-shaped surfaces.
+/// Approximates the Figma "Glass" effect (a native shader) using the
+/// SwiftUI primitives that exist:
+///   - `.ultraThinMaterial`         — backdrop blur (Figma Frost ≈ 14)
+///   - `VColor.glassFill`           — 10% white tint over the blur
+///   - gradient strokeBorder        — edge highlight from upper-left
+///                                    (Figma Light = -45° @ 80%)
+///   - single `.shadow(...)`        — Figma drop shadow 0/4/12 black 5%
+///
+/// In dark mode a second highlight is painted on the lower-right edge to
+/// approximate the Glass effect's refraction (Refraction=80) lensing the
+/// upper-left light catch through to the opposite corner. Refraction,
+/// dispersion, and depth themselves cannot be replicated without a Metal
+/// shader and are deliberately omitted.
+///
+/// Generic over `InsettableShape` so the same recipe drops into both
+/// rounded-rectangle cards and pill-shaped surfaces.
 private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     let shape: S
     let padding: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         content
@@ -29,10 +42,31 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
                     shape.fill(VColor.glassFill)
                 }
             )
-            .overlay(shape.strokeBorder(VColor.glassStroke, lineWidth: 1))
+            .overlay(shape.strokeBorder(edgeHighlight, lineWidth: 1))
             .clipShape(shape)
-            .shadow(color: VColor.glassShadowNear, radius: 1.5, x: 0, y: 1)
-            .shadow(color: VColor.glassShadowFar, radius: 12, x: 0, y: 8)
+            .shadow(color: VColor.glassDropShadow, radius: 6, x: 0, y: 4)
+    }
+
+    /// Linear gradient applied to the edge stroke.
+    /// Light mode: bright at top-leading, fading to clear toward bottom-trailing.
+    /// Dark mode: bright at both top-leading and bottom-trailing, clear in the
+    /// middle — fakes the refraction "exit" highlight on the opposite corner.
+    private var edgeHighlight: LinearGradient {
+        let stops: [Gradient.Stop] = colorScheme == .dark
+            ? [
+                .init(color: VColor.glassEdgeHighlight, location: 0),
+                .init(color: .clear, location: 0.5),
+                .init(color: VColor.glassEdgeHighlight, location: 1),
+            ]
+            : [
+                .init(color: VColor.glassEdgeHighlight, location: 0),
+                .init(color: .clear, location: 1),
+            ]
+        return LinearGradient(
+            stops: stops,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
