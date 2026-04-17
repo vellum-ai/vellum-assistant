@@ -9,25 +9,25 @@ struct ContactTypeBadge: View {
         case guardian
         case assistant
         case human
+
+        /// Derives the badge kind from a contact's `role` and `contactType` fields.
+        /// `role == "guardian"` takes precedence; otherwise `contactType == "assistant"`
+        /// selects the assistant variant, and anything else falls back to human.
+        init(role: String?, contactType: String?) {
+            if role == "guardian" {
+                self = .guardian
+            } else if contactType == "assistant" {
+                self = .assistant
+            } else {
+                self = .human
+            }
+        }
     }
 
     let kind: Kind
 
     init(kind: Kind) {
         self.kind = kind
-    }
-
-    /// Derives the badge kind from a contact's `role` and `contactType` fields.
-    /// `role == "guardian"` takes precedence; otherwise `contactType == "assistant"`
-    /// selects the assistant variant, and anything else falls back to human.
-    init(role: String?, contactType: String?) {
-        if role == "guardian" {
-            self.kind = .guardian
-        } else if contactType == "assistant" {
-            self.kind = .assistant
-        } else {
-            self.kind = .human
-        }
     }
 
     var body: some View {
