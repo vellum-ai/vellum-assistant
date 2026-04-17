@@ -686,6 +686,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
     @ObservationIgnored var messageLoopTask: Task<Void, Never>?
+    @ObservationIgnored var messageLoopSubscription: EventStreamClient.ManagedSubscription?
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     @ObservationIgnored private var messageLoopGeneration: UInt64 = 0
@@ -1352,14 +1353,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
 
     public func startMessageLoop() {
-        messageLoopTask?.cancel()
-        let messageStream = eventStreamClient.subscribe()
+        let previousTask = messageLoopTask
+        let previousSubscription = messageLoopSubscription
 
         messageLoopGeneration &+= 1
         let generation = messageLoopGeneration
 
+        previousTask?.cancel()
+        previousSubscription?.cancel()
+
+        let managedSubscription = eventStreamClient.subscribeManaged()
+        messageLoopSubscription = managedSubscription
+
         messageLoopTask = Task { @MainActor [weak self] in
-            for await message in messageStream {
+            for await message in managedSubscription.stream {
                 guard let self, !Task.isCancelled else { break }
                 self.handleServerMessage(message)
             }
@@ -1370,6 +1377,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             // task reference, which would cause duplicate subscriptions.
             if self?.messageLoopGeneration == generation {
                 self?.messageLoopTask = nil
+                self?.messageLoopSubscription = nil
                 // Reset spinner state — if the connection drops mid-turn the client
                 // never receives message_complete, leaving the UI stuck.
                 self?.isThinking = false
@@ -2330,6 +2338,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // from incoming publisher events while the remaining cleanup runs.
         cancellables.removeAll()
         messageLoopTask?.cancel()
+        let messageLoopSubscription = messageLoopSubscription
+        Task { @MainActor in
+            messageLoopSubscription?.cancel()
+        }
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
