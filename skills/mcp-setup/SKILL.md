@@ -12,7 +12,7 @@ Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion)
 
 ## CLI Commands
 
-All commands use `assistant mcp`. Run them via `host_bash`.
+All commands use `assistant mcp`. Run them via the `bash` tool — the `assistant` CLI runs fine in the sandbox and does not need host access.
 
 ### List servers
 
