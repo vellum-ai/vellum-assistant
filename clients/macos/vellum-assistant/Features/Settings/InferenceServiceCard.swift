@@ -59,7 +59,7 @@ struct InferenceServiceCard: View {
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
-        if draftMode == "your-own" && store.webSearchMode == "managed" {
+        if modeChanging && draftMode == "your-own" && store.webSearchMode == "managed" {
             return true
         }
         // Switching to Managed inference while web search uses Provider Native —
