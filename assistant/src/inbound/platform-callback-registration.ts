@@ -54,13 +54,23 @@ export function shouldUsePlatformCallbacks(): boolean {
   );
 }
 
-export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
+/**
+ * Read a secret by storage-key account. The default uses the in-process CES
+ * client. CLI-invoked commands run in a separate process without an
+ * in-process CES client and should pass `getSecureKeyViaDaemon` so reads
+ * hit the running assistant's `/v1/secrets/read` endpoint instead.
+ */
+export type SecretReader = (account: string) => Promise<string | undefined>;
+
+export async function resolvePlatformCallbackRegistrationContext(
+  read: SecretReader = getSecureKeyAsync,
+): Promise<PlatformCallbackRegistrationContext> {
   const platform = getIsPlatform();
   const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
     await Promise.all([
-      getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
-      getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id")),
-      getSecureKeyAsync(credentialKey("vellum", "assistant_api_key")),
+      read(credentialKey("vellum", "platform_base_url")),
+      read(credentialKey("vellum", "platform_assistant_id")),
+      read(credentialKey("vellum", "assistant_api_key")),
     ]);
 
   const storedBaseUrl = storedBaseUrlRaw?.trim();
