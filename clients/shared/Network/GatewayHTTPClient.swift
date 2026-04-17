@@ -771,6 +771,13 @@ public enum GatewayHTTPClient {
                 headers["Vellum-Organization-Id"] = orgId
             }
         }
+
+        #if os(iOS)
+        headers["X-Vellum-Client-Platform"] = "ios"
+        #elseif os(macOS)
+        headers["X-Vellum-Client-Platform"] = "macos"
+        #endif
+
         let pathPrefix: String
         if !connection.assistantId.isEmpty {
             pathPrefix = "assistants/\(connection.assistantId)/"
