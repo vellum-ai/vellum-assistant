@@ -2,7 +2,9 @@
  * Compress build/lint output.
  *
  * - On success (exitCode === 0): collapse to summary with warning count.
- * - On failure: keep all error/warning lines, collapse info/note/help lines.
+ * - On failure: keep all error/warning lines, collapse info lines
+ *   (note/help lines are preserved because they often carry the actual
+ *   diagnostic detail for Rust errors — see `isInfoLine`).
  */
 export function compressBuildOutput(
   stdout: string,
