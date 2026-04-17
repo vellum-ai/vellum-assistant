@@ -2522,7 +2522,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [extract-version, build-ios]
+    needs: [extract-version, build-ios, push-dockerhub-image]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
