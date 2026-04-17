@@ -116,9 +116,21 @@ extension AppDelegate {
                 return false
             }
             conversationManager.activateConversation(conversation.id)
-            // Switch the main content area to the chat so the user sees it
-            // even if they were last viewing a panel, app, or other non-chat view.
-            mainWindow?.windowState.selection = nil
+            // Switch the main content area to the chat — but if App Builder
+            // is open, transition to .appEditing so the app stays visible
+            // with the new conversation in the chat dock.
+            if let sel = mainWindow?.windowState.selection {
+                switch sel {
+                case .app(let appId):
+                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                case .appEditing(let appId, _):
+                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                default:
+                    mainWindow?.windowState.selection = nil
+                }
+            } else {
+                mainWindow?.windowState.selection = nil
+            }
             // Clear unseen state and notify the assistant when deep-linking into a
             // conversation. selectConversation's unseen-clear is guarded by
             // id != previousActiveId, which is false when activeConversationId was

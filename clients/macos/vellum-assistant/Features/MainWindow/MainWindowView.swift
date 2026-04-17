@@ -60,10 +60,6 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
-    /// True when the sidebar was auto-collapsed by entering an app panel.
-    /// Used to distinguish automatic collapse from manual user collapse so
-    /// we only re-expand the sidebar on app exit when it was our doing.
-    @State private var sidebarAutoCollapsedForApp = false
     @State var sidebarContentHeight: CGFloat = 0
     @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -396,35 +392,6 @@ struct MainWindowView: View {
                 if oldAppId != newAppId {
                     sharing.publishedUrl = nil
                     sharing.publishError = nil
-                }
-
-                // Collapse the sidebar when an app or document editor opens
-                // to avoid crowding; re-expand when leaving so other panels
-                // see the sidebar.
-                let wasApp: Bool = {
-                    switch oldSelection {
-                    case .app, .appEditing: return true
-                    case .panel(.documentEditor): return true
-                    default: return false
-                    }
-                }()
-                let isApp: Bool = {
-                    switch newSelection {
-                    case .app, .appEditing: return true
-                    case .panel(.documentEditor): return true
-                    default: return false
-                    }
-                }()
-                if sidebarExpanded && isApp {
-                    withAnimation(VAnimation.panel) {
-                        sidebarExpanded = false
-                        sidebarAutoCollapsedForApp = true
-                    }
-                } else if sidebarAutoCollapsedForApp && wasApp && !isApp {
-                    withAnimation(VAnimation.panel) {
-                        sidebarExpanded = true
-                        sidebarAutoCollapsedForApp = false
-                    }
                 }
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
