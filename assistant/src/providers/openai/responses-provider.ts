@@ -175,6 +175,8 @@ export class OpenAIResponsesProvider implements Provider {
       >();
       // Maps item_id → callId so we can look up tool calls from delta events.
       const itemIdToCallId = new Map<string, string>();
+      // Track web search call item IDs so we can emit server_tool_complete.
+      const webSearchCallIds: string[] = [];
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let inputTokens = 0;
@@ -218,6 +220,15 @@ export class OpenAIResponsesProvider implements Provider {
                   args: "",
                 });
                 itemIdToCallId.set(itemId, callId);
+              } else if (item?.type === "web_search_call") {
+                const toolUseId = item.id ?? "";
+                webSearchCallIds.push(toolUseId);
+                onEvent?.({
+                  type: "server_tool_start",
+                  name: "web_search",
+                  toolUseId,
+                  input: {},
+                });
               }
               break;
             }
@@ -270,6 +281,14 @@ export class OpenAIResponsesProvider implements Provider {
                     response.usage.output_tokens_details?.reasoning_tokens ?? 0;
                 }
                 finishReason = response.status ?? "completed";
+              }
+              // Emit server_tool_complete for any web search calls that were started.
+              for (const toolUseId of webSearchCallIds) {
+                onEvent?.({
+                  type: "server_tool_complete",
+                  toolUseId,
+                  isError: false,
+                });
               }
               break;
             }
