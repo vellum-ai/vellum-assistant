@@ -708,20 +708,6 @@ Stores use `[weak self]` in all `Task` closures and background subscriptions. Pl
 
 ---
 
-## iOS Feature Flows
-
-### Settings Parity (M7)
-
-New settings sections brought to iOS for feature parity with macOS:
-
-| View | File | Purpose |
-|------|------|---------|
-| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Credential Store |
-| `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
-| `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
-
----
-
 ## macOS Deep-Link Send (M11)
 
 The macOS app registers a `vellum://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.

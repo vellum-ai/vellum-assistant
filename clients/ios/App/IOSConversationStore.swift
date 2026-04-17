@@ -1228,31 +1228,10 @@ class IOSConversationStore: ObservableObject {
         activityGenerations.removeAll()
     }
 
-    /// Private conversations are excluded from the conversation list response filter, so they
-    /// won't appear in the normal active conversation list.
-    var privateConversations: [IOSConversation] {
-        conversations.filter { $0.isPrivate }
-    }
-
     @discardableResult
     func newConversation() -> IOSConversation {
         let conversation = IOSConversation()
         conversations.append(conversation)
-        save()
-        return conversation
-    }
-
-    /// Create a new private conversation with the given name. The conversation is immediately
-    /// backed by a daemon conversation with conversationType "private" so it is persisted on
-    /// the daemon side and excluded from normal conversation restoration.
-    @discardableResult
-    func newPrivateConversation(name: String = "Private Conversation") -> IOSConversation {
-        let conversation = IOSConversation(title: name, isPrivate: true)
-        conversations.append(conversation)
-        // Get or create the view model after appending so activity tracking
-        // can find the conversation in self.conversations.
-        let vm = viewModel(for: conversation.id)
-        vm.createConversationIfNeeded(conversationType: "private")
         save()
         return conversation
     }
