@@ -9,7 +9,8 @@
     "./handles": "./src/handles.ts",
     "./grants": "./src/grants.ts",
     "./rpc": "./src/rpc.ts",
-    "./rendering": "./src/rendering.ts"
+    "./rendering": "./src/rendering.ts",
+    "./trust-rules": "./src/trust-rules.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
