@@ -250,8 +250,19 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
 
 // ── Registration ─────────────────────────────────────────────────────
 
-/** Valid browser mode values for the --browser-mode option. */
-const BROWSER_MODES = ["auto", "extension", "cdp-inspect", "local"] as const;
+/**
+ * Valid browser mode values for the --browser-mode option.
+ * Includes canonical values and compatibility aliases accepted by
+ * `normalizeBrowserMode` (cdp-debugger → cdp-inspect, playwright → local).
+ */
+const BROWSER_MODES = [
+  "auto",
+  "extension",
+  "cdp-inspect",
+  "cdp-debugger",
+  "local",
+  "playwright",
+] as const;
 
 export function registerBrowserCommand(program: Command): void {
   const browser = program
