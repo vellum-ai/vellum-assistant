@@ -4,9 +4,17 @@ import VellumAssistantShared
 struct SettingsArchivedConversationsTab: View {
     var conversationManager: ConversationManager
 
+    /// Read `archivedConversations` straight from the underlying
+    /// `ConversationListStore` rather than through `ConversationManager`'s
+    /// forwarder so the Observation dependency is anchored to the store
+    /// that owns the mutation. Same pattern as the main sidebar fix for
+    /// LUM-1002 — avoids a nested-facade observation hop that was masked
+    /// pre-#26152 by `ObservableObject`'s whole-object invalidation.
+    private var listStore: ConversationListStore { conversationManager.listStore }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if conversationManager.archivedConversations.isEmpty {
+            if listStore.archivedConversations.isEmpty {
                 GeometryReader { geo in
                     VEmptyState(
                         title: "No archived conversations",
@@ -18,7 +26,7 @@ struct SettingsArchivedConversationsTab: View {
                 .frame(minHeight: 400)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(conversationManager.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
+                    ForEach(Array(listStore.archivedConversations.enumerated()), id: \.element.id) { index, conversation in
                         if index > 0 {
                             SettingsDivider()
                         }

@@ -14,6 +14,18 @@ struct ArchiveAllTarget {
 
 struct MainWindowView: View {
     @Bindable var conversationManager: ConversationManager
+    /// Direct reference to the conversation list store that owns the sidebar-
+    /// shaped state (conversations, groups, cached sidebar partitions, visible/
+    /// unseen counts). Views that render the sidebar read these properties
+    /// straight from the store instead of through `ConversationManager`'s
+    /// forwarding computed properties so that Observation tracking is
+    /// anchored to the store that actually owns the mutation, keeping the
+    /// dependency graph flat and trivially auditable per Apple's
+    /// [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app)
+    /// guidance. Passed in explicitly rather than read as
+    /// `conversationManager.listStore` at every call site to signal the
+    /// sidebar's read-only contract with the store.
+    let listStore: ConversationListStore
     let appListManager: AppListManager
     let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
@@ -105,6 +117,7 @@ struct MainWindowView: View {
     @State var feedStore: HomeFeedStore
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
+        self.listStore = conversationManager.listStore
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
@@ -176,9 +189,9 @@ struct MainWindowView: View {
                 // Restore the conversation the user was on before entering temporary chat.
                 // Fall back to visibleConversations.first only if the stored conversation no longer exists.
                 if let savedId = preTemporaryChatConversationId,
-                   conversationManager.visibleConversations.contains(where: { $0.id == savedId }) {
+                   listStore.visibleConversations.contains(where: { $0.id == savedId }) {
                     conversationManager.selectConversation(id: savedId)
-                } else if let recent = conversationManager.visibleConversations.first {
+                } else if let recent = listStore.visibleConversations.first {
                     conversationManager.selectConversation(id: recent.id)
                 } else {
                     conversationManager.enterDraftMode()
@@ -208,7 +221,7 @@ struct MainWindowView: View {
     private func resolveConversationId() -> UUID? {
         if let id = conversationManager.activeConversationId { return id }
         if let id = windowState.persistentConversationId { return id }
-        if let id = conversationManager.visibleConversations.first?.id { return id }
+        if let id = listStore.visibleConversations.first?.id { return id }
         conversationManager.createConversation()
         return conversationManager.activeConversationId
     }
@@ -326,11 +339,11 @@ struct MainWindowView: View {
                 // Guard against archived conversations: if the conversation was archived while an
                 // overlay was open, persistentConversationId may still point to the stale ID.
                 if case .conversation(let id) = newSelection {
-                    if conversationManager.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
+                    if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
                         conversationManager.selectConversation(id: id)
                     } else {
                         // Conversation was archived/deleted — fall back to the first visible conversation
-                        if let fallback = conversationManager.visibleConversations.first {
+                        if let fallback = listStore.visibleConversations.first {
                             windowState.applySelectionCorrection(.conversation(fallback.id))
                         } else {
                             windowState.applySelectionCorrection(nil)

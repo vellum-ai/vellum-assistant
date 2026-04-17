@@ -201,7 +201,7 @@ struct SidebarSectionView: View {
         if group.id == ConversationGroup.pinned.id,
            conversations.count <= maxCollapsed,
            let conversationManager,
-           conversationManager.hasMoreConversations {
+           conversationManager.listStore.hasMoreConversations {
             Color.clear
                 .frame(height: 0)
                 .onAppear {

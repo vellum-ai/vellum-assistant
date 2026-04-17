@@ -3,6 +3,13 @@ import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
     var conversationManager: ConversationManager
+    /// Direct reference to the conversation list store, read for the
+    /// observation-critical `groupedConversations` lookup. Anchored to the
+    /// store (which owns the mutation) rather than routed through
+    /// `ConversationManager`'s forwarding computed properties so the
+    /// Observation dependency graph stays flat and the drawer re-renders
+    /// deterministically when conversations populate (LUM-1002).
+    var listStore: ConversationListStore
     var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false
@@ -21,7 +28,7 @@ struct ConversationSwitcherDrawer: View {
 
     /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
     private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
-        let raw = conversationManager.groupedConversations
+        let raw = listStore.groupedConversations
         var entries: [(group: ConversationGroup, conversations: [ConversationModel])] = []
         var extraForAll: [ConversationModel] = []
         for entry in raw {
