@@ -170,13 +170,15 @@ async function applyForcedCompaction(
   compactFn: CompactFn,
   signal?: AbortSignal,
 ): Promise<ReducerStepResult> {
-  // Intentionally omit `targetInputTokensOverride` so the manager uses its
-  // configured post-compaction target (~50k on a 200k window by default).
-  // Passing `config.targetTokens` (= preflightBudget, ~170k) lets
-  // pickKeepBoundary decide "all turns already fit, keep everything" and
-  // take the truncate-only early-exit branch, which returns compacted:true
-  // with 0 summarized messages — making this tier a no-op exactly when
-  // convergence is trying to actually reduce history.
+  // Do not pass `targetInputTokensOverride` here. The manager's
+  // configured post-compaction target (~50k on a 200k window by default)
+  // is tight enough to force pickKeepBoundary to choose a real summarize
+  // boundary. A looser override (e.g. `config.targetTokens` ~=
+  // preflightBudget, ~170k) lets pickKeepBoundary decide "all turns
+  // already fit, keep everything" and take the truncate-only early-exit
+  // branch, which returns compacted:true with 0 summarized messages —
+  // making this tier a no-op exactly when convergence is trying to
+  // actually reduce history.
   const compactionOptions: ContextWindowCompactOptions = {
     force: true,
     minKeepRecentUserTurns: 0,
