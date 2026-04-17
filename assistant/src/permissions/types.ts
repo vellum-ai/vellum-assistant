@@ -1,19 +1,26 @@
+import type { TrustRuleBase } from "@vellumai/ces-contracts";
+
+/**
+ * Re-exported TrustRule type from `@vellumai/ces-contracts`.
+ *
+ * The contracts package defines `TrustRule` as a discriminated union over tool
+ * families (scoped, URL, managed-skill, skill-load, generic). Some variants
+ * don't carry `executionTarget` or `allowHighRisk`. To maintain backward
+ * compatibility with existing callsites that access those fields on any rule,
+ * we flatten the union here by intersecting the base with the optional fields.
+ *
+ * PR 4 of this plan will tighten callsites to narrow the union properly,
+ * at which point this re-export can be simplified to a direct re-export.
+ */
+export type TrustRule = TrustRuleBase & {
+  executionTarget?: string;
+  allowHighRisk?: boolean;
+};
+
 export enum RiskLevel {
   Low = "low",
   Medium = "medium",
   High = "high",
-}
-
-export interface TrustRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  scope: string;
-  decision: "allow" | "deny" | "ask";
-  priority: number;
-  createdAt: number;
-  executionTarget?: string;
-  allowHighRisk?: boolean;
 }
 
 export type UserDecision =

@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { parseTrustFileData } from "@vellumai/ces-contracts";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
@@ -151,7 +152,7 @@ function ruleOrder(a: TrustRule, b: TrustRule): number {
   if (b.priority !== a.priority) return b.priority - a.priority;
   if (a.decision !== b.decision) {
     // deny > ask > allow
-    const order = { deny: 0, ask: 1, allow: 2 };
+    const order: Record<string, number> = { deny: 0, ask: 1, allow: 2 };
     return (order[a.decision] ?? 2) - (order[b.decision] ?? 2);
   }
   return 0;
@@ -240,6 +241,8 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
+      // Default rules may carry allowHighRisk (e.g. bash container rules).
+      // Build as GenericTrustRule to accommodate all optional fields.
       const rule: TrustRule = {
         id: template.id,
         tool: template.tool,
@@ -248,10 +251,10 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         decision: template.decision,
         priority: template.priority,
         createdAt: Date.now(),
+        ...(template.allowHighRisk != null
+          ? { allowHighRisk: template.allowHighRisk }
+          : {}),
       };
-      if (template.allowHighRisk != null) {
-        rule.allowHighRisk = template.allowHighRisk;
-      }
       rules.push(rule);
       changed = true;
       log.info({ ruleId: template.id }, "Backfilled default trust rule");
@@ -294,7 +297,6 @@ function loadFromDisk(): TrustRule[] {
         data.version === 1 ||
         data.version === 2
       ) {
-        rules = sanitizedRules;
         if (sanitizedRules.length < rawRules.length) {
           needsSave = true;
         }
@@ -304,6 +306,21 @@ function loadFromDisk(): TrustRule[] {
             { version: data.version, targetVersion: TRUST_FILE_VERSION },
             "Migrating legacy trust file version",
           );
+        }
+
+        // Apply canonical parser for family-aware normalization.
+        // The parser strips fields that are invalid for a rule's tool family
+        // (e.g. executionTarget on URL rules) and coerces malformed values.
+        const { data: parsedData, normalized } = parseTrustFileData({
+          ...data,
+          rules: sanitizedRules,
+        });
+        // The contracts parser returns the union TrustRule type; our local
+        // TrustRule flattens the union with optional fields for backward
+        // compatibility. The structural overlap is safe to cast here.
+        rules = parsedData.rules as TrustRule[];
+        if (normalized) {
+          needsSave = true;
         }
 
         // Strip legacy principal-scoped fields from persisted v3 rules.
@@ -418,13 +435,13 @@ function fileAddRule(
     decision,
     priority,
     createdAt: Date.now(),
+    ...(options?.allowHighRisk != null
+      ? { allowHighRisk: options.allowHighRisk }
+      : {}),
+    ...(options?.executionTarget != null
+      ? { executionTarget: options.executionTarget }
+      : {}),
   };
-  if (options?.allowHighRisk != null) {
-    rule.allowHighRisk = options.allowHighRisk;
-  }
-  if (options?.executionTarget != null) {
-    rule.executionTarget = options.executionTarget;
-  }
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -493,6 +510,18 @@ function fileRemoveRule(id: string): boolean {
   return true;
 }
 
+/**
+ * Resolve the effective scope of a trust rule.
+ *
+ * Not all trust rule families require a scope — after canonical parsing,
+ * rules that had no scope are normalized to `"everywhere"`. This helper
+ * ensures any residual rules without a scope field default to `"everywhere"`
+ * for safe matching.
+ */
+function effectiveScope(rule: TrustRule): string {
+  return rule.scope || "everywhere";
+}
+
 function matchesScope(ruleScope: string, workingDir: string): boolean {
   if (ruleScope === "everywhere") return true;
   // Strip optional trailing wildcard, then enforce a directory-boundary match
@@ -514,7 +543,7 @@ function findRuleByDecision(
     if (rule.decision !== decision) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(effectiveScope(rule), scope)) continue;
     return rule;
   }
   return null;
@@ -525,6 +554,10 @@ function findRuleByDecision(
  *
  * If the rule does not specify an executionTarget it matches any target
  * (wildcard). If specified, it must match exactly.
+ *
+ * Not all trust rule families carry `executionTarget` — URL, managed-skill,
+ * and skill-load rules never have it. For those families the check is a
+ * no-op (wildcard match).
  */
 function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
   if (rule.executionTarget == null) return true;
@@ -561,7 +594,7 @@ function fileFindHighestPriorityRule(
 
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(effectiveScope(rule), scope)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
@@ -914,7 +947,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
     for (const rule of allRules) {
       if (rule.tool !== tool) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       if (!matchesExecutionTarget(rule, ctx)) continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled) continue;
@@ -938,7 +971,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "allow") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       return rule;
     }
     return null;
@@ -951,7 +984,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "deny") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       return rule;
     }
     return null;
