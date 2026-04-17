@@ -84,6 +84,14 @@ describe("rewriteForRtk", () => {
       expect(rewriteForRtk('echo "git status"')).toBe('echo "git status"');
     });
 
+    test("does not rewrite bash builtins (test, read)", () => {
+      // `test` and `read` are shell builtins — rewriting to
+      // `rtk test -f foo` would dispatch to rtk's test-runner
+      // subcommand and misinterpret the flags.
+      expect(rewriteForRtk("test -f /tmp/foo")).toBe("test -f /tmp/foo");
+      expect(rewriteForRtk("read var")).toBe("read var");
+    });
+
     test("does not match against empty / whitespace-only input", () => {
       expect(rewriteForRtk("")).toBe("");
       expect(rewriteForRtk("   ")).toBe("   ");

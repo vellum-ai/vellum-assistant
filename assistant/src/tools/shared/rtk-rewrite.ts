@@ -5,17 +5,20 @@ import { join } from "node:path";
  * Shell commands that the `rtk` binary has a dedicated subcommand for.
  * Derived from `rtk --help` (rtk 0.36.0). Anything not in this set is
  * passed through unchanged.
+ *
+ * Deliberately excluded even though `rtk` has a matching subcommand:
+ * - `test`, `read` — bash builtins. `test -f foo` or `read var` would
+ *   mis-dispatch to rtk's test-runner / file-reader subcommand and
+ *   misinterpret the flags.
  */
 const RTK_SUBCOMMANDS = new Set([
   "ls",
   "tree",
-  "read",
   "git",
   "gh",
   "aws",
   "psql",
   "pnpm",
-  "test",
   "pytest",
   "vitest",
   "cargo",
