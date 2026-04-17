@@ -302,7 +302,7 @@ struct InferenceServiceCard: View {
             Button("Continue") { performSave() }
         } message: {
             Text(
-                "Changing your inference mode will also update your Web Search settings."
+                "Changing your inference settings will also update your Web Search settings."
                     + " You'll need to review and save them below."
             )
         }
