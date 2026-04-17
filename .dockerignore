@@ -4,6 +4,8 @@
 !assistant/**
 !credential-executor/
 !credential-executor/**
+!gateway/
+!gateway/**
 !packages/
 !packages/**
 !skills/
@@ -31,6 +33,9 @@ assistant/.env.*
 credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
+gateway/node_modules/
+gateway/.env
+gateway/.env.*
 packages/*/node_modules/
 packages/*/.env
 packages/*/.env.*
