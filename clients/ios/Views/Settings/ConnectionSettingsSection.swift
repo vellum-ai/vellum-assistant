@@ -2,49 +2,6 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Standalone API Key Section
-
-struct APIKeySection: View {
-    @State private var apiKey: String = ""
-    @State private var showingAlert = false
-    @State private var alertTitle = ""
-    @State private var alertMessage = ""
-
-    var body: some View {
-        Section("Anthropic API Key") {
-            SecureField("Anthropic API Key", text: $apiKey)
-                .textContentType(.password)
-                .autocapitalization(.none)
-
-            Button("Save") {
-                let success = APIKeyManager.shared.setAPIKey(apiKey)
-                if success {
-                    alertTitle = "Success"
-                    alertMessage = "API Key saved securely"
-                } else {
-                    alertTitle = "Error"
-                    alertMessage = "Failed to save API Key to Keychain"
-                }
-                showingAlert = true
-            }
-            .disabled(apiKey.isEmpty)
-            Text("Your API key is stored locally and never sent to Vellum servers.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .alert(alertTitle, isPresented: $showingAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage)
-        }
-        .onAppear {
-            apiKey = APIKeyManager.shared.getAPIKey() ?? ""
-        }
-    }
-}
-
-// MARK: - Connected Assistant Section
-
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
