@@ -660,6 +660,7 @@ class MeetSessionManagerImpl {
       }
     }
     this.sessions.clear();
+    this.pendingBotTokens.clear();
   }
 
   /**
@@ -704,34 +705,43 @@ class MeetSessionManagerImpl {
     // authoritative `this.sessions` lookup once the session is in the map.
     this.pendingBotTokens.set(meetingId, botApiToken);
 
-    // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
-    const ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
+    let ttsKey: string;
+    let daemonUrl: string;
+    let effectiveJoinName: string;
+    let resolvedConsentMessage: string;
+    try {
+      // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
+      ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
 
-    const daemonUrl = this.deps.resolveDaemonUrl();
+      daemonUrl = this.deps.resolveDaemonUrl();
 
-    // Resolve the effective bot display name. Priority:
-    //   1. `services.meet.joinName` when set.
-    //   2. The assistant display name from IDENTITY.md.
-    //   3. {@link MEET_JOIN_NAME_FALLBACK} — guarantees a non-empty string
-    //      so the bot's `needsFullWiring` predicate never silently downgrades
-    //      the container to screenshot-only mode.
-    // The same value is used for `JOIN_NAME` AND for `{assistantName}`
-    // substitution in the consent message — the bot needs both.
-    const effectiveJoinName =
-      meet.joinName ??
-      this.deps.resolveAssistantDisplayName() ??
-      MEET_JOIN_NAME_FALLBACK;
+      // Resolve the effective bot display name. Priority:
+      //   1. `services.meet.joinName` when set.
+      //   2. The assistant display name from IDENTITY.md.
+      //   3. {@link MEET_JOIN_NAME_FALLBACK} — guarantees a non-empty string
+      //      so the bot's `needsFullWiring` predicate never silently downgrades
+      //      the container to screenshot-only mode.
+      // The same value is used for `JOIN_NAME` AND for `{assistantName}`
+      // substitution in the consent message — the bot needs both.
+      effectiveJoinName =
+        meet.joinName ??
+        this.deps.resolveAssistantDisplayName() ??
+        MEET_JOIN_NAME_FALLBACK;
 
-    // `{assistantName}` substitution is owned by the `meet_join` tool
-    // (PR 23), which resolves the assistant name from IDENTITY.md and
-    // passes a substituted string via `input.consentMessage`. Callers that
-    // bypass the tool (direct API users, tests) pass the raw template —
-    // substitute here so the bot receives a human-readable greeting
-    // regardless of entry point.
-    const resolvedConsentMessage = substituteAssistantName(
-      consentMessage ?? meet.consentMessage,
-      effectiveJoinName,
-    );
+      // `{assistantName}` substitution is owned by the `meet_join` tool
+      // (PR 23), which resolves the assistant name from IDENTITY.md and
+      // passes a substituted string via `input.consentMessage`. Callers that
+      // bypass the tool (direct API users, tests) pass the raw template —
+      // substitute here so the bot receives a human-readable greeting
+      // regardless of entry point.
+      resolvedConsentMessage = substituteAssistantName(
+        consentMessage ?? meet.consentMessage,
+        effectiveJoinName,
+      );
+    } catch (err) {
+      this.pendingBotTokens.delete(meetingId);
+      throw err;
+    }
 
     // Register the dispatcher BEFORE the audio-ingest starts so transcripts
     // fired by Deepgram the instant the streaming session opens cannot race
@@ -1810,7 +1820,6 @@ export function substituteAssistantName(
   return template.split("{assistantName}").join(assistantName);
 }
 
-/** Strip internal fields (`timeoutHandle`) from a session before exposing it. */
 /**
  * Best-effort: pull the bot container's accumulated stdout/stderr and
  * persist it to `<meetingDir>/bot.log` before the container is removed.

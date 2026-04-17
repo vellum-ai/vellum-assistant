@@ -203,11 +203,11 @@ export async function indexMessageNow(
       );
 
       // ── Auto-analysis triggers ─────────────────────────────────────
-      // Both triggers route through `upsertDebouncedJob` in the helper,
-      // so a single pending row is shared. Order matters: the idle
-      // upsert runs first (pushing `runAfter` into the future); the
-      // batch trigger runs last so a threshold crossing pulls
-      // `runAfter` back to "now" and overrides the idle debounce.
+      // Immediate triggers (batch, compaction) and debounced triggers
+      // (idle, lifecycle) write to separate rows keyed by triggerGroup
+      // via `upsertAutoAnalysisJob`. When an immediate trigger fires,
+      // it cancels any pending debounced row for the same conversation
+      // to avoid redundant analysis runs.
       enqueueAutoAnalysisIfEnabled({
         conversationId: input.conversationId,
         trigger: "idle",
