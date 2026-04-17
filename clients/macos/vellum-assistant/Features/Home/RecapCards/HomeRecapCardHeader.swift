@@ -76,22 +76,16 @@ struct HomeRecapCardHeader: View {
 
     // MARK: - Dismiss button
 
-    /// Bordered pill dismiss button with an X icon. 32pt height matches
-    /// the action buttons used across all home recap cards.
     private var dismissButton: some View {
-        Button {
+        VButton(
+            iconOnly: "lucide-x",
+            style: .outlined,
+            size: .pillRegular,
+            accessibilityID: "recap-card-dismiss",
+            iconColor: VColor.primaryBase
+        ) {
             onDismiss?()
-        } label: {
-            VIconView(.x, size: 12)
-                .foregroundStyle(VColor.primaryBase)
-                .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-                .frame(height: 32)
-                .background(
-                    Capsule()
-                        .strokeBorder(VColor.borderElement, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("Dismiss")
     }
 }

@@ -49,21 +49,13 @@ struct HomeUpdatesListCard: View {
     // MARK: - Clear All Button
 
     private var clearAllButton: some View {
-        Button {
-            onClearAll()
-        } label: {
-            Text("Clear all")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.primaryBase)
-                .padding(.horizontal, VSpacing.md)
-                .frame(height: 32)
-                .background(
-                    Capsule()
-                        .strokeBorder(VColor.borderElement, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Clear all updates")
+        VButton(
+            label: "Clear all",
+            style: .outlined,
+            size: .pillRegular,
+            accessibilityID: "clear-all-updates",
+            action: onClearAll
+        )
     }
 
     // MARK: - Updates List

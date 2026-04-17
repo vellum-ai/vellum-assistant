@@ -70,31 +70,8 @@ struct HomeImageCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: VSpacing.sm) {
-            Button(action: onSave) {
-                Text("Save")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentInset)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(height: 32)
-                    .background(Capsule().fill(VColor.primaryBase))
-            }
-            .buttonStyle(.plain)
-
-            Button(action: onOpenInFinder) {
-                Text("Find a New One")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentDefault)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(height: 32)
-                    .background(
-                        Capsule()
-                            .strokeBorder(VColor.borderBase, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-
+            VButton(label: "Save", style: .primary, size: .pillRegular, action: onSave)
+            VButton(label: "Find a New One", style: .outlined, size: .pillRegular, action: onOpenInFinder)
             Spacer()
         }
     }

@@ -165,49 +165,22 @@ struct HomePermissionCard: View {
     }
 
     private var allowOnceButton: some View {
-        Button {
-            onAuthorise()
-        } label: {
-            Text("Allow Once")
-                .font(VFont.bodySmallEmphasised)
-                .foregroundStyle(VColor.contentInset)
-                .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-                .frame(height: 32)
-                .background(Capsule().fill(VColor.primaryBase))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Allow Once")
+        VButton(label: "Allow Once", style: .primary, size: .pillRegular, action: onAuthorise)
     }
 
     private var denyButton: some View {
-        Button {
-            onDeny()
-        } label: {
-            Text("Deny")
-                .font(VFont.bodySmallEmphasised)
-                .foregroundStyle(VColor.contentInset)
-                .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-                .frame(height: 32)
-                .background(Capsule().fill(VColor.systemNegativeStrong))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Deny")
+        VButton(label: "Deny", style: .danger, size: .pillRegular, action: onDeny)
     }
 
     private var dismissButton: some View {
-        Button {
+        VButton(
+            iconOnly: "lucide-x",
+            style: .outlined,
+            size: .pillRegular,
+            iconColor: VColor.primaryBase
+        ) {
             onDismiss?()
-        } label: {
-            VIconView(.x, size: 12)
-                .foregroundStyle(VColor.primaryBase)
-                .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-                .frame(height: 32)
-                .background(
-                    Capsule()
-                        .strokeBorder(VColor.borderElement, lineWidth: 1)
-                )
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("Dismiss")
     }
 }

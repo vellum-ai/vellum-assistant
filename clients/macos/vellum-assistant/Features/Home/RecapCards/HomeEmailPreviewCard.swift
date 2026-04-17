@@ -97,32 +97,8 @@ struct HomeEmailPreviewCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: VSpacing.xs) {
-            Button(action: onSend) {
-                Text("Send it")
-                    .font(VFont.bodyMediumEmphasised)
-                    .foregroundStyle(VColor.contentInset)
-                    .padding(.horizontal, 10)
-                    .frame(height: 32)
-                    .background(
-                        Capsule()
-                            .fill(VColor.primaryBase)
-                    )
-            }
-            .buttonStyle(.plain)
-
-            Button(action: onRework) {
-                Text("Rework")
-                    .font(VFont.bodyMediumEmphasised)
-                    .foregroundStyle(VColor.primaryBase)
-                    .padding(.horizontal, 10)
-                    .frame(height: 32)
-                    .background(
-                        Capsule()
-                            .strokeBorder(VColor.borderElement, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-
+            VButton(label: "Send it", style: .primary, size: .pillRegular, action: onSend)
+            VButton(label: "Rework", style: .outlined, size: .pillRegular, action: onRework)
             Spacer(minLength: 0)
         }
     }
