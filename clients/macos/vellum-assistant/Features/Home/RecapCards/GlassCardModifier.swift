@@ -19,14 +19,14 @@ enum RecapCard {
 ///                                    (approximates Figma Light = -45° @ 80%)
 ///   - single `.shadow(...)`        — Figma drop shadow 0/4/12 black 5%
 ///
-/// Both modes render the same dual-corner pattern: uniform bright stroke
-/// along the whole border with narrow clear "dips" at BL and TR, plus
-/// thicker 1pt highlights at TL and BR. The Figma spec differentiates
-/// light (single-corner) from dark (dual-corner), but in SwiftUI the
-/// single-corner pattern gets visually overwhelmed by Material's own
-/// neutral rim — so we unify on dual-corner for a consistent white rim
-/// in both modes. Token alpha (80%) keeps the rim slightly translucent
-/// to read as reflected glass rather than a hard painted line.
+/// Light mode renders a single bright plateau at the top-left corner that
+/// fades symmetrically into the adjacent top and left edges; everywhere
+/// else is clear. Dark mode renders a dual-corner pattern: uniform bright
+/// stroke along the whole border with narrow clear "dips" at BL and TR,
+/// plus thicker 1pt highlights at TL and BR — matches Figma's Glass
+/// shader producing a refraction "exit" highlight on dark backdrops.
+/// Token alpha (80%) keeps the rim slightly translucent to read as
+/// reflected glass rather than a hard painted line.
 ///
 /// Using an `AngularGradient` sweeping by angle from the card's center
 /// (rather than a diagonal `LinearGradient`) is critical: corner
@@ -45,6 +45,8 @@ enum RecapCard {
 private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
     let shape: S
     let padding: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         content
@@ -87,20 +89,37 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
         let h = max(size.height, 1)
         let f = atan2(h, w) / (2 * .pi)
         let bright = VColor.glassEdgeHighlight
-        let dip: CGFloat = 0.02
 
-        // Dual-corner: bright plateau covers all four edges, narrow clear
-        // dips land exactly at BL and TR.
-        let stops: [Gradient.Stop] = [
-            .init(color: bright, location: 0),
-            .init(color: bright, location: 0.5 - f - dip),
-            .init(color: .clear, location: 0.5 - f),
-            .init(color: bright, location: 0.5 - f + dip),
-            .init(color: bright, location: 1 - f - dip),
-            .init(color: .clear, location: 1 - f),
-            .init(color: bright, location: 1 - f + dip),
-            .init(color: bright, location: 1),
-        ]
+        let stops: [Gradient.Stop]
+        switch colorScheme {
+        case .dark:
+            // Dual-corner: bright plateau covers all four edges, narrow
+            // clear dips land exactly at BL and TR.
+            let dip: CGFloat = 0.02
+            stops = [
+                .init(color: bright, location: 0),
+                .init(color: bright, location: 0.5 - f - dip),
+                .init(color: .clear, location: 0.5 - f),
+                .init(color: bright, location: 0.5 - f + dip),
+                .init(color: bright, location: 1 - f - dip),
+                .init(color: .clear, location: 1 - f),
+                .init(color: bright, location: 1 - f + dip),
+                .init(color: bright, location: 1),
+            ]
+        default:
+            // Single-corner: narrow bright plateau centered on TL that
+            // fades symmetrically into the adjacent top and left edges.
+            // BR, TR, and BL remain clear.
+            let tl = 0.5 + f
+            stops = [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: tl - 0.10),
+                .init(color: bright, location: tl - 0.05),
+                .init(color: bright, location: tl + 0.05),
+                .init(color: .clear, location: tl + 0.10),
+                .init(color: .clear, location: 1),
+            ]
+        }
 
         return AngularGradient(stops: stops, center: .center)
     }
@@ -122,22 +141,33 @@ private struct GlassCardModifier<S: InsettableShape>: ViewModifier {
         let bright = VColor.glassEdgeHighlight
         let tl = 0.5 + f
 
-        // Two plateaus: BR (near location f) and TL (near 0.5 + f). Using
-        // two bright stops per plateau (±plateau) keeps the rounded corner
-        // arc at full 80% alpha instead of ramping from/to clear at a
-        // single centered peak.
-        let stops: [Gradient.Stop] = [
-            .init(color: .clear, location: 0),
-            .init(color: .clear, location: f - fade),
-            .init(color: bright, location: f - plateau),
-            .init(color: bright, location: f + plateau),
-            .init(color: .clear, location: f + fade),
-            .init(color: .clear, location: tl - fade),
-            .init(color: bright, location: tl - plateau),
-            .init(color: bright, location: tl + plateau),
-            .init(color: .clear, location: tl + fade),
-            .init(color: .clear, location: 1),
-        ]
+        let stops: [Gradient.Stop]
+        switch colorScheme {
+        case .dark:
+            // Two plateaus: BR (near location f) and TL (near 0.5 + f).
+            stops = [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: f - fade),
+                .init(color: bright, location: f - plateau),
+                .init(color: bright, location: f + plateau),
+                .init(color: .clear, location: f + fade),
+                .init(color: .clear, location: tl - fade),
+                .init(color: bright, location: tl - plateau),
+                .init(color: bright, location: tl + plateau),
+                .init(color: .clear, location: tl + fade),
+                .init(color: .clear, location: 1),
+            ]
+        default:
+            // One flat plateau at TL only (light mode is single-corner).
+            stops = [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: tl - fade),
+                .init(color: bright, location: tl - plateau),
+                .init(color: bright, location: tl + plateau),
+                .init(color: .clear, location: tl + fade),
+                .init(color: .clear, location: 1),
+            ]
+        }
 
         return AngularGradient(stops: stops, center: .center)
     }
