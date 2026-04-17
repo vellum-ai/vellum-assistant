@@ -24,8 +24,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import type { Speed } from "../config/schemas/inference.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,

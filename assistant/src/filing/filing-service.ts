@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import type { Speed } from "../config/schemas/inference.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
@@ -43,7 +42,7 @@ export interface FilingDeps {
   processMessage: (
     conversationId: string,
     content: string,
-    options?: { speed?: Speed; callSite?: LLMCallSite },
+    options?: { callSite?: LLMCallSite },
   ) => Promise<{ messageId: string }>;
   onConversationCreated?: (info: {
     conversationId: string;
