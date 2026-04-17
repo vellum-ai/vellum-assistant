@@ -180,7 +180,7 @@ struct ContactDetailView: View {
     }
 
     private var contactTypeBadge: some View {
-        ContactTypeBadge(role: displayContact.role)
+        ContactTypeBadge(role: displayContact.role, contactType: displayContact.contactType)
     }
 
     // MARK: - Actions
