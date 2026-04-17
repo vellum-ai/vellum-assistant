@@ -1,4 +1,4 @@
-import { BROWSER_TOOL_NAMES } from "../../browser/operations.js";
+import { BROWSER_TOOL_NAMES } from "../../browser/identifiers.js";
 import type { Message } from "../../providers/types.js";
 
 // Re-export BROWSER_TOOL_NAMES from the shared browser operations contract

@@ -4,7 +4,7 @@
 // Used by private-conversation gating and permission simulation to decide
 // whether a tool invocation requires explicit approval.
 
-import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
+import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
 
 /**
  * Browser tools that are read-only / observational and do NOT have

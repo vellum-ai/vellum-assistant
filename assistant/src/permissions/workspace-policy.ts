@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, normalize, resolve } from "node:path";
 
-import { BROWSER_TOOL_NAMES } from "../browser/operations.js";
+import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
 
 /**
  * Resolve a path to its canonical form. When the target itself doesn't

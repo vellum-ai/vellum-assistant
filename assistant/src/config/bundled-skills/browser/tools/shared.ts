@@ -17,10 +17,8 @@
  * can be removed without changing the CLI or the operations layer.
  */
 
-import {
-  browserToolNameToOperation,
-  executeBrowserOperation,
-} from "../../../../browser/operations.js";
+import { browserToolNameToOperation } from "../../../../browser/identifiers.js";
+import { executeBrowserOperation } from "../../../../browser/operations.js";
 import type {
   ToolContext,
   ToolExecutionResult,
