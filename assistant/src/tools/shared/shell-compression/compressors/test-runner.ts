@@ -414,8 +414,10 @@ export function compressTestOutput(
       break;
   }
 
-  // If exit code is non-zero, preserve stderr verbatim
-  if (exitCode !== 0 && exitCode !== null && stderr.trim()) {
+  // Preserve stderr verbatim for abnormal exits. `null` covers
+  // signal-killed processes (e.g., OOM, timeout) where stderr often
+  // holds the only diagnostic ("Killed", "Segmentation fault", etc.).
+  if (exitCode !== 0 && stderr.trim()) {
     compressed = compressed + "\n\n--- stderr ---\n" + stderr.trim();
   }
 
