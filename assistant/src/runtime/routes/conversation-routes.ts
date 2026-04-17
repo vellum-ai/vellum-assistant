@@ -1450,19 +1450,28 @@ export async function handleSendMessage(
 
   const smDeps = deps.sendMessageDeps;
 
-  // Notify all connected clients that the conversation list changed when a
-  // new standard conversation is created so sidebars can refresh.
-  if (mapping.created && mapping.conversationType === "standard") {
-    smDeps.assistantEventHub
-      .publish(
-        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-          type: "conversation_list_invalidated",
-          reason: "created",
-        }),
-      )
-      .catch((err) => {
-        log.warn({ err }, "Failed to publish conversation_list_invalidated");
-      });
+  // Notify all connected clients that the conversation list changed when
+  // this is the first message in a standard conversation, so sidebars on
+  // other devices can refresh. We check for first-message rather than
+  // first-create because the SSE subscribe handler (events-routes.ts) may
+  // have already materialised the conversation from a draft key before any
+  // message was sent — in that case `mapping.created` is `false` even
+  // though, from the user's perspective, this is a brand-new conversation
+  // that other clients don't yet know about.
+  if (mapping.conversationType === "standard") {
+    const existingMessageCount = getMessages(mapping.conversationId).length;
+    if (existingMessageCount === 0) {
+      smDeps.assistantEventHub
+        .publish(
+          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+            type: "conversation_list_invalidated",
+            reason: "created",
+          }),
+        )
+        .catch((err) => {
+          log.warn({ err }, "Failed to publish conversation_list_invalidated");
+        });
+    }
   }
 
   // Build transport metadata from the request so the daemon can inject
