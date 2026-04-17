@@ -49,19 +49,22 @@ const RTK_SUBCOMMANDS = new Set([
   "curl",
 ]);
 
-// Only positive results are cached. A negative result is rechecked on
-// every call so that installing rtk mid-session (or a later PATH
-// update) starts working without restarting the process.
-let cachedAvailable = false;
+// Positive-only cache keyed by the PATH that was probed. Different
+// callers can use different PATHs (e.g. `host_bash` prepends
+// `~/.bun/bin` via buildHostShellEnv), so caching a single global
+// answer is wrong. A negative result is never cached — installing rtk
+// mid-session (or a PATH update) should start working without a
+// restart.
+let cachedPositive: { path: string } | null = null;
 let testOverride: boolean | null = null;
 
-function defaultIsRtkAvailable(): boolean {
-  if (cachedAvailable) return true;
-  const pathEntries = (process.env.PATH ?? "").split(":").filter(Boolean);
+function defaultIsRtkAvailable(pathEnv: string): boolean {
+  if (cachedPositive && cachedPositive.path === pathEnv) return true;
+  const pathEntries = pathEnv.split(":").filter(Boolean);
   for (const dir of pathEntries) {
     try {
       accessSync(join(dir, "rtk"), constants.X_OK);
-      cachedAvailable = true;
+      cachedPositive = { path: pathEnv };
       return true;
     } catch {
       // Not in this PATH entry — keep looking.
@@ -70,9 +73,9 @@ function defaultIsRtkAvailable(): boolean {
   return false;
 }
 
-function isRtkAvailable(): boolean {
+function isRtkAvailable(pathEnv: string): boolean {
   if (testOverride !== null) return testOverride;
-  return defaultIsRtkAvailable();
+  return defaultIsRtkAvailable(pathEnv);
 }
 
 /**
@@ -81,7 +84,7 @@ function isRtkAvailable(): boolean {
  */
 export function __setRtkAvailableForTest(value: boolean | null): void {
   testOverride = value;
-  if (value === null) cachedAvailable = false;
+  if (value === null) cachedPositive = null;
 }
 
 /**
@@ -123,8 +126,13 @@ function findHeadIndex(command: string): number {
  * Rewrite a shell command to delegate supported head commands to the
  * `rtk` binary (e.g. `git status` → `rtk git status`).
  *
+ * `pathEnv` must be the PATH the subprocess will actually execute with
+ * (not `process.env.PATH`, which on macOS app-launched daemons is
+ * minimal — `buildHostShellEnv` prepends `~/.bun/bin`, etc.). The rtk
+ * probe walks that PATH directly.
+ *
  * Returns the command unchanged when:
- * - rtk is not on PATH
+ * - rtk is not on the subprocess PATH
  * - the caller overrides `PATH` in the command's env-var prefix, or
  *   the command is run through `sudo` (both execute with a PATH we
  *   can't probe from the daemon — rtk may be missing there)
@@ -135,9 +143,9 @@ function findHeadIndex(command: string): number {
  * the first `|` stays verbatim. Prefixes like `cd X && ` and env-var
  * assignments (`FOO=bar`) are preserved in place.
  */
-export function rewriteForRtk(command: string): string {
+export function rewriteForRtk(command: string, pathEnv: string): string {
   if (!command || !command.trim()) return command;
-  if (!isRtkAvailable()) return command;
+  if (!isRtkAvailable(pathEnv)) return command;
 
   // Pipes: only consider the head segment for classification. Insertion
   // still uses the original-command offset, so the tail is unchanged.

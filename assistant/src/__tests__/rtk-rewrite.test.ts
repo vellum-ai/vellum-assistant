@@ -5,6 +5,11 @@ import {
   rewriteForRtk,
 } from "../tools/shared/rtk-rewrite.js";
 
+// Most tests force availability via __setRtkAvailableForTest, so the
+// PATH value is irrelevant — pass a stub string consistently.
+const PATH_STUB = "/usr/bin:/bin";
+const rewrite = (cmd: string): string => rewriteForRtk(cmd, PATH_STUB);
+
 describe("rewriteForRtk", () => {
   beforeEach(() => {
     __setRtkAvailableForTest(true);
@@ -16,43 +21,37 @@ describe("rewriteForRtk", () => {
 
   describe("supported commands", () => {
     test("rewrites bare git status", () => {
-      expect(rewriteForRtk("git status")).toBe("rtk git status");
+      expect(rewrite("git status")).toBe("rtk git status");
     });
 
     test("rewrites pytest with flags", () => {
-      expect(rewriteForRtk("pytest -v --tb=short")).toBe(
-        "rtk pytest -v --tb=short",
-      );
+      expect(rewrite("pytest -v --tb=short")).toBe("rtk pytest -v --tb=short");
     });
 
     test("rewrites ls with flags", () => {
-      expect(rewriteForRtk("ls -la")).toBe("rtk ls -la");
+      expect(rewrite("ls -la")).toBe("rtk ls -la");
     });
 
     test("rewrites tsc --noEmit", () => {
-      expect(rewriteForRtk("tsc --noEmit")).toBe("rtk tsc --noEmit");
+      expect(rewrite("tsc --noEmit")).toBe("rtk tsc --noEmit");
     });
 
     test("rewrites cargo test", () => {
-      expect(rewriteForRtk("cargo test --release")).toBe(
-        "rtk cargo test --release",
-      );
+      expect(rewrite("cargo test --release")).toBe("rtk cargo test --release");
     });
   });
 
   describe("prefix preservation", () => {
     test("preserves cd && chain", () => {
-      expect(rewriteForRtk("cd /tmp && pytest -v")).toBe(
-        "cd /tmp && rtk pytest -v",
-      );
+      expect(rewrite("cd /tmp && pytest -v")).toBe("cd /tmp && rtk pytest -v");
     });
 
     test("preserves env-var assignment", () => {
-      expect(rewriteForRtk("FOO=bar pytest")).toBe("FOO=bar rtk pytest");
+      expect(rewrite("FOO=bar pytest")).toBe("FOO=bar rtk pytest");
     });
 
     test("preserves stacked prefixes without sudo", () => {
-      expect(rewriteForRtk("cd /x && FOO=bar git log")).toBe(
+      expect(rewrite("cd /x && FOO=bar git log")).toBe(
         "cd /x && FOO=bar rtk git log",
       );
     });
@@ -60,45 +59,43 @@ describe("rewriteForRtk", () => {
 
   describe("pipes", () => {
     test("rewrites head of a pipeline, leaves tail intact", () => {
-      expect(rewriteForRtk("git status | less")).toBe("rtk git status | less");
+      expect(rewrite("git status | less")).toBe("rtk git status | less");
     });
 
     test("leaves pipelines whose head isn't rtk-eligible", () => {
-      expect(rewriteForRtk("cat foo.txt | grep bar")).toBe(
-        "cat foo.txt | grep bar",
-      );
+      expect(rewrite("cat foo.txt | grep bar")).toBe("cat foo.txt | grep bar");
     });
   });
 
   describe("non-rewritten cases", () => {
     test("passes through unknown head commands", () => {
-      expect(rewriteForRtk("cat file.log")).toBe("cat file.log");
-      expect(rewriteForRtk("bash -c 'echo hi'")).toBe("bash -c 'echo hi'");
+      expect(rewrite("cat file.log")).toBe("cat file.log");
+      expect(rewrite("bash -c 'echo hi'")).toBe("bash -c 'echo hi'");
     });
 
     test("does not match executable names inside arguments", () => {
       // `cat tsc.log` head is `cat`, not `tsc`.
-      expect(rewriteForRtk("cat tsc.log")).toBe("cat tsc.log");
+      expect(rewrite("cat tsc.log")).toBe("cat tsc.log");
       // `echo "git status"` head is `echo`; the quoted content must not
       // trigger a rewrite.
-      expect(rewriteForRtk('echo "git status"')).toBe('echo "git status"');
+      expect(rewrite('echo "git status"')).toBe('echo "git status"');
     });
 
     test("does not rewrite bash builtins (test, read)", () => {
       // `test` and `read` are shell builtins — rewriting to
       // `rtk test -f foo` would dispatch to rtk's test-runner
       // subcommand and misinterpret the flags.
-      expect(rewriteForRtk("test -f /tmp/foo")).toBe("test -f /tmp/foo");
-      expect(rewriteForRtk("read var")).toBe("read var");
+      expect(rewrite("test -f /tmp/foo")).toBe("test -f /tmp/foo");
+      expect(rewrite("read var")).toBe("read var");
     });
 
     test("does not match against empty / whitespace-only input", () => {
-      expect(rewriteForRtk("")).toBe("");
-      expect(rewriteForRtk("   ")).toBe("   ");
+      expect(rewrite("")).toBe("");
+      expect(rewrite("   ")).toBe("   ");
     });
 
     test("does not rewrite when only prefixes are present", () => {
-      expect(rewriteForRtk("cd /tmp && ")).toBe("cd /tmp && ");
+      expect(rewrite("cd /tmp && ")).toBe("cd /tmp && ");
     });
   });
 
@@ -106,10 +103,10 @@ describe("rewriteForRtk", () => {
     test("skips rewrite when command scopes PATH in the prefix", () => {
       // We can't know whether rtk is reachable via the overridden PATH,
       // so leaving the command alone is safer than injecting `rtk`.
-      expect(rewriteForRtk("PATH=/usr/bin git status")).toBe(
+      expect(rewrite("PATH=/usr/bin git status")).toBe(
         "PATH=/usr/bin git status",
       );
-      expect(rewriteForRtk("cd /tmp && PATH=/opt/bin pytest -v")).toBe(
+      expect(rewrite("cd /tmp && PATH=/opt/bin pytest -v")).toBe(
         "cd /tmp && PATH=/opt/bin pytest -v",
       );
     });
@@ -118,22 +115,33 @@ describe("rewriteForRtk", () => {
       // sudo uses `secure_path`, which typically omits user-level bins
       // where rtk may live — injecting rtk would turn a working
       // privileged command into `rtk: command not found`.
-      expect(rewriteForRtk("sudo docker ps")).toBe("sudo docker ps");
-      expect(rewriteForRtk("cd /x && FOO=bar sudo git log")).toBe(
+      expect(rewrite("sudo docker ps")).toBe("sudo docker ps");
+      expect(rewrite("cd /x && FOO=bar sudo git log")).toBe(
         "cd /x && FOO=bar sudo git log",
       );
     });
 
     test("still rewrites when a non-PATH env var is scoped", () => {
-      expect(rewriteForRtk("CI=1 pytest -v")).toBe("CI=1 rtk pytest -v");
+      expect(rewrite("CI=1 pytest -v")).toBe("CI=1 rtk pytest -v");
     });
   });
 
   describe("rtk-availability fallback", () => {
     test("passes through when rtk is not on PATH", () => {
       __setRtkAvailableForTest(false);
-      expect(rewriteForRtk("git status")).toBe("git status");
-      expect(rewriteForRtk("pytest -v")).toBe("pytest -v");
+      expect(rewrite("git status")).toBe("git status");
+      expect(rewrite("pytest -v")).toBe("pytest -v");
+    });
+
+    test("probes the caller-supplied PATH, not process.env.PATH", () => {
+      // Clear test override so the real probe runs against the
+      // PATH we pass in. An empty PATH must fail the probe even if
+      // process.env.PATH on the test machine has rtk.
+      __setRtkAvailableForTest(null);
+      expect(rewriteForRtk("git status", "")).toBe("git status");
+      expect(rewriteForRtk("git status", "/nonexistent-path-xyz")).toBe(
+        "git status",
+      );
     });
   });
 });

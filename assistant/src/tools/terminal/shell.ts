@@ -331,14 +331,15 @@ class ShellTool implements Tool {
 
       // When shell-output-compression is on, rewrite supported head
       // commands (git, pytest, tsc, …) to `rtk <cmd>` so rtk does the
-      // compression before output reaches the context window. Falls
-      // through to the original command when rtk isn't installed or the
-      // head isn't rtk-eligible.
+      // compression before output reaches the context window. Probe
+      // rtk against the PATH the subprocess will actually see (`env`
+      // above), not `process.env.PATH`. Falls through to the original
+      // command when rtk isn't installed or the head isn't rtk-eligible.
       const effectiveCommand = isAssistantFeatureFlagEnabled(
         "shell-output-compression",
         config,
       )
-        ? rewriteForRtk(command)
+        ? rewriteForRtk(command, env.PATH ?? "")
         : command;
 
       const wrapped = wrapCommand(

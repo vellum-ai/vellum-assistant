@@ -204,14 +204,17 @@ class HostShellTool implements Tool {
 
       // When shell-output-compression is on, rewrite supported head
       // commands (git, pytest, tsc, …) to `rtk <cmd>` so rtk does the
-      // compression before output reaches the context window. Falls
-      // through to the original command when rtk isn't installed or the
-      // head isn't rtk-eligible.
+      // compression before output reaches the context window. Probe
+      // rtk against the PATH the subprocess will actually see — on
+      // macOS app launch, `process.env.PATH` can be minimal while
+      // `hostEnv.PATH` (from buildHostShellEnv) still resolves rtk.
+      // Falls through to the original command when rtk isn't installed
+      // or the head isn't rtk-eligible.
       const effectiveCommand = isAssistantFeatureFlagEnabled(
         "shell-output-compression",
         config,
       )
-        ? rewriteForRtk(command)
+        ? rewriteForRtk(command, hostEnv.PATH ?? "")
         : command;
 
       const child = spawn("bash", ["-c", "--", effectiveCommand], {
