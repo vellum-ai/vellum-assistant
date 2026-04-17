@@ -22,7 +22,13 @@ struct MainWindowView: View {
     /// are sufficient — SwiftUI's Observation machinery tracks only the
     /// specific properties read inside `body` (and inside the modifier chain)
     /// rather than invalidating the entire view on any change.
-    var windowState: MainWindowState
+    ///
+    /// `windowState` is `@Bindable` because `PanelCoordinator` needs
+    /// `$windowState.pendingMemoryId` / `$windowState.pendingSkillId`
+    /// binding projections to pass into the logs-and-usage panel. Unlike
+    /// `@ObservedObject`, `@Bindable` doesn't establish its own view
+    /// invalidation policy — Observation still tracks property granularly.
+    @Bindable var windowState: MainWindowState
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
     @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
