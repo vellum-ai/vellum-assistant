@@ -31,7 +31,6 @@ struct HomeFileCard: View {
                 icon: .file,
                 title: title,
                 subtitle: threadName,
-                showDismiss: true,
                 onDismiss: onDismiss
             )
 

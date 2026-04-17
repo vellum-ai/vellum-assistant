@@ -42,7 +42,6 @@ struct HomeReplyCard: View {
             title: title,
             subtitle: threadName,
             titleLineLimit: nil,
-            showDismiss: true,
             onDismiss: onDismiss
         )
     }

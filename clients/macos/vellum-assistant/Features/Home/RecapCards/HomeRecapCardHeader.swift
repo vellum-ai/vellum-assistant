@@ -2,15 +2,16 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Reusable header row for recap cards. Displays a circular icon
-/// container, title, optional subtitle (thread name), and an
-/// optional dismiss button.
+/// container, title, optional subtitle (thread name), and an optional
+/// dismiss button. The dismiss button is rendered automatically when
+/// `onDismiss` is non-nil — callers no longer need a separate
+/// `showDismiss` flag.
 struct HomeRecapCardHeader: View {
     let icon: VIcon
     let iconColor: Color
     let title: String
     let subtitle: String?
     var titleLineLimit: Int? = 1
-    let showDismiss: Bool
     let onDismiss: (() -> Void)?
 
     init(
@@ -19,7 +20,6 @@ struct HomeRecapCardHeader: View {
         title: String,
         subtitle: String? = nil,
         titleLineLimit: Int? = 1,
-        showDismiss: Bool = false,
         onDismiss: (() -> Void)? = nil
     ) {
         self.icon = icon
@@ -27,7 +27,6 @@ struct HomeRecapCardHeader: View {
         self.title = title
         self.subtitle = subtitle
         self.titleLineLimit = titleLineLimit
-        self.showDismiss = showDismiss
         self.onDismiss = onDismiss
     }
 
@@ -36,9 +35,7 @@ struct HomeRecapCardHeader: View {
             iconCircle
             titleStack
             Spacer(minLength: 0)
-            if showDismiss {
-                dismissButton
-            }
+            dismissButton
         }
     }
 
@@ -76,16 +73,19 @@ struct HomeRecapCardHeader: View {
 
     // MARK: - Dismiss button
 
+    @ViewBuilder
     private var dismissButton: some View {
-        VButton(
-            label: "Dismiss",
-            iconOnly: "lucide-x",
-            style: .outlined,
-            size: .pillRegular,
-            accessibilityID: "recap-card-dismiss",
-            iconColor: VColor.primaryBase
-        ) {
-            onDismiss?()
+        if let onDismiss {
+            VButton(
+                label: "Dismiss",
+                iconOnly: "lucide-x",
+                style: .outlined,
+                size: .pillRegular,
+                accessibilityID: "recap-card-dismiss",
+                iconColor: VColor.primaryBase
+            ) {
+                onDismiss()
+            }
         }
     }
 }

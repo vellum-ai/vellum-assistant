@@ -40,7 +40,6 @@ struct HomeEmailPreviewCard: View {
                 icon: .mail,
                 title: title,
                 subtitle: threadName,
-                showDismiss: true,
                 onDismiss: onDismiss
             )
 

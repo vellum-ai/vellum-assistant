@@ -33,7 +33,6 @@ struct HomeImageCard: View {
                 icon: .image,
                 title: title,
                 subtitle: threadName,
-                showDismiss: true,
                 onDismiss: onDismiss
             )
 
