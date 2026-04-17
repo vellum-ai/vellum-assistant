@@ -86,19 +86,22 @@ type StatusCheckMode = BrowserStatusMode;
 
 const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   [BROWSER_STATUS_MODE.EXTENSION]: [
-    "Controls the user's existing Chrome profile and tabs.",
+    "This is the preferred approach for all things browser-use.",
+    "It requires a one-time install of the Vellum Assistant Chrome Extension.",
+    "More secure than reling on Chrome's native remote debugging functionality.",
     "Requires the Vellum extension to be paired and actively connected.",
-    "This is the preferred method. It provides the highest level of security as ",
   ],
   [BROWSER_STATUS_MODE.CDP_INSPECT]: [
-    "Controls an existing Chrome instance launched with --remote-debugging-port.",
-    "Does not require the extension to be connected.",
-    "Requires remote debugging to stay enabled on localhost, which is more manual to maintain.",
+    "This is the second-best approach for all things browser-use, after the native Vellum Assistant Chrome Extension.",
+    "It requires Chrome version 146 or greater",
+    "It requires toggling on remote debugging in Chrome Settings",
+    "It's prone to phising attacks from other local processes that may try to do their own remote debugging.",
   ],
   [BROWSER_STATUS_MODE.LOCAL]: [
-    "Runs a dedicated Playwright-managed Chromium profile.",
-    "Most isolated and reliable fallback when extension/CDP inspect are unavailable.",
+    "The least-preferred approach for all things browser-use.",
+    "Considered a last-resort fallback if the user has not installed the Chrome Extension or enabled remote debugging in Chrome, and has indicated that they do not want to.",
     "Does not use the user's existing browser profile, so sessions/cookies may differ.",
+    "Requires that Playwright and Chromium are installed on the host machine,",
   ],
 };
 
@@ -192,9 +195,9 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
   ],
   // cdp-inspect backend — discovery-level failures
   "cdp-inspect:unreachable": [
-    "Ensure Chrome/Chromium is running with --remote-debugging-port=9222.",
+    "Ensure that Chrome is on version 146 or higher by going to chrome://settings/help.",
+    'Ensure that you have toggled on "Allow remote debugging for this browser instance" by going to chrome://inspect/#remote-debugging',
     "Verify no firewall or antivirus is blocking localhost:9222.",
-    "Try: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222",
   ],
   "cdp-inspect:non_chrome": [
     "The process listening on the configured port is not Chrome/Chromium.",
@@ -2088,23 +2091,21 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
 function extensionSetupActions(): string[] {
   return [
     "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
-    "Open the extension popup and click Pair with local assistant.",
-    "Keep the extension connected to the assistant relay.",
+    "Open the extension and pair with your assistant.",
   ];
 }
 
 function cdpInspectSetupActions(): string[] {
   return [
-    "Launch Chrome with --remote-debugging-port=9222 (or your configured port).",
-    "Keep Chrome running while browser tools are in use.",
-    "Ensure the configured host is loopback (localhost / 127.0.0.1 / ::1).",
+    "Update Chrome to the latest version by going to chrome://settings/help",
+    "Navigate directly to chrome://inspect#remote-debugging",
+    'Check the box next to "Allow remote debugging for this browser instance"',
   ];
 }
 
 function localSetupActions(): string[] {
   return [
-    "Install assistant dependencies with bun install in assistant/.",
-    "Install Chromium for Playwright: bunx playwright install chromium.",
+    "Ask your assistant to install playwright and chromium on your host machine.",
   ];
 }
 
