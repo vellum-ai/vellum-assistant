@@ -18,6 +18,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -25,6 +26,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
+import { rewriteForRtk } from "../shared/rtk-rewrite.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -200,7 +202,19 @@ class HostShellTool implements Tool {
         hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
       }
 
-      const child = spawn("bash", ["-c", "--", command], {
+      // When shell-output-compression is on, rewrite supported head
+      // commands (git, pytest, tsc, …) to `rtk <cmd>` so rtk does the
+      // compression before output reaches the context window. Falls
+      // through to the original command when rtk isn't installed or the
+      // head isn't rtk-eligible.
+      const effectiveCommand = isAssistantFeatureFlagEnabled(
+        "shell-output-compression",
+        config,
+      )
+        ? rewriteForRtk(command)
+        : command;
+
+      const child = spawn("bash", ["-c", "--", effectiveCommand], {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],

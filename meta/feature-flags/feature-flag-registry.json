@@ -360,6 +360,14 @@
       "label": "Google Meet",
       "description": "Enables the Google Meet joining bot and the meet-join skill.",
       "defaultEnabled": false
+    },
+    {
+      "id": "shell-output-compression",
+      "scope": "assistant",
+      "key": "shell-output-compression",
+      "label": "Shell output compression (rtk)",
+      "description": "Rewrite supported bash/host_bash commands (git, pytest, tsc, ls, grep, ...) to delegate to the `rtk` binary, which compresses output before it enters the context window. Passes through unchanged when rtk is not installed or the command isn't rtk-eligible.",
+      "defaultEnabled": false
     }
   ]
 }
