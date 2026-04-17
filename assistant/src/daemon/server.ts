@@ -49,6 +49,7 @@ import {
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
@@ -1034,6 +1035,18 @@ export class DaemonServer {
       const createPromise = (async () => {
         const config = getConfig();
         let provider = getProvider(config.llm.default.provider);
+        // Per-call `options.config.callSite` can resolve to a provider name
+        // that differs from `llm.default.provider`. Wrap the default
+        // provider so the actual transport routes correctly per call,
+        // rather than only forwarding metadata to the default's HTTP
+        // client. See `providers/call-site-routing.ts`.
+        provider = new CallSiteRoutingProvider(provider, (name) => {
+          try {
+            return getProvider(name);
+          } catch {
+            return undefined;
+          }
+        });
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
