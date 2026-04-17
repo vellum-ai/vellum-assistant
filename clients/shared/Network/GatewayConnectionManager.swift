@@ -305,35 +305,76 @@ public final class GatewayConnectionManager {
 
     // MARK: - Health Check (via GatewayHTTPClient)
 
-    private func performHealthCheck() async throws {
-        do {
-            let healthPath: String
-            #if os(macOS)
-            healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
-            #else
-            healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
-            #endif
-            let response = try await GatewayHTTPClient.get(
-                path: healthPath,
-                timeout: 10,
-                quiet: true
-            )
+    /// Decoded result of a single health check round-trip. `Sendable` so it
+    /// can be returned from a detached task back to the main actor.
+    private struct HealthCheckOutcome: Sendable {
+        let statusCode: Int
+        let decodedVersion: String?
+    }
 
-            guard response.isSuccess else {
-                if response.statusCode == 401 {
+    private func performHealthCheck() async throws {
+        let healthPath: String
+        #if os(macOS)
+        healthPath = (cachedAssistant?.isManaged ?? false) ? "assistants/{assistantId}/health" : "health"
+        #else
+        healthPath = ((try? GatewayHTTPClient.isConnectionManaged()) ?? false) ? "assistants/{assistantId}/health" : "health"
+        #endif
+        let capturedIsManaged = isManaged
+
+        // Run the HTTP GET + JSON decode on a detached task at
+        // `.userInitiated` priority so URLSession work and JSON decoding do
+        // not occupy `@MainActor`. Under main-queue saturation, the
+        // decode-on-main path produced ≥2000 ms hangs (Sentry
+        // VELLUM-ASSISTANT-MACOS-GN). State mutations remain on the main
+        // actor (this method's body is `@MainActor`), so only the network
+        // and parsing work runs off-main. Follows Apple's WWDC25 guidance
+        // in "Embracing Swift concurrency"
+        // (https://developer.apple.com/videos/play/wwdc2025/268/): keep
+        // stateful types on the main actor, offload expensive work.
+        let result: Result<HealthCheckOutcome, Error> = await Task.detached(priority: .userInitiated) {
+            do {
+                let response = try await GatewayHTTPClient.get(
+                    path: healthPath,
+                    timeout: 10,
+                    quiet: true
+                )
+                let version = (try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data))?.version
+                return .success(HealthCheckOutcome(statusCode: response.statusCode, decodedVersion: version))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch result {
+        case .failure(let error):
+            consecutiveHealthCheckSuccesses = 0
+            setConnected(false)
+            if error is GatewayHTTPClient.ClientError {
+                log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
+                throw ConnectionError.healthCheckFailed
+            }
+            if let connectionError = error as? ConnectionError {
+                throw connectionError
+            }
+            log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
+            throw ConnectionError.healthCheckFailed
+
+        case .success(let outcome):
+            let isSuccess = (200..<300).contains(outcome.statusCode)
+            guard isSuccess else {
+                if outcome.statusCode == 401 {
                     handleAuthenticationFailure()
-                } else if response.statusCode == 404, isManaged {
+                } else if outcome.statusCode == 404, capturedIsManaged {
                     handleManagedAssistantGoneFromPlatform()
-                    throw ConnectionError.healthCheckFailed
                 }
+                consecutiveHealthCheckSuccesses = 0
+                setConnected(false)
                 throw ConnectionError.healthCheckFailed
             }
 
-            if let decoded = try? JSONDecoder().decode(HealthVersionResponse.self, from: response.data) {
-                if let newVersion = decoded.version, newVersion != assistantVersion {
-                    assistantVersion = newVersion
-                    handleDaemonVersionChanged(newVersion)
-                }
+            if let newVersion = outcome.decodedVersion, newVersion != assistantVersion {
+                assistantVersion = newVersion
+                handleDaemonVersionChanged(newVersion)
             }
 
             consecutiveHealthCheckSuccesses += 1
@@ -341,20 +382,6 @@ public final class GatewayConnectionManager {
                 log.info("Health check passed")
             }
             setConnected(true)
-        } catch let error as GatewayHTTPClient.ClientError {
-            consecutiveHealthCheckSuccesses = 0
-            log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
-            setConnected(false)
-            throw ConnectionError.healthCheckFailed
-        } catch let error as ConnectionError {
-            consecutiveHealthCheckSuccesses = 0
-            setConnected(false)
-            throw error
-        } catch {
-            consecutiveHealthCheckSuccesses = 0
-            log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
-            setConnected(false)
-            throw ConnectionError.healthCheckFailed
         }
     }
 
