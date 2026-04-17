@@ -116,15 +116,17 @@ extension AppDelegate {
                 return false
             }
             conversationManager.activateConversation(conversation.id)
-            // Switch the main content area to the chat — but only when the
-            // user isn't in an app/document editor.  Clearing selection while
-            // App Builder is open tears the user out of their workspace,
-            // making apps unusable whenever a background open_conversation
-            // event fires (e.g. clicking a workstream in HQ).
+            // Switch the main content area to the chat — but if App Builder
+            // is open, transition to .appEditing so the app stays visible
+            // with the new conversation in the chat dock.
             if let sel = mainWindow?.windowState.selection {
                 switch sel {
-                case .app, .appEditing: break          // keep app open
-                default: mainWindow?.windowState.selection = nil
+                case .app(let appId):
+                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                case .appEditing(let appId, _):
+                    mainWindow?.windowState.selection = .appEditing(appId: appId, conversationId: conversation.id)
+                default:
+                    mainWindow?.windowState.selection = nil
                 }
             } else {
                 mainWindow?.windowState.selection = nil
