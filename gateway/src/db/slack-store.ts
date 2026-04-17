@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { slackActiveThreads, slackSeenEvents } from "./schema.js";
 
