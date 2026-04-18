@@ -494,7 +494,7 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 5000)"
+            "description": "Maximum messages to scan (default 1000, cap 2000)"
           },
           "max_senders": {
             "type": "number",
@@ -502,7 +502,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 2,000 messages in a single call)"
           },
           "activity": {
             "type": "string",
@@ -527,7 +527,7 @@
         "properties": {
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 5000)"
+            "description": "Maximum messages to scan (default 1000, cap 2000)"
           },
           "max_senders": {
             "type": "number",
@@ -539,7 +539,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 2,000 messages in a single call)"
           },
           "activity": {
             "type": "string",
@@ -564,7 +564,13 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["list", "add_blocklist", "add_safelist", "remove_blocklist", "remove_safelist"],
+            "enum": [
+              "list",
+              "add_blocklist",
+              "add_safelist",
+              "remove_blocklist",
+              "remove_safelist"
+            ],
             "description": "Preference action: list all preferences, or add/remove emails from blocklist or safelist"
           },
           "emails": {
