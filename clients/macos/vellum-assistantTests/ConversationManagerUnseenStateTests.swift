@@ -925,6 +925,104 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
                        "Deferred history request should target the correct conversation")
     }
 
+    // MARK: - conversationType-based suppression
+
+    /// Server-created background conversations (e.g. watcher, filing) can carry any `source`,
+    /// including `nil`. The hardcoded source allowlist misses these, so we rely on
+    /// `conversationType == "background"` from the daemon to suppress their unread indicator
+    /// and exclude them from the dock badge count.
+    func testBackgroundConversationTypeFromServerSuppressesUnreadIndicator() {
+        // Filing-style background: conversationType="background", source="filing"
+        let filingModel = ConversationModel(
+            title: "Filing run",
+            conversationId: "bg-filing",
+            source: "filing",
+            conversationType: "background",
+            hasUnseenLatestAssistantMessage: true
+        )
+        XCTAssertTrue(filingModel.shouldSuppressUnreadIndicator,
+                      "Filing background conversations (source=filing, conversationType=background) must suppress unread indicator")
+        XCTAssertTrue(filingModel.shouldSuppressGlobalUnreadAggregations,
+                      "Filing background conversations must be excluded from the dock badge")
+
+        // Watcher-style background: conversationType="background", source=nil
+        let watcherModel = ConversationModel(
+            title: "Watcher tick",
+            conversationId: "bg-watcher",
+            source: nil,
+            conversationType: "background",
+            hasUnseenLatestAssistantMessage: true
+        )
+        XCTAssertTrue(watcherModel.shouldSuppressUnreadIndicator,
+                      "Watcher background conversations (source=nil, conversationType=background) must suppress unread indicator")
+        XCTAssertTrue(watcherModel.shouldSuppressGlobalUnreadAggregations,
+                      "Watcher background conversations must be excluded from the dock badge")
+    }
+
+    /// Scheduled `conversationType` from the server should also suppress unread indicators
+    /// regardless of the `source` column — keeps the filter robust to new automation sources.
+    func testScheduledConversationTypeFromServerSuppressesUnreadIndicator() {
+        let scheduledModel = ConversationModel(
+            title: "Scheduled run",
+            conversationId: "sched-type",
+            source: nil,
+            conversationType: "scheduled",
+            hasUnseenLatestAssistantMessage: true
+        )
+        XCTAssertTrue(scheduledModel.shouldSuppressUnreadIndicator)
+        XCTAssertTrue(scheduledModel.shouldSuppressGlobalUnreadAggregations)
+    }
+
+    /// Regression guard: a standard conversation with an unseen assistant message must still
+    /// contribute to the badge count even if its source is nil (the common user case).
+    func testStandardConversationTypeWithUnseenMessageIsNotSuppressed() {
+        let standardModel = ConversationModel(
+            title: "Regular chat",
+            conversationId: "std-1",
+            source: nil,
+            conversationType: "standard",
+            hasUnseenLatestAssistantMessage: true
+        )
+        XCTAssertFalse(standardModel.shouldSuppressUnreadIndicator,
+                       "Standard user conversations must continue to show unread indicators")
+        XCTAssertFalse(standardModel.shouldSuppressGlobalUnreadAggregations,
+                       "Standard user conversations must continue to contribute to the dock badge")
+    }
+
+    /// End-to-end through the conversation-list response: a server-provided background
+    /// conversation with an unseen flag must land in the store with unread cleared so the
+    /// dock-badge aggregator (`unseenVisibleConversationCount`) skips it.
+    func testBackgroundConversationFromListResponseNotCountedInBadge() {
+        let response = makeConversationListResponse(
+            conversations: [[
+                "id": "bg-watcher-list",
+                "title": "Watcher",
+                "createdAt": 5_000,
+                "updatedAt": 6_000,
+                "conversationType": "background",
+                "assistantAttention": [
+                    "hasUnseenLatestAssistantMessage": true,
+                    "latestAssistantMessageAt": 9_000,
+                ],
+            ]],
+            hasMore: false
+        )
+
+        let unseenBefore = conversationManager.unseenVisibleConversationCount
+        conversationManager.appendConversations(from: response)
+
+        guard let appended = conversationManager.conversations.first(where: { $0.conversationId == "bg-watcher-list" }) else {
+            XCTFail("Expected background conversation to be appended")
+            return
+        }
+
+        XCTAssertEqual(appended.conversationType, "background")
+        XCTAssertFalse(appended.hasUnseenLatestAssistantMessage,
+                       "Server-reported unseen flag should be stripped for background conversations")
+        XCTAssertEqual(conversationManager.unseenVisibleConversationCount, unseenBefore,
+                       "Appending a background conversation must not increment the dock badge count")
+    }
+
     private func waitForPropagation() {
         let exp = expectation(description: "combine propagation")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
