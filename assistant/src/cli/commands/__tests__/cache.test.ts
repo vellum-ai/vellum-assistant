@@ -373,22 +373,22 @@ describe(">1 MB warning", () => {
     mockStdinContent = JSON.stringify(largeString);
     mockIpcResult = { ok: true, result: { key: "big-key" } };
 
-    const { exitCode } = await runCommand(["cache", "set"]);
+    const { exitCode, stderr } = await runCommand(["cache", "set"]);
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("cache/set");
-    // Check that the warning was logged (via our mock logger)
-    expect(stderrChunks.some((s) => s.includes("exceeds 1 MB"))).toBe(true);
+    // Warning is written directly to stderr (not through the logger)
+    expect(stderr).toContain("exceeds 1 MB");
   });
 
   test("does not warn on payloads under 1 MB", async () => {
     mockStdinContent = '{"small": true}';
     mockIpcResult = { ok: true, result: { key: "k" } };
 
-    await runCommand(["cache", "set"]);
+    const { stderr } = await runCommand(["cache", "set"]);
 
-    expect(stderrChunks.some((s) => s.includes("exceeds 1 MB"))).toBe(false);
+    expect(stderr).not.toContain("exceeds 1 MB");
   });
 });
 
