@@ -1,30 +1,15 @@
-import {
-  gatewayGet,
-  GatewayRequestError,
-} from "../../../../runtime/gateway-internal-client.js";
+import { searchContacts } from "../../../../contacts/contact-store.js";
+import type { ContactWithChannels } from "../../../../contacts/types.js";
+import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-interface ContactChannel {
-  type: string;
-  address: string;
-  isPrimary: boolean;
-  externalUserId?: string | null;
-  externalChatId?: string | null;
-}
-
-interface ContactResponse {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  interactionCount: number;
-  channels: ContactChannel[];
-}
-
-function formatContactSummary(c: ContactResponse): string {
-  const parts = [`- **${c.displayName}** (ID: ${c.id})`];
+function formatContactSummary(c: ContactWithChannels): string {
+  const displayName =
+    c.role === "guardian" ? resolveGuardianName(c.displayName) : c.displayName;
+  const parts = [`- **${displayName}** (ID: ${c.id})`];
   if (c.notes) parts.push(`  Notes: ${c.notes}`);
   if (c.interactionCount > 0)
     parts.push(`  Interactions: ${c.interactionCount}`);
@@ -62,17 +47,12 @@ export async function executeContactSearch(
   }
 
   try {
-    const params = new URLSearchParams();
-    if (query) params.set("query", query);
-    if (channelAddress) params.set("channelAddress", channelAddress);
-    if (channelType) params.set("channelType", channelType);
-    if (limit !== undefined) params.set("limit", String(limit));
-
-    const qs = params.toString();
-    const data = await gatewayGet<{ ok: boolean; contacts: ContactResponse[] }>(
-      `/v1/contacts${qs ? `?${qs}` : ""}`,
-    );
-    const results = data.contacts;
+    const results = searchContacts({
+      query: query ?? undefined,
+      channelAddress: channelAddress ?? undefined,
+      channelType: channelType ?? undefined,
+      limit: limit ?? undefined,
+    });
 
     if (results.length === 0) {
       return {
@@ -88,10 +68,6 @@ export async function executeContactSearch(
 
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
-    if (err instanceof GatewayRequestError) {
-      const message = err.gatewayError ?? err.message;
-      return { content: `Error: ${message}`, isError: true };
-    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }
