@@ -217,6 +217,7 @@ export async function listMessages(
   maxResults = 20,
   pageToken?: string,
   labelIds?: string[],
+  signal?: AbortSignal,
 ): Promise<GmailMessageListResponse> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
@@ -230,6 +231,7 @@ export async function listMessages(
     "/messages",
     undefined,
     paramsToQuery(params),
+    signal,
   );
 }
 
