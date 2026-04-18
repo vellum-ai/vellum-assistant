@@ -49,16 +49,20 @@ export const DEFAULT_FRAME_BYTES = 320;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BACKOFF_MS = 500;
 
+/** s16le is 2 bytes per sample. */
+const BYTES_PER_SAMPLE = 2;
+
 /**
- * Minimum number of frames that must flow through the socket in a single
- * attempt before we consider the pipeline "stable" and reset the reconnect
- * budget. At the default 20ms/frame this is ~2s of audio — enough that a
- * pathologically flapping PulseAudio (crashing shortly after each startup
- * and emitting a single frame in between) can no longer keep the budget
- * perpetually topped up. Below this threshold a single-frame attempt still
- * counts as a failure.
+ * Audio-duration window that must flow through the socket in a single attempt
+ * before we consider the pipeline "stable" and reset the reconnect budget.
+ * Expressed in seconds so the threshold stays meaningful across non-default
+ * `rateHz` / `frameBytes` combinations — a raw frame count would be far too
+ * lenient with large frames and far too strict with small ones. Two seconds
+ * is enough that a pathologically flapping PulseAudio (crashing shortly after
+ * each startup and emitting a few frames in between) can no longer keep the
+ * budget perpetually topped up.
  */
-const MIN_FRAMES_TO_RESET_BUDGET = 100;
+const STABILITY_WINDOW_SECONDS = 2;
 
 export interface AudioCaptureOptions {
   /**
@@ -220,6 +224,17 @@ export async function startAudioCapture(
       `startAudioCapture: frameBytes must be > 0, got ${frameBytes}`,
     );
   }
+
+  // Derive the stability threshold from the configured rate/frame size so the
+  // reconnect-reset gate maps to a constant audio duration regardless of the
+  // caller's chunking. At defaults (16kHz, 320-byte frames) this is 200 frames;
+  // with large frames (e.g. 3200 bytes) it shrinks to 20 frames.
+  const samplesPerFrame = frameBytes / BYTES_PER_SAMPLE;
+  const framesPerSecond = rateHz / samplesPerFrame;
+  const minFramesToResetBudget = Math.max(
+    1,
+    Math.ceil(framesPerSecond * STABILITY_WINDOW_SECONDS),
+  );
 
   const argv = buildParecArgv(sourceDevice, rateHz);
 
@@ -398,10 +413,10 @@ export async function startAudioCapture(
       }
 
       // Reset the failure counter only if this attempt streamed enough data
-      // to look genuinely healthy. A single 320-byte frame would otherwise
-      // let pathological flapping (e.g. PulseAudio crashing moments after
-      // each startup) keep the reconnect budget perpetually topped up.
-      if (framesWritten >= MIN_FRAMES_TO_RESET_BUDGET) {
+      // to look genuinely healthy. A single frame would otherwise let
+      // pathological flapping (e.g. PulseAudio crashing moments after each
+      // startup) keep the reconnect budget perpetually topped up.
+      if (framesWritten >= minFramesToResetBudget) {
         consecutiveFailures = 0;
       }
 
