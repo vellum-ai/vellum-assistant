@@ -46,6 +46,7 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "gemini-2.5-flash": { inputPer1M: 0.15, outputPer1M: 0.6 },
     "gemini-2.5-flash-lite": { inputPer1M: 0.02, outputPer1M: 0.1 },
     "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
+    "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
   fireworks: {
     "accounts/fireworks/models/kimi-k2p5": {
