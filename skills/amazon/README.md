@@ -1,11 +1,11 @@
 # Amazon Skill Runtime Notes
 
-This skill uses `browser_*` tools for browser execution and `host_bash` for deterministic helper scripts.
+This skill uses `assistant browser` CLI commands (via `host_bash`) for browser execution and `host_bash` for deterministic helper scripts.
 
 ## Transport policy
 
-- Allowed browser transport: `browser_*` tools only.
-- Forbidden transport: `assistant browser chrome relay` and any relay-backed subprocess calls.
+- Allowed browser transport: `assistant browser` CLI commands only.
+- Forbidden transport: relay-backed subprocess calls.
 
 ## Helper script contract
 
