@@ -171,6 +171,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
 
   if (isNaN(maxSenders) || maxSenders < 1) {
     printError(`Invalid --max-senders: "${maxSendersStr}"`);
+    throw new Error("unreachable");
   }
 
   const startDate = parseTimeRange(timeRange);
@@ -180,13 +181,15 @@ async function senderDigest(args: Record<string, string | boolean>) {
   let result: { messages: GraphMessage[]; truncated: boolean };
 
   if (query) {
-    // Search mode: use $search
+    // Search mode: use $search with time-range filter
+    const escapedQuery = query.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     result = await paginateMessages("/v1.0/me/messages", {
       maxMessages,
       timeBudgetMs,
       account,
       query: {
-        $search: `"${query}"`,
+        $search: `"${escapedQuery}"`,
+        $filter: `receivedDateTime ge ${startDate}`,
         $top: "50",
         $select:
           "id,from,subject,receivedDateTime,internetMessageHeaders",
