@@ -38,8 +38,8 @@ export function createCloudOAuthTokenHandler() {
       if (!tokenResult.ok) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
-      const sub = parseSub(tokenResult.claims.sub);
-      if (!sub.ok || sub.principalType !== "svc_gateway") {
+      const callerSub = parseSub(tokenResult.claims.sub);
+      if (!callerSub.ok || callerSub.principalType !== "svc_gateway") {
         log.warn("Cloud OAuth token request rejected: not a service token");
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }

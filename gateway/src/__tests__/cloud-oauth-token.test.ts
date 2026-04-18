@@ -4,30 +4,47 @@ import "./test-preload.js";
 import {
   initSigningKey,
   loadOrCreateSigningKey,
+  mintToken,
+  verifyToken,
 } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { createCloudOAuthTokenHandler } from "../http/routes/cloud-oauth-token.js";
-import { verifyToken } from "../auth/token-service.js";
+
+let serviceToken: string;
 
 beforeAll(() => {
   initSigningKey(loadOrCreateSigningKey());
+  // Mint a service token (svc:gateway:self) that the handler accepts.
+  serviceToken = mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 60,
+  });
 });
 
 const handler = createCloudOAuthTokenHandler();
 
+/** Build a POST request with the service-token Authorization header. */
+function makeRequest(body: unknown): Request {
+  return new Request(
+    "http://gateway.test/v1/internal/oauth/chrome-extension/token",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${serviceToken}`,
+      },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    },
+  );
+}
+
 describe("POST /v1/internal/oauth/chrome-extension/token", () => {
   test("happy path: valid body returns 200 with token, expiresIn, and guardianId", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: "asst-123",
-            actorPrincipalId: "user-456",
-          }),
-        },
-      ),
+      makeRequest({ assistantId: "asst-123", actorPrincipalId: "user-456" }),
     );
 
     expect(res.status).toBe(200);
@@ -54,18 +71,8 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("missing assistantId returns 400", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            actorPrincipalId: "user-456",
-          }),
-        },
-      ),
+      makeRequest({ actorPrincipalId: "user-456" }),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("assistantId");
@@ -73,18 +80,8 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("missing actorPrincipalId returns 400", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: "asst-123",
-          }),
-        },
-      ),
+      makeRequest({ assistantId: "asst-123" }),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("actorPrincipalId");
@@ -92,19 +89,8 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("empty assistantId string returns 400", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: "",
-            actorPrincipalId: "user-456",
-          }),
-        },
-      ),
+      makeRequest({ assistantId: "", actorPrincipalId: "user-456" }),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("assistantId");
@@ -112,19 +98,8 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("empty actorPrincipalId string returns 400", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: "asst-123",
-            actorPrincipalId: "",
-          }),
-        },
-      ),
+      makeRequest({ assistantId: "asst-123", actorPrincipalId: "" }),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("actorPrincipalId");
@@ -132,19 +107,8 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("whitespace-only strings return 400", async () => {
     const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: "   ",
-            actorPrincipalId: "user-456",
-          }),
-        },
-      ),
+      makeRequest({ assistantId: "   ", actorPrincipalId: "user-456" }),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("assistantId");
@@ -156,12 +120,14 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
         "http://gateway.test/v1/internal/oauth/chrome-extension/token",
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${serviceToken}`,
+          },
           body: "not-json",
         },
       ),
     );
-
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("JSON");
@@ -169,21 +135,72 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("non-string assistantId returns 400", async () => {
     const res = await handler.handleMintToken(
+      makeRequest({ assistantId: 123, actorPrincipalId: "user-456" }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("assistantId");
+  });
+
+  test("colon in assistantId returns 400", async () => {
+    const res = await handler.handleMintToken(
+      makeRequest({ assistantId: "asst:123", actorPrincipalId: "user-456" }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("colon");
+  });
+
+  test("colon in actorPrincipalId returns 400", async () => {
+    const res = await handler.handleMintToken(
+      makeRequest({ assistantId: "asst-123", actorPrincipalId: "user:456" }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("colon");
+  });
+
+  test("request without authorization header returns 403", async () => {
+    const res = await handler.handleMintToken(
       new Request(
         "http://gateway.test/v1/internal/oauth/chrome-extension/token",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            assistantId: 123,
+            assistantId: "asst-123",
             actorPrincipalId: "user-456",
           }),
         },
       ),
     );
+    expect(res.status).toBe(403);
+  });
 
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("assistantId");
+  test("request with actor token (not service) returns 403", async () => {
+    const actorToken = mintToken({
+      aud: "vellum-gateway",
+      sub: "actor:asst-123:some-user",
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 60,
+    });
+    const res = await handler.handleMintToken(
+      new Request(
+        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${actorToken}`,
+          },
+          body: JSON.stringify({
+            assistantId: "asst-123",
+            actorPrincipalId: "user-456",
+          }),
+        },
+      ),
+    );
+    expect(res.status).toBe(403);
   });
 });
