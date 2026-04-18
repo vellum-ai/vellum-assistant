@@ -311,10 +311,13 @@ struct ChatContentView: View {
             }
             .onPreferenceChange(BottomAnchorMinYKey.self) { minY in
                 lastAnchorMinY = minY
-                // The anchor is "near bottom" when its top edge is within
-                // or just below the viewport. A 20pt tolerance avoids
-                // flickering at the exact boundary.
-                let newNearBottom = minY <= scrollViewportHeight + 20
+                // The anchor is a 1pt sentinel pinned to the bottom of the
+                // content; when the scroll view sits exactly at the bottom
+                // its top edge lands ~1pt above the viewport bottom. A
+                // 2pt tolerance covers float rounding without masking real
+                // user scroll-up — anything further than that should stop
+                // auto-follow so streaming tokens don't yank the user back.
+                let newNearBottom = minY <= scrollViewportHeight + 2
                 if isNearBottom != newNearBottom {
                     isNearBottom = newNearBottom
                     if !newNearBottom {
