@@ -8,9 +8,12 @@ import VellumAssistantShared
 /// diffs, while per-cell SwiftUI content updates through `@Observable` tracking
 /// on `ChatViewModel`. Every case's associated value is a stable identity (a
 /// message UUID, a subagent id string, or nothing for single-instance rows).
+/// The queued-marker row is a singleton — its cell reads `queuedMessages.count`
+/// directly from the view model so queue mutations update the displayed count
+/// without invalidating the row's diffable identity.
 enum ChatListItem: Hashable {
     case paginationHeader
-    case queuedMarker(count: Int)
+    case queuedMarker
     case message(UUID)
     case orphanSubagent(String)
     case typingIndicator
@@ -190,8 +193,8 @@ final class ChatMessagesCollectionViewController: UIViewController {
             switch item {
             case .paginationHeader:
                 return collectionView.dequeueConfiguredReusableCell(using: paginationHeaderReg, for: indexPath, item: ())
-            case .queuedMarker(let count):
-                return collectionView.dequeueConfiguredReusableCell(using: queuedMarkerReg, for: indexPath, item: count)
+            case .queuedMarker:
+                return collectionView.dequeueConfiguredReusableCell(using: queuedMarkerReg, for: indexPath, item: ())
             case .message(let id):
                 return collectionView.dequeueConfiguredReusableCell(using: messageReg, for: indexPath, item: id)
             case .orphanSubagent(let id):
@@ -218,10 +221,11 @@ final class ChatMessagesCollectionViewController: UIViewController {
         }
     }
 
-    private func makeQueuedMarkerRegistration() -> UICollectionView.CellRegistration<UICollectionViewListCell, Int> {
-        UICollectionView.CellRegistration<UICollectionViewListCell, Int> { cell, _, count in
+    private func makeQueuedMarkerRegistration() -> UICollectionView.CellRegistration<UICollectionViewListCell, Void> {
+        UICollectionView.CellRegistration<UICollectionViewListCell, Void> { [weak self] cell, _, _ in
+            guard let self else { return }
             cell.contentConfiguration = UIHostingConfiguration {
-                QueuedMessagesMarker_iOS(count: count)
+                QueuedMarkerCellContent(viewModel: self.viewModel)
             }
             .margins(.horizontal, VSpacing.lg)
             .margins(.vertical, VSpacing.sm)
@@ -311,8 +315,8 @@ final class ChatMessagesCollectionViewController: UIViewController {
         let transcriptItems = TranscriptItems.build(from: viewModel.paginatedVisibleMessages)
         for item in transcriptItems {
             switch item {
-            case .queuedMarker(let count):
-                items.append(.queuedMarker(count: count))
+            case .queuedMarker:
+                items.append(.queuedMarker)
             case .message(let message):
                 items.append(.message(message.id))
             }
@@ -411,11 +415,17 @@ final class ChatMessagesCollectionViewController: UIViewController {
         lastConversationId = .some(currentConversationId)
 
         // Handle explicit "scroll to latest" taps from the overlay button.
+        // `snapWindowToLatest()` mutates `paginatedVisibleMessages`, which
+        // fires observation and schedules an asynchronous rebuild. Scrolling
+        // immediately would target the pre-snap snapshot; rebuilding
+        // synchronously ensures the snapshot reflects the post-snap window
+        // before the `wasAutoFollowing` branch in `rebuildSnapshot` performs
+        // the scroll.
         if scrollToLatestTrigger != lastScrollToLatestTrigger {
             lastScrollToLatestTrigger = scrollToLatestTrigger
-            viewModel.snapWindowToLatest()
             shouldAutoFollow = true
-            scrollToLatestItem(animated: true)
+            viewModel.snapWindowToLatest()
+            rebuildSnapshot(animated: false)
         }
 
         // Restart pending-anchor resolution when the request id changes.
@@ -669,6 +679,14 @@ private struct MessageCellContent: View {
         if !message.text.isEmpty && !message.isStreaming {
             MessageMediaEmbedsView(message: message)
         }
+    }
+}
+
+private struct QueuedMarkerCellContent: View {
+    @Bindable var viewModel: ChatViewModel
+
+    var body: some View {
+        QueuedMessagesMarker_iOS(count: viewModel.queuedMessages.count)
     }
 }
 

@@ -244,57 +244,6 @@ struct ChatContentView: View {
         .animation(VAnimation.standard, value: isNearBottom)
     }
 
-    // MARK: - Conversation Error Banner
-
-    @ViewBuilder
-    private func conversationErrorBanner(_ error: ConversationError) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            VIconView(conversationErrorIcon(error.category), size: 14)
-                .foregroundStyle(conversationErrorAccent(error.category))
-
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(error.message)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-                Text(error.recoverySuggestion)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if error.isRetryable {
-                Button(action: { viewModel.retryAfterConversationError() }) {
-                    Text("Retry")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(conversationErrorAccent(error.category))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-            }
-
-            Button(action: { viewModel.dismissConversationError() }) {
-                VIconView(.x, size: 10)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(conversationErrorAccent(error.category).opacity(0.1))
-        .overlay(
-            Rectangle()
-                .fill(conversationErrorAccent(error.category))
-                .frame(width: 3),
-            alignment: .leading
-        )
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
     @ViewBuilder
     private func genericErrorBanner(_ errorText: String) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -344,34 +293,6 @@ struct ChatContentView: View {
         .padding(.vertical, VSpacing.sm)
         .background(VColor.systemNegativeStrong)
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private func conversationErrorIcon(_ category: ConversationErrorCategory) -> VIcon {
-        switch category {
-        case .providerNetwork: return .wifiOff
-        case .rateLimit: return .clockAlert
-        case .providerOverloaded: return .cloudOff
-        case .providerApi: return .cloudOff
-        case .providerOrdering: return .cloudOff
-        case .providerWebSearch: return .cloudOff
-        case .conversationAborted: return .circleStop
-        case .processingFailed, .regenerateFailed: return .refreshCw
-        case .contextTooLarge: return .fileText
-        case .providerBilling: return .creditCard
-        case .authenticationRequired: return .lock
-        case .providerNotConfigured, .managedKeyInvalid: return .keyRound
-        case .unknown: return .triangleAlert
-        }
-    }
-
-    private func conversationErrorAccent(_ category: ConversationErrorCategory) -> Color {
-        switch category {
-        case .rateLimit: return VColor.systemNegativeHover
-        case .providerNetwork, .providerOverloaded: return .orange
-        case .conversationAborted: return VColor.contentSecondary
-        case .contextTooLarge: return VColor.systemNegativeHover
-        default: return VColor.systemNegativeStrong
-        }
     }
 
     // MARK: - Empty State
