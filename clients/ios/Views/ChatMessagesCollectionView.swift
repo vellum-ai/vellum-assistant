@@ -66,7 +66,7 @@ struct ChatMessagesCollectionView: UIViewControllerRepresentable {
 // MARK: - Controller
 
 final class ChatMessagesCollectionViewController: UIViewController {
-    private let viewModel: ChatViewModel
+    private var viewModel: ChatViewModel
     fileprivate var onForkFromMessage: ((String) -> Void)?
     fileprivate var onPendingAnchorHandled: ((UUID) -> Void)?
     fileprivate var onVisibilityStateChanged: (_ isNearBottom: Bool, _ contentExceedsViewport: Bool) -> Void
@@ -367,9 +367,21 @@ final class ChatMessagesCollectionViewController: UIViewController {
         pendingAnchorDaemonMessageId: String?,
         scrollToLatestTrigger: Int
     ) {
-        // The `Bindable` binding from SwiftUI passes the same ChatViewModel
-        // reference; we keep our stored reference but observe conversationId
-        // transitions to reset bottom-following state for new conversations.
+        // SwiftUI may re-invoke the representable with a different ChatViewModel
+        // instance (e.g. a conversation switch that reuses the same detail
+        // view). Rebind the stored reference and re-arm observation so snapshot
+        // generation and observation read from the current model.
+        let viewModelChanged = ObjectIdentifier(viewModel) != ObjectIdentifier(self.viewModel)
+        if viewModelChanged {
+            self.viewModel = viewModel
+            hasPerformedInitialScroll = false
+            shouldAutoFollow = true
+            isPaginationInFlight = false
+            pendingAnchorTask?.cancel()
+            observeViewModel()
+            rebuildSnapshot(animated: false)
+        }
+
         let currentConversationId: String? = viewModel.conversationId
         if case .some(let previous) = lastConversationId, previous != currentConversationId {
             hasPerformedInitialScroll = false
@@ -427,6 +439,10 @@ final class ChatMessagesCollectionViewController: UIViewController {
                     hasMoreMessages: self.viewModel.hasMoreMessages
                 ) {
                 case let .scroll(localMessageId):
+                    // Clear auto-follow so subsequent streaming/snapshot
+                    // rebuilds don't yank the user back to the bottom after
+                    // landing on a historical anchor.
+                    self.shouldAutoFollow = false
                     self.scrollToMessage(id: localMessageId, animated: true)
                     self.onPendingAnchorHandled?(requestId)
                     return
