@@ -108,9 +108,13 @@ struct MessageListView: View {
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
     /// Caches each transcript row's measured height so the LazyVStack reports
     /// an accurate `contentSize` for off-screen cells. Gated on the
-    /// `message-height-cache` macOS feature flag. Reset on conversation
-    /// switch (via `.id(conversationId)`), column-width change, and
-    /// typography-generation change.
+    /// `message-height-cache` macOS feature flag. `.id(conversationId)` is
+    /// applied to the inner `ScrollView` (not `MessageListView`), so SwiftUI
+    /// preserves this `@State` across conversation switches — the cache must
+    /// be cleared explicitly in `handleConversationSwitched()` to avoid
+    /// reusing heights keyed by fixed-sentinel UUIDs (e.g. queuedMarker)
+    /// across conversations. Also reset on column-width and typography
+    /// changes, which reflow every row.
     @State var messageHeightCache = MessageHeightCache()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
