@@ -46,7 +46,7 @@ function readTrimmedContent(path: string): ReadResult {
 /**
  * Fire-and-forget background processor for the release-notes bulletin.
  *
- * If `~/.vellum/workspace/UPDATES.md` has new (unprocessed) content, this
+ * If `<workspace>/UPDATES.md` has new (unprocessed) content, this
  * bootstraps a background conversation and wakes the agent loop with a hint
  * pointing at the file. De-duplication uses a sha256 content hash stored in
  * the `updates:last_processed_hash` memory checkpoint — an `"empty"` sentinel
