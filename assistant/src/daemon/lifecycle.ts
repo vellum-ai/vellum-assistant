@@ -72,7 +72,6 @@ import {
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
-import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -543,16 +542,13 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
-    // Run bulletin sync AFTER the config merge + load so that getConfig()
-    // inside syncUpdateBulletinOnStartup() observes the fully merged config.
-    // Running it earlier would populate the config cache with pre-merge
-    // values, poisoning every downstream getConfig() consumer.
+    // Kick off the update bulletin background job once the DB is ready.
     if (dbReady) {
-      try {
-        syncUpdateBulletinOnStartup();
-      } catch (err) {
-        log.warn({ err }, "Bulletin sync failed — continuing startup");
-      }
+      void import("../prompts/update-bulletin-job.js")
+        .then((m) => m.runUpdateBulletinJobIfNeeded())
+        .catch((err) =>
+          log.warn({ err }, "Update bulletin job failed — continuing startup"),
+        );
     }
 
     // Seed module-level ingress state from the workspace config so that
