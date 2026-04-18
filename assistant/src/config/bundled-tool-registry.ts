@@ -50,21 +50,6 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
-// ── gmail ──────────────────────────────────────────────────────────────────────
-import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
-import * as gmailAttachments from "./bundled-skills/gmail/tools/gmail-attachments.js";
-import * as gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
-import * as gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
-import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
-import * as gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
-import * as gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
-import * as gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
-import * as gmailPreferencesTool from "./bundled-skills/gmail/tools/gmail-preferences-tool.js";
-import * as gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
-import * as gmailSenderDigest from "./bundled-skills/gmail/tools/gmail-sender-digest.js";
-import * as gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
-import * as gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
-import * as gmailVacation from "./bundled-skills/gmail/tools/gmail-vacation.js";
 // ── google-calendar ────────────────────────────────────────────────────────────
 import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
 import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
@@ -211,22 +196,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-create.ts", followupCreate],
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
-
-  // gmail
-  ["gmail:tools/gmail-archive.ts", gmailArchive],
-  ["gmail:tools/gmail-label.ts", gmailLabel],
-  ["gmail:tools/gmail-trash.ts", gmailTrash],
-  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
-  ["gmail:tools/gmail-draft.ts", gmailDraft],
-  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
-  ["gmail:tools/gmail-forward.ts", gmailForward],
-  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
-  ["gmail:tools/gmail-filters.ts", gmailFilters],
-  ["gmail:tools/gmail-vacation.ts", gmailVacation],
-  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
-  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["gmail:tools/gmail-preferences-tool.ts", gmailPreferencesTool],
 
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
