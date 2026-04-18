@@ -41,9 +41,7 @@ function isSlackChannelCredential(
 ): field is "bot_token" | "app_token" | "user_token" {
   return (
     service === "slack_channel" &&
-    (field === "bot_token" ||
-      field === "app_token" ||
-      field === "user_token")
+    (field === "bot_token" || field === "app_token" || field === "user_token")
   );
 }
 
@@ -128,7 +126,7 @@ class CredentialStoreTool implements Tool {
             type: "array",
             items: { type: "string" },
             description:
-              'Tools allowed to use this credential (for store/prompt actions), e.g. ["browser_fill_credential"]. Empty = deny all.',
+              'Tools/capabilities allowed to use this credential (for store/prompt actions), e.g. ["assistant_browser_fill_credential"]. Empty = deny all.',
           },
           allowed_domains: {
             type: "array",

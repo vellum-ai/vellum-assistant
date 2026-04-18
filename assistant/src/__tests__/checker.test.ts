@@ -104,7 +104,7 @@ import {
 } from "../permissions/trust-store.js";
 import type { TrustRule } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
-import { getTool, registerTool } from "../tools/registry.js";
+import { registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
 // Register a mock skill-origin tool for testing default-ask policy.
@@ -2117,9 +2117,6 @@ describe("Permission Checker", () => {
     test("returns empty for non-scoped tools", () => {
       const workingDir = join(homedir(), "projects", "myapp");
       expect(generateScopeOptions(workingDir, "web_fetch")).toHaveLength(0);
-      expect(generateScopeOptions(workingDir, "browser_navigate")).toHaveLength(
-        0,
-      );
       expect(generateScopeOptions(workingDir, "skill_load")).toHaveLength(0);
       expect(generateScopeOptions(workingDir, "credential_store")).toHaveLength(
         0,
@@ -4529,78 +4526,6 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── browser tool permission baselines ─────────────────────────────
-  // Browser tools are RiskLevel.Low and prompt in strict mode (no
-  // default allow rules).
-
-  describe("browser tool permission baselines", () => {
-    const browserToolNames = [
-      "browser_navigate",
-      "browser_snapshot",
-      "browser_screenshot",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_wait_for",
-      "browser_extract",
-      "browser_fill_credential",
-      "browser_status",
-    ] as const;
-
-    // Register mock browser tools with the correct metadata so classifyRisk
-    // resolves them without pulling in the full headless-browser module
-    // (which depends on playwright and browser-manager).
-    beforeAll(() => {
-      for (const name of browserToolNames) {
-        // Skip if already registered (e.g. via initializeTools)
-        if (getTool(name)) continue;
-
-        registerTool({
-          name,
-          description: `Mock ${name} for permission baseline`,
-          category: "browser",
-          defaultRiskLevel: RiskLevel.Low,
-          getDefinition: () => ({
-            name,
-            description: `Mock ${name}`,
-            input_schema: { type: "object" as const, properties: {} },
-          }),
-          execute: async () => ({ content: "ok", isError: false }),
-        });
-      }
-    });
-
-    for (const toolName of browserToolNames) {
-      test(`${toolName} has RiskLevel.Low default risk`, async () => {
-        const risk = await classifyRisk(toolName, {});
-        expect(risk).toBe(RiskLevel.Low);
-      });
-    }
-
-    test("browser tools are auto-allowed in workspace mode", async () => {
-      testConfig.permissions = { mode: "workspace" };
-      for (const toolName of browserToolNames) {
-        const result = await check(toolName, {}, "/tmp");
-        expect(result.decision).toBe("allow");
-      }
-    });
-
-    test("browser tools prompt in strict mode (no default allow rules)", async () => {
-      testConfig.permissions = { mode: "strict" };
-      try {
-        for (const toolName of browserToolNames) {
-          const result = await check(toolName, {}, "/tmp");
-          expect(result.decision).toBe("prompt");
-        }
-      } finally {
-        testConfig.permissions = { mode: "workspace" };
-      }
-    });
-  });
-
   // ── default allow: skill_load ──────────────────────────────────
 
   describe("default allow: skill_load", () => {
@@ -4621,54 +4546,6 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(result.decision).toBe("allow");
-    });
-  });
-
-  // ── browser tools: no default allow ──────────────────────────────
-
-  describe("browser tools: no default allow", () => {
-    beforeEach(() => {
-      clearCache();
-      testConfig.permissions = { mode: "strict" };
-    });
-
-    test("browser tools prompt in strict mode (no default allow rules)", async () => {
-      const browserTools = [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_screenshot",
-        "browser_close",
-        "browser_attach",
-        "browser_detach",
-        "browser_click",
-        "browser_type",
-        "browser_press_key",
-        "browser_wait_for",
-        "browser_extract",
-        "browser_fill_credential",
-        "browser_status",
-      ];
-
-      for (const tool of browserTools) {
-        const result = await check(tool, {}, "/tmp");
-        expect(result.decision).toBe("prompt");
-      }
-    });
-
-    test("browser_navigate with a real URL prompts in strict mode", async () => {
-      const result = await check(
-        "browser_navigate",
-        { url: "https://example.com/path/to/page" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("prompt");
-    });
-
-    test("non-browser skill tools are NOT auto-allowed", async () => {
-      // skill_test_tool is a registered skill-origin tool without a default
-      // allow rule -- it should prompt in strict mode.
-      const result = await check("skill_test_tool", {}, "/tmp");
-      expect(result.decision).not.toBe("allow");
     });
   });
 });

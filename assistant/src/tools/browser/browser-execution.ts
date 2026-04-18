@@ -4,6 +4,7 @@ import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { credentialBroker } from "../credentials/broker.js";
+import { BROWSER_FILL_CAPABILITY } from "../credentials/tool-policy.js";
 import {
   isPrivateOrLocalHost,
   parseUrl,
@@ -927,7 +928,7 @@ export async function executeBrowserNavigate(
                 "1. Use browser_snapshot to find the sign-in form elements",
               );
               lines.push(
-                "2. Use browser_fill_credential to fill email/password from credential_store",
+                "2. Use the browser credential fill to enter email/password from credential_store",
               );
               lines.push(
                 "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
@@ -958,7 +959,7 @@ export async function executeBrowserNavigate(
             "1. Use browser_snapshot to find the sign-in form elements",
           );
           lines.push(
-            "2. Use browser_fill_credential to fill email/password from credential_store",
+            "2. Use the browser credential fill to enter email/password from credential_store",
           );
           lines.push(
             "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
@@ -1941,7 +1942,7 @@ export async function executeBrowserExtract(
   }
 }
 
-// ── browser_fill_credential ──────────────────────────────────────────
+// ── browser credential fill ──────────────────────────────────────────
 
 export async function executeBrowserFillCredential(
   input: Record<string, unknown>,
@@ -1999,7 +2000,7 @@ export async function executeBrowserFillCredential(
     const result = await credentialBroker.browserFill({
       service,
       field,
-      toolName: "browser_fill_credential",
+      toolName: BROWSER_FILL_CAPABILITY,
       domain: pageDomain,
       fill: async (value) => {
         // Clear-then-focus-then-insert via the shared helper. We

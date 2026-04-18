@@ -204,12 +204,10 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
     clearSlackUserTokenCalls++;
 
     const { credentialKey } = await import("../security/credential-key.js");
-    const { deleteSecureKeyAsync, getSecureKeyAsync } = await import(
-      "../security/secure-keys.js"
-    );
-    const { deleteCredentialMetadata } = await import(
-      "../tools/credentials/metadata-store.js"
-    );
+    const { deleteSecureKeyAsync, getSecureKeyAsync } =
+      await import("../security/secure-keys.js");
+    const { deleteCredentialMetadata } =
+      await import("../tools/credentials/metadata-store.js");
 
     await deleteSecureKeyAsync(credentialKey("slack_channel", "user_token"));
     deleteCredentialMetadata("slack_channel", "user_token");
@@ -248,6 +246,7 @@ import {
   _setMetadataPath,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { BROWSER_FILL_CAPABILITY } from "../tools/credentials/tool-policy.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -775,7 +774,11 @@ describe("credential_store tool — prompt action", () => {
     expect(result.isError).toBe(false);
     // Routed to handler as third positional argument.
     expect(slackChannelConfigCalls).toEqual([
-      { botToken: undefined, appToken: undefined, userToken: "xoxp-valid-user-token" },
+      {
+        botToken: undefined,
+        appToken: undefined,
+        userToken: "xoxp-valid-user-token",
+      },
     ]);
     // Stored via the handler's mock, NOT via the generic setSecureKeyAsync path.
     expect(
@@ -867,7 +870,11 @@ describe("credential_store tool — slack_channel store routing", () => {
     expect(result.isError).toBe(false);
     // Exactly one handler call with (undefined, undefined, token).
     expect(slackChannelConfigCalls).toEqual([
-      { botToken: undefined, appToken: undefined, userToken: "xoxp-valid-user-token" },
+      {
+        botToken: undefined,
+        appToken: undefined,
+        userToken: "xoxp-valid-user-token",
+      },
     ]);
     // Stored through the handler's mock path, not the generic setSecureKeyAsync path.
     expect(
@@ -911,7 +918,11 @@ describe("credential_store tool — slack_channel store routing", () => {
 
     expect(result.isError).toBe(false);
     expect(slackChannelConfigCalls).toEqual([
-      { botToken: "xoxb-valid-bot-token", appToken: undefined, userToken: undefined },
+      {
+        botToken: "xoxb-valid-bot-token",
+        appToken: undefined,
+        userToken: undefined,
+      },
     ]);
   });
 
@@ -928,7 +939,11 @@ describe("credential_store tool — slack_channel store routing", () => {
 
     expect(result.isError).toBe(false);
     expect(slackChannelConfigCalls).toEqual([
-      { botToken: undefined, appToken: "xapp-valid-app-token", userToken: undefined },
+      {
+        botToken: undefined,
+        appToken: "xapp-valid-app-token",
+        userToken: undefined,
+      },
     ]);
   });
 });
@@ -1157,9 +1172,8 @@ describe("credential_store tool — slack_channel delete routing", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBeUndefined();
-    const { getCredentialMetadata } = await import(
-      "../tools/credentials/metadata-store.js"
-    );
+    const { getCredentialMetadata } =
+      await import("../tools/credentials/metadata-store.js");
     expect(
       getCredentialMetadata("slack_channel", "user_token"),
     ).toBeUndefined();
@@ -1206,12 +1220,9 @@ describe("credential_store tool — slack_channel delete routing", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "bot_token")),
     ).toBeUndefined();
-    const { getCredentialMetadata } = await import(
-      "../tools/credentials/metadata-store.js"
-    );
-    expect(
-      getCredentialMetadata("slack_channel", "bot_token"),
-    ).toBeUndefined();
+    const { getCredentialMetadata } =
+      await import("../tools/credentials/metadata-store.js");
+    expect(getCredentialMetadata("slack_channel", "bot_token")).toBeUndefined();
   });
 
   test("delete with app_token still tears down the oauth connection (regression guard)", async () => {
@@ -1408,5 +1419,110 @@ describe("CredentialBroker — revokeAll", () => {
     expect(broker.activeTokenCount).toBe(0);
     broker.revokeAll();
     expect(broker.activeTokenCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Broker — canonical capability key and legacy alias
+// ---------------------------------------------------------------------------
+
+describe("CredentialBroker — canonical capability key", () => {
+  let broker: CredentialBroker;
+
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, "metadata.json"));
+    broker = new CredentialBroker();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test("authorize succeeds with canonical key when metadata has canonical key", () => {
+    upsertCredentialMetadata("github", "token", {
+      allowedTools: [BROWSER_FILL_CAPABILITY],
+    });
+
+    const result = broker.authorize({
+      service: "github",
+      field: "token",
+      toolName: BROWSER_FILL_CAPABILITY,
+    });
+    expect(result.authorized).toBe(true);
+  });
+
+  test("authorize succeeds with canonical key when metadata has legacy alias", () => {
+    upsertCredentialMetadata("github", "token", {
+      allowedTools: ["browser_fill_credential"],
+    });
+
+    const result = broker.authorize({
+      service: "github",
+      field: "token",
+      toolName: BROWSER_FILL_CAPABILITY,
+    });
+    expect(result.authorized).toBe(true);
+  });
+
+  test("authorize succeeds with legacy alias when metadata has canonical key", () => {
+    upsertCredentialMetadata("github", "token", {
+      allowedTools: [BROWSER_FILL_CAPABILITY],
+    });
+
+    const result = broker.authorize({
+      service: "github",
+      field: "token",
+      toolName: "browser_fill_credential",
+    });
+    expect(result.authorized).toBe(true);
+  });
+
+  test("serverUse with canonical key works when metadata has legacy alias", async () => {
+    upsertCredentialMetadata("vercel", "api_token", {
+      allowedTools: ["browser_fill_credential"],
+    });
+    await setSecureKeyAsync(credentialKey("vercel", "api_token"), "vercel-tok");
+
+    const result = await broker.serverUse({
+      service: "vercel",
+      field: "api_token",
+      toolName: BROWSER_FILL_CAPABILITY,
+      execute: async (v) => v,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("vercel-tok");
+  });
+
+  test("non-aliased tool names are unaffected by alias resolution", () => {
+    upsertCredentialMetadata("svc", "key", {
+      allowedTools: ["custom_tool"],
+    });
+
+    const result = broker.authorize({
+      service: "svc",
+      field: "key",
+      toolName: "custom_tool",
+    });
+    expect(result.authorized).toBe(true);
+  });
+
+  test("non-aliased tool denied when only canonical key is allowed", () => {
+    upsertCredentialMetadata("svc", "key", {
+      allowedTools: [BROWSER_FILL_CAPABILITY],
+    });
+
+    const result = broker.authorize({
+      service: "svc",
+      field: "key",
+      toolName: "unrelated_tool",
+    });
+    expect(result.authorized).toBe(false);
   });
 });
