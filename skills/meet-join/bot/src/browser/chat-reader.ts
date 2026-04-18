@@ -29,9 +29,9 @@
  * Two layers:
  *   - In-page: the observer tracks message DOM IDs it has already forwarded,
  *     so re-renders of the same message don't fire twice.
- *   - Bot-side: we key on `sender + text + floor(timestampMs / 1000)` so even
- *     if a message resurfaces across a panel-close/reopen (clearing the
- *     in-page seen set), we don't double-emit within a 1-second bucket.
+ *   - Bot-side: we key on `domId` so even if a message resurfaces across a
+ *     panel-close/reopen (clearing the in-page seen set), we don't
+ *     double-emit the same DOM node.
  *
  * ## Self-filter
  *

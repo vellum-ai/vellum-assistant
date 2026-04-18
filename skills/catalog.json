@@ -209,9 +209,9 @@
       "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
       "metadata": {
         "emoji": "📹",
-        "feature-flag": "meet",
         "vellum": {
-          "display-name": "Meet Join"
+          "display-name": "Meet Join",
+          "feature-flag": "meet"
         }
       }
     },
