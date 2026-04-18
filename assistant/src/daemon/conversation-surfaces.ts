@@ -949,70 +949,17 @@ export async function handleSurfaceAction(
   actionId: string,
   data?: Record<string, unknown>,
 ): Promise<SurfaceActionResult> {
-  // `launch_conversation` actions spawn a fresh conversation inline instead
-  // of round-tripping through the LLM with a `[User action on card surface:
-  // ...]` chat message. This dispatch must run BEFORE the pending-vs-not
-  // branching below: `ui_show` unconditionally calls
-  // `pendingSurfaceActions.set(...)` for any interactive card (regardless of
-  // the `persistent` flag), so on the very first click of a freshly-rendered
-  // launcher card `pending` is already set. Without this hoist the launch
-  // branch would fall through into the pending path and the LLM round-trip
-  // would happen on every click.
-  if (
-    data &&
-    typeof data === "object" &&
-    (data as Record<string, unknown>)._action === "launch_conversation"
-  ) {
-    const payload = data as Record<string, unknown>;
-    const title = typeof payload.title === "string" ? payload.title : "";
-    const seedPrompt =
-      typeof payload.seedPrompt === "string" ? payload.seedPrompt : "";
-    const anchorMessageId =
-      typeof payload.anchorMessageId === "string"
-        ? payload.anchorMessageId
-        : undefined;
-    if (!title || !seedPrompt) {
-      return { accepted: false, error: "missing_title_or_seedPrompt" };
-    }
-    // Launch actions don't consume the surface — persistent launcher cards
-    // keep accepting clicks afterward. Drop the pending entry (if any) so
-    // sibling button presses on the same card aren't blocked behind a stale
-    // expectation that this surface still owes an answer to the LLM.
-    ctx.pendingSurfaceActions.delete(surfaceId);
-    // `ctx` is the origin Conversation — inherit its trust context so the
-    // spawned conversation keeps guardian / trust-class state.
-    //
-    // `launchConversation` is the sole emitter of `open_conversation` for
-    // this path. We pass `focus: false` so the client registers a sidebar
-    // entry for the spawned conversation without switching focus away from
-    // the origin — critical for fan-out UX where one click launches
-    // multiple conversations.
-    //
-    // The helper also kicks off the seed turn fire-and-forget, so this
-    // `await` resolves as soon as the conversation is created + titled +
-    // published to the event hub. The HTTP POST /v1/surface-actions
-    // response returns promptly — the seed turn runs in the background.
-    const originTrustContext = ctx.trustContext;
-    const { conversationId } = await launchConversation({
-      title,
-      seedPrompt,
-      focus: false,
-      ...(anchorMessageId ? { anchorMessageId } : {}),
-      ...(originTrustContext ? { originTrustContext } : {}),
-    });
-    log.info(
-      { originConversationId: ctx.conversationId, conversationId, surfaceId },
-      "launch_conversation dispatched inline from surface action",
-    );
-    return { accepted: true, conversationId };
-  }
-
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
   // pending entry in `pendingStandaloneSurfaces`. When the user clicks
   // an action, resolve the caller's Promise directly and return WITHOUT
   // enqueuing a model message — consumed standalone callbacks never
   // trigger an LLM follow-up turn.
+  //
+  // This block runs BEFORE launch_conversation dispatch so that a
+  // standalone form whose submittedData happens to contain
+  // `_action: "launch_conversation"` is resolved as a standalone
+  // interaction rather than triggering a conversation launch.
   const standalone = ctx.pendingStandaloneSurfaces?.get(surfaceId);
   if (standalone) {
     const stored = ctx.surfaceState.get(surfaceId);
@@ -1076,6 +1023,64 @@ export async function handleSurfaceAction(
       "Dropping late action for recently-completed standalone surface",
     );
     return { accepted: true, conversationId: ctx.conversationId };
+  }
+
+  // `launch_conversation` actions spawn a fresh conversation inline instead
+  // of round-tripping through the LLM with a `[User action on card surface:
+  // ...]` chat message. This dispatch must run BEFORE the pending-vs-not
+  // branching below: `ui_show` unconditionally calls
+  // `pendingSurfaceActions.set(...)` for any interactive card (regardless of
+  // the `persistent` flag), so on the very first click of a freshly-rendered
+  // launcher card `pending` is already set. Without this hoist the launch
+  // branch would fall through into the pending path and the LLM round-trip
+  // would happen on every click.
+  if (
+    data &&
+    typeof data === "object" &&
+    (data as Record<string, unknown>)._action === "launch_conversation"
+  ) {
+    const payload = data as Record<string, unknown>;
+    const title = typeof payload.title === "string" ? payload.title : "";
+    const seedPrompt =
+      typeof payload.seedPrompt === "string" ? payload.seedPrompt : "";
+    const anchorMessageId =
+      typeof payload.anchorMessageId === "string"
+        ? payload.anchorMessageId
+        : undefined;
+    if (!title || !seedPrompt) {
+      return { accepted: false, error: "missing_title_or_seedPrompt" };
+    }
+    // Launch actions don't consume the surface — persistent launcher cards
+    // keep accepting clicks afterward. Drop the pending entry (if any) so
+    // sibling button presses on the same card aren't blocked behind a stale
+    // expectation that this surface still owes an answer to the LLM.
+    ctx.pendingSurfaceActions.delete(surfaceId);
+    // `ctx` is the origin Conversation — inherit its trust context so the
+    // spawned conversation keeps guardian / trust-class state.
+    //
+    // `launchConversation` is the sole emitter of `open_conversation` for
+    // this path. We pass `focus: false` so the client registers a sidebar
+    // entry for the spawned conversation without switching focus away from
+    // the origin — critical for fan-out UX where one click launches
+    // multiple conversations.
+    //
+    // The helper also kicks off the seed turn fire-and-forget, so this
+    // `await` resolves as soon as the conversation is created + titled +
+    // published to the event hub. The HTTP POST /v1/surface-actions
+    // response returns promptly — the seed turn runs in the background.
+    const originTrustContext = ctx.trustContext;
+    const { conversationId } = await launchConversation({
+      title,
+      seedPrompt,
+      focus: false,
+      ...(anchorMessageId ? { anchorMessageId } : {}),
+      ...(originTrustContext ? { originTrustContext } : {}),
+    });
+    log.info(
+      { originConversationId: ctx.conversationId, conversationId, surfaceId },
+      "launch_conversation dispatched inline from surface action",
+    );
+    return { accepted: true, conversationId };
   }
 
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
