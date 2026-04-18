@@ -91,6 +91,11 @@ export function createChannelVerificationSessionProxyHandler(
       );
     }, config.runtimeTimeoutMs);
 
+    log.info(
+      { path: upstreamPath, upstream, method: req.method },
+      "[DEBUG] proxyToRuntime: sending request",
+    );
+
     let response: Response;
     try {
       response = await fetchImpl(upstream, {
@@ -106,13 +111,19 @@ export function createChannelVerificationSessionProxyHandler(
       if (err instanceof DOMException && err.name === "TimeoutError") {
         log.error(
           { path: upstreamPath, duration },
-          "Channel verification session proxy upstream timed out",
+          "[DEBUG] proxyToRuntime: upstream TIMED OUT",
         );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
+      const errMsg =
+        err instanceof Error ? err.message : String(err);
+      const errCode =
+        err && typeof err === "object" && "code" in err
+          ? (err as { code: string }).code
+          : undefined;
       log.error(
-        { err, path: upstreamPath, duration },
-        "Channel verification session proxy upstream connection failed",
+        { path: upstreamPath, duration, errMsg, errCode, errType: err?.constructor?.name },
+        "[DEBUG] proxyToRuntime: upstream connection FAILED (this becomes 502)",
       );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
@@ -120,11 +131,16 @@ export function createChannelVerificationSessionProxyHandler(
     const resHeaders = stripHopByHop(new Headers(response.headers));
     const duration = Math.round(performance.now() - start);
 
+    log.info(
+      { path: upstreamPath, status: response.status, duration },
+      "[DEBUG] proxyToRuntime: got response",
+    );
+
     if (response.status >= 400) {
       const body = await response.text();
       log.warn(
-        { path: upstreamPath, status: response.status, duration },
-        "Channel verification session proxy upstream error",
+        { path: upstreamPath, status: response.status, duration, body: body.slice(0, 500) },
+        "[DEBUG] proxyToRuntime: upstream returned error",
       );
       return new Response(body, {
         status: response.status,
@@ -180,6 +196,15 @@ export function createChannelVerificationSessionProxyHandler(
       req: Request,
       clientIp?: string,
     ): Promise<Response> {
+      log.info(
+        {
+          clientIp,
+          runtimeBaseUrl: config.assistantRuntimeBaseUrl,
+          hasBootstrapSecret: !!req.headers.get("x-bootstrap-secret"),
+        },
+        "[DEBUG] handleGuardianInit: incoming request",
+      );
+
       const lockDir = getGatewaySecurityDir();
       const lockPath = join(lockDir, "guardian-init.lock");
       const consumedPath = join(lockDir, "guardian-init-consumed.json");
