@@ -237,6 +237,7 @@ export class Conversation {
     languageCode?: string;
   };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
+  /** @internal */ approvedViaPromptThisTurn = false;
   /** @internal */ pendingSurfaceActions = new Map<
     string,
     { surfaceType: SurfaceType }

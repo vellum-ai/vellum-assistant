@@ -16,18 +16,17 @@ const mockBatchModifyMessages =
       opts: Record<string, unknown>,
     ) => Promise<void>
   >();
-const mockListMessages =
-  mock<
-    (
-      conn: unknown,
-      query: string,
-      limit: number,
-      pageToken?: string,
-    ) => Promise<{
-      messages?: { id: string }[];
-      nextPageToken?: string | null;
-    }>
-  >();
+const mockListMessages = mock<
+  (
+    conn: unknown,
+    query: string,
+    limit: number,
+    pageToken?: string,
+  ) => Promise<{
+    messages?: { id: string }[];
+    nextPageToken?: string | null;
+  }>
+>();
 const mockModifyMessage =
   mock<
     (
@@ -49,13 +48,15 @@ mock.module("../oauth/connection-resolver.js", () => ({
   resolveOAuthConnection: mockResolveOAuthConnection,
 }));
 
-mock.module("../config/bundled-skills/gmail/tools/scan-result-store.js", () => ({
-  getSenderMessageIds: () => ["msg-a", "msg-b"],
-}));
-
-const { run } = await import(
-  "../config/bundled-skills/gmail/tools/gmail-archive.js"
+mock.module(
+  "../config/bundled-skills/gmail/tools/scan-result-store.js",
+  () => ({
+    getSenderMessageIds: () => ["msg-a", "msg-b"],
+  }),
 );
+
+const { run } =
+  await import("../config/bundled-skills/gmail/tools/gmail-archive.js");
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -242,5 +243,112 @@ describe("gmail_archive gate", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Message archived");
+  });
+
+  describe("user_approved gate bypass", () => {
+    test("allows query path when user_approved is true and trustClass is guardian", async () => {
+      mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+      mockListMessages.mockResolvedValueOnce({
+        messages: [{ id: "m1" }],
+        nextPageToken: null,
+      });
+      mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+      const result = await run(
+        { query: "in:inbox", confidence: 0.99, user_approved: true },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          trustClass: "guardian",
+        }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Archived 1 message(s)");
+    });
+
+    test("rejects query path when user_approved is true but trustClass is not guardian", async () => {
+      const result = await run(
+        { query: "in:inbox", confidence: 0.99, user_approved: true },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          trustClass: "trusted_contact",
+        }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("surface action");
+    });
+
+    test("rejects query path when user_approved is true but trustClass is unknown", async () => {
+      const result = await run(
+        { query: "in:inbox", confidence: 0.99, user_approved: true },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          trustClass: "unknown",
+        }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("surface action");
+    });
+
+    test("allows scan_id path when user_approved is true and trustClass is guardian", async () => {
+      mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+      mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+      const result = await run(
+        {
+          scan_id: "scan-1",
+          sender_ids: ["s1"],
+          confidence: 0.99,
+          user_approved: true,
+        },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          trustClass: "guardian",
+        }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Archived 2 message(s)");
+    });
+
+    test("allows batch message_ids path when user_approved is true and trustClass is guardian", async () => {
+      mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+      mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+      const result = await run(
+        { message_ids: ["m1", "m2"], confidence: 0.99, user_approved: true },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          trustClass: "guardian",
+        }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Archived 2 message(s)");
+    });
+  });
+
+  describe("approvedViaPrompt gate bypass", () => {
+    test("allows query path when approvedViaPrompt is true (turn-scoped propagation)", async () => {
+      mockResolveOAuthConnection.mockResolvedValueOnce({ id: "gmail-conn" });
+      mockListMessages.mockResolvedValueOnce({
+        messages: [{ id: "m1" }],
+        nextPageToken: null,
+      });
+      mockBatchModifyMessages.mockResolvedValueOnce(undefined);
+
+      const result = await run(
+        { query: "in:inbox", confidence: 0.99 },
+        makeContext({
+          triggeredBySurfaceAction: false,
+          batchAuthorizedByTask: false,
+          approvedViaPrompt: true,
+        }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Archived 1 message(s)");
+    });
   });
 });

@@ -46,6 +46,10 @@
           "account": {
             "type": "string",
             "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
+          },
+          "user_approved": {
+            "type": "boolean",
+            "description": "Set to true ONLY when the user's most recent message contains explicit approval language for this specific action (e.g. 'archive these', 'yes do it', 'go ahead'). Do NOT set this when the user merely described what they want without confirming, or when acting on prior instructions without fresh confirmation in this turn."
           }
         },
         "required": ["confidence"]
@@ -157,6 +161,10 @@
           "account": {
             "type": "string",
             "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
+          },
+          "user_approved": {
+            "type": "boolean",
+            "description": "Set to true ONLY when the user's most recent message contains explicit approval language for this specific action (e.g. 'unsubscribe from these', 'yes do it', 'go ahead'). Do NOT set this when the user merely described what they want without confirming, or when acting on prior instructions without fresh confirmation in this turn."
           }
         },
         "required": ["message_id", "confidence"]

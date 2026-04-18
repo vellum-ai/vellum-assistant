@@ -234,6 +234,7 @@ export interface AgentLoopConversationContext {
   >;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
+  approvedViaPromptThisTurn?: boolean;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -647,7 +648,9 @@ export async function runAgentLoopImpl(
     // conversation state. Keep the query vector around so the PKB reminder
     // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
     let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector: import("../memory/qdrant-client.js").QdrantSparseVector | undefined;
+    let pkbSparseVector:
+      | import("../memory/qdrant-client.js").QdrantSparseVector
+      | undefined;
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     if (isTrustedActor) {
       const graphResult = await ctx.graphMemory.prepareMemory(
@@ -2132,6 +2135,7 @@ export async function runAgentLoopImpl(
     ctx.processing = false;
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+    ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
