@@ -1085,7 +1085,9 @@ class MeetSessionManagerImpl {
       );
       this.sessions.delete(meetingId);
       for (const unsubscribe of session.eventUnsubscribes) {
-        try { unsubscribe(); } catch { }
+        try {
+          unsubscribe();
+        } catch {}
       }
       unregisterMeetingDispatcher(meetingId);
       await audioIngest.stop().catch(() => {});

@@ -110,11 +110,14 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
   }
 
   const canonicalDisplay = `:${displayIndex}`;
-  const proc = Bun.spawn(["Xvfb", canonicalDisplay, "-screen", "0", "1280x720x24"], {
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawn(
+    ["Xvfb", canonicalDisplay, "-screen", "0", "1280x720x24"],
+    {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+  );
 
   const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
   while (Date.now() < deadline) {

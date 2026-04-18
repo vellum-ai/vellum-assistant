@@ -362,5 +362,8 @@ export class MeetConversationBridge {
  */
 function sanitizeParticipantName(raw: string): string {
   // eslint-disable-next-line no-control-regex
-  return raw.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 100);
+  return raw
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .trim()
+    .slice(0, 100);
 }
