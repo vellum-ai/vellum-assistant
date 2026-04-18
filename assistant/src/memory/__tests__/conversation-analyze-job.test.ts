@@ -64,6 +64,7 @@ mock.module("../auto-analysis-enqueue.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
+import { BackendUnavailableError } from "../../util/errors.js";
 import { conversationAnalyzeJob } from "../conversation-analyze-job.js";
 import type { MemoryJob } from "../jobs-store.js";
 
@@ -121,20 +122,20 @@ describe("conversationAnalyzeJob", () => {
     expect(mockGetAnalysisDeps).not.toHaveBeenCalled();
   });
 
-  test("returns without calling the service when deps singleton is not yet initialized", async () => {
-    // Deps singleton is unset during slow daemon startup. The handler must
-    // NOT throw — a plain Error here is classified as fatal by
-    // classifyError() and the worker would mark the job permanently failed
-    // (failMemoryJob with maxAttempts: 1). Returning lets the next batch /
-    // idle / lifecycle trigger from enqueueAutoAnalysisIfEnabled() produce
-    // a fresh job once the daemon has fully started.
+  test("throws BackendUnavailableError when deps singleton is not yet initialized", async () => {
+    // Deps singleton is unset during slow daemon startup. The handler throws
+    // BackendUnavailableError so handleJobError() in the worker defers the
+    // job with exponential backoff (via deferMemoryJob) instead of completing
+    // it. Returning success here would permanently drop the job via
+    // completeMemoryJob — conversations with a pre-existing queued job
+    // during startup and no subsequent activity would never be analyzed.
     mockGetAnalysisDeps.mockImplementation(() => null);
     await expect(
       conversationAnalyzeJob(
         makeJob({ conversationId: "conv-1" }),
         TEST_CONFIG,
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toBeInstanceOf(BackendUnavailableError);
     expect(analyzeCalls).toHaveLength(0);
     expect(mockGetAnalysisDeps).toHaveBeenCalled();
   });

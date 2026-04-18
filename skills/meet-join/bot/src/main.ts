@@ -506,7 +506,6 @@ export async function runBot(deps: BotDeps): Promise<void> {
     } catch (err) {
       const msg = errMsg(err);
       deps.logError(`meet-bot: join flow failed: ${msg}`);
-      publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
       await shutdown("error", msg);
       detachSigterm();
       detachSigint();
@@ -585,7 +584,6 @@ export async function runBot(deps: BotDeps): Promise<void> {
   } catch (err) {
     const msg = errMsg(err);
     deps.logError(`meet-bot: boot failed: ${msg}`);
-    publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
     await shutdown("error", msg);
     detachSigterm();
     detachSigint();

@@ -422,7 +422,6 @@ describe("GeminiProvider", () => {
     expect(contents[1].role).toBe("model");
     expect(contents[1].parts[0]).toEqual({
       functionCall: {
-        id: "call_abc",
         name: "file_read",
         args: { path: "/tmp/test" },
       },
@@ -430,7 +429,6 @@ describe("GeminiProvider", () => {
     expect(contents[2].role).toBe("user");
     expect(contents[2].parts[0]).toEqual({
       functionResponse: {
-        id: "call_abc",
         name: "file_read",
         response: { output: "file content here" },
       },
@@ -464,7 +462,6 @@ describe("GeminiProvider", () => {
     }>;
     expect(contents[0].parts[0]).toEqual({
       functionResponse: {
-        id: "unknown_id",
         name: "unknown_id",
         response: { output: "some result" },
       },

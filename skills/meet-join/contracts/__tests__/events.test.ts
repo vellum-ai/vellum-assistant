@@ -37,15 +37,17 @@ describe("contract independence", () => {
   const sourceFiles = ["../index.ts", "../events.ts", "../commands.ts"];
 
   for (const file of sourceFiles) {
-    test(`${file} does not import from assistant/ or skills/meet-join/bot/`, () => {
+    test(`${file} does not import from assistant/, bot/, or daemon/`, () => {
       const src = require("node:fs").readFileSync(
         require("node:path").resolve(__dirname, file),
         "utf-8",
       );
       expect(src).not.toMatch(/from\s+['"].*assistant\//);
       expect(src).not.toMatch(/from\s+['"].*meet-join\/bot\//);
+      expect(src).not.toMatch(/from\s+['"]\.\.\/(bot|daemon)\//);
       expect(src).not.toMatch(/require\(['"].*assistant\//);
       expect(src).not.toMatch(/require\(['"].*meet-join\/bot\//);
+      expect(src).not.toMatch(/require\(['"]\.\.\/(bot|daemon)\//);
     });
   }
 });

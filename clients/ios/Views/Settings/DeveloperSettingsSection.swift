@@ -221,7 +221,7 @@ private struct DeveloperSettingsSectionContent: View {
         _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
 
         // Invalidate auth state so LoginView doesn't see a stale
-        // .authenticated value if the user cancels the OIDC flow.
+        // .authenticated value if the user cancels the login flow.
         authManager.state = .unauthenticated
 
         // Rebuild the client so it picks up the cleared state.

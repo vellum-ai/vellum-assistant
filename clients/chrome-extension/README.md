@@ -125,7 +125,7 @@ bun install
 2. Export your extension ID(s). Include both the CWS ID (from the canonical allowlist) and your dev ID if you want both to work:
 
 ```bash
-export CWS_EXTENSION_ID=$(cat ../../meta/browser-extension/chrome-extension-allowlist.json | grep -oE '[a-p]{32}')
+export CWS_EXTENSION_ID=$(cat ../../../meta/browser-extension/chrome-extension-allowlist.json | grep -oE '[a-p]{32}')
 export DEV_EXTENSION_ID=<id from chrome://extensions>
 ```
 

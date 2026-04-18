@@ -330,7 +330,6 @@ export class GeminiProvider implements Provider {
         case "tool_use":
           parts.push({
             functionCall: {
-              id: block.id,
               name: block.name,
               args: block.input,
             },
@@ -363,7 +362,6 @@ export class GeminiProvider implements Provider {
           }
           parts.push({
             functionResponse: {
-              id: block.tool_use_id,
               name: toolCallNames.get(block.tool_use_id) ?? block.tool_use_id,
               response: { output: outputText },
             },

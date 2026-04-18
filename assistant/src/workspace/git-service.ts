@@ -939,6 +939,10 @@ export class WorkspaceGitService {
   /**
    * Write a git note to a specific commit.
    * Uses the 'vellum' notes ref to avoid conflicts with default notes.
+   *
+   * Retries once on `index.lock` errors — `git notes add` briefly holds
+   * a ref lock that can collide with concurrent git operations (e.g. a
+   * heartbeat commit racing with fire-and-forget enrichment).
    */
   async writeNote(
     commitHash: string,
@@ -946,10 +950,25 @@ export class WorkspaceGitService {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.mutex.withLock(async () => {
-      await this.execGit(
-        ["notes", "--ref=vellum", "add", "-f", "-m", noteContent, commitHash],
-        { signal },
-      );
+      const args = [
+        "notes",
+        "--ref=vellum",
+        "add",
+        "-f",
+        "-m",
+        noteContent,
+        commitHash,
+      ];
+      try {
+        await this.execGit(args, { signal });
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (!msg.includes("index.lock") && !msg.includes("Unable to create")) {
+          throw err;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+        await this.execGit(args, { signal });
+      }
     });
   }
 

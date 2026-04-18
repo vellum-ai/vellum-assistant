@@ -4,7 +4,7 @@
  *
  * The bridge subscribes to a meeting's bot-event stream via
  * {@link subscribeToMeetingEvents} (the PR 19 fan-out dispatcher). It fans
- * incoming {@link MeetBotEvent}s into three sinks:
+ * incoming {@link MeetBotEvent}s into four sinks:
  *
  *   1. **Final transcripts** (`transcript.chunk` with `isFinal === true`)
  *      are run through {@link MeetSpeakerResolver} to arbitrate Deepgram
@@ -314,11 +314,14 @@ export class MeetConversationBridge {
   ): Promise<void> {
     // Emit one short status line per join/leave so the conversation
     // stays readable — one batched summary would hide concurrent moves.
+    // Persisted as "user" with `automated: true` so untrusted participant
+    // names never carry assistant-level authority in model context.
     for (const participant of event.joined) {
-      const line = `${participant.name} joined`;
+      const safeName = sanitizeParticipantName(participant.name);
+      const line = `[Meeting] ${safeName} joined`;
       await this.insertMessage(
         this.conversationId,
-        "assistant",
+        "user",
         JSON.stringify([{ type: "text", text: line }]),
         {
           meetingId: this.meetingId,
@@ -332,10 +335,11 @@ export class MeetConversationBridge {
     }
 
     for (const participant of event.left) {
-      const line = `${participant.name} left`;
+      const safeName = sanitizeParticipantName(participant.name);
+      const line = `[Meeting] ${safeName} left`;
       await this.insertMessage(
         this.conversationId,
-        "assistant",
+        "user",
         JSON.stringify([{ type: "text", text: line }]),
         {
           meetingId: this.meetingId,
@@ -348,4 +352,15 @@ export class MeetConversationBridge {
       );
     }
   }
+}
+
+/**
+ * Strip control characters and collapse whitespace in a participant display
+ * name so it can't inject newlines, tabs, or other formatting tricks when
+ * persisted as message content. Truncated to 100 chars to bound the attack
+ * surface of absurdly long names.
+ */
+function sanitizeParticipantName(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, 100);
 }

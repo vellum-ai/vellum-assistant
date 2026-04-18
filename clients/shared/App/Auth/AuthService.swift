@@ -17,7 +17,6 @@ public final class AuthService {
         let method: String
         let body: Any?
         let headers: [String: String]
-        let retryAfterSession410: Bool
         let timeoutInterval: TimeInterval?
 
         init(
@@ -25,14 +24,12 @@ public final class AuthService {
             method: String = "GET",
             body: Any? = nil,
             headers: [String: String] = [:],
-            retryAfterSession410: Bool = false,
             timeoutInterval: TimeInterval? = nil
         ) {
             self.path = path
             self.method = method
             self.body = body
             self.headers = headers
-            self.retryAfterSession410 = retryAfterSession410
             self.timeoutInterval = timeoutInterval
         }
     }
@@ -47,82 +44,12 @@ public final class AuthService {
         }
     }
 
-    public func getConfig() async throws -> AllauthResponse<ConfigData> {
-        try await request(AuthRequestConfig(path: "config", retryAfterSession410: true))
-    }
-
     public func getSession(timeout: TimeInterval? = nil) async throws -> AllauthResponse<SessionData> {
         try await request(AuthRequestConfig(path: "auth/session", timeoutInterval: timeout))
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
         try await request(AuthRequestConfig(path: "auth/session", method: "DELETE"))
-    }
-
-    public func authenticateWithProviderToken(
-        provider: String,
-        process: String,
-        clientId: String,
-        idToken: String?,
-        accessToken: String?
-    ) async throws -> AllauthResponse<SessionData> {
-        var token: [String: String] = ["client_id": clientId]
-        if let idToken { token["id_token"] = idToken }
-        if let accessToken { token["access_token"] = accessToken }
-
-        let body: [String: Any] = [
-            "provider": provider,
-            "process": process,
-            "token": token,
-        ]
-        return try await request(AuthRequestConfig(path: "auth/provider/token", method: "POST", body: body))
-    }
-
-    public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
-        guard let requestURL = URL(string: url),
-              requestURL.scheme?.lowercased() == "https" else {
-            throw AuthServiceError.invalidURL
-        }
-        let (data, _) = try await URLSession.shared.data(from: requestURL)
-        return try JSONDecoder().decode(OIDCDiscovery.self, from: data)
-    }
-
-    public func exchangeOIDCCode(
-        tokenEndpoint: String,
-        clientId: String,
-        code: String,
-        codeVerifier: String,
-        redirectURI: String
-    ) async throws -> OIDCTokenResponse {
-        guard let url = URL(string: tokenEndpoint),
-              url.scheme?.lowercased() == "https" else {
-            throw AuthServiceError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        let params = [
-            "grant_type": "authorization_code",
-            "client_id": clientId,
-            "code": code,
-            "code_verifier": codeVerifier,
-            "redirect_uri": redirectURI,
-        ]
-        var formAllowed = CharacterSet.alphanumerics
-        formAllowed.insert(charactersIn: "-._~")
-        request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: formAllowed) ?? $0.value)" }
-            .joined(separator: "&")
-            .data(using: .utf8)
-
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let response = try JSONDecoder().decode(OIDCTokenResponse.self, from: data)
-
-        if let error = response.error {
-            throw AuthServiceError.oidcTokenExchangeFailed(response.error_description ?? error)
-        }
-        return response
     }
 
     // MARK: - Platform Organizations API
@@ -759,19 +686,10 @@ public final class AuthService {
     // MARK: - Allauth Requests
 
     private func request<T: Codable>(_ requestConfig: AuthRequestConfig) async throws -> AllauthResponse<T> {
-        var attempt = try await executeRequestAttempt(
-            requestConfig: requestConfig,
-            includeSessionToken: true
-        )
+        let attempt = try await executeRequestAttempt(requestConfig: requestConfig)
         log.debug("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
 
-        if await shouldRetryAfterSessionTokenGone(for: requestConfig, firstAttempt: attempt) {
-            attempt = try await executeRequestAttempt(
-                requestConfig: requestConfig,
-                includeSessionToken: false
-            )
-            log.debug("Auth request retry \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) -> \(attempt.statusCode, privacy: .public)")
-        }
+        await clearSessionTokenIfGone(for: requestConfig, attempt: attempt)
 
         let decoded: AllauthResponse<T>
         do {
@@ -789,29 +707,22 @@ public final class AuthService {
         return decoded
     }
 
-    private func shouldRetryAfterSessionTokenGone(
+    /// Clears the stored session token when the server responds with 410 (Gone),
+    /// indicating the token is no longer valid.
+    private func clearSessionTokenIfGone(
         for requestConfig: AuthRequestConfig,
-        firstAttempt: AuthAttemptResult
-    ) async -> Bool {
-        guard firstAttempt.statusCode == 410, firstAttempt.didSendSessionToken else {
-            return false
+        attempt: AuthAttemptResult
+    ) async {
+        guard attempt.statusCode == 410, attempt.didSendSessionToken else {
+            return
         }
 
         log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; clearing stored session token.")
         await SessionTokenManager.deleteTokenAsync()
-
-        guard requestConfig.retryAfterSession410 else {
-            log.warning("Auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) returned 410 with a session token; endpoint policy disables retry.")
-            return false
-        }
-
-        log.debug("Retrying auth request \(requestConfig.method, privacy: .public) \(requestConfig.path, privacy: .public) once without session token after 410.")
-        return true
     }
 
     private func executeRequestAttempt(
-        requestConfig: AuthRequestConfig,
-        includeSessionToken: Bool
+        requestConfig: AuthRequestConfig
     ) async throws -> AuthAttemptResult {
         let urlString = "\(VellumEnvironment.resolvedPlatformURL)/_allauth/app/v1/\(requestConfig.path)"
         guard let url = URL(string: urlString) else {
@@ -827,7 +738,7 @@ public final class AuthService {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         var didSendSessionToken = false
-        if includeSessionToken, let token = await SessionTokenManager.getTokenAsync() {
+        if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
             didSendSessionToken = true
         }
