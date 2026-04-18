@@ -201,7 +201,15 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     at: Date()
                 ))
             }
-            lastContentHeight = currentContentHeight
+            // Hold `lastContentHeight` steady across sub-threshold skips so a
+            // series of small monotonic deltas can accumulate into a single
+            // compensation once they cross the minimum — rebaselining on every
+            // jitter frame would silently swallow that drift.
+            if case .skipped(.jitterBelowThreshold) = decision {
+                // no-op: keep prior baseline
+            } else {
+                lastContentHeight = currentContentHeight
+            }
 
             let snapshot = ScrollGeometrySnapshot(
                 contentOffsetY: clipView.bounds.origin.y,
@@ -336,8 +344,17 @@ enum ScrollAnchorPreserver {
         case userLiveScrolling
         case firstLayout
         case contentHUnchanged
+        case jitterBelowThreshold
         case pinnedToLatest
     }
+
+    /// Subpixel layout oscillations (transient relayouts below the viewport,
+    /// font-metric rounding, etc.) produce tiny non-zero deltas that are
+    /// invisible to the user but still trigger `setBoundsOrigin`. Compensating
+    /// on every such delta can accumulate upward drift even when net height is
+    /// unchanged (e.g. `+0.2, -0.2, +0.2` sequences). Gate compensation on a
+    /// minimum delta magnitude so jitter is treated as noise.
+    static let minCompensationDelta: CGFloat = 1
 
     /// Outcome of a single `decide(...)` call.
     enum Decision {
@@ -370,6 +387,9 @@ enum ScrollAnchorPreserver {
         if isUserLiveScrolling { return .skipped(.userLiveScrolling) }
         if lastContentHeight <= 0 { return .skipped(.firstLayout) }
         if currentContentHeight == lastContentHeight { return .skipped(.contentHUnchanged) }
+        if abs(currentContentHeight - lastContentHeight) < Self.minCompensationDelta {
+            return .skipped(.jitterBelowThreshold)
+        }
         if contentOffsetY <= pinnedToLatestEpsilon { return .skipped(.pinnedToLatest) }
         return .applied(delta: currentContentHeight - lastContentHeight)
     }
