@@ -1085,14 +1085,20 @@ private struct ThinkingStepRow: View {
     }
 }
 
-// MARK: - Processing Dots Label (Isolated TimelineView)
+// MARK: - Processing Dots Label (Timer-based)
 
 /// Self-contained view for the processing phase label with animated dots.
-/// Extracted so the TimelineView's periodic ticks (every 0.4s) only
-/// re-evaluate this small subtree, not the entire progress card.
+/// Extracted so the periodic ticks (every 0.4s) only re-evaluate this
+/// small subtree, not the entire progress card.
+///
+/// Uses `Timer.publish` on `.main` / `.common` instead of `TimelineView`
+/// for the same reliability reasons as `ElapsedTimeLabel`.
 private struct ProcessingDotsLabel: View {
     let processingStatusText: String?
     let anchor: Date
+    @State private var now = Date()
+
+    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     var body: some View {
         let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
@@ -1103,44 +1109,56 @@ private struct ProcessingDotsLabel: View {
             "Finalizing your response",
         ]
 
-        TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(anchor))
-            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
-            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
+        let elapsed = max(0, now.timeIntervalSince(anchor))
+        let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
+        let dotPhase = max(0, Int(elapsed / 0.4) % 3)
 
-            HStack(spacing: VSpacing.xs) {
-                Text(labels[labelIndex])
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
+        HStack(spacing: VSpacing.xs) {
+            Text(labels[labelIndex])
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(dotPhase == index ? 1.0 : 0.4)
-                }
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.contentSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(dotPhase == index ? 1.0 : 0.4)
             }
+        }
+        .onReceive(timer) { date in
+            now = date
         }
     }
 }
 
-// MARK: - Elapsed Time Label (Isolated TimelineView)
+// MARK: - Elapsed Time Label (Timer-based)
 
 /// Self-contained view for the elapsed time counter.
-/// Extracted so the TimelineView's periodic ticks (every 1.0s) only
-/// re-evaluate this small subtree, not the entire progress card.
+/// Extracted so the periodic ticks (every 1.0s) only re-evaluate this
+/// small subtree, not the entire progress card.
+///
+/// Uses `Timer.publish` on `.main` / `.common` instead of `TimelineView`
+/// because `TimelineView(.periodic)` can silently stop firing on macOS
+/// when the view hierarchy is idle or during heavy layout passes, causing
+/// the elapsed counter to freeze.
 private struct ElapsedTimeLabel: View {
     let startDate: Date
+    @State private var now = Date()
+
+    private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(startDate))
+        let elapsed = max(0, now.timeIntervalSince(startDate))
+        Group {
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
+        }
+        .onReceive(timer) { date in
+            now = date
         }
     }
 }
