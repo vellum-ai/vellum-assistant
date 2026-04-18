@@ -20,7 +20,13 @@ export interface QdrantClientConfig {
 }
 
 export interface QdrantPointPayload {
-  target_type: "segment" | "item" | "summary" | "media" | "graph_node";
+  target_type:
+    | "segment"
+    | "item"
+    | "summary"
+    | "media"
+    | "graph_node"
+    | "pkb_file";
   target_id: string;
   text: string;
   kind?: string;
@@ -480,6 +486,40 @@ export class VellumQdrantClient {
         wait: true,
         filter: {
           must: [{ key: "target_type", match: { value: targetType } }],
+        },
+      });
+
+    try {
+      await doDelete();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        await doDelete();
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Delete all vectors matching both a target_type and a payload path.
+   * Used to remove every chunk belonging to a single PKB file.
+   */
+  async deleteByTargetTypeAndPath(
+    targetType: string,
+    path: string,
+  ): Promise<void> {
+    await this.ensureCollection();
+
+    const doDelete = () =>
+      this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [
+            { key: "target_type", match: { value: targetType } },
+            { key: "path", match: { value: path } },
+          ],
         },
       });
 
