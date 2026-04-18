@@ -20,7 +20,9 @@ import type { IpcRoute } from "../cli-server.js";
 // ── Param schemas ─────────────────────────────────────────────────────
 
 const CacheSetParams = z.object({
-  data: z.unknown(),
+  data: z.unknown().refine((v) => v !== undefined, {
+    message: "data is required",
+  }),
   key: z.string().min(1).optional(),
   ttl_ms: z.number().int().positive().optional(),
 });
