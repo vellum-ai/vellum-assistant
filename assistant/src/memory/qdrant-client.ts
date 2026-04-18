@@ -680,6 +680,59 @@ export class VellumQdrantClient {
     });
   }
 
+  /**
+   * Scroll over every point with a given target_type and return the requested
+   * payload fields. Handles Qdrant's cursor-based pagination internally.
+   *
+   * Used by startup reconciliation (e.g. PKB filesystem diffing) to enumerate
+   * all indexed points for a target type without loading vectors.
+   */
+  async scrollByTargetType(
+    targetType: string,
+    options?: { memoryScopeId?: string; batchSize?: number },
+  ): Promise<Array<{ id: string; payload: Record<string, unknown> }>> {
+    await this.ensureCollection();
+
+    const batchSize = options?.batchSize ?? 256;
+    const must: Array<Record<string, unknown>> = [
+      { key: "target_type", match: { value: targetType } },
+    ];
+    if (options?.memoryScopeId) {
+      must.push({
+        key: "memory_scope_id",
+        match: { value: options.memoryScopeId },
+      });
+    }
+    const filter = {
+      must,
+      must_not: [{ key: "_meta", match: { value: true } }],
+    };
+
+    const out: Array<{ id: string; payload: Record<string, unknown> }> = [];
+    let offset: string | number | undefined = undefined;
+    // Guard against a pathological pagination loop.
+    const maxIterations = 10_000;
+    for (let i = 0; i < maxIterations; i++) {
+      const result = await this.client.scroll(this.collection, {
+        filter,
+        limit: batchSize,
+        with_payload: true,
+        with_vector: false,
+        ...(offset !== undefined ? { offset } : {}),
+      });
+      for (const point of result.points) {
+        const id =
+          typeof point.id === "string" ? point.id : String(point.id);
+        const payload = (point.payload ?? {}) as Record<string, unknown>;
+        out.push({ id, payload });
+      }
+      const next = result.next_page_offset;
+      if (next == null) break;
+      offset = typeof next === "string" ? next : (next as number);
+    }
+    return out;
+  }
+
   private async findByTarget(
     targetType: string,
     targetId: string
