@@ -288,6 +288,43 @@ describe("showStandaloneSurface", () => {
     expect(completeMsg?.summary).toBe("Timed out");
   });
 
+  test("timeout still resolves when emit throws", async () => {
+    const ctx = createMockContext();
+    // Override broadcastToAllClients to throw on ui_surface_complete
+    let showEmitted = false;
+    ctx.broadcastToAllClients = (msg: ServerMessage) => {
+      const type = (msg as unknown as Record<string, unknown>).type;
+      if (type === "ui_surface_show") {
+        showEmitted = true;
+        ctx.sentMessages.push(msg);
+        return;
+      }
+      if (type === "ui_surface_complete") {
+        throw new Error("emit failed");
+      }
+    };
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "confirmation",
+        data: { message: "Quick!" },
+        timeoutMs: 50,
+      },
+      "surf-emit-err",
+    );
+
+    const result = await resultPromise;
+    expect(showEmitted).toBe(true);
+    // Despite the emit error, the promise should resolve with timed_out
+    expect(result.status).toBe("timed_out");
+    expect(result.surfaceId).toBe("surf-emit-err");
+    // Cleanup should still have happened
+    expect(ctx.pendingStandaloneSurfaces!.has("surf-emit-err")).toBe(false);
+    expect(ctx.surfaceState.has("surf-emit-err")).toBe(false);
+  });
+
   test("late action after timeout is silently dropped — not forwarded to LLM", async () => {
     const ctx = createMockContext();
     const resultPromise = showStandaloneSurface(
