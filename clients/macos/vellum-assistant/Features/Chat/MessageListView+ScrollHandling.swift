@@ -37,6 +37,14 @@ extension MessageListView {
             viewportHeight = accepted
         }
 
+        // --- Debug metrics (flag-gated — hot path pays nothing when off) ---
+        if MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") {
+            scrollState.recordDebugSnapshot(
+                offsetY: newState.contentOffsetY,
+                isLiveScrolling: newState.isLiveScrolling
+            )
+        }
+
         // --- Distance-based scroll-to-latest CTA ---
         scrollState.updateScrollToLatest()
 

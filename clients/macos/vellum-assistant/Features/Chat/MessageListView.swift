@@ -145,6 +145,13 @@ struct MessageListView: View {
                                     // shifting the offset to absorb the older
                                     // page's height would race the snap.
                                     !scrollState.isPaginationInFlight
+                                },
+                                onAnchorShift: { [scrollState] in
+                                    // Debug-only counter for anchor-preserver
+                                    // activations. Flag-gated so the hot path
+                                    // pays nothing when the overlay is off.
+                                    guard MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") else { return }
+                                    scrollState.recordDebugAnchorShift()
                                 }
                             )
                         )
@@ -180,6 +187,11 @@ struct MessageListView: View {
                     onSnapWindowToLatest?()
                     scrollPosition = ScrollPosition(edge: .top)
                 })
+            }
+            .overlay(alignment: .topTrailing) {
+                ScrollDebugOverlayView(scrollState: scrollState)
+                    .padding(.top, VSpacing.sm)
+                    .padding(.trailing, VSpacing.md)
             }
             .onAppear {
                 handleAppear()
