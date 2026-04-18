@@ -209,15 +209,14 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     at: Date()
                 ))
             }
-            // Hold `lastContentHeight` steady across sub-threshold skips so a
-            // series of small monotonic deltas can accumulate into a single
-            // compensation once they cross the minimum — rebaselining on every
-            // jitter frame would silently swallow that drift.
-            if case .skipped(.jitterBelowThreshold) = decision {
-                // no-op: keep prior baseline
-            } else {
-                lastContentHeight = currentContentHeight
-            }
+            // Advance the baseline on every emit, including jitter-skipped
+            // frames. Leaving the baseline stale on a sub-threshold skip lets
+            // subsequent bounds/scroll notifications (which don't change the
+            // document height) still compute a non-zero `contentHDelta` against
+            // the old baseline, producing inflated `onAnchorDecision` events
+            // and false "missed compensation" entries in the debug overlay's
+            // CSV. The SKIP decision itself is unchanged — only the bookkeeping.
+            lastContentHeight = currentContentHeight
 
             let snapshot = ScrollGeometrySnapshot(
                 contentOffsetY: clipView.bounds.origin.y,
