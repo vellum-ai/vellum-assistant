@@ -499,15 +499,20 @@ Examples:
         const confirmed = r.status === "submitted" && r.actionId === "confirm";
 
         if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              confirmed,
-              status: r.status,
-              actionId: r.actionId,
-              surfaceId: r.surfaceId,
-            }) + "\n",
-          );
+          const jsonOut: Record<string, unknown> = {
+            ok: true,
+            confirmed,
+            status: r.status,
+            actionId: r.actionId,
+            surfaceId: r.surfaceId,
+          };
+          if (r.decisionToken !== undefined) {
+            jsonOut.decisionToken = r.decisionToken;
+          }
+          if (r.summary !== undefined) {
+            jsonOut.summary = r.summary;
+          }
+          process.stdout.write(JSON.stringify(jsonOut) + "\n");
         } else {
           if (confirmed) {
             log.info("Confirmed.");

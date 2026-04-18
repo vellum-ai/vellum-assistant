@@ -449,6 +449,79 @@ describe("ui confirm — JSON output", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed).toEqual({ ok: false, error: "Daemon not running" });
   });
+
+  test("includes decisionToken in JSON output when present", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        status: "submitted",
+        actionId: "confirm",
+        surfaceId: "s-token",
+        decisionToken: "eyJ0ZXN0IjoidG9rZW4ifQ.abc123",
+      },
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.decisionToken).toBe("eyJ0ZXN0IjoidG9rZW4ifQ.abc123");
+  });
+
+  test("includes summary in JSON output when present", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        status: "submitted",
+        actionId: "confirm",
+        surfaceId: "s-summary",
+        summary: "User confirmed deployment",
+      },
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.summary).toBe("User confirmed deployment");
+  });
+
+  test("omits decisionToken and summary from JSON when absent", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        status: "submitted",
+        actionId: "confirm",
+        surfaceId: "s-no-extras",
+      },
+    };
+
+    const { stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--json",
+    ]);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.decisionToken).toBeUndefined();
+    expect(parsed.summary).toBeUndefined();
+    expect("decisionToken" in parsed).toBe(false);
+    expect("summary" in parsed).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

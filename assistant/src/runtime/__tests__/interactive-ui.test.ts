@@ -289,10 +289,10 @@ describe("surfaceId handling", () => {
 // ── Decision token minting ──────────────────────────────────────────
 
 describe("decision token", () => {
-  test("mints token for submitted confirmation request", async () => {
+  test("mints token for affirmative confirm action", async () => {
     registerInteractiveUiResolver(async () => ({
       status: "submitted",
-      actionId: "approve",
+      actionId: "confirm",
       surfaceId: "confirm-surface-1",
     }));
 
@@ -311,12 +311,30 @@ describe("decision token", () => {
     expect(payload).not.toBeNull();
     expect(payload!.conversationId).toBe("conv-token-1");
     expect(payload!.surfaceId).toBe("confirm-surface-1");
-    expect(payload!.action).toBe("approve");
+    expect(payload!.action).toBe("confirm");
     expect(payload!.issuedAt).toBeString();
     expect(payload!.expiresAt).toBeString();
   });
 
-  test("token encodes actionId when present", async () => {
+  test("does not mint token for non-confirm actionId (e.g. approve)", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "approve",
+      surfaceId: "approve-surface",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-token-approve",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("submitted");
+    expect(result.actionId).toBe("approve");
+    expect(result.decisionToken).toBeUndefined();
+  });
+
+  test("does not mint token for deny action on confirmation", async () => {
     registerInteractiveUiResolver(async () => ({
       status: "submitted",
       actionId: "deny",
@@ -324,16 +342,17 @@ describe("decision token", () => {
     }));
 
     const result = await requestInteractiveUi({
-      conversationId: "conv-token-action",
+      conversationId: "conv-token-deny",
       surfaceType: "confirmation",
       data: {},
     });
 
-    const payload = decodeDecisionToken(result.decisionToken!);
-    expect(payload!.action).toBe("deny");
+    expect(result.status).toBe("submitted");
+    expect(result.actionId).toBe("deny");
+    expect(result.decisionToken).toBeUndefined();
   });
 
-  test("token uses 'submitted' as action when actionId is absent", async () => {
+  test("does not mint token when actionId is absent on confirmation", async () => {
     registerInteractiveUiResolver(async () => ({
       status: "submitted",
       surfaceId: "no-action-surface",
@@ -345,14 +364,14 @@ describe("decision token", () => {
       data: {},
     });
 
-    const payload = decodeDecisionToken(result.decisionToken!);
-    expect(payload!.action).toBe("submitted");
+    expect(result.status).toBe("submitted");
+    expect(result.decisionToken).toBeUndefined();
   });
 
   test("token has expiry in the future", async () => {
     registerInteractiveUiResolver(async () => ({
       status: "submitted",
-      actionId: "ok",
+      actionId: "confirm",
       surfaceId: "expiry-surface",
     }));
 
@@ -424,7 +443,7 @@ describe("decision token", () => {
   test("each minted token is unique", async () => {
     registerInteractiveUiResolver(async () => ({
       status: "submitted",
-      actionId: "ok",
+      actionId: "confirm",
       surfaceId: "unique-surface",
     }));
 

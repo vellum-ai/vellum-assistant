@@ -217,10 +217,13 @@ function emitAuditLog(
  * Fails closed: when no resolver is registered (headless, tests without
  * setup), returns `{ status: "cancelled", surfaceId }` immediately.
  *
- * When the surface type is `"confirmation"` and the user submits, a
- * short-lived informational decision token is minted and attached to
- * the result. The token is non-authoritative — see
- * {@link mintDecisionToken} for details.
+ * When the surface type is `"confirmation"` and the user selects the
+ * `"confirm"` action, a short-lived informational decision token is
+ * minted and attached to the result. Deny actions and other non-confirm
+ * outcomes do not receive a token. If token minting fails, the user's
+ * decision is still returned as `submitted` (the token is best-effort).
+ * The token is non-authoritative — see {@link mintDecisionToken} for
+ * details.
  *
  * Structured audit logs are emitted for all terminal outcomes
  * (`submitted`, `cancelled`, `timed_out`).
@@ -260,18 +263,26 @@ export async function requestInteractiveUi(
       surfaceId: finalSurfaceId,
     };
 
-    // Mint an informational decision token for submitted confirmation
-    // requests. The token encodes the decision metadata and is
-    // short-lived (5 minutes). It is non-authoritative in v1.
+    // Mint an informational decision token only for affirmative
+    // confirmation actions. The token is short-lived (5 minutes) and
+    // non-authoritative in v1. Deny/cancel/timeout do not receive tokens.
     if (
       result.status === "submitted" &&
-      request.surfaceType === "confirmation"
+      request.surfaceType === "confirmation" &&
+      result.actionId === "confirm"
     ) {
-      result.decisionToken = mintDecisionToken({
-        conversationId: request.conversationId,
-        surfaceId: finalSurfaceId,
-        action: result.actionId ?? "submitted",
-      });
+      try {
+        result.decisionToken = mintDecisionToken({
+          conversationId: request.conversationId,
+          surfaceId: finalSurfaceId,
+          action: result.actionId,
+        });
+      } catch (tokenErr) {
+        log.warn(
+          { err: tokenErr, surfaceId: finalSurfaceId },
+          "interactive-ui: failed to mint decision token; continuing without it",
+        );
+      }
     }
 
     emitAuditLog(request, result);
