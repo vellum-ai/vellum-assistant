@@ -266,6 +266,7 @@ struct ConversationListView: View {
                     conversationList
                         .navigationDestination(for: UUID.self) { conversationLocalId in
                             conversationDetailContent(for: conversationLocalId)
+                                .toolbar(.hidden, for: .tabBar)
                         }
                 }
             }
