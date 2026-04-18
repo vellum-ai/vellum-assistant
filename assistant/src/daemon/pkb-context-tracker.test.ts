@@ -1,5 +1,4 @@
 import path from "node:path";
-
 import { describe, expect, test } from "bun:test";
 
 import type { ContentBlock, Message } from "../providers/types.js";
