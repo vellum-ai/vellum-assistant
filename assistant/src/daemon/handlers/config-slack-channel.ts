@@ -42,7 +42,13 @@ export interface SlackChannelConfigResult {
 
 // -- Helpers --
 
-const SLACK_ALLOWED_DOMAINS = ["*.slack.com"];
+// Registrable-domain entry. `isDomainAllowed` resolves this through
+// `normalizeDomain`, which only accepts DNS-label syntax (no `*`) and already
+// grants subdomains of the registrable domain — so `slack.com` here covers
+// `files.slack.com`, `files-edge.slack.com`, etc. Wildcards live in
+// `SLACK_INJECTION_TEMPLATES[].hostPattern` below, which is matched by the
+// separate `matchHostPattern` system used by the outbound proxy.
+const SLACK_ALLOWED_DOMAINS = ["slack.com"];
 
 const SLACK_INJECTION_TEMPLATES = [
   {
@@ -72,27 +78,17 @@ function ensureUserTokenInjectionTemplates(): void {
 /**
  * Whether a credential metadata record needs its Slack injection config
  * refreshed. True when templates are missing/empty or still carry the
- * pre-wildcard `slack.com` host pattern (which only matched the apex and
- * left `files.slack.com` file downloads unauthenticated), or when
- * `allowedDomains` hasn't been migrated to the wildcard form.
+ * pre-wildcard `slack.com` host pattern, which only matched the apex and
+ * left `files.slack.com` file downloads unauthenticated by the outbound
+ * proxy.
  */
 function needsSlackInjectionRefresh(meta: {
   injectionTemplates?: { hostPattern: string }[];
-  allowedDomains?: string[];
 }): boolean {
   const templates = meta.injectionTemplates;
   if (!templates || templates.length === 0) return true;
-  if (
-    templates.some((tpl) =>
-      SLACK_INJECTION_TEMPLATES.every((t) => t.hostPattern !== tpl.hostPattern),
-    )
-  ) {
-    return true;
-  }
-  const domains = meta.allowedDomains ?? [];
-  return (
-    domains.length !== SLACK_ALLOWED_DOMAINS.length ||
-    SLACK_ALLOWED_DOMAINS.some((d) => !domains.includes(d))
+  return templates.some((tpl) =>
+    SLACK_INJECTION_TEMPLATES.every((t) => t.hostPattern !== tpl.hostPattern),
   );
 }
 

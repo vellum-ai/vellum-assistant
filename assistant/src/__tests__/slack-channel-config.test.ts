@@ -431,7 +431,7 @@ describe("Slack channel config handler", () => {
     // Metadata has injection templates for the user token.
     const meta = getCredentialMetadata("slack_channel", "user_token");
     expect(meta).toBeDefined();
-    expect(meta?.allowedDomains).toEqual(["*.slack.com"]);
+    expect(meta?.allowedDomains).toEqual(["slack.com"]);
     expect(meta?.injectionTemplates).toBeDefined();
     expect(meta?.injectionTemplates?.length ?? 0).toBeGreaterThan(0);
     expect(meta?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
@@ -953,9 +953,9 @@ describe("Slack channel config handler", () => {
 
   test("backfill upgrades stale slack.com exact-match injection templates to the wildcard form", async () => {
     // Simulate an existing install that stored credentials before the
-    // wildcard migration: bot + user tokens carry the legacy hostPattern
-    // and allowedDomains, which left files.slack.com downloads
-    // unauthenticated by the outbound proxy.
+    // wildcard migration: bot + user tokens carry the legacy hostPattern,
+    // which left files.slack.com downloads unauthenticated by the
+    // outbound proxy.
     await Promise.all([
       setSecureKeyAsync(
         credentialKey("slack_channel", "bot_token"),
@@ -993,7 +993,7 @@ describe("Slack channel config handler", () => {
 
     for (const field of ["bot_token", "user_token"] as const) {
       const meta = getCredentialMetadata("slack_channel", field);
-      expect(meta?.allowedDomains).toEqual(["*.slack.com"]);
+      expect(meta?.allowedDomains).toEqual(["slack.com"]);
       expect(meta?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
     }
   });
@@ -1004,7 +1004,7 @@ describe("Slack channel config handler", () => {
       "xoxb-current",
     );
     upsertCredentialMetadata("slack_channel", "bot_token", {
-      allowedDomains: ["*.slack.com"],
+      allowedDomains: ["slack.com"],
       injectionTemplates: [
         {
           hostPattern: "*.slack.com",
@@ -1021,7 +1021,7 @@ describe("Slack channel config handler", () => {
 
     const after = getCredentialMetadata("slack_channel", "bot_token");
     expect(after?.updatedAt).toBe(beforeUpdatedAt);
-    expect(after?.allowedDomains).toEqual(["*.slack.com"]);
+    expect(after?.allowedDomains).toEqual(["slack.com"]);
     expect(after?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
   });
 });
