@@ -44,6 +44,7 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from "./job-utils.js";
+import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -419,6 +420,9 @@ async function processJob(
       return;
     case "embed_graph_node":
       await embedGraphNodeJob(job, config);
+      return;
+    case "embed_pkb_file":
+      await embedPkbFileJob(job, config);
       return;
     case "graph_trigger_embed":
       await embedGraphTriggerJob(job, config);
