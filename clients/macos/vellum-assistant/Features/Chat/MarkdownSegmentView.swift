@@ -443,8 +443,15 @@ struct MarkdownSegmentView: View, Equatable {
         // the next render will rebuild from scratch, which may succeed.
         // Also skip caching while this is the streaming tail: the value is
         // for an intermediate state that may not match the final content.
+        // And never cache a collapsed (zero-height) measurement: the
+        // environment can briefly deliver a zero `effectiveMaxWidth` during
+        // the first LazyVStack layout, and persisting that result would
+        // leave the cell collapsed and stacked under its neighbor.
         let textLen = Self.segmentTextLength(runSegments)
-        if !isStreamingTail && !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
+        if size.height > 0
+            && !isStreamingTail
+            && !hasUnresolvedEmphasis
+            && textLen <= Self.maxCacheableTextLength {
             Self.measuredTextCache.setObject(
                 MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
                 forKey: keyNS,

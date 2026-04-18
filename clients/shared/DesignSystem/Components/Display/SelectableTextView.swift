@@ -129,6 +129,15 @@ public struct VSelectableTextView: NSViewRepresentable {
         lineSpacing: CGFloat,
         maxWidth: CGFloat
     ) -> CGSize {
+        // `bubbleMaxWidth` can be 0 during the first LazyVStack layout pass
+        // before GeometryReader resolves the chat column width. Refuse
+        // degenerate inputs and do not cache — caching (0,0) would collapse
+        // the frame and, via the sibling measuredTextCache in
+        // MarkdownSegmentView, keep the cell collapsed on subsequent passes.
+        guard maxWidth > 0, attributedString.length > 0 else {
+            return .zero
+        }
+
         let key = MeasurementKey(
             attributedString: attributedString,
             maxWidth: maxWidth,
@@ -161,10 +170,14 @@ public struct VSelectableTextView: NSViewRepresentable {
             height: ceil(usedRect.height)
         )
 
-        if measurementSizeCache.count >= measurementCacheLimit {
-            measurementSizeCache.removeAll(keepingCapacity: true)
+        // Skip persisting a collapsed measurement so a transient bad input
+        // cannot poison later queries at the same key.
+        if size.height > 0 {
+            if measurementSizeCache.count >= measurementCacheLimit {
+                measurementSizeCache.removeAll(keepingCapacity: true)
+            }
+            measurementSizeCache[key] = size
         }
-        measurementSizeCache[key] = size
         return size
     }
 

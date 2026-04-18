@@ -208,6 +208,36 @@ final class MarkdownSegmentViewTests: XCTestCase {
         )
     }
 
+    /// `bubbleMaxWidth` is 0 during the first LazyVStack pass, before the
+    /// chat column's width resolves. A collapsed measurement must NOT be
+    /// cached at either the `measuredTextCache` or
+    /// `VSelectableTextView.measurementSizeCache` layer — caching (0,0)
+    /// would leave the cell stacked under its neighbor and cause the
+    /// multi-message overlap seen in practice.
+    func testZeroWidthReturnsZeroSizeWithoutPoisoningCaches() {
+        let segments = parseMarkdownSegments("a long enough run of text to wrap")
+        let view = MarkdownSegmentView(segments: segments, maxContentWidth: 0)
+        let result = view.resolveSelectableRunMeasurementResult(segments)
+
+        XCTAssertEqual(result.size.height, 0)
+        XCTAssertEqual(
+            MarkdownSegmentView._measuredTextCacheInsertCount,
+            0,
+            "Zero-height measurement must not populate the measured text cache"
+        )
+
+        // Now re-measure at a real width. Because nothing poisoned the
+        // caches, this must produce a non-zero height and populate the
+        // measured text cache exactly once.
+        let resolvedView = MarkdownSegmentView(
+            segments: segments,
+            maxContentWidth: VSpacing.chatBubbleMaxWidth
+        )
+        let resolved = resolvedView.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertGreaterThan(resolved.size.height, 0)
+        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
+    }
+
     func testWarmupRefreshClearsRenderCachesAndForcesRebuild() {
         let segments = parseMarkdownSegments("*warmup cache reset*")
         let key = "*warmup cache reset*" as NSString
