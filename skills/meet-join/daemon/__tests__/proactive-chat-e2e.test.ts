@@ -549,8 +549,11 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
       expect(blocks[0]!.type).toBe("tool_use");
       expect(blocks[0]!.name).toBe("meet_send_chat");
 
-      // Performance envelope — generous headroom for CI runners.
-      expect(elapsedMs).toBeLessThan(2000);
+      // Performance envelope — tight enough to catch real regressions but
+      // loose enough to tolerate slow CI runners. The underlying fake-LLM
+      // path completes well under 100ms on developer hardware; 500ms is a
+      // 5x headroom that flags genuine perf drift without flaking.
+      expect(elapsedMs).toBeLessThan(500);
 
       detector.dispose();
     } finally {
