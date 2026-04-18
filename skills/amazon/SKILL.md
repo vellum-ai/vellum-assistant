@@ -9,12 +9,11 @@ metadata:
     includes: ["browser"]
 ---
 
-Use browser automation for all Amazon actions. Use helper scripts with `host_bash` to normalize extraction results and decide the next step.
+Use browser automation for all Amazon actions. All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`. Use helper scripts with `host_bash` to normalize extraction results and decide the next step.
 
 ## Required tools
 
-- Browser tools: `browser_navigate`, `browser_snapshot`, `browser_extract`, `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_select_option`, `browser_screenshot`, `browser_fill_credential`, `browser_wait_for`.
-- Host tool: `host_bash` for deterministic helper scripts under `scripts/`.
+- `host_bash` for `assistant browser` CLI commands and deterministic helper scripts under `scripts/`.
 
 ## Hard constraints
 
@@ -38,15 +37,15 @@ Use the returned `step` to route to one of: `search`, `variant_select`, `cart_re
 
 1. Navigate to search results page:
 
-```text
-browser_navigate { "url": "https://www.amazon.com/s?k=<urlencoded query>" }
+```bash
+assistant browser --session amazon navigate --url "https://www.amazon.com/s?k=<urlencoded query>"
 ```
 
 2. Capture current state:
 
-```text
-browser_snapshot {}
-browser_extract { "include_links": true }
+```bash
+assistant browser --session amazon --json snapshot
+assistant browser --session amazon --json extract --include-links
 ```
 
 3. Parse candidates deterministically:
@@ -74,10 +73,10 @@ bun {baseDir}/scripts/amazon-parse-product.ts --input-json '<json payload with e
 1. Click Add to Cart on product page.
 2. Navigate to cart page and extract:
 
-```text
-browser_navigate { "url": "https://www.amazon.com/gp/cart/view.html" }
-browser_snapshot {}
-browser_extract { "include_links": true }
+```bash
+assistant browser --session amazon navigate --url "https://www.amazon.com/gp/cart/view.html"
+assistant browser --session amazon --json snapshot
+assistant browser --session amazon --json extract --include-links
 ```
 
 3. Parse cart summary:
@@ -103,10 +102,10 @@ If slot cannot be verified after retries, stop and ask user to choose slot manua
 1. Navigate to checkout review page.
 2. Snapshot, extract, and capture a full-page screenshot:
 
-```text
-browser_snapshot {}
-browser_extract { "include_links": false }
-browser_screenshot { "full_page": true }
+```bash
+assistant browser --session amazon --json snapshot
+assistant browser --session amazon --json extract
+assistant browser --session amazon screenshot --full-page --output /tmp/amazon-checkout.jpg
 ```
 
 3. Validate readiness:
@@ -128,7 +127,7 @@ Immediately before clicking final submit button:
 ## Retry and fallback policy
 
 - Retry budget: 3 attempts per step that mutates page state.
-- After each mutation, run a fresh `browser_snapshot` before the next click/type.
+- After each mutation, run a fresh `assistant browser --session amazon --json snapshot` before the next click/type.
 - If a step fails 3 times, stop and ask user to complete that step manually, then resume.
 
 ## Example helper payload shape
