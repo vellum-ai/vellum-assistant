@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { config as dotenvConfig } from "dotenv";
 
 import type { BackupWorkerHandle } from "../backup/backup-worker.js";
@@ -818,6 +820,25 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Graph bootstrap check failed — continuing");
       }
+
+      // Reconcile the PKB Qdrant index against the on-disk tree. Runs after
+      // Qdrant is ready so the scroll query can succeed; fire-and-forget so
+      // enqueued re-index jobs drain in the background and first-turn latency
+      // stays unaffected.
+      void (async () => {
+        try {
+          const { reconcilePkbIndex } = await import(
+            "../memory/pkb/pkb-reconcile.js"
+          );
+          const pkbRoot = join(getWorkspaceDir(), "pkb");
+          await reconcilePkbIndex(pkbRoot, "default");
+        } catch (err) {
+          log.warn(
+            { err },
+            "PKB index reconciliation failed — continuing startup",
+          );
+        }
+      })();
     }
 
     registerWatcherProviders();
