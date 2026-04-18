@@ -371,6 +371,34 @@ describe("static credential storage compatibility", () => {
     });
   });
 
+  describe("canonical capability key storage", () => {
+    test("stores credential with canonical assistant_browser_fill_credential key", () => {
+      const created = store.upsert("github", "token", {
+        allowedTools: ["assistant_browser_fill_credential"],
+      });
+
+      const result = store.getByServiceField("github", "token");
+      expect(result).toBeDefined();
+      expect(result!.credentialId).toBe(created.credentialId);
+      expect(result!.allowedTools).toEqual([
+        "assistant_browser_fill_credential",
+      ]);
+    });
+
+    test("legacy browser_fill_credential metadata is preserved on read", () => {
+      const created = store.upsert("github", "pat", {
+        allowedTools: ["browser_fill_credential"],
+      });
+
+      const result = store.getByServiceField("github", "pat");
+      expect(result).toBeDefined();
+      expect(result!.credentialId).toBe(created.credentialId);
+      // The raw stored value is returned unchanged — alias resolution
+      // happens at policy-check time, not at storage time.
+      expect(result!.allowedTools).toEqual(["browser_fill_credential"]);
+    });
+  });
+
   describe("path management", () => {
     test("setPath changes the metadata file location", () => {
       store.upsert("github", "token");

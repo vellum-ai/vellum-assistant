@@ -56,6 +56,7 @@ import {
   _setMetadataPath,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { BROWSER_FILL_CAPABILITY } from "../tools/credentials/tool-policy.js";
 
 afterAll(() => {
   mock.restore();
@@ -594,6 +595,115 @@ describe("CredentialBroker.browserFill", () => {
       });
       expect(r3.success).toBe(true);
       expect(filled3).toBe("gl_tok");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Canonical capability key and legacy alias regression
+  // ---------------------------------------------------------------------------
+
+  describe("canonical capability key and legacy alias", () => {
+    test("credential restricted to canonical key authorizes browser fill", async () => {
+      upsertCredentialMetadata("github", "token", {
+        allowedTools: [BROWSER_FILL_CAPABILITY],
+      });
+      await setSecureKeyAsync(
+        credentialKey("github", "token"),
+        "ghp_canonical",
+      );
+
+      let filledValue: string | undefined;
+      const result = await broker.browserFill({
+        service: "github",
+        field: "token",
+        toolName: BROWSER_FILL_CAPABILITY,
+        fill: async (v) => {
+          filledValue = v;
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(filledValue).toBe("ghp_canonical");
+    });
+
+    test("legacy browser_fill_credential metadata authorizes canonical capability key", async () => {
+      // Stored with legacy tool name — simulates existing metadata on disk
+      upsertCredentialMetadata("github", "pat", {
+        allowedTools: ["browser_fill_credential"],
+      });
+      await setSecureKeyAsync(credentialKey("github", "pat"), "ghp_legacy");
+
+      let filledValue: string | undefined;
+      const result = await broker.browserFill({
+        service: "github",
+        field: "pat",
+        toolName: BROWSER_FILL_CAPABILITY,
+        fill: async (v) => {
+          filledValue = v;
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(filledValue).toBe("ghp_legacy");
+    });
+
+    test("canonical key in metadata authorizes legacy browser_fill_credential requests", async () => {
+      upsertCredentialMetadata("gitlab", "token", {
+        allowedTools: [BROWSER_FILL_CAPABILITY],
+      });
+      await setSecureKeyAsync(credentialKey("gitlab", "token"), "gl_mixed");
+
+      let filledValue: string | undefined;
+      const result = await broker.browserFill({
+        service: "gitlab",
+        field: "token",
+        toolName: "browser_fill_credential",
+        fill: async (v) => {
+          filledValue = v;
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(filledValue).toBe("gl_mixed");
+    });
+
+    test("empty allowedTools still fails closed with canonical key", async () => {
+      upsertCredentialMetadata("github", "token", { allowedTools: [] });
+      await setSecureKeyAsync(credentialKey("github", "token"), "ghp_no_tools");
+
+      const result = await broker.browserFill({
+        service: "github",
+        field: "token",
+        toolName: BROWSER_FILL_CAPABILITY,
+        fill: async () => {
+          throw new Error("should not be called");
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain("No tools are currently allowed");
+    });
+
+    test("incorrect allowlist denies canonical key (fail closed)", async () => {
+      upsertCredentialMetadata("github", "token", {
+        allowedTools: ["some_other_tool"],
+      });
+      await setSecureKeyAsync(
+        credentialKey("github", "token"),
+        "ghp_wrong_tool",
+      );
+
+      const result = await broker.browserFill({
+        service: "github",
+        field: "token",
+        toolName: BROWSER_FILL_CAPABILITY,
+        fill: async () => {
+          throw new Error("should not be called");
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain("not allowed");
     });
   });
 });
