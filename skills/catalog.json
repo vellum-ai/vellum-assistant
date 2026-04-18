@@ -159,21 +159,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "influencer",
-      "name": "influencer",
-      "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
-      "metadata": {
-        "emoji": "🔍",
-        "vellum": {
-          "display-name": "Influencer Research",
-          "includes": [
-            "browser"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "inbox-cleanup",
       "name": "inbox-cleanup",
       "description": "Run a high-recall, multi-pass email inbox cleanup. Pattern-based subject queries catch 25x more archivable email than sender scans alone. Includes urgency triage, classification signals, and post-cleanup filter setup.",
@@ -189,6 +174,21 @@
           "avoid-when": [
             "When the user wants to read, send, or draft a specific email",
             "When the user is setting up email OAuth or connecting a new provider"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "influencer",
+      "name": "influencer",
+      "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
+      "metadata": {
+        "emoji": "🔍",
+        "vellum": {
+          "display-name": "Influencer Research",
+          "includes": [
+            "browser"
           ]
         }
       },
@@ -271,6 +271,19 @@
         "emoji": "💍",
         "vellum": {
           "display-name": "Oura Ring Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "outlook",
+      "name": "outlook",
+      "description": "Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📧",
+        "vellum": {
+          "display-name": "Outlook",
+          "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
