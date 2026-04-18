@@ -4530,8 +4530,8 @@ describe("Permission Checker", () => {
   });
 
   // ── browser tool permission baselines ─────────────────────────────
-  // Representative browser tools are RiskLevel.Low and auto-allowed by
-  // default rules in strict mode.
+  // Browser tools are RiskLevel.Low and prompt in strict mode (no
+  // default allow rules).
 
   describe("browser tool permission baselines", () => {
     const browserToolNames = [
@@ -4588,12 +4588,12 @@ describe("Permission Checker", () => {
       }
     });
 
-    test("browser tools are auto-allowed in strict mode via default allow rules", async () => {
+    test("browser tools prompt in strict mode (no default allow rules)", async () => {
       testConfig.permissions = { mode: "strict" };
       try {
         for (const toolName of browserToolNames) {
           const result = await check(toolName, {}, "/tmp");
-          expect(result.decision).toBe("allow");
+          expect(result.decision).toBe("prompt");
         }
       } finally {
         testConfig.permissions = { mode: "workspace" };
@@ -4624,15 +4624,15 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── default allow: browser tools ──────────────────────────────
+  // ── browser tools: no default allow ──────────────────────────────
 
-  describe("default allow: browser tools", () => {
+  describe("browser tools: no default allow", () => {
     beforeEach(() => {
       clearCache();
       testConfig.permissions = { mode: "strict" };
     });
 
-    test("all browser tools are allowed by default rules in strict mode", async () => {
+    test("browser tools prompt in strict mode (no default allow rules)", async () => {
       const browserTools = [
         "browser_navigate",
         "browser_snapshot",
@@ -4651,22 +4651,22 @@ describe("Permission Checker", () => {
 
       for (const tool of browserTools) {
         const result = await check(tool, {}, "/tmp");
-        expect(result.decision).toBe("allow");
+        expect(result.decision).toBe("prompt");
       }
     });
 
-    test("browser_navigate with a real URL is allowed in strict mode", async () => {
+    test("browser_navigate with a real URL prompts in strict mode", async () => {
       const result = await check(
         "browser_navigate",
         { url: "https://example.com/path/to/page" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
+      expect(result.decision).toBe("prompt");
     });
 
     test("non-browser skill tools are NOT auto-allowed", async () => {
       // skill_test_tool is a registered skill-origin tool without a default
-      // allow rule — it should prompt in strict mode.
+      // allow rule -- it should prompt in strict mode.
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).not.toBe("allow");
     });
