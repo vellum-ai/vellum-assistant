@@ -167,11 +167,13 @@ describe("provider operations", () => {
       expect(row!.tokenExchangeUrl).toBe(
         "https://github.com/login/oauth/access_token-v2",
       );
-      // User-customizable fields (baseUrl, defaultScopes, scopePolicy) are
-      // preserved from the original insert — not overwritten on re-seed.
+      // User-customizable fields (baseUrl, scopePolicy) are preserved from
+      // the original insert — not overwritten on re-seed.
       expect(row!.baseUrl).toBe("https://api.github.com");
-      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo"]);
       expect(JSON.parse(row!.scopePolicy)).toEqual({});
+      // defaultScopes ARE overwritten on re-seed so upstream scope additions
+      // propagate to existing installations.
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user"]);
       // createdAt should be preserved from the original insert
       expect(row!.createdAt).toBe(originalCreatedAt);
     });
@@ -266,8 +268,9 @@ describe("provider operations", () => {
       const row = getProvider("github");
       expect(row).toBeDefined();
 
-      // User-customizable fields should retain their manual values
-      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user", "gist"]);
+      // defaultScopes are overwritten by the seed data (not user-customizable)
+      expect(JSON.parse(row!.defaultScopes)).toEqual(["repo-only"]);
+      // scopePolicy is user-customizable and should retain manual values
       expect(JSON.parse(row!.scopePolicy)).toEqual({
         required: ["repo"],
         allowAdditionalScopes: true,
@@ -398,7 +401,7 @@ describe("provider operations", () => {
 
       // Re-seed with a different refreshUrl — it should be overwritten,
       // proving refreshUrl is in the onConflictDoUpdate set clause (not
-      // preserved like defaultScopes).
+      // preserved like scopePolicy).
       seedProviders([
         {
           provider: "test-provider",
@@ -520,7 +523,7 @@ describe("provider operations", () => {
 
       // Re-seed with a different revokeUrl — it should be overwritten,
       // proving revokeUrl is in the onConflictDoUpdate set clause (not
-      // preserved like defaultScopes).
+      // preserved like scopePolicy).
       seedProviders([
         {
           provider: "test-provider",
