@@ -366,8 +366,8 @@
       "scope": "macos",
       "key": "message-height-cache",
       "label": "Message Height Cache",
-      "description": "Cache each transcript row's measured height and pin its frame height to the cached value on subsequent renders. Fixes LazyVStack contentH estimate drift that causes jerky scroll at the top of long conversations. Experimental — may clip rows whose content changes after first measurement.",
-      "defaultEnabled": false
+      "description": "Render the transcript with a plain VStack instead of LazyVStack so scrollContentHeight is always the true sum of row heights. Fixes the estimator drift that caused jerky scroll near the top of a conversation. Tradeoff: eager layout, slower first paint on very long conversations.",
+      "defaultEnabled": true
     }
   ]
 }
