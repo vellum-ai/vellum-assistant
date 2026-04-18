@@ -6,6 +6,8 @@
  * keeping the constructor body focused on wiring.
  */
 
+import { browserToolNameToOperation } from "../browser/identifiers.js";
+import { executeBrowserOperation } from "../browser/operations.js";
 import {
   type HostProxyCapability,
   type InterfaceId,
@@ -37,6 +39,7 @@ import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllToolDefinitions,
   getMcpToolDefinitions,
+  getTool,
 } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -301,6 +304,31 @@ export function createToolExecutor(
             'Error: skill_execute requires a "tool" parameter with the tool name',
           isError: true,
         };
+      }
+
+      // Legacy browser bridge: when a conversation history still contains
+      // skill_execute(tool="browser_*") calls but the browser_* wrapper
+      // tools have been removed from the registry, route directly through
+      // the canonical browser operations layer so old conversations keep
+      // working after wrapper removal.
+      const browserOp = browserToolNameToOperation(toolName);
+      if (browserOp && !getTool(toolName)) {
+        log.info(
+          { toolName, operation: browserOp },
+          "Bridging legacy skill_execute browser call to executeBrowserOperation",
+        );
+        const result = await executeBrowserOperation(
+          browserOp,
+          toolInput,
+          toolContext,
+        );
+
+        runPostExecutionSideEffects(toolName, toolInput, result, {
+          ctx,
+          broadcastToAllClients,
+        });
+
+        return result;
       }
 
       const result = await executor.execute(toolName, toolInput, toolContext);
