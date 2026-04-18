@@ -59,6 +59,7 @@ import {
   createPrivacyConfigPatchHandler,
 } from "./http/routes/privacy-config.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
+import { createCloudOAuthTokenHandler } from "./http/routes/cloud-oauth-token.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
@@ -328,6 +329,7 @@ async function main() {
   const pairingProxy = createPairingProxyHandler(config);
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
+  const cloudOAuthTokenHandler = createCloudOAuthTokenHandler();
   const telegramControlPlaneProxy =
     createTelegramControlPlaneProxyHandler(config);
   const vercelControlPlaneProxy = createVercelControlPlaneProxyHandler(config);
@@ -632,6 +634,14 @@ async function main() {
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
+    },
+
+    // ── Cloud OAuth token minting (Chrome extension) ──
+    {
+      path: "/v1/internal/oauth/chrome-extension/token",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => cloudOAuthTokenHandler.handleMintToken(req),
     },
 
     // ── Channel verification sessions ──
