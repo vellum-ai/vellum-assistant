@@ -178,7 +178,20 @@ struct InferenceServiceCard: View {
             draftMode = store.inferenceMode
             draftModel = store.selectedModel
             initialModel = store.selectedModel
+            // Mirror the store-sync pattern used in
+            // onChange(of: store.selectedInferenceProvider): flag the pending
+            // mutation BEFORE assigning draftProvider so the deferred
+            // onChange(of: draftProvider) callback (which SwiftUI runs after
+            // this closure returns) skips the model/key reset. Without this,
+            // any user whose saved provider differs from the @State default
+            // "anthropic" sees draftModel clobbered with the new provider's
+            // default model right after onAppear settles.
+            let alreadyEqualProvider = draftProvider == store.selectedInferenceProvider
+            isSyncingProviderFromStore = true
             draftProvider = store.selectedInferenceProvider
+            if alreadyEqualProvider {
+                isSyncingProviderFromStore = false
+            }
             initialProvider = store.selectedInferenceProvider
             didInitialSync = true
 
@@ -283,20 +296,29 @@ struct InferenceServiceCard: View {
             initialModel = newValue
         }
         .onChange(of: draftProvider) { _, newProvider in
-            // Only reset the model and API key text for user-initiated
-            // provider changes. Skip during initial load (onAppear sets
-            // draftProvider before didInitialSync is true) and during
-            // external store syncs (which set isSyncingProviderFromStore
-            // before updating draftProvider).
+            // Reset the model and API key text for user-initiated provider
+            // changes only. External store syncs set isSyncingProviderFromStore
+            // before mutating draftProvider; the onAppear initial sync uses
+            // the same flag. Both paths clear the flag here and return.
             if isSyncingProviderFromStore {
                 isSyncingProviderFromStore = false
                 return
             }
             guard didInitialSync else { return }
-            let defaultModel = store.dynamicProviderDefaultModel(newProvider)
-            let fallback = store.dynamicProviderModels(newProvider).first?.id ?? ""
-            draftModel = defaultModel.isEmpty ? fallback : defaultModel
-            apiKeyText = ""
+            // Defense-in-depth: preserve draftModel when it is already a
+            // valid ID in the new provider's catalog. Cross-provider model
+            // IDs essentially never overlap, so this still triggers the
+            // reset for real user-initiated switches while protecting
+            // against cascades (e.g. onChange(of: draftMode) reassigning
+            // draftProvider) from clobbering a still-valid selection.
+            let providerModels = store.dynamicProviderModels(newProvider)
+            let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
+            if !isCurrentModelValid {
+                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
+                let fallback = providerModels.first?.id ?? ""
+                draftModel = defaultModel.isEmpty ? fallback : defaultModel
+                apiKeyText = ""
+            }
         }
         .onChange(of: draftMode) { _, newMode in
             if newMode == "managed" {
