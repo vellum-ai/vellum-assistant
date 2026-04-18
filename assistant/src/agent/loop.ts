@@ -471,6 +471,14 @@ export class AgentLoop {
         // a side-effect tool like `remember`), an empty follow-up is the model
         // correctly ending its turn — nudging would mislead it into thinking
         // its earlier text didn't land and cause a verbatim re-send.
+        //
+        // Note: we check ANY prior assistant turn in history, not just the
+        // most recent one. In multi-step tool-use chains (say-something →
+        // call-tool → call-another-tool → end), the "say-something" text
+        // lives on an earlier assistant turn while the most recent assistant
+        // turn is a pure tool_use with no text. Restricting the check to the
+        // most recent assistant turn would falsely nudge in that case and
+        // trigger a duplicate re-send of text the user already saw.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
