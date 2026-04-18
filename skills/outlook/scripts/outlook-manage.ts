@@ -632,20 +632,77 @@ function pinnedHttpsRequest(
   });
 }
 
+/**
+ * Request user confirmation via `assistant ui confirm`.
+ * Blocks until the user approves, denies, or the request times out.
+ */
+async function requestConfirmation(opts: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+}): Promise<boolean> {
+  const confirmArgs = [
+    "assistant",
+    "ui",
+    "confirm",
+    "--title",
+    opts.title,
+    "--message",
+    opts.message,
+    "--confirm-label",
+    opts.confirmLabel ?? "Confirm",
+    "--json",
+  ];
+
+  const proc = Bun.spawn(confirmArgs, { stdout: "pipe", stderr: "pipe" });
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  try {
+    const result = JSON.parse(stdout);
+    return result.ok === true && result.confirmed === true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleUnsubscribe(
   args: Record<string, string | boolean>,
 ): Promise<void> {
   const messageId = requireArg(args, "message-id");
   const account = optionalArg(args, "account");
+  const skipConfirm = args["skip-confirm"] === true;
 
-  // Fetch message headers
-  const res = await graphGet<MessageWithHeaders>(
+  // Fetch message headers + sender info for the confirmation prompt
+  const res = await graphGet<
+    MessageWithHeaders & {
+      from?: { emailAddress?: { address?: string } };
+      subject?: string;
+    }
+  >(
     `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
-    { $select: "internetMessageHeaders" },
+    { $select: "internetMessageHeaders,from,subject" },
     account,
   );
   if (!res.ok) {
     printError(`Failed to get message headers (HTTP ${res.status})`);
+  }
+
+  const senderEmail =
+    res.data.from?.emailAddress?.address ?? "(unknown sender)";
+
+  // Gate on user confirmation unless explicitly skipped
+  if (!skipConfirm) {
+    const confirmed = await requestConfirmation({
+      title: "Unsubscribe",
+      message: `Unsubscribe from mailing list: ${senderEmail}\nThis action cannot be undone.`,
+      confirmLabel: "Unsubscribe",
+    });
+
+    if (!confirmed) {
+      ok({ unsubscribed: false, reason: "User did not confirm" });
+      return;
+    }
   }
 
   const msgHeaders = res.data.internetMessageHeaders ?? [];

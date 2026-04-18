@@ -13,7 +13,50 @@ import {
   optionalArg,
   parseCsv,
 } from "./lib/common.js";
-import { graphRequest, graphPost, graphPatch } from "./lib/graph-client.js";
+import {
+  graphRequest,
+  graphGet,
+  graphPost,
+  graphPatch,
+} from "./lib/graph-client.js";
+
+// ---------------------------------------------------------------------------
+// UI confirmation helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Request user confirmation via `assistant ui confirm`.
+ * Blocks until the user approves, denies, or the request times out.
+ */
+async function requestConfirmation(opts: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+}): Promise<boolean> {
+  const args = [
+    "assistant",
+    "ui",
+    "confirm",
+    "--title",
+    opts.title,
+    "--message",
+    opts.message,
+    "--confirm-label",
+    opts.confirmLabel ?? "Confirm",
+    "--json",
+  ];
+
+  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const stdout = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  try {
+    const result = JSON.parse(stdout);
+    return result.ok === true && result.confirmed === true;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -164,12 +207,49 @@ async function sendDraft(argv: string[]): Promise<void> {
 
 Options:
   --draft-id    ID of the draft to send (required)
-  --account     Outlook account to use`);
+  --account     Outlook account to use
+  --skip-confirm  Skip the interactive confirmation prompt`);
     return;
   }
 
   const draftId = requireArg(args, "draft-id");
   const account = optionalArg(args, "account");
+  const skipConfirm = args["skip-confirm"] === true;
+
+  // Fetch draft details for the confirmation prompt
+  const draft = await graphGet<{
+    subject?: string;
+    toRecipients?: Array<{ emailAddress: { address: string } }>;
+  }>(
+    `/v1.0/me/messages/${encodeURIComponent(draftId)}`,
+    { $select: "subject,toRecipients" },
+    account,
+  );
+
+  if (!draft.ok) {
+    printError(`Failed to fetch draft details: status ${draft.status}`);
+    return;
+  }
+
+  const to =
+    draft.data.toRecipients
+      ?.map((r) => r.emailAddress.address)
+      .join(", ") ?? "(unknown)";
+  const subject = draft.data.subject ?? "(no subject)";
+
+  // Gate on user confirmation unless explicitly skipped
+  if (!skipConfirm) {
+    const confirmed = await requestConfirmation({
+      title: "Send email",
+      message: `Send to ${to}\nSubject: ${subject}`,
+      confirmLabel: "Send",
+    });
+
+    if (!confirmed) {
+      ok({ sent: false, reason: "User did not confirm" });
+      return;
+    }
+  }
 
   const response = await graphRequest({
     method: "POST",
