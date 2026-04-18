@@ -234,7 +234,7 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 ## Release Update Hygiene
 
-Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `~/.vellum/workspace/UPDATES.md`.
+Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
 
 **To ship release notes:**
 
