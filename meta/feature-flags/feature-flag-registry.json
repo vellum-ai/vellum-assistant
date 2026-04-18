@@ -360,6 +360,14 @@
       "label": "Scroll Debug Overlay",
       "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
       "defaultEnabled": false
+    },
+    {
+      "id": "message-height-cache",
+      "scope": "macos",
+      "key": "message-height-cache",
+      "label": "Message Height Cache",
+      "description": "Cache each transcript row's measured height and pin its frame height to the cached value on subsequent renders. Fixes LazyVStack contentH estimate drift that causes jerky scroll at the top of long conversations. Experimental — may clip rows whose content changes after first measurement.",
+      "defaultEnabled": false
     }
   ]
 }

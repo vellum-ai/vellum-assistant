@@ -276,17 +276,19 @@ struct MessageListContentView: View, Equatable {
         thinkingLabel: String,
         isFlipped: Bool = true
     ) -> some View {
-        switch item {
-        case .queuedMarker(let count):
-            queuedMarkerRow(count: count, isFlipped: isFlipped)
-        case .message(let message):
-            if let row = rowsByMessageId[message.id] {
-                transcriptRow(
-                    row: row,
-                    isUnanchoredThinking: isUnanchoredThinking,
-                    thinkingLabel: thinkingLabel,
-                    isFlipped: isFlipped
-                )
+        CachedHeightRow(itemId: item.id) {
+            switch item {
+            case .queuedMarker(let count):
+                queuedMarkerRow(count: count, isFlipped: isFlipped)
+            case .message(let message):
+                if let row = rowsByMessageId[message.id] {
+                    transcriptRow(
+                        row: row,
+                        isUnanchoredThinking: isUnanchoredThinking,
+                        thinkingLabel: thinkingLabel,
+                        isFlipped: isFlipped
+                    )
+                }
             }
         }
     }

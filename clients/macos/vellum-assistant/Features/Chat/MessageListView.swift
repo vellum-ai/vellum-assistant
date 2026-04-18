@@ -106,6 +106,12 @@ struct MessageListView: View {
     /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
     /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
+    /// Caches each transcript row's measured height so the LazyVStack reports
+    /// an accurate `contentSize` for off-screen cells. Gated on the
+    /// `message-height-cache` macOS feature flag. Reset on conversation
+    /// switch (via `.id(conversationId)`), column-width change, and
+    /// typography-generation change.
+    @State var messageHeightCache = MessageHeightCache()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Filtered viewport height used by the latest-turn spacer layout.
@@ -171,6 +177,7 @@ struct MessageListView: View {
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
+            .environment(\.messageHeightCache, messageHeightCache)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .frame(width: widths.scrollSurfaceWidth)
             .id(conversationId)
@@ -213,6 +220,17 @@ struct MessageListView: View {
                 handleMessagesRevisionChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
+            .onChange(of: layoutMetrics.chatColumnWidth) {
+                // Column-width changes re-flow every row, so the cached
+                // heights are stale. Resetting here lets the next render
+                // repopulate with the new measurements.
+                messageHeightCache.reset()
+            }
+            .onChange(of: typographyObserver.generation) {
+                // Typography changes (font size, line spacing) resize every
+                // row. Same rationale as chat-column-width changes.
+                messageHeightCache.reset()
+            }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()
