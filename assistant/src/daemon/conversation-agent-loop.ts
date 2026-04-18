@@ -121,7 +121,7 @@ import {
   findLastInjectedNowContent,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  readAutoinjectList,
+  getPkbAutoInjectList,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -862,7 +862,7 @@ export async function runAgentLoopImpl(
     // the updated conversation history.
     const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
     const pkbAutoInjectList = pkbRoot
-      ? (readAutoinjectList(pkbRoot) ?? undefined)
+      ? getPkbAutoInjectList(pkbRoot)
       : undefined;
     // Pass `ctx` directly — `PkbContextConversation` is structural and
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
