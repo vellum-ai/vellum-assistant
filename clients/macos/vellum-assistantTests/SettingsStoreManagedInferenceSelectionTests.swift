@@ -109,7 +109,7 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         testStore.inferenceMode = "managed"
 
         // Persist the provider selection
-        _ = testStore.setInferenceProvider("openai")
+        _ = testStore.setLLMDefaultProvider("openai")
 
         // Wait for the async patch to be captured
         let predicate = NSPredicate { _, _ in
@@ -120,9 +120,9 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
 
         // Verify the patched provider is "openai", not "anthropic"
         let providerPatches = mockClient.patchConfigCalls.compactMap { call -> String? in
-            guard let services = call["services"] as? [String: Any],
-                  let inference = services["inference"] as? [String: Any],
-                  let provider = inference["provider"] as? String else {
+            guard let llm = call["llm"] as? [String: Any],
+                  let defaults = llm["default"] as? [String: Any],
+                  let provider = defaults["provider"] as? String else {
                 return nil
             }
             return provider
@@ -138,7 +138,7 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
 
         testStore.selectedInferenceProvider = "gemini"
         testStore.inferenceMode = "managed"
-        _ = testStore.setInferenceProvider("gemini")
+        _ = testStore.setLLMDefaultProvider("gemini")
 
         let predicate = NSPredicate { _, _ in
             mockClient.patchConfigCalls.count >= 1
@@ -147,9 +147,9 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         wait(for: [expectation], timeout: 2.0)
 
         let providerPatches = mockClient.patchConfigCalls.compactMap { call -> String? in
-            guard let services = call["services"] as? [String: Any],
-                  let inference = services["inference"] as? [String: Any],
-                  let provider = inference["provider"] as? String else {
+            guard let llm = call["llm"] as? [String: Any],
+                  let defaults = llm["default"] as? [String: Any],
+                  let provider = defaults["provider"] as? String else {
                 return nil
             }
             return provider
