@@ -132,6 +132,8 @@
 
   **Cancellation vs. failure**: A `cancelled` status means the user made a deliberate choice not to proceed — this is a normal outcome, not an error. Operational failures (IPC unavailable, invalid payload, no conversation context) surface as `ok: false` in JSON mode or a non-zero exit with an error message. Scripts should distinguish the two: cancellation is graceful, failure is exceptional.
 
+  **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
+
   ### Conversation ID resolution
 
   Inside a skill context, the conversation ID is auto-resolved from `__SKILL_CONTEXT_JSON` (set by the skill sandbox runner). Override with `--conversation-id <id>` if needed — run `assistant conversations list` to find available IDs.

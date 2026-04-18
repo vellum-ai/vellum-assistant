@@ -25,7 +25,7 @@ export interface DecisionTokenPayload {
   conversationId: string;
   /** Surface identifier that was displayed. */
   surfaceId: string;
-  /** Action the user took (`submitted`, `cancelled`, `timed_out`). */
+  /** The action ID the user selected (e.g. "confirm"). Only present on affirmative confirmation. */
   action: string;
   /** ISO-8601 timestamp when the decision was recorded. */
   issuedAt: string;
