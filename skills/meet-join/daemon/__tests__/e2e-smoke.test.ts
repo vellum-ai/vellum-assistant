@@ -178,6 +178,7 @@ interface MockFfmpegChild extends EventEmitter {
   stdin: {
     write: (chunk: Buffer) => boolean;
     end: () => void;
+    on: (event: string, listener: (...args: unknown[]) => void) => void;
     chunks: Buffer[];
     ended: boolean;
   };
@@ -197,6 +198,9 @@ function makeMockFfmpegChild(): MockFfmpegChild {
     },
     end(): void {
       this.ended = true;
+    },
+    on(): void {
+      // no-op — tests don't need stdin error listeners
     },
   };
   emitter.stdout = new EventEmitter();
@@ -467,17 +471,17 @@ describe("Meet pipeline end-to-end", () => {
         { id: "p-alice", name: "Alice" },
       ]);
 
-      // Conversation has the "Alice joined" system line from the bridge.
+      // Conversation has the "[Meeting] Alice joined" system line from the bridge.
       const joinLine = insert.calls.find((c) => {
         try {
           const parts = JSON.parse(c.content) as Array<{ text: string }>;
-          return parts.some((p) => p.text === "Alice joined");
+          return parts.some((p) => p.text === "[Meeting] Alice joined");
         } catch {
           return false;
         }
       });
       expect(joinLine).toBeDefined();
-      expect(joinLine?.role).toBe("assistant");
+      expect(joinLine?.role).toBe("user");
       expect(joinLine?.opts).toMatchObject({ skipIndexing: true });
       expect(joinLine?.metadata).toMatchObject({
         meetingId: MEETING_ID,

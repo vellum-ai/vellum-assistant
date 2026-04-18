@@ -718,8 +718,19 @@ class MeetSessionManagerImpl {
       // Cleared on every join-rollback path below and replaced by the
       // authoritative `this.sessions` lookup once the session is in the map.
       this.pendingBotTokens.set(meetingId, botApiToken);
+    } catch (err) {
+      // Best-effort cleanup: pendingBotTokens.delete is a no-op if the
+      // set() line was never reached (e.g. getMeetConfig/mkdirSync threw).
+      this.pendingBotTokens.delete(meetingId);
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
 
-    let ttsKey: string;
     try {
       // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
       ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
@@ -1074,7 +1085,9 @@ class MeetSessionManagerImpl {
       );
       this.sessions.delete(meetingId);
       for (const unsubscribe of session.eventUnsubscribes) {
-        try { unsubscribe(); } catch { }
+        try {
+          unsubscribe();
+        } catch {}
       }
       unregisterMeetingDispatcher(meetingId);
       await audioIngest.stop().catch(() => {});

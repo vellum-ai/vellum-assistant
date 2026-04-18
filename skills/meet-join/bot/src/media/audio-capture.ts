@@ -309,7 +309,15 @@ export async function startAudioCapture(
     // We deliberately don't `await` the pump — it races against the three
     // promises above and terminates when any of them settles.
     let framesWritten = false;
-    const pumpDone = pumpFrames(proc.stdout, sock, frameBytes, () => stopping, () => { framesWritten = true; });
+    const pumpDone = pumpFrames(
+      proc.stdout,
+      sock,
+      frameBytes,
+      () => stopping,
+      () => {
+        framesWritten = true;
+      },
+    );
 
     const raceOutcome = await Promise.race([
       stoppedP,

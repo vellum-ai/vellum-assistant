@@ -555,8 +555,6 @@ export class MeetConsentMonitor {
       return;
     }
 
-
-
     // Stamp the debounce clock BEFORE the async LLM call begins so a
     // second trigger arriving while this call is in flight is debounced
     // (in addition to being collapsed by the in-flight flag below).

@@ -323,122 +323,122 @@ export function createHttpServer(
     await previousChain;
 
     try {
-    let handle: AudioPlaybackHandle;
-    try {
-      handle = playbackFactory(playbackSpawnOptions);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: `failed to start playback: ${message}` }, 500);
-    }
-
-    const controller = new AbortController();
-    activeStreams.set(streamId, { controller, handle });
-
-    // Observability hook — invoked fire-and-forget so slow callbacks don't
-    // stall the audio pipeline.
-    void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
-
-    const body = c.req.raw.body;
-    if (!body) {
-      if (activeStreams.get(streamId)?.controller === controller) {
-        activeStreams.delete(streamId);
-      }
+      let handle: AudioPlaybackHandle;
       try {
-        await handle.flushSilence(TRAILING_SILENCE_MS);
-      } catch {
-        // Best-effort; silence is cosmetic.
+        handle = playbackFactory(playbackSpawnOptions);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: `failed to start playback: ${message}` }, 500);
       }
-      return c.json({ streamId, bytes: 0 }, 200);
-    }
 
-    let bytes = 0;
-    let cancelled = false;
-    let writeError: Error | null = null;
+      const controller = new AbortController();
+      activeStreams.set(streamId, { controller, handle });
 
-    const reader = body.getReader();
-    const abortPromise = new Promise<void>((resolve) => {
-      if (controller.signal.aborted) {
-        cancelled = true;
-        resolve();
-        return;
-      }
-      controller.signal.addEventListener(
-        "abort",
-        () => {
-          cancelled = true;
-          try {
-            // Best-effort — releases the reader so the `read()` loop sees
-            // EOF on the next iteration.
-            reader.cancel().catch(() => {});
-          } catch {
-            // ignore
-          }
-          resolve();
-        },
-        { once: true },
-      );
-    });
+      // Observability hook — invoked fire-and-forget so slow callbacks don't
+      // stall the audio pipeline.
+      void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
 
-    try {
-      while (true) {
-        const readP = reader.read();
-        const next = await Promise.race([
-          readP.then((r) => ({ kind: "read" as const, value: r })),
-          abortPromise.then(() => ({ kind: "abort" as const })),
-        ]);
-
-        if (next.kind === "abort") {
-          break;
+      const body = c.req.raw.body;
+      if (!body) {
+        if (activeStreams.get(streamId)?.controller === controller) {
+          activeStreams.delete(streamId);
         }
-        const { value, done } = next.value;
-        if (done) break;
-        if (!value || value.length === 0) continue;
-
         try {
-          await handle.write(value);
-          bytes += value.length;
-        } catch (err) {
-          writeError = err instanceof Error ? err : new Error(String(err));
-          break;
+          await handle.flushSilence(TRAILING_SILENCE_MS);
+        } catch {
+          // Best-effort; silence is cosmetic.
+        }
+        return c.json({ streamId, bytes: 0 }, 200);
+      }
+
+      let bytes = 0;
+      let cancelled = false;
+      let writeError: Error | null = null;
+
+      const reader = body.getReader();
+      const abortPromise = new Promise<void>((resolve) => {
+        if (controller.signal.aborted) {
+          cancelled = true;
+          resolve();
+          return;
+        }
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            cancelled = true;
+            try {
+              // Best-effort — releases the reader so the `read()` loop sees
+              // EOF on the next iteration.
+              reader.cancel().catch(() => {});
+            } catch {
+              // ignore
+            }
+            resolve();
+          },
+          { once: true },
+        );
+      });
+
+      try {
+        while (true) {
+          const readP = reader.read();
+          const next = await Promise.race([
+            readP.then((r) => ({ kind: "read" as const, value: r })),
+            abortPromise.then(() => ({ kind: "abort" as const })),
+          ]);
+
+          if (next.kind === "abort") {
+            break;
+          }
+          const { value, done } = next.value;
+          if (done) break;
+          if (!value || value.length === 0) continue;
+
+          try {
+            await handle.write(value);
+            bytes += value.length;
+          } catch (err) {
+            writeError = err instanceof Error ? err : new Error(String(err));
+            break;
+          }
+        }
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          // Lock may already be released after `cancel()`; fine.
+        }
+        if (activeStreams.get(streamId)?.controller === controller) {
+          activeStreams.delete(streamId);
+        }
+        try {
+          await handle.flushSilence(TRAILING_SILENCE_MS);
+        } catch {
+          // Best-effort.
         }
       }
-    } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // Lock may already be released after `cancel()`; fine.
-      }
-      if (activeStreams.get(streamId)?.controller === controller) {
-        activeStreams.delete(streamId);
-      }
-      try {
-        await handle.flushSilence(TRAILING_SILENCE_MS);
-      } catch {
-        // Best-effort.
-      }
-    }
 
-    if (writeError) {
-      return c.json(
-        { error: `playback write failed: ${writeError.message}`, bytes },
-        500,
-      );
-    }
-    if (cancelled) {
-      // 499 — Nginx's convention for "client closed request"; used here as
-      // the signal that playback was interrupted (either by the HTTP peer
-      // dropping or by DELETE /play_audio/:id). Hono's typed status codes
-      // don't include 499 (it's non-standard), so we build the Response by
-      // hand.
-      return new Response(
-        JSON.stringify({ streamId, bytes, cancelled: true }),
-        {
-          status: 499,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    return c.json({ streamId, bytes }, 200);
+      if (writeError) {
+        return c.json(
+          { error: `playback write failed: ${writeError.message}`, bytes },
+          500,
+        );
+      }
+      if (cancelled) {
+        // 499 — Nginx's convention for "client closed request"; used here as
+        // the signal that playback was interrupted (either by the HTTP peer
+        // dropping or by DELETE /play_audio/:id). Hono's typed status codes
+        // don't include 499 (it's non-standard), so we build the Response by
+        // hand.
+        return new Response(
+          JSON.stringify({ streamId, bytes, cancelled: true }),
+          {
+            status: 499,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return c.json({ streamId, bytes }, 200);
     } finally {
       releaseChain();
     }
