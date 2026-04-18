@@ -207,10 +207,12 @@ mock.module("../daemon/conversation-memory.js", () => ({
 }));
 
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => msgs,
+  applyRuntimeInjections: async (msgs: Message[]) => msgs,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
+  readPkbContext: () => null,
+  readAutoinjectList: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({

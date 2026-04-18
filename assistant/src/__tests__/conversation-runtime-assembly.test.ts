@@ -1,4 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// PKB search is mocked so the reminder-hints tests can assert behavior
+// without standing up Qdrant. The mock returns whatever is staged in
+// `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.
+let pkbSearchResults: Array<{ path: string; score: number }> = [];
+let pkbSearchThrows: Error | null = null;
+mock.module("../memory/pkb/pkb-search.js", () => ({
+  searchPkbFiles: async () => {
+    if (pkbSearchThrows) throw pkbSearchThrows;
+    return pkbSearchResults;
+  },
+}));
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type {
@@ -20,6 +32,7 @@ import {
   stripInjectionsForCompaction,
   stripNowScratchpad,
 } from "../daemon/conversation-runtime-assembly.js";
+import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { Message } from "../providers/types.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -422,7 +435,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     },
   ];
 
-  test("injects channel capabilities when provided", () => {
+  test("injects channel capabilities when provided", async () => {
     const caps: ChannelCapabilities = {
       channel: "telegram",
       dashboardCapable: false,
@@ -430,7 +443,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = applyRuntimeInjections(baseMessages, {
+    const result = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -442,8 +455,8 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     );
   });
 
-  test("does not inject when channelCapabilities is null", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("does not inject when channelCapabilities is null", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: null,
     });
 
@@ -451,14 +464,14 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     expect(result[0].content.length).toBe(1);
   });
 
-  test("does not inject when channelCapabilities is omitted", () => {
-    const result = applyRuntimeInjections(baseMessages, {});
+  test("does not inject when channelCapabilities is omitted", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
-  test("combines with other injections", () => {
+  test("combines with other injections", async () => {
     const caps: ChannelCapabilities = {
       channel: "telegram",
       dashboardCapable: false,
@@ -466,7 +479,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = applyRuntimeInjections(baseMessages, {
+    const result = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -612,8 +625,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     isNonInteractive: true,
   };
 
-  test("full mode (default) includes all injections", () => {
-    const result = applyRuntimeInjections(baseMessages, fullOptions);
+  test("full mode (default) includes all injections", async () => {
+    const result = await applyRuntimeInjections(baseMessages, fullOptions);
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
@@ -630,8 +643,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<pkb>");
   });
 
-  test("explicit mode: 'full' behaves the same as default", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("explicit mode: 'full' behaves the same as default", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "full",
     });
@@ -646,8 +659,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<NOW.md");
   });
 
-  test("minimal mode skips high-token optional blocks", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("minimal mode skips high-token optional blocks", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -665,8 +678,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).not.toContain("<pkb>");
   });
 
-  test("minimal mode preserves safety-critical blocks", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("minimal mode preserves safety-critical blocks", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -681,12 +694,12 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<channel_capabilities>");
   });
 
-  test("minimal mode produces strictly fewer content blocks than full mode", () => {
-    const fullResult = applyRuntimeInjections(baseMessages, {
+  test("minimal mode produces strictly fewer content blocks than full mode", async () => {
+    const fullResult = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "full",
     });
-    const minimalResult = applyRuntimeInjections(baseMessages, {
+    const minimalResult = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -696,8 +709,8 @@ describe("applyRuntimeInjections — injection mode", () => {
     );
   });
 
-  test("minimal mode still preserves the original user message text", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("minimal mode still preserves the original user message text", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -1015,8 +1028,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     },
   ];
 
-  test("injects NOW.md block when provided", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("injects NOW.md block when provided", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
     });
 
@@ -1028,8 +1041,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     expect(text).toContain("Current focus: fix the bug");
   });
 
-  test("scratchpad appears before user's original text content", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("scratchpad appears before user's original text content", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "scratchpad notes",
     });
 
@@ -1043,8 +1056,8 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     );
   });
 
-  test("does not inject when nowScratchpad is null", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("does not inject when nowScratchpad is null", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: null,
     });
 
@@ -1052,15 +1065,15 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
     expect(result[0].content.length).toBe(1);
   });
 
-  test("does not inject when nowScratchpad is omitted", () => {
-    const result = applyRuntimeInjections(baseMessages, {});
+  test("does not inject when nowScratchpad is omitted", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
-  test("skipped in minimal mode", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("skipped in minimal mode", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
       mode: "minimal",
     });
@@ -1463,8 +1476,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   const sampleBlock =
     "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
 
-  test("injects unifiedTurnContext when provided", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("injects unifiedTurnContext when provided", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
     });
 
@@ -1479,8 +1492,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     );
   });
 
-  test("does not inject when unifiedTurnContext is null", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("does not inject when unifiedTurnContext is null", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: null,
     });
 
@@ -1488,15 +1501,15 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     expect(result[0].content).toHaveLength(1);
   });
 
-  test("does not inject when unifiedTurnContext is omitted", () => {
-    const result = applyRuntimeInjections(baseMessages, {});
+  test("does not inject when unifiedTurnContext is omitted", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
   });
 
-  test("injected in full mode", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("injected in full mode", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "full",
     });
@@ -1509,8 +1522,8 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     expect(allText).toContain("<turn_context>");
   });
 
-  test("injected in minimal mode (no mode guard)", () => {
-    const result = applyRuntimeInjections(baseMessages, {
+  test("injected in minimal mode (no mode guard)", async () => {
+    const result = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "minimal",
     });
@@ -1723,8 +1736,8 @@ describe("applyRuntimeInjections — subagent status", () => {
     content: [{ type: "text", text: "user message" }],
   };
 
-  test("includes subagent status in full mode", () => {
-    const result = applyRuntimeInjections([userMsg], {
+  test("includes subagent status in full mode", async () => {
+    const result = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
@@ -1736,8 +1749,8 @@ describe("applyRuntimeInjections — subagent status", () => {
     expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(true);
   });
 
-  test("skips subagent status in minimal mode", () => {
-    const result = applyRuntimeInjections([userMsg], {
+  test("skips subagent status in minimal mode", async () => {
+    const result = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
@@ -1770,5 +1783,255 @@ describe("stripInjectionsForCompaction — subagent status", () => {
       .map((b) => b.text);
     expect(texts.some((t) => t.includes("<active_subagents>"))).toBe(false);
     expect(texts).toContain("hello");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections — PKB relevance hints
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections — PKB relevance hints", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Tell me about project foo" }],
+    },
+  ];
+
+  const FLAT_REMINDER = buildPkbReminder([]);
+
+  // Use a platform-agnostic absolute root so the tests work on macOS and
+  // Linux runners alike.
+  const pkbRoot = "/tmp/fake-pkb-root";
+
+  function makePkbOptions(overrides: Record<string, unknown> = {}) {
+    return {
+      pkbActive: true,
+      pkbQueryVector: [0.1, 0.2, 0.3],
+      pkbScopeId: "scope-1",
+      pkbConversation: { messages: baseMessages },
+      pkbRoot,
+      pkbAutoInjectList: [],
+      ...overrides,
+    };
+  }
+
+  function extractTexts(result: Message[]): string[] {
+    const tail = result[result.length - 1];
+    return tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+  }
+
+  test("three uninvolved hits → reminder contains all three bullets", async () => {
+    pkbSearchResults = [
+      { path: "topics/alpha.md", score: 0.9 },
+      { path: "topics/beta.md", score: 0.8 },
+      { path: "topics/gamma.md", score: 0.7 },
+    ];
+    pkbSearchThrows = null;
+
+    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    expect(reminder).toContain("- topics/beta.md");
+    expect(reminder).toContain("- topics/gamma.md");
+    expect(reminder).toContain("these files look especially relevant");
+  });
+
+  test("in-context paths are filtered out of hints", async () => {
+    pkbSearchResults = [
+      { path: "topics/alpha.md", score: 0.9 },
+      { path: "topics/beta.md", score: 0.8 },
+      { path: "topics/gamma.md", score: 0.7 },
+    ];
+    pkbSearchThrows = null;
+
+    // Build a conversation that has already read topics/beta.md via file_read.
+    const conversationWithRead: { messages: Message[] } = {
+      messages: [
+        ...baseMessages,
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_1",
+              name: "file_read",
+              input: { path: `${pkbRoot}/topics/beta.md` },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions({ pkbConversation: conversationWithRead }),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    expect(reminder).not.toContain("- topics/beta.md");
+    expect(reminder).toContain("- topics/gamma.md");
+  });
+
+  test("empty search → reminder equals flat fallback text byte-for-byte", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+
+    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBe(FLAT_REMINDER);
+  });
+
+  test("search throws → reminder equals flat fallback text byte-for-byte", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = new Error("qdrant exploded");
+
+    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBe(FLAT_REMINDER);
+  });
+
+  test("missing query vector → flat fallback, search is not attempted", async () => {
+    pkbSearchThrows = new Error("should not be called");
+
+    const result = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions({ pkbQueryVector: undefined }),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBe(FLAT_REMINDER);
+  });
+
+  test("stripInjectionsForCompaction removes the PKB reminder (flat and hinted)", () => {
+    // Verifies the existing strip pipeline still catches the new reminder
+    // text — it still opens with `<system_reminder>`, which is already in
+    // RUNTIME_INJECTION_PREFIXES.
+    const flatMessage: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "hello" },
+        { type: "text", text: buildPkbReminder([]) },
+      ],
+    };
+    const hintedMessage: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "hello" },
+        {
+          type: "text",
+          text: buildPkbReminder(["topics/alpha.md", "topics/beta.md"]),
+        },
+      ],
+    };
+
+    for (const msg of [flatMessage, hintedMessage]) {
+      const stripped = stripInjectionsForCompaction([msg]);
+      const texts = stripped[0].content
+        .filter((b): b is { type: "text"; text: string } => b.type === "text")
+        .map((b) => b.text);
+      expect(texts.some((t) => t.startsWith("<system_reminder>"))).toBe(false);
+      expect(texts).toContain("hello");
+    }
+  });
+
+  test("after simulated compaction (strip + rebuild), fresh hints are emitted from post-compaction tool_use blocks", async () => {
+    pkbSearchResults = [
+      { path: "topics/alpha.md", score: 0.9 },
+      { path: "topics/beta.md", score: 0.8 },
+      { path: "topics/gamma.md", score: 0.7 },
+    ];
+    pkbSearchThrows = null;
+
+    // Pre-compaction conversation: beta was already read.
+    const preCompactionConversation: { messages: Message[] } = {
+      messages: [
+        ...baseMessages,
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_pre",
+              name: "file_read",
+              input: { path: `${pkbRoot}/topics/beta.md` },
+            },
+          ],
+        },
+      ],
+    };
+
+    // 1. Initial injection sees the pre-compaction state — beta should be
+    // filtered out.
+    const initialResult = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      pkbQueryVector: [0.1, 0.2],
+      pkbScopeId: "scope-1",
+      pkbConversation: preCompactionConversation,
+      pkbRoot,
+      pkbAutoInjectList: [],
+    });
+    // Unwrap the injected reminder from the last user message.
+    const initialTexts = extractTexts(initialResult);
+    const initialReminder = initialTexts.find(
+      (t) =>
+        t.startsWith("<system_reminder>") &&
+        t.includes("these files look especially relevant"),
+    );
+    expect(initialReminder).toBeDefined();
+    expect(initialReminder).not.toContain("- topics/beta.md");
+
+    // 2. Simulate compaction: strip all runtime injections, rebuild
+    // conversation to reflect the post-compaction state (tool_use blocks
+    // are serialized into summary text, so the only live file_read is the
+    // newly-read gamma).
+    const postCompactionConversation: { messages: Message[] } = {
+      messages: [
+        ...baseMessages,
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_post",
+              name: "file_read",
+              input: { path: `${pkbRoot}/topics/gamma.md` },
+            },
+          ],
+        },
+      ],
+    };
+    const postCompactionMessages = stripInjectionsForCompaction(
+      initialResult,
+    );
+
+    // 3. Re-inject with the new conversation — gamma (now in context)
+    // should be filtered, and beta (no longer "in context") should appear.
+    const rebuiltResult = await applyRuntimeInjections(postCompactionMessages, {
+      pkbActive: true,
+      pkbQueryVector: [0.1, 0.2],
+      pkbScopeId: "scope-1",
+      pkbConversation: postCompactionConversation,
+      pkbRoot,
+      pkbAutoInjectList: [],
+    });
+    const rebuiltTexts = extractTexts(rebuiltResult);
+    const rebuiltReminder = rebuiltTexts.find(
+      (t) =>
+        t.startsWith("<system_reminder>") &&
+        t.includes("these files look especially relevant"),
+    );
+    expect(rebuiltReminder).toBeDefined();
+    expect(rebuiltReminder).toContain("- topics/alpha.md");
+    expect(rebuiltReminder).toContain("- topics/beta.md");
+    expect(rebuiltReminder).not.toContain("- topics/gamma.md");
   });
 });

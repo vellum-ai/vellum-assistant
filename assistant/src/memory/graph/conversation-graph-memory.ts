@@ -18,6 +18,7 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
+import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
 import {
@@ -291,6 +292,16 @@ export class ConversationGraphMemory {
     injectedBlockText: string | null;
     /** Retrieval pipeline metrics (null for noop/error paths). */
     metrics: RetrievalMetrics | null;
+    /**
+     * Dense query vector computed from recent conversation summaries during
+     * context-load. Surfaced so downstream callers (e.g. the PKB hint
+     * retriever in `applyRuntimeInjections`) can reuse the same embedding
+     * for a second Qdrant query without paying for another embedding call.
+     * `undefined` for per-turn mode or when embedding failed.
+     */
+    queryVector?: number[];
+    /** Optional sparse vector accompanying `queryVector`. */
+    sparseVector?: QdrantSparseVector;
   }> {
     this.tracker.advanceTurn();
 
@@ -376,6 +387,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -395,6 +408,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -427,6 +442,8 @@ export class ConversationGraphMemory {
       mode: "context-load" as const,
       injectedBlockText: contextBlock,
       metrics: result.metrics,
+      queryVector: result.queryVector,
+      sparseVector: result.sparseVector,
     };
   }
 
