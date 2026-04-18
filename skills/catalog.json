@@ -412,6 +412,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-github-app-setup",
+      "name": "vellum-github-app-setup",
+      "description": "Create and configure a GitHub App so the assistant can push commits, open PRs, and comment under its own bot identity. Use when the user wants the assistant to have its own GitHub identity, or when setting up git push access for the first time.",
+      "metadata": {
+        "emoji": "🤖",
+        "vellum": {
+          "display-name": "GitHub App Setup"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI."
+    },
+    {
       "id": "vellum-oauth-integrations",
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
