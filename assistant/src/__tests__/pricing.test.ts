@@ -116,15 +116,15 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBe(0.15 + 0.6);
     });
 
-    test("returns priced for gemini-2.0-flash", () => {
+    test("returns priced for gemini-2.5-flash-lite", () => {
       const result = resolvePricing(
         "gemini",
-        "gemini-2.0-flash",
+        "gemini-2.5-flash-lite",
         1_000_000,
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.1 + 0.4);
+      expect(result.estimatedCostUsd).toBe(0.02 + 0.1);
     });
   });
 
