@@ -26,9 +26,12 @@ function getCredential(field) {
     throw new Error(`Invalid credential field: ${field}`);
   }
   try {
-    const value = execSync(`assistant credentials reveal --service github-app --field ${field}`, {
-      timeout: 10_000,
-    })
+    const value = execSync(
+      `assistant credentials reveal --service github-app --field ${field}`,
+      {
+        timeout: 10_000,
+      },
+    )
       .toString()
       .trim();
     if (!value) {
@@ -36,7 +39,9 @@ function getCredential(field) {
     }
     return value;
   } catch (err) {
-    console.error(`Failed to read credential github-app:${field}. Is it stored in the vault?`);
+    console.error(
+      `Failed to read credential github-app:${field}. Is it stored in the vault?`,
+    );
     console.error(`Run: assistant credentials list --search github-app`);
     process.exit(1);
   }
@@ -85,7 +90,7 @@ try {
         Accept: "application/vnd.github+json",
       },
       signal: controller.signal,
-    }
+    },
   );
 
   const data = await resp.json();
