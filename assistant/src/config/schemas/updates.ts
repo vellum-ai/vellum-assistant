@@ -6,7 +6,7 @@ export const UpdatesConfigSchema = z
       .boolean({ error: "updates.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Whether to dispatch a background conversation when ~/.vellum/workspace/UPDATES.md has unprocessed content. When false, release-update bulletins are written by migrations but never processed by the agent.",
+        "Whether to dispatch a background conversation when <workspace>/UPDATES.md has unprocessed content. When false, release-update bulletins are written by migrations but never processed by the agent.",
       ),
   })
   .describe("Release update bulletin configuration");
