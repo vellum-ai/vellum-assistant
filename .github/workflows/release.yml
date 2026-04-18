@@ -24,7 +24,7 @@ jobs:
       version: ${{ steps.finalize.outputs.version }}
       base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
-      docker_environments: ${{ steps.finalize.outputs.docker_environments }}
+      docker_environment: ${{ steps.finalize.outputs.docker_environment }}
       chrome_extension_changed: ${{ steps.detect-extension-changes.outputs.changed }}
     steps:
       - name: Generate GitHub App token
@@ -101,10 +101,10 @@ jobs:
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
-            echo 'docker_environments=["staging"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environment=staging' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
-            echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environment=production' >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -355,11 +355,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -407,8 +406,8 @@ jobs:
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -425,7 +424,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: assistant-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: assistant-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -437,11 +436,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -483,7 +478,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: assistant-digests-${{ matrix.environment }}-*
+          pattern: assistant-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -531,7 +526,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: assistant-manifest-digest-${{ matrix.environment }}
+          name: assistant-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -544,9 +539,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Assistant Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -560,11 +555,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -612,8 +606,8 @@ jobs:
           file: gateway/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -630,7 +624,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: gateway-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: gateway-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -644,11 +638,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -693,8 +686,8 @@ jobs:
           file: credential-executor/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -711,7 +704,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: credential-executor-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: credential-executor-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -723,11 +716,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -769,7 +758,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: gateway-digests-${{ matrix.environment }}-*
+          pattern: gateway-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -817,7 +806,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: gateway-manifest-digest-${{ matrix.environment }}
+          name: gateway-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -830,9 +819,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Gateway Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -844,11 +833,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -890,7 +875,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: credential-executor-digests-${{ matrix.environment }}-*
+          pattern: credential-executor-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -938,7 +923,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: credential-executor-manifest-digest-${{ matrix.environment }}
+          name: credential-executor-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -951,9 +936,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Credential Executor Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Credential Executor Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1063,11 +1048,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && (needs.extract-version.outputs.is_staging == 'true' || needs.push-dockerhub-image.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1112,19 +1093,19 @@ jobs:
       - name: Download assistant manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: assistant-manifest-digest-${{ matrix.environment }}
+          name: assistant-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/assistant-digest
 
       - name: Download gateway manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: gateway-manifest-digest-${{ matrix.environment }}
+          name: gateway-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/gateway-digest
 
       - name: Download credential-executor manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: credential-executor-manifest-digest-${{ matrix.environment }}
+          name: credential-executor-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/credential-executor-digest
 
       - name: Extract manifest digests
@@ -1201,7 +1182,7 @@ jobs:
 
           for attempt in $(seq 1 $MAX_ATTEMPTS); do
             CURL_EXIT=0
-            echo "Registering release v${VERSION} with platform (${{ matrix.environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            echo "Registering release v${VERSION} with platform (${{ needs.extract-version.outputs.docker_environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
             HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
               -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
               -H "Content-Type: application/json" \
@@ -1233,7 +1214,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Registered (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -2892,7 +2873,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
