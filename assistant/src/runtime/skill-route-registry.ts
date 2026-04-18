@@ -19,6 +19,10 @@ export interface SkillRoute {
   handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
 }
 
+export type SkillRouteMatch =
+  | { kind: "match"; route: SkillRoute; match: RegExpMatchArray }
+  | { kind: "methodMismatch"; allow: string[] };
+
 const routes: SkillRoute[] = [];
 
 /**
@@ -33,20 +37,35 @@ export function registerSkillRoute(route: SkillRoute): void {
 }
 
 /**
- * Try to match an inbound request path against registered skill routes.
- * Returns `null` if no route matches.
+ * Try to match an inbound request path + method against registered skill routes.
  *
- * Matching is path-only — handlers enforce their own method guards so
- * non-matching methods get an accurate 405 with `Allow` rather than
- * falling through to JWT auth / 404. `SkillRoute.methods` remains on
- * the contract for documentation and registration-time logging.
+ * - Returns `{ kind: "match", ... }` when a route matches both path and method.
+ * - Returns `{ kind: "methodMismatch", allow }` when one or more routes match
+ *   the path but none accept the method — the caller should respond with 405
+ *   and an `Allow` header listing the accepted methods.
+ * - Returns `null` when no route matches the path at all; the request then
+ *   falls through to JWT auth and the normal route table.
+ *
+ * Method gating lives here so unauthenticated requests with the wrong method
+ * cannot reach skill handlers, and so same-path/different-method route pairs
+ * dispatch to the correct handler.
  */
 export function matchSkillRoute(
   path: string,
-): { route: SkillRoute; match: RegExpMatchArray } | null {
+  method: string,
+): SkillRouteMatch | null {
+  const pathMatches: SkillRoute[] = [];
   for (const route of routes) {
     const match = path.match(route.pattern);
-    if (match) return { route, match };
+    if (!match) continue;
+    if (route.methods.includes(method)) {
+      return { kind: "match", route, match };
+    }
+    pathMatches.push(route);
   }
-  return null;
+  if (pathMatches.length === 0) return null;
+  const allow = Array.from(
+    new Set(pathMatches.flatMap((r) => r.methods)),
+  );
+  return { kind: "methodMismatch", allow };
 }
