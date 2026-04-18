@@ -117,7 +117,11 @@ class FileWriteTool implements Tool {
     // was written successfully and that is the user-facing contract.
     try {
       const pkbRoot = join(getWorkspaceDir(), "pkb");
-      if (isInsidePkbRoot(filePath, pkbRoot)) {
+      // Gate on `.md` to match `scanPkbFiles`, which only walks markdown.
+      // Indexing `pkb/*.json` (or any other extension) here would produce
+      // chunks the reconciler can't see, leading to orphaned vectors and
+      // pointless embedding work.
+      if (filePath.endsWith(".md") && isInsidePkbRoot(filePath, pkbRoot)) {
         enqueuePkbIndexJob({
           pkbRoot,
           absPath: filePath,
