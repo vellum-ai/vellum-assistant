@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "fs";
 import { platform } from "os";
@@ -224,6 +225,7 @@ export function seedGuardianTokenFromSiblingEnv(assistantId: string): boolean {
   const currentEnvName = getCurrentEnvironment().name;
   const destPath = getGuardianTokenPath(assistantId);
 
+  const candidates: { path: string; mtimeMs: number }[] = [];
   for (const env of Object.values(SEEDS)) {
     if (env.name === currentEnvName) continue;
     const sibling = join(
@@ -232,9 +234,22 @@ export function seedGuardianTokenFromSiblingEnv(assistantId: string): boolean {
       assistantId,
       "guardian-token.json",
     );
-    if (!existsSync(sibling)) continue;
+    try {
+      const stat = statSync(sibling);
+      candidates.push({ path: sibling, mtimeMs: stat.mtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const now = Date.now();
+  for (const { path: sibling } of candidates) {
     try {
       const raw = readFileSync(sibling);
+      const parsed = JSON.parse(raw.toString("utf-8")) as GuardianTokenData;
+      const refreshExpiry = Date.parse(parsed.refreshTokenExpiresAt);
+      if (!Number.isFinite(refreshExpiry) || refreshExpiry <= now) continue;
       const dir = dirname(destPath);
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true, mode: 0o700 });
