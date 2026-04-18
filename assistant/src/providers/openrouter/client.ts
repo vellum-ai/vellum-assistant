@@ -11,6 +11,7 @@ export interface OpenRouterProviderOptions {
   apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
+  useNativeWebSearch?: boolean;
 }
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -36,6 +37,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
+  private readonly useNativeWebSearch: boolean;
   private anthropicInner: AnthropicProvider | undefined;
 
   constructor(
@@ -54,6 +56,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
+    this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
   // When routing to an `anthropic/*` model, actual API calls hit the Anthropic
@@ -114,6 +117,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
           baseURL: toAnthropicMessagesBaseURL(this.resolvedBaseURL),
           streamTimeoutMs: this.providerStreamTimeoutMs,
           authToken: this.openRouterApiKey,
+          useNativeWebSearch: this.useNativeWebSearch,
         },
       );
     }

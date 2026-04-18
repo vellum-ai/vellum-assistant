@@ -52,19 +52,32 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
     // MARK: - isNativeWebSearchCapable
 
     func testAnthropicIsNativeWebSearchCapable() {
-        XCTAssertTrue(store.isNativeWebSearchCapable("anthropic"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("anthropic", model: "claude-opus-4.7"))
     }
 
     func testOpenAIIsNativeWebSearchCapable() {
-        XCTAssertTrue(store.isNativeWebSearchCapable("openai"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("openai", model: "gpt-5"))
     }
 
     func testGeminiIsNotNativeWebSearchCapable() {
-        XCTAssertFalse(store.isNativeWebSearchCapable("gemini"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
     }
 
     func testOllamaIsNotNativeWebSearchCapable() {
-        XCTAssertFalse(store.isNativeWebSearchCapable("ollama"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("ollama", model: "llama3"))
+    }
+
+    func testOpenRouterWithAnthropicModelIsNativeWebSearchCapable() {
+        // OpenRouter routes `anthropic/*` models through the Anthropic-compat
+        // endpoint, which supports Anthropic's native web_search tool.
+        XCTAssertTrue(store.isNativeWebSearchCapable("openrouter", model: "anthropic/claude-opus-4.7"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("openrouter", model: "anthropic/claude-sonnet-4.6"))
+    }
+
+    func testOpenRouterWithNonAnthropicModelIsNotNativeWebSearchCapable() {
+        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: "openai/gpt-5"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: "x-ai/grok-4"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: ""))
     }
 
     // MARK: - managedCapableProviders
@@ -164,20 +177,20 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         // OpenAI is both managed-capable and native-web-search-capable,
         // so managed inference + inference-provider-native should be allowed.
         XCTAssertTrue(store.isManagedCapable("openai"))
-        XCTAssertTrue(store.isNativeWebSearchCapable("openai"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("openai", model: "gpt-5"))
     }
 
     func testManagedAnthropicPlusProviderNativeIsValid() {
         // Anthropic is both managed-capable and native-web-search-capable.
         XCTAssertTrue(store.isManagedCapable("anthropic"))
-        XCTAssertTrue(store.isNativeWebSearchCapable("anthropic"))
+        XCTAssertTrue(store.isNativeWebSearchCapable("anthropic", model: "claude-opus-4.7"))
     }
 
     func testManagedGeminiPlusProviderNativeIsInvalid() {
         // Gemini is managed-capable but NOT native-web-search-capable,
         // so managed Gemini + inference-provider-native should be rejected.
         XCTAssertTrue(store.isManagedCapable("gemini"))
-        XCTAssertFalse(store.isNativeWebSearchCapable("gemini"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
     }
 
     func testManagedOpenAIProviderNativeWebSearchCanBePersisted() {
@@ -216,10 +229,11 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         // When the inference provider doesn't support native web search,
         // isNativeWebSearchCapable should return false, indicating the UI
         // should enforce fallback to perplexity or brave.
-        XCTAssertFalse(store.isNativeWebSearchCapable("gemini"))
-        XCTAssertFalse(store.isNativeWebSearchCapable("ollama"))
-        XCTAssertFalse(store.isNativeWebSearchCapable("fireworks"))
-        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("ollama", model: "llama3"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("fireworks", model: "accounts/fireworks/models/kimi-k2"))
+        // OpenRouter with a non-anthropic model is not native-web-search-capable.
+        XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: "openai/gpt-5"))
     }
 
     // MARK: - Model Validation Against Selected Provider
