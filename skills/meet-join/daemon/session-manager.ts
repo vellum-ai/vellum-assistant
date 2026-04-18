@@ -776,6 +776,12 @@ class MeetSessionManagerImpl {
       );
     } catch (err) {
       this.pendingBotTokens.delete(meetingId);
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
       throw err;
     }
 
