@@ -42,9 +42,11 @@ export interface SlackChannelConfigResult {
 
 // -- Helpers --
 
+const SLACK_ALLOWED_DOMAINS = ["*.slack.com"];
+
 const SLACK_INJECTION_TEMPLATES = [
   {
-    hostPattern: "slack.com" as const,
+    hostPattern: "*.slack.com" as const,
     injectionType: "header" as const,
     headerName: "Authorization",
     valuePrefix: "Bearer ",
@@ -54,7 +56,7 @@ const SLACK_INJECTION_TEMPLATES = [
 /** Ensure the bot token credential has injection templates for the proxy. */
 function ensureBotTokenInjectionTemplates(): void {
   upsertCredentialMetadata("slack_channel", "bot_token", {
-    allowedDomains: ["slack.com"],
+    allowedDomains: SLACK_ALLOWED_DOMAINS,
     injectionTemplates: SLACK_INJECTION_TEMPLATES,
   });
 }
@@ -62,28 +64,52 @@ function ensureBotTokenInjectionTemplates(): void {
 /** Ensure the user token credential has injection templates for the proxy. */
 function ensureUserTokenInjectionTemplates(): void {
   upsertCredentialMetadata("slack_channel", "user_token", {
-    allowedDomains: ["slack.com"],
+    allowedDomains: SLACK_ALLOWED_DOMAINS,
     injectionTemplates: SLACK_INJECTION_TEMPLATES,
   });
 }
 
 /**
+ * Whether a credential metadata record needs its Slack injection config
+ * refreshed. True when templates are missing/empty or still carry the
+ * pre-wildcard `slack.com` host pattern (which only matched the apex and
+ * left `files.slack.com` file downloads unauthenticated), or when
+ * `allowedDomains` hasn't been migrated to the wildcard form.
+ */
+function needsSlackInjectionRefresh(meta: {
+  injectionTemplates?: { hostPattern: string }[];
+  allowedDomains?: string[];
+}): boolean {
+  const templates = meta.injectionTemplates;
+  if (!templates || templates.length === 0) return true;
+  if (
+    templates.some((tpl) =>
+      SLACK_INJECTION_TEMPLATES.every((t) => t.hostPattern !== tpl.hostPattern),
+    )
+  ) {
+    return true;
+  }
+  const domains = meta.allowedDomains ?? [];
+  return (
+    domains.length !== SLACK_ALLOWED_DOMAINS.length ||
+    SLACK_ALLOWED_DOMAINS.some((d) => !domains.includes(d))
+  );
+}
+
+/**
  * Backfill injection templates on the Slack credentials.
- * Called on daemon startup so existing credentials get proxy support.
+ * Called on daemon startup so existing credentials get proxy support and
+ * any stale patterns (e.g. legacy `slack.com` exact match) are upgraded
+ * to the current wildcard form without waiting for the user to re-open
+ * the Slack config UI.
  */
 export function backfillSlackInjectionTemplates(): void {
   const botMeta = getCredentialMetadata("slack_channel", "bot_token");
-  if (
-    botMeta &&
-    (!botMeta.injectionTemplates || botMeta.injectionTemplates.length === 0)
-  ) {
+  if (botMeta && needsSlackInjectionRefresh(botMeta)) {
     ensureBotTokenInjectionTemplates();
   }
   const userMeta = getCredentialMetadata("slack_channel", "user_token");
-  if (
-    userMeta &&
-    (!userMeta.injectionTemplates || userMeta.injectionTemplates.length === 0)
-  ) {
+  if (userMeta && needsSlackInjectionRefresh(userMeta)) {
     ensureUserTokenInjectionTemplates();
   }
 }
@@ -209,7 +235,9 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      return currentErrorSnapshot("Failed to store bot token in secure storage");
+      return currentErrorSnapshot(
+        "Failed to store bot token in secure storage",
+      );
     }
 
     ensureBotTokenInjectionTemplates();
@@ -262,8 +290,7 @@ export async function setSlackChannelConfig(
           data.team_id !== metadata.teamId
         ) {
           shouldClear = true;
-          clearReason =
-            "User token from a different workspace was removed.";
+          clearReason = "User token from a different workspace was removed.";
         }
       } catch (err) {
         // Transient failure (DNS error, network blip, connection reset,
@@ -310,7 +337,9 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      return currentErrorSnapshot("Failed to store app token in secure storage");
+      return currentErrorSnapshot(
+        "Failed to store app token in secure storage",
+      );
     }
 
     upsertCredentialMetadata("slack_channel", "app_token", {});
@@ -344,9 +373,7 @@ export async function setSlackChannelConfig(
       userTeamId = data.team_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return currentErrorSnapshot(
-        `Failed to validate user token: ${message}`,
-      );
+      return currentErrorSnapshot(`Failed to validate user token: ${message}`);
     }
 
     // Cross-check: if a bot token has already been configured, the user token

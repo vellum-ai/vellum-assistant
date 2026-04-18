@@ -169,7 +169,7 @@ export const PROVIDER_SEED_DATA: Record<
     loopbackPort: 17322,
     injectionTemplates: [
       {
-        hostPattern: "slack.com",
+        hostPattern: "*.slack.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",

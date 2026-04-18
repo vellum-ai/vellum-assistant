@@ -146,6 +146,7 @@ mock.module("../oauth/manual-token-connection.js", () => ({
 const originalFetch = globalThis.fetch;
 
 import {
+  backfillSlackInjectionTemplates,
   clearSlackChannelConfig,
   clearSlackUserToken,
   getSlackChannelConfig,
@@ -430,19 +431,15 @@ describe("Slack channel config handler", () => {
     // Metadata has injection templates for the user token.
     const meta = getCredentialMetadata("slack_channel", "user_token");
     expect(meta).toBeDefined();
-    expect(meta?.allowedDomains).toEqual(["slack.com"]);
+    expect(meta?.allowedDomains).toEqual(["*.slack.com"]);
     expect(meta?.injectionTemplates).toBeDefined();
     expect(meta?.injectionTemplates?.length ?? 0).toBeGreaterThan(0);
-    expect(meta?.injectionTemplates?.[0].hostPattern).toBe("slack.com");
+    expect(meta?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
     expect(meta?.injectionTemplates?.[0].headerName).toBe("Authorization");
   });
 
   test("POST rejects user token with invalid prefix", async () => {
-    const result = await setSlackChannelConfig(
-      undefined,
-      undefined,
-      "abc-123",
-    );
+    const result = await setSlackChannelConfig(undefined, undefined, "abc-123");
     expect(result.success).toBe(false);
     expect(result.error).toContain("xoxp-");
     // Nothing was stored.
@@ -660,9 +657,7 @@ describe("Slack channel config handler", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBe("xoxp-still-valid");
-    expect(
-      getCredentialMetadata("slack_channel", "user_token"),
-    ).toBeDefined();
+    expect(getCredentialMetadata("slack_channel", "user_token")).toBeDefined();
 
     // No warning about user_token removal — nothing was removed.
     expect(result.warning ?? "").not.toContain("User token");
@@ -697,10 +692,10 @@ describe("Slack channel config handler", () => {
       }
       if (auth === "Bearer xoxp-workspace-a") {
         // Workspace mismatch — handler will try to clear the user_token.
-        return new Response(
-          JSON.stringify({ ok: true, team_id: "T_A" }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ ok: true, team_id: "T_A" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected auth header: ${auth}`);
     }) as unknown as typeof globalThis.fetch;
@@ -808,7 +803,9 @@ describe("Slack channel config handler", () => {
     expect(
       await getSecureKeyAsync(credentialKey("slack_channel", "user_token")),
     ).toBeUndefined();
-    expect(getCredentialMetadata("slack_channel", "user_token")).toBeUndefined();
+    expect(
+      getCredentialMetadata("slack_channel", "user_token"),
+    ).toBeUndefined();
   });
 
   test("clearSlackUserToken leaves bot+app tokens and oauth_connection intact", async () => {
@@ -952,5 +949,79 @@ describe("Slack channel config handler", () => {
     expect(result.hasAppToken).toBe(true);
     expect(result.hasUserToken).toBe(true);
     expect(result.connected).toBe(true);
+  });
+
+  test("backfill upgrades stale slack.com exact-match injection templates to the wildcard form", async () => {
+    // Simulate an existing install that stored credentials before the
+    // wildcard migration: bot + user tokens carry the legacy hostPattern
+    // and allowedDomains, which left files.slack.com downloads
+    // unauthenticated by the outbound proxy.
+    await Promise.all([
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "bot_token"),
+        "xoxb-legacy",
+      ),
+      setSecureKeyAsync(
+        credentialKey("slack_channel", "user_token"),
+        "xoxp-legacy",
+      ),
+    ]);
+    upsertCredentialMetadata("slack_channel", "bot_token", {
+      allowedDomains: ["slack.com"],
+      injectionTemplates: [
+        {
+          hostPattern: "slack.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ],
+    });
+    upsertCredentialMetadata("slack_channel", "user_token", {
+      allowedDomains: ["slack.com"],
+      injectionTemplates: [
+        {
+          hostPattern: "slack.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ],
+    });
+
+    backfillSlackInjectionTemplates();
+
+    for (const field of ["bot_token", "user_token"] as const) {
+      const meta = getCredentialMetadata("slack_channel", field);
+      expect(meta?.allowedDomains).toEqual(["*.slack.com"]);
+      expect(meta?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
+    }
+  });
+
+  test("backfill leaves already-migrated injection templates untouched", async () => {
+    await setSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+      "xoxb-current",
+    );
+    upsertCredentialMetadata("slack_channel", "bot_token", {
+      allowedDomains: ["*.slack.com"],
+      injectionTemplates: [
+        {
+          hostPattern: "*.slack.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ],
+    });
+    const before = getCredentialMetadata("slack_channel", "bot_token");
+    const beforeUpdatedAt = before?.updatedAt;
+
+    backfillSlackInjectionTemplates();
+
+    const after = getCredentialMetadata("slack_channel", "bot_token");
+    expect(after?.updatedAt).toBe(beforeUpdatedAt);
+    expect(after?.allowedDomains).toEqual(["*.slack.com"]);
+    expect(after?.injectionTemplates?.[0].hostPattern).toBe("*.slack.com");
   });
 });
