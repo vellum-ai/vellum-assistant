@@ -312,6 +312,18 @@ export class MeetAudioIngest {
       this.socketPath = null;
       throw err;
     }
+    // If stop() was called concurrently while listen() was in flight, it
+    // already observed this.server === null and finished, so the freshly
+    // returned `server` would be orphaned if we assigned it. Close it
+    // locally and bail out.
+    if (this.stopped) {
+      try {
+        await server.close();
+      } catch (err) {
+        log.warn({ err }, "MeetAudioIngest: server close after stop threw");
+      }
+      return;
+    }
     this.server = server;
 
     server.onError((err) => {
