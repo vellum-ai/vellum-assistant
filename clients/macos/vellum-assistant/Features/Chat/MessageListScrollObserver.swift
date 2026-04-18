@@ -89,6 +89,15 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// materialization — or any other concurrent source — cannot fight
         /// the user's gesture with a mid-gesture `setBoundsOrigin` shift.
         private var isLiveScrolling: Bool = false
+        /// Guards against synchronous re-entry of
+        /// `emitCurrentSnapshotIfPossible`. `clipView.setBoundsOrigin(_:)`
+        /// synchronously posts `NSView.boundsDidChangeNotification`, which our
+        /// `queue: .main` observer dispatches synchronously via
+        /// `MainActor.assumeIsolated`. Without this guard, the
+        /// anchor-preservation branch would re-enter and call
+        /// `setBoundsOrigin` again before `lastContentHeight` is updated,
+        /// producing unbounded recursion until the main-thread stack overflows.
+        private var isEmitting: Bool = false
         /// In inverted-scroll coords, `contentOffsetY ≈ 0` means the user is
         /// pinned to the visual bottom (latest messages). Below this small
         /// epsilon we treat the user as pinned and let streaming growth
@@ -141,6 +150,10 @@ struct MessageListScrollObserver: NSViewRepresentable {
         }
 
         func emitCurrentSnapshotIfPossible() {
+            guard !isEmitting else { return }
+            isEmitting = true
+            defer { isEmitting = false }
+
             guard let scrollView,
                   let documentView = scrollView.documentView
             else { return }
