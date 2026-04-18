@@ -13,13 +13,13 @@
  *   `file_edit`, `host_file_read`, `host_file_write`, `host_file_edit`,
  *   `bash`, `host_bash`).
  * - **URL**: tools whose candidates include a URL (`web_fetch`,
- *   `browser_navigate`, `network_request`).
+ *   `network_request`).
  * - **Managed skill**: tools that manage first-party skill packages
  *   (`scaffold_managed_skill`, `delete_managed_skill`).
  * - **Skill load**: the `skill_load` tool, which uses a distinct candidate
  *   namespace (`skill_load:selector` or `skill_load_dynamic:selector`).
- * - **Generic**: everything else (computer-use tools, browser action tools,
- *   UI surface tools, recall, skill_execute, etc.).
+ * - **Generic**: everything else (computer-use tools, UI surface tools,
+ *   recall, skill_execute, etc.).
  */
 
 // ---------------------------------------------------------------------------
@@ -51,11 +51,7 @@ export const SCOPED_TOOLS = [
 /**
  * Tools whose permission candidates include a URL.
  */
-export const URL_TOOLS = [
-  "web_fetch",
-  "browser_navigate",
-  "network_request",
-] as const;
+export const URL_TOOLS = ["web_fetch", "network_request"] as const;
 
 /**
  * Tools that manage first-party skill packages (scaffold/delete).

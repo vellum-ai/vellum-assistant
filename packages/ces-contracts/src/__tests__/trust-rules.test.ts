@@ -114,7 +114,7 @@ describe("parseTrustRule — URL tools strip invalid fields", () => {
   });
 
   test("type guard isUrlRule narrows correctly", () => {
-    const { rule } = parseTrustRule(makeRaw({ tool: "browser_navigate" }));
+    const { rule } = parseTrustRule(makeRaw({ tool: "network_request" }));
     expect(isUrlRule(rule)).toBe(true);
     expect(isScopedRule(rule)).toBe(false);
   });
