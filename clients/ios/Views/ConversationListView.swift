@@ -746,11 +746,6 @@ struct ConversationChatView: View {
     @ObservedObject var store: IOSConversationStore
     let conversation: IOSConversation
 
-    @EnvironmentObject var clientProvider: ClientProvider
-    @State private var showCopiedConfirmation = false
-    @State private var showShareSheet = false
-    @State private var shareMarkdown: String = ""
-
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
         VStack(spacing: 0) {
@@ -774,9 +769,6 @@ struct ConversationChatView: View {
         }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showShareSheet) {
-                ActivityViewController(activityItems: [shareMarkdown])
-            }
     }
 
     @ViewBuilder
@@ -816,54 +808,6 @@ struct ConversationChatView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Open parent conversation")
         .accessibilityHint("Opens the conversation this chat forked from")
-    }
-
-    @ViewBuilder
-    private var exportMenu: some View {
-        let hasTextMessages = ChatTranscriptFormatter.hasExportableContent(messages: viewModel.messages)
-
-        Menu {
-            Button {
-                let markdown = buildMarkdown()
-                guard !markdown.isEmpty else { return }
-                UIPasteboard.general.string = markdown
-                showCopiedConfirmation = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    showCopiedConfirmation = false
-                }
-            } label: {
-                Label {
-                    Text(showCopiedConfirmation ? "Copied!" : "Copy as Markdown")
-                } icon: {
-                    VIconView(showCopiedConfirmation ? .check : .copy, size: 14)
-                }
-            }
-
-            Button {
-                let markdown = buildMarkdown()
-                guard !markdown.isEmpty else { return }
-                shareMarkdown = markdown
-                showShareSheet = true
-            } label: {
-                Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 14) }
-            }
-        } label: {
-            VIconView(showCopiedConfirmation ? .check : .share, size: 20)
-                .foregroundStyle(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
-        }
-        .disabled(!hasTextMessages)
-    }
-
-    private func buildMarkdown() -> String {
-        let names = ChatTranscriptFormatter.ParticipantNames(
-            assistantName: "Assistant",
-            userName: "You"
-        )
-        return ChatTranscriptFormatter.conversationMarkdown(
-            messages: viewModel.messages,
-            conversationTitle: conversation.title,
-            participantNames: names
-        )
     }
 }
 
