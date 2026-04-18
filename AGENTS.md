@@ -238,10 +238,11 @@ Release notes for user/assistant-facing changes ship via **workspace migrations*
 
 **To ship release notes:**
 
-1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration.
-2. The migration must be idempotent: check for the HTML marker comment `<!-- vellum-migration:<id> -->` in `UPDATES.md` before appending, and skip if the marker is already present. The `<id>` should match the migration's registry ID so re-runs are a no-op.
-3. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
-4. Skip the migration entirely for no-op releases — do not add an empty migration.
+1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration and append it to `UPDATES.md` in the migration's `run()`.
+2. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
+3. Skip the migration entirely for no-op releases — do not add an empty migration.
+
+**Idempotency is handled by the workspace-migration runner.** `runWorkspaceMigrations()` in `assistant/src/workspace/migrations/runner.ts` records each successfully applied migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set. Release-notes migrations therefore do not need their own in-file guard — the runner is the authoritative single source of truth for "has this migration run yet?". (If you want belt-and-suspenders for the rare case where the checkpoint file is wiped but `UPDATES.md` survives, you may optionally embed an HTML marker like `<!-- vellum-migration:<id> -->` in the appended block and skip the append when the marker is already present. This is a secondary defense, not the primary mechanism.)
 
 **Processing:** After workspace migrations run at daemon startup, `runUpdateBulletinJobIfNeeded()` fires a background-only conversation (`conversationType: "background"`) via `wakeAgentForOpportunity()` to process `UPDATES.md`. The agent reads the file, acts on whatever is relevant, and deletes `UPDATES.md` when done. `rm UPDATES.md` remains auto-allowed so deletion needs no approval. The job short-circuits when the content hash matches the previously processed value (`updates:last_processed_hash`), so running on every startup is safe.
 

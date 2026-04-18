@@ -754,7 +754,7 @@ Release-driven update notification system that dispatches a background conversat
 
 **Data flow:**
 
-1. **Storage** — Release notes live at `~/.vellum/workspace/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends an idempotency-gated block (keyed by an HTML marker comment `<!-- vellum-migration:<id> -->`) to the file.
+1. **Storage** — Release notes live at `~/.vellum/workspace/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends a release-notes block to the file. The workspace-migration runner is the authoritative idempotency mechanism: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set.
 2. **Dispatch** — At daemon startup (after `runWorkspaceMigrations()`), `runUpdateBulletinJobIfNeeded()` is invoked fire-and-forget. It hashes the current `UPDATES.md` content and compares against the `updates:last_processed_hash` checkpoint. When the hashes differ, it bootstraps a `conversationType: "background"` conversation and calls `wakeAgentForOpportunity()` so the agent processes the bulletin without any interactive session.
 3. **Completion** — The agent acts on the contents and deletes `UPDATES.md` when done. The job persists the new hash to `updates:last_processed_hash` post-wake, so subsequent startups short-circuit until the file is repopulated by a future migration.
 
