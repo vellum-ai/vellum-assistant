@@ -3,20 +3,16 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Per-conversation cache of each transcript row's measured height, keyed by
-/// the row's `TranscriptItem.id`. When enabled, the cached height is applied
-/// back as a `.frame(height:)` so SwiftUI's `LazyVStack` reports an accurate
-/// `contentSize` even for cells that are currently off-screen.
+/// the row's `TranscriptItem.id`. Written on every render via the geometry
+/// reader inside `CachedHeightRow`; read only by the scroll debug HUD today
+/// (and by future diagnostics that want a ground-truth height per row).
 ///
-/// Without this, `LazyVStack` drifts its internal height estimate as cells
-/// materialize — measurable as single-frame swings of hundreds of points in
-/// `scrollContentHeight` that manifest as jerky scroll at the top of a long
-/// conversation. See `ScrollDebugOverlayView` for the diagnostic HUD.
-///
-/// Invalidation: fully reset on conversation switch (via `.id(conversationId)`
-/// on the hosting view), chat column width change, or typography generation
-/// bump. Per-row entries are overwritten on every geometry update, so
-/// streaming content keeps its cache entry up to date as it grows — subject
-/// to a 1-frame lag while the body re-evaluates.
+/// The `message-height-cache` feature flag flips the stack from `LazyVStack`
+/// to a plain `VStack` inside `MessageListContentView`. That's what actually
+/// stabilises `scrollContentHeight` — `VStack` measures every cell, so the
+/// scroll view reports the true total height instead of `LazyVStack`'s
+/// drifting estimate. The cache itself is complementary: it records every
+/// row's measured height as a byproduct, useful for inspection.
 ///
 /// Propagated through `EnvironmentValues.messageHeightCache` alongside the
 /// other transcript stores. Not annotated `@MainActor` because `EnvironmentKey`
@@ -59,38 +55,60 @@ extension EnvironmentValues {
 
 // MARK: - CachedHeightRow
 
-/// Wraps a transcript row so its measured height is written back to the
-/// shared `MessageHeightCache` and, on subsequent renders, pinned via
-/// `.frame(height:)`. The pin is what lets `LazyVStack` skip re-estimating
-/// the row when it scrolls off-screen and back on — which is what stabilises
-/// `scrollContentHeight` during long-conversation scroll.
+/// Wraps a transcript row so its measured height is recorded into the shared
+/// `MessageHeightCache`. Does NOT pin the row's frame — an earlier version
+/// applied `.frame(height: cached)` and produced catastrophic overlap when a
+/// row's content grew past its first-measured height (streaming, thinking
+/// block expanding). The row-height fix now lives at the stack level: the
+/// enclosing `MessageListContentView` swaps `LazyVStack` for a plain `VStack`
+/// when this flag is on, which eliminates the estimator that caused the
+/// jerky scroll in the first place.
 ///
-/// Gated on the `message-height-cache` macOS feature flag. When the flag is
-/// off this view is a straight passthrough — no geometry reader, no frame
-/// pin, no cache writes — so off-state pays nothing.
+/// When the flag is off the wrapper is a straight passthrough — no geometry
+/// reader, no cache writes — so off-state pays nothing.
 struct CachedHeightRow<Content: View>: View {
     let itemId: UUID
     @ViewBuilder let content: () -> Content
     @Environment(\.messageHeightCache) private var heightCache
 
     var body: some View {
-        let flagEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("message-height-cache")
-        if flagEnabled {
-            let cached = heightCache.height(for: itemId)
-            Group {
-                if let cached {
-                    content().frame(height: cached)
-                } else {
-                    content()
+        if MacOSClientFeatureFlagManager.shared.isEnabled("message-height-cache") {
+            content()
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { newHeight in
+                    heightCache.record(itemId, height: newHeight)
                 }
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                heightCache.record(itemId, height: newHeight)
-            }
         } else {
             content()
+        }
+    }
+}
+
+// MARK: - MessageTranscriptStack
+
+/// Container for the transcript's main content stack. When the
+/// `message-height-cache` flag is on, this is a plain `VStack` — every row
+/// is materialised eagerly, so `scrollContentHeight` equals the true sum of
+/// row heights with no estimator in the middle to drift. When the flag is
+/// off this is the original `LazyVStack`, preserving the existing laziness
+/// (and its estimation quirks) for conversations long enough that eager
+/// layout would be too expensive.
+///
+/// The flag toggle is a clean A/B: correctness vs. laziness.
+struct MessageTranscriptStack<Content: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("message-height-cache") {
+            VStack(alignment: .leading, spacing: spacing) {
+                content()
+            }
+        } else {
+            LazyVStack(alignment: .leading, spacing: spacing) {
+                content()
+            }
         }
     }
 }
