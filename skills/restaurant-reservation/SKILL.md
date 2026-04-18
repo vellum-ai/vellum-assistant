@@ -79,6 +79,7 @@ This is the most important step. Reservation sites require authentication before
 ### EVERY snapshot: Dismiss modals FIRST
 
 **Before every other action**, scan the snapshot for **non-functional** modal overlays and dismiss them. Modals block all interactions - clicking behind a modal silently fails.
+
 - **DO NOT dismiss sign-in/login modals** - if you see an email input or sign-in form inside a modal, that IS the sign-in flow. Fill it in, don't close it.
 - Dismiss only blocker modals: cookie banners, regulatory notices, promotional popups.
 - Look for: "Got It", "Accept", "Close", "OK", "Dismiss" buttons on non-login modals.
@@ -96,6 +97,7 @@ This is the most important step. Reservation sites require authentication before
    ```bash
    assistant browser --session reservation --json snapshot
    ```
+
 5. **If the named restaurant is not found on this provider**, tell the user and offer to try the other provider (OpenTable <-> Resy). If they agree, go back to Step 3 to sign in to the other provider.
 
 ### Step 5: Present Available Slots
@@ -117,12 +119,14 @@ This is the most important step. Reservation sites require authentication before
 ### Step 6: First Confirmation - Reservation Details + Policies
 
 Before proceeding to book, show the user a summary:
+
 - Restaurant name
 - Date and time
 - Party size
 - Any special notes
 
 **CRITICAL: Surface cancellation policies and fees prominently.** Look for and extract:
+
 - Cancellation deadlines (e.g., "Cancel by 4 hours before")
 - No-show fees (e.g., "$25 per person no-show fee")
 - Deposit requirements
@@ -135,6 +139,7 @@ Ask the user to confirm they want to proceed.
 ### Step 7: Final Confirmation - Pre-Submit Approval
 
 Immediately before clicking the final "Complete Reservation" / "Confirm" button, ask one more time:
+
 - "Ready to submit this reservation? This action cannot be undone."
 
 Only proceed after explicit user approval.
