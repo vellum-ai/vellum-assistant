@@ -145,16 +145,14 @@ function normalizeSendMessageOptions(
         nextConfig.thinking = { type: "adaptive" };
       }
     }
-    if (nextConfig.contextWindow === undefined) {
-      nextConfig.contextWindow = resolved.contextWindow;
-    }
-    // Provider name from the resolver — informational; the wrapped provider
-    // is the actual transport. Downstream consumers may inspect this for
-    // diagnostics or wire-format decisions, but the request still routes
-    // through the inner provider that this RetryProvider wraps.
-    if (nextConfig.provider === undefined) {
-      nextConfig.provider = resolved.provider;
-    }
+    // `contextWindow` and `provider` are server-side concerns, not provider
+    // request parameters: `contextWindow` is consumed by the agent loop's
+    // overflow recovery and the conversation manager directly from
+    // `config.llm.default.contextWindow.*`; `provider` selection is handled
+    // by `CallSiteRoutingProvider` upstream. Forwarding them as per-call
+    // config leaks unknown fields into provider request bodies — Anthropic
+    // (and other strict-schema clients) reject the request with
+    // "Extra inputs are not permitted".
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a

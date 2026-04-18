@@ -148,7 +148,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.max_tokens).toBe(32000);
   });
 
-  test("propagates resolved effort/speed/temperature/contextWindow", async () => {
+  test("propagates resolved effort/speed/temperature; omits server-side fields", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -183,8 +183,14 @@ describe("RetryProvider — callSite resolution", () => {
     // default behavior — matches the legacy non-callSite path which only sets
     // `providerConfig.thinking` when `enabled === true`.
     expect(config.thinking).toBeUndefined();
-    // contextWindow comes through from the resolved default.
-    expect(config.contextWindow).toBeDefined();
+    // `contextWindow` and `provider` are server-side concerns and must NOT
+    // leak into the per-call provider config — Anthropic rejects unknown
+    // fields with `{type:"invalid_request_error", message:"contextWindow:
+    // Extra inputs are not permitted"}`. Provider routing is handled by
+    // CallSiteRoutingProvider; contextWindow is consumed by the agent loop
+    // directly from `config.llm.default.contextWindow.*`.
+    expect(config.contextWindow).toBeUndefined();
+    expect(config.provider).toBeUndefined();
   });
 
   test("converts resolved thinking config to Anthropic wire-format `{ type: 'adaptive' }` when enabled", async () => {
