@@ -249,6 +249,7 @@ async function handleArchiveRecall(
 
 export interface RememberInput {
   content: string;
+  finish_turn?: boolean;
 }
 
 export interface RememberResult {
