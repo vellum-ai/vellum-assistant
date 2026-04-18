@@ -166,6 +166,7 @@ export {
   migrateNormalizeUserFileByPrincipal,
 } from "./220-normalize-user-file-by-principal.js";
 export { migrateConversationsArchivedAt } from "./221-conversations-archived-at.js";
+export { migrateStripPlaceholderSentinelsFromMessages } from "./222-strip-placeholder-sentinels-from-messages.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

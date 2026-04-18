@@ -8,6 +8,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 
+import { isPlaceholderSentinelText } from "../providers/anthropic/client.js";
 import {
   hostPolicy,
   sandboxPolicy,
@@ -692,19 +693,29 @@ export function cleanAssistantContent(content: readonly unknown[]): {
   const directives: DirectiveRequest[] = [];
   const warnings: string[] = [];
 
-  const cleanedContent = content.map((block) => {
-    const b = block as Record<string, unknown>;
-    if (b.type !== "text") return block;
-    const text = b.text as string;
-    // Only run the directive parser when the text actually contains a
-    // potential tag. This avoids unintentional whitespace normalisation
-    // (parseDirectives trims and collapses blank lines) on plain messages.
-    if (!text.includes("<vellum-attachment")) return block;
-    const result = parseDirectives(text);
-    directives.push(...result.directiveRequests);
-    warnings.push(...result.parseWarnings);
-    return { ...b, text: result.cleanText };
-  });
+  const cleanedContent = content
+    .filter((block) => {
+      // Drop placeholder sentinel text blocks. These are injected by the
+      // Anthropic provider to preserve role alternation in outbound requests
+      // and must never be persisted or rendered to users.
+      const b = block as Record<string, unknown>;
+      if (b.type !== "text") return true;
+      const text = b.text;
+      return typeof text !== "string" || !isPlaceholderSentinelText(text);
+    })
+    .map((block) => {
+      const b = block as Record<string, unknown>;
+      if (b.type !== "text") return block;
+      const text = b.text as string;
+      // Only run the directive parser when the text actually contains a
+      // potential tag. This avoids unintentional whitespace normalisation
+      // (parseDirectives trims and collapses blank lines) on plain messages.
+      if (!text.includes("<vellum-attachment")) return block;
+      const result = parseDirectives(text);
+      directives.push(...result.directiveRequests);
+      warnings.push(...result.parseWarnings);
+      return { ...b, text: result.cleanText };
+    });
 
   return { cleanedContent, directives, warnings };
 }
