@@ -530,7 +530,7 @@ describe("MeetConversationBridge — participant.change", () => {
     expect(aliceText).toBe("[Meeting] Alice joined");
     expect(bobText).toBe("[Meeting] Bob joined");
 
-    expect(alice?.role).toBe("assistant");
+    expect(alice?.role).toBe("user");
     expect(alice?.metadata).toMatchObject({
       meetingId: MEETING_ID,
       meetParticipantId: "u-alice",
@@ -556,7 +556,7 @@ describe("MeetConversationBridge — participant.change", () => {
     expect(calls).toHaveLength(1);
     const text = JSON.parse(calls[0]!.content)[0].text;
     expect(text).toBe("[Meeting] Carol left");
-    expect(calls[0]?.role).toBe("assistant");
+    expect(calls[0]?.role).toBe("user");
     expect(calls[0]?.metadata).toMatchObject({
       meetParticipantId: "u-carol",
       meetParticipantChange: "left",

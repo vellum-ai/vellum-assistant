@@ -477,7 +477,7 @@ describe("Meet pipeline end-to-end", () => {
         }
       });
       expect(joinLine).toBeDefined();
-      expect(joinLine?.role).toBe("assistant");
+      expect(joinLine?.role).toBe("user");
       expect(joinLine?.opts).toMatchObject({ skipIndexing: true });
       expect(joinLine?.metadata).toMatchObject({
         meetingId: MEETING_ID,
