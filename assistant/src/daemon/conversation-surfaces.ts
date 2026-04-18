@@ -13,6 +13,10 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import type {
+  InteractiveUiRequest,
+  InteractiveUiResult,
+} from "../runtime/interactive-ui.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -21,7 +25,9 @@ import { launchConversation } from "./conversation-launch.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type {
   CardSurfaceData,
+  ConfirmationSurfaceData,
   DynamicPageSurfaceData,
+  FormSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -272,6 +278,20 @@ export interface SurfaceConversationContext {
   accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
   surfaceActionRequestIds: Set<string>;
+  /**
+   * Pending standalone UI requests keyed by surfaceId.
+   * These are daemon-driven surfaces (not LLM tool invocations) that block
+   * the caller until the user submits, cancels, or the timeout elapses.
+   * Optional: only present on conversations that support standalone surfaces.
+   */
+  pendingStandaloneSurfaces?: Map<
+    string,
+    {
+      resolve: (result: InteractiveUiResult) => void;
+      timer: ReturnType<typeof setTimeout>;
+      surfaceType: SurfaceType;
+    }
+  >;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -288,6 +308,8 @@ export interface SurfaceConversationContext {
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
+  /** True when no interactive client is connected (headless / channel-only). */
+  readonly hasNoClient?: boolean;
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
@@ -352,6 +374,219 @@ export function createSurfaceMutex(): SurfaceMutex {
 
   Object.defineProperty(mutex, "size", { get: () => chains.size });
   return mutex as SurfaceMutex;
+}
+
+// ── Standalone surface lifecycle ────────────────────────────────────
+//
+// Daemon-driven UI surfaces that block the caller (skill, IPC handler)
+// until the user responds or the timeout elapses. Unlike LLM-invoked
+// surfaces (ui_show tool), these never trigger an LLM follow-up turn —
+// the result is returned directly to the requesting code.
+
+/** Default timeout for standalone surfaces when the caller does not specify one. */
+const DEFAULT_STANDALONE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Check whether the conversation can show interactive UI surfaces.
+ * Fails closed when no client is connected or the channel doesn't
+ * support dynamic UI.
+ */
+export function canShowInteractiveUi(
+  ctx: Pick<SurfaceConversationContext, "hasNoClient" | "channelCapabilities">,
+): boolean {
+  if (ctx.hasNoClient) return false;
+  if (ctx.channelCapabilities && !ctx.channelCapabilities.supportsDynamicUi) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Show a standalone UI surface and return a Promise that resolves when
+ * the user submits, cancels, or the timeout elapses.
+ *
+ * This is the core entry point for daemon-driven (non-LLM) UI requests.
+ * It performs the fail-closed capability check, emits `ui_surface_show`,
+ * stores surface state, arms the timeout, and registers a pending entry
+ * so that `handleSurfaceAction` can intercept the callback.
+ */
+export function showStandaloneSurface(
+  ctx: SurfaceConversationContext,
+  request: InteractiveUiRequest,
+  surfaceId: string,
+): Promise<InteractiveUiResult> {
+  // ── Fail-closed: no interactive UI capability ──
+  if (!canShowInteractiveUi(ctx)) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        surfaceType: request.surfaceType,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "standalone surface: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+    });
+  }
+
+  // The pendingStandaloneSurfaces map must exist on the context.
+  // The Conversation class always initializes it; if absent, fail closed.
+  if (!ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      { conversationId: ctx.conversationId, surfaceType: request.surfaceType },
+      "standalone surface: pendingStandaloneSurfaces map missing; failing closed",
+    );
+    return Promise.resolve({ status: "cancelled" as const, surfaceId });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+
+  const timeoutMs = request.timeoutMs ?? DEFAULT_STANDALONE_TIMEOUT_MS;
+
+  // Build surface data from the request payload.
+  const surfaceType = request.surfaceType as SurfaceType;
+  const data = buildStandaloneSurfaceData(request);
+  const actions = request.actions?.map((a) => ({
+    id: a.id,
+    label: a.label,
+    style: (a.variant === "danger"
+      ? "destructive"
+      : (a.variant ?? "secondary")) as "primary" | "secondary" | "destructive",
+  }));
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    // ── Arm timeout ──
+    const timer = setTimeout(() => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "standalone surface timed out",
+      );
+      resolve({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    // ── Register pending entry ──
+    pendingMap.set(surfaceId, {
+      resolve,
+      timer,
+      surfaceType,
+    });
+
+    // ── Store surface state ──
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType,
+      data,
+      title: request.title,
+      actions,
+    });
+
+    // ── Emit to client ──
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    emit({
+      type: "ui_surface_show",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      surfaceType,
+      title: request.title,
+      data,
+      actions,
+      display: "inline",
+    } as unknown as UiSurfaceShow);
+
+    log.info(
+      {
+        conversationId: ctx.conversationId,
+        surfaceId,
+        surfaceType,
+        timeoutMs,
+      },
+      "standalone surface shown",
+    );
+  });
+}
+
+/**
+ * Build a SurfaceData object from an InteractiveUiRequest.
+ * Maps the generic `data` payload to the typed shape expected by the
+ * surface type.
+ */
+function buildStandaloneSurfaceData(
+  request: InteractiveUiRequest,
+): SurfaceData {
+  if (request.surfaceType === "confirmation") {
+    return {
+      message:
+        typeof request.data.message === "string"
+          ? request.data.message
+          : (request.title ?? "Please confirm"),
+      detail:
+        typeof request.data.detail === "string"
+          ? request.data.detail
+          : undefined,
+      confirmLabel:
+        typeof request.data.confirmLabel === "string"
+          ? request.data.confirmLabel
+          : undefined,
+      cancelLabel:
+        typeof request.data.cancelLabel === "string"
+          ? request.data.cancelLabel
+          : undefined,
+      destructive:
+        typeof request.data.destructive === "boolean"
+          ? request.data.destructive
+          : undefined,
+    } satisfies ConfirmationSurfaceData;
+  }
+
+  if (request.surfaceType === "form") {
+    return {
+      description:
+        typeof request.data.description === "string"
+          ? request.data.description
+          : undefined,
+      fields: Array.isArray(request.data.fields)
+        ? (request.data.fields as FormSurfaceData["fields"])
+        : [],
+      submitLabel:
+        typeof request.data.submitLabel === "string"
+          ? request.data.submitLabel
+          : undefined,
+    } satisfies FormSurfaceData;
+  }
+
+  // Fallback: pass through opaque data
+  return request.data as unknown as SurfaceData;
+}
+
+/**
+ * Cleanup a standalone surface entry: clear the timeout timer, remove
+ * the pending entry, and remove surface state. Idempotent — safe to
+ * call multiple times for the same surfaceId.
+ */
+export function cleanupStandaloneSurface(
+  ctx: Pick<
+    SurfaceConversationContext,
+    | "pendingStandaloneSurfaces"
+    | "surfaceState"
+    | "pendingSurfaceActions"
+    | "lastSurfaceAction"
+    | "accumulatedSurfaceState"
+    | "surfaceUndoStacks"
+  >,
+  surfaceId: string,
+): void {
+  const entry = ctx.pendingStandaloneSurfaces?.get(surfaceId);
+  if (entry) {
+    clearTimeout(entry.timer);
+    ctx.pendingStandaloneSurfaces?.delete(surfaceId);
+  }
+  ctx.surfaceState.delete(surfaceId);
+  ctx.pendingSurfaceActions.delete(surfaceId);
+  ctx.lastSurfaceAction.delete(surfaceId);
+  ctx.accumulatedSurfaceState.delete(surfaceId);
+  ctx.surfaceUndoStacks.delete(surfaceId);
 }
 
 /**
@@ -719,6 +954,65 @@ export async function handleSurfaceAction(
       "launch_conversation dispatched inline from surface action",
     );
     return { accepted: true, conversationId };
+  }
+
+  // ── Standalone surface interception ──────────────────────────────
+  // Daemon-driven surfaces (from `requestInteractiveUi`) register a
+  // pending entry in `pendingStandaloneSurfaces`. When the user clicks
+  // an action, resolve the caller's Promise directly and return WITHOUT
+  // enqueuing a model message — consumed standalone callbacks never
+  // trigger an LLM follow-up turn.
+  const standalone = ctx.pendingStandaloneSurfaces?.get(surfaceId);
+  if (standalone) {
+    const stored = ctx.surfaceState.get(surfaceId);
+    const summary = buildCompletionSummary(
+      standalone.surfaceType,
+      actionId,
+      data,
+      stored?.data as Record<string, unknown> | undefined,
+    );
+
+    // Determine result status from the action.
+    const isCancellation = actionId === "cancel" || actionId === "dismiss";
+    const status: InteractiveUiResult["status"] = isCancellation
+      ? "cancelled"
+      : "submitted";
+
+    const result: InteractiveUiResult = {
+      status,
+      surfaceId,
+      actionId,
+      ...(data ? { submittedData: data } : {}),
+      summary,
+    };
+
+    // Emit ui_surface_complete so the client transitions the surface chip.
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    emit({
+      type: "ui_surface_complete",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      summary,
+      submittedData: data,
+    });
+
+    // Cleanup and resolve — order matters: cleanup clears the timer
+    // before resolve() unblocks the caller.
+    cleanupStandaloneSurface(ctx, surfaceId);
+    standalone.resolve(result);
+
+    log.info(
+      {
+        conversationId: ctx.conversationId,
+        surfaceId,
+        actionId,
+        status,
+      },
+      "standalone surface resolved by user action",
+    );
+
+    // Return without enqueuing a model message.
+    return { accepted: true, conversationId: ctx.conversationId };
   }
 
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
