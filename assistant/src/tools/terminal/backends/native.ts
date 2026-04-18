@@ -13,6 +13,33 @@ const log = getLogger("sandbox");
 const HASH_DISPLAY_LENGTH = 12;
 
 /**
+ * macOS TCC-protected directories that trigger permission prompts when accessed.
+ * Unconditionally denied in the SBPL sandbox profile to prevent the assistant
+ * from triggering Photos, Contacts, Calendar, etc. dialogs during filesystem
+ * traversal (e.g. `find ~ -name .git`).
+ *
+ * Paths are relative to $HOME. Only directories that trigger TCC prompts for
+ * non-App-Sandbox apps are listed — ~/Desktop and ~/Documents are
+ * TCC-protected only under App Sandbox, which the daemon does not use.
+ */
+export const MACOS_TCC_PROTECTED_PATHS = [
+  "Pictures/Photos Library.photoslibrary",
+  "Library/Photos",
+  "Library/Calendars",
+  "Library/Reminders",
+  "Library/AddressBook",
+  "Library/Messages",
+  "Library/Mail",
+  "Library/Safari",
+  "Library/Cookies",
+  "Library/HomeKit",
+  "Library/IdentityServices",
+  "Library/Metadata/CoreSpotlight",
+  "Library/PersonalizationPortrait",
+  "Library/Suggestions",
+];
+
+/**
  * Build a macOS sandbox-exec SBPL profile.
  *
  * The profile restricts shell commands:
@@ -33,6 +60,18 @@ function buildSandboxProfile(
   const networkRule = allowNetwork
     ? ";; Allow network access (proxied mode - needed to reach the credential proxy)\n(allow network*)"
     : ";; Block network access\n(deny network*)";
+
+  // Block macOS TCC-protected directories to prevent permission prompts
+  // during filesystem traversal. Placed AFTER (allow file-read*) because
+  // SBPL uses last-match-wins semantics.
+  const home = process.env.HOME ?? "";
+  const tccDenyRules = home
+    ? "\n;; Block macOS TCC-protected directories to prevent permission prompts\n" +
+      MACOS_TCC_PROTECTED_PATHS.map(
+        (rel) =>
+          `(deny file-read* (subpath "${escapeSBPL(join(home, rel))}") (with no-log))`,
+      ).join("\n")
+    : "";
 
   // Build deny-read rules for protected paths (CES shell lockdown).
   // These are placed AFTER the allow file-read* rule because SBPL uses
@@ -55,6 +94,7 @@ function buildSandboxProfile(
 
 ;; Allow read access to the filesystem (tools, libraries, etc.)
 (allow file-read*)
+${tccDenyRules}
 ${denyReadRules}
 
 ;; Allow write access to the working directory and its children
@@ -120,12 +160,13 @@ function getProfilePath(
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  // Include the network flag and deny-read paths in the hash so profiles
-  // with different configurations don't collide.
+  // Include the network flag, deny-read paths, and HOME in the hash so
+  // profiles with different configurations don't collide.
   let hashInput = allowNetwork ? `${workingDir}:proxied` : workingDir;
   if (denyReadPaths && denyReadPaths.length > 0) {
     hashInput += `:deny-read:${denyReadPaths.sort().join(",")}`;
   }
+  hashInput += `:home:${process.env.HOME ?? ""}`;
   const hash = createHash("sha256")
     .update(hashInput)
     .digest("hex")
