@@ -71,7 +71,7 @@ MANIFEST_JS = json.dumps(MANIFEST)
 
 # Permission badges
 perm_badges = "".join(
-    f'<span class="badge">{k}: {v}</span>' for k, v in perms.items()
+    f'<span class="badge">{html.escape(k)}: {html.escape(v)}</span>' for k, v in perms.items()
 )
 
 STYLE = """
@@ -441,7 +441,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "owner": data.get("owner", {}).get("login"),
                 }
 
-                with open(args.output, "w") as f:
+                # Write credentials with restricted permissions (contains private key)
+                fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
                     json.dump(creds, f, indent=2)
 
                 self._respond(200, success_page(

@@ -24,7 +24,7 @@ This skill creates a **GitHub App** under a GitHub organization, giving the assi
 - A **GitHub App** owned by the org (not the user's personal account)
 - **Installation** on selected repositories with configurable permissions (default: `contents:write` + `pull_requests:write`)
 - **Credentials** stored in the assistant's encrypted vault (7 fields)
-- **Token helper script** at `/workspace/bin/gh-app-token.mjs` for refreshing auth tokens
+- **Token helper script** at `bin/gh-app-token.mjs` (in the workspace root) for refreshing auth tokens
 
 ## Prerequisites
 
@@ -120,14 +120,14 @@ assistant credentials set --service github-app --field installation_id "INSTALLA
 Copy the token helper to the workspace:
 
 ```bash
-cp scripts/gh-app-token.mjs /workspace/bin/gh-app-token.mjs
-chmod +x /workspace/bin/gh-app-token.mjs
+cp scripts/gh-app-token.mjs "$WORKSPACE_ROOT/bin/gh-app-token.mjs"
+chmod +x "$WORKSPACE_ROOT/bin/gh-app-token.mjs"
 ```
 
 Configure the local repo clone:
 
 ```bash
-cd /workspace/REPO_NAME
+cd "$WORKSPACE_ROOT/REPO_NAME"
 git config user.name "APP_SLUG[bot]"
 git config user.email "APP_ID+APP_SLUG[bot]@users.noreply.github.com"
 ```
@@ -135,7 +135,7 @@ git config user.email "APP_ID+APP_SLUG[bot]@users.noreply.github.com"
 Before each push, refresh the remote URL with a fresh token (tokens expire after 1 hour):
 
 ```bash
-TOKEN=$(bun /workspace/bin/gh-app-token.mjs)
+TOKEN=$(bun "$WORKSPACE_ROOT/bin/gh-app-token.mjs")
 git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO.git"
 git push origin BRANCH
 ```
@@ -144,7 +144,7 @@ git push origin BRANCH
 
 The manifest flow does **not** support setting a logo — there's no field for it and no REST API endpoint. The logo can only be uploaded through the GitHub web UI.
 
-If the assistant has an avatar (typically at `/workspace/data/avatar/avatar-image.png`), send it to the user as a chat attachment:
+If the assistant has an avatar (typically at `data/avatar/avatar-image.png` in the workspace root), send it to the user as a chat attachment:
 
 ```
 <vellum-attachment source="sandbox" path="data/avatar/avatar-image.png" />
@@ -181,7 +181,7 @@ Installation tokens expire after **1 hour**. The helper script `gh-app-token.mjs
 Always refresh before pushing:
 
 ```bash
-TOKEN=$(bun /workspace/bin/gh-app-token.mjs)
+TOKEN=$(bun "$WORKSPACE_ROOT/bin/gh-app-token.mjs")
 git remote set-url origin "https://x-access-token:${TOKEN}@github.com/OWNER/REPO.git"
 ```
 
@@ -211,7 +211,7 @@ Check that all three required credentials are set: `app_id`, `pem`, `installatio
 
 ### Push rejected with 403
 
-The installation token may have expired (1-hour lifetime). Regenerate with `bun /workspace/bin/gh-app-token.mjs` and update the remote URL.
+The installation token may have expired (1-hour lifetime). Regenerate with `bun bin/gh-app-token.mjs` (from the workspace root) and update the remote URL.
 
 ### PEM won't store via CLI
 
