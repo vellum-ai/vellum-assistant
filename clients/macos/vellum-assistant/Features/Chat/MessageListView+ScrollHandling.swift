@@ -38,7 +38,11 @@ extension MessageListView {
         }
 
         // --- Debug metrics (flag-gated — hot path pays nothing when off) ---
-        if MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") {
+        // Read the cached `isScrollDebugOverlayEnabled` @State on the view
+        // instead of calling `MacOSClientFeatureFlagManager.shared.isEnabled(...)`
+        // per tick — the flag manager takes an `NSLock` and linearly scans
+        // registry keys, which adds jitter to the very path being instrumented.
+        if isScrollDebugOverlayEnabled {
             scrollState.recordDebugSnapshot(
                 offsetY: newState.contentOffsetY,
                 contentH: newState.contentHeight,

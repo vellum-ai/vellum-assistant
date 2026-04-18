@@ -121,6 +121,12 @@ struct MessageListView: View {
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
+    /// Cached `scroll-debug-overlay` flag value. Read from the hot scroll
+    /// path (geometry tick, anchor shift, anchor decision) to skip HUD work
+    /// without taking the flag-manager's `NSLock` and linearly scanning
+    /// registry keys per tick. Seeded on first appear and refreshed via
+    /// `.assistantFeatureFlagDidChange` — same pattern as `ScrollDebugOverlayView`.
+    @State var isScrollDebugOverlayEnabled: Bool = false
 
     // MARK: - Body
 
@@ -152,18 +158,19 @@ struct MessageListView: View {
                                     // page's height would race the snap.
                                     !scrollState.isPaginationInFlight
                                 },
-                                onAnchorShift: { [scrollState] in
+                                onAnchorShift: { [scrollState, isScrollDebugOverlayEnabled] in
                                     // Debug-only counter for anchor-preserver
-                                    // activations. Flag-gated so the hot path
-                                    // pays nothing when the overlay is off.
-                                    guard MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") else { return }
+                                    // activations. Gated on the cached flag
+                                    // so the hot path doesn't take the flag
+                                    // manager's `NSLock` per shift.
+                                    guard isScrollDebugOverlayEnabled else { return }
                                     scrollState.recordDebugAnchorShift()
                                 },
-                                onAnchorDecision: { [scrollState] event in
+                                onAnchorDecision: { [scrollState, isScrollDebugOverlayEnabled] event in
                                     // Debug-only full-decision log. Captures
                                     // skips (shrinks, live-scroll gate, etc.)
                                     // plus applies, with pre/post offsets.
-                                    guard MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") else { return }
+                                    guard isScrollDebugOverlayEnabled else { return }
                                     scrollState.recordAnchorDecision(event)
                                 }
                             )
@@ -209,6 +216,11 @@ struct MessageListView: View {
             }
             .onAppear {
                 handleAppear()
+                isScrollDebugOverlayEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+                guard let key = notification.userInfo?["key"] as? String, key == "scroll-debug-overlay" else { return }
+                isScrollDebugOverlayEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
             }
             .onDisappear {
                 scrollState.cancelAll()
