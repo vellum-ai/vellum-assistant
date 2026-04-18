@@ -182,12 +182,6 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   file_read: "Read File",
   file_write: "Write File",
   file_edit: "Edit File",
-  browser_navigate: "Browser",
-  browser_click: "Browser",
-  browser_type: "Browser",
-  browser_screenshot: "Browser",
-  browser_scroll: "Browser",
-  browser_wait: "Browser",
   app_create: "Create App",
   app_refresh: "Refresh App",
   skill_load: "Load Skill",
@@ -1071,17 +1065,11 @@ export async function runAgentLoopImpl(
     let yieldedForBudget = false;
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
-      const turnTools = state.currentTurnToolNames;
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
-        const inBrowserFlow =
-          turnTools.length > 0 &&
-          turnTools.every((n) => n.startsWith("browser_"));
-        if (!inBrowserFlow) {
-          yieldedForHandoff = true;
-          return "yield";
-        }
+        yieldedForHandoff = true;
+        return "yield";
       }
 
       // Mid-loop token budget check: estimate current context size and

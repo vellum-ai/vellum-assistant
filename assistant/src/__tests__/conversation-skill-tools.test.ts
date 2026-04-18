@@ -10,12 +10,7 @@ import type {
   ToolUseContent,
 } from "../providers/types.js";
 import type { Tool } from "../tools/types.js";
-import {
-  assertBrowserToolsAbsent,
-  assertBrowserToolsPresent,
-  BROWSER_TOOL_NAMES,
-  buildSkillLoadHistory,
-} from "./test-support/browser-skill-harness.js";
+import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
 
 // ---------------------------------------------------------------------------
 // Mock state — controlled by tests
@@ -1812,10 +1807,10 @@ describe("bundled skill: app-builder", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bundled skill: browser
+// Browser skill: CLI-only projection
 // ---------------------------------------------------------------------------
 
-describe("bundled skill: browser", () => {
+describe("bundled skill: browser — CLI-only projection", () => {
   let sessionState: Map<string, string>;
 
   beforeEach(() => {
@@ -1829,28 +1824,14 @@ describe("bundled skill: browser", () => {
     sessionState = new Map<string, string>();
   });
 
-  test("browser skill activation via loaded_skill marker registers all browser tools in allowedToolNames", () => {
+  test("browser skill loads without projecting any skill tools", () => {
     mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
-    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
+    // Browser skill has no TOOLS.json manifest — operations are
+    // dispatched via `assistant browser` CLI commands.
+    mockManifests = {};
 
     const history: Message[] = [
       ...buildSkillLoadHistory("browser", "v1:testhash"),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set(BROWSER_TOOL_NAMES));
-  });
-
-  test("browser tools are NOT available when browser skill is not in active context", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
-    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
-
-    const history: Message[] = [
-      { role: "user", content: [{ type: "text", text: "Hello" }] },
     ];
 
     const result = projectSkillTools(history, {
@@ -1859,29 +1840,6 @@ describe("bundled skill: browser", () => {
 
     expect(result.toolDefinitions).toHaveLength(0);
     expect(result.allowedToolNames.size).toBe(0);
-    for (const name of BROWSER_TOOL_NAMES) {
-      expect(result.allowedToolNames.has(name)).toBe(false);
-    }
-  });
-
-  test("browser skill tools have skill origin metadata", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
-    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
-
-    const history: Message[] = [
-      ...buildSkillLoadHistory("browser", "v1:testhash"),
-    ];
-
-    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-
-    const tools = mockRegisteredTools.get("browser");
-    expect(tools).toBeDefined();
-    expect(tools!.length).toBe(BROWSER_TOOL_NAMES.length);
-
-    for (const tool of tools!) {
-      expect(tool.origin).toBe("skill");
-      expect(tool.ownerSkillId).toBe("browser");
-    }
   });
 });
 
@@ -2581,10 +2539,10 @@ describe("includes metadata does not auto-activate child skill tools", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Browser skill migration harness — validates shared test helpers
+// Skill load harness — validates shared test helpers
 // ---------------------------------------------------------------------------
 
-describe("browser skill migration harness", () => {
+describe("skill load harness", () => {
   test("buildSkillLoadHistory creates valid skill_load history", () => {
     const history = buildSkillLoadHistory("browser", "v1:abc123");
     expect(history).toHaveLength(2);
@@ -2608,34 +2566,5 @@ describe("browser skill migration harness", () => {
     const id1 = (h1[0].content[0] as { id: string }).id;
     const id2 = (h2[0].content[0] as { id: string }).id;
     expect(id1).not.toBe(id2);
-  });
-
-  test("BROWSER_TOOL_NAMES contains all browser tools", () => {
-    expect(BROWSER_TOOL_NAMES).toHaveLength(17);
-    expect(BROWSER_TOOL_NAMES).toContain("browser_navigate");
-    expect(BROWSER_TOOL_NAMES).toContain("browser_attach");
-    expect(BROWSER_TOOL_NAMES).toContain("browser_detach");
-    expect(BROWSER_TOOL_NAMES).toContain("browser_fill_credential");
-    expect(BROWSER_TOOL_NAMES).toContain("browser_status");
-  });
-
-  test("assertBrowserToolsPresent passes when all tools present", () => {
-    expect(() =>
-      assertBrowserToolsPresent([...BROWSER_TOOL_NAMES, "extra_tool"]),
-    ).not.toThrow();
-  });
-
-  test("assertBrowserToolsPresent fails when tool missing", () => {
-    expect(() => assertBrowserToolsPresent(["browser_navigate"])).toThrow();
-  });
-
-  test("assertBrowserToolsAbsent passes when no browser tools present", () => {
-    expect(() =>
-      assertBrowserToolsAbsent(["file_read", "web_search"]),
-    ).not.toThrow();
-  });
-
-  test("assertBrowserToolsAbsent fails when browser tool present", () => {
-    expect(() => assertBrowserToolsAbsent(["browser_navigate"])).toThrow();
   });
 });
