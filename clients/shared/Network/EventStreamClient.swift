@@ -302,11 +302,12 @@ public final class EventStreamClient {
 
             // A back-to-back call to `startSSEStream()` on the MainActor can
             // cancel this task and invalidate `session` before it runs its
-            // first instruction. Calling `session.bytes(for:)` on an already
-            // invalidated session throws an ObjC NSGenericException from
-            // `-[__NSURLSessionLocal taskForClassInfo:]`, which is
-            // uncatchable in Swift and crashes the process with SIGABRT.
-            // Bail out before touching the session if we've been superseded.
+            // first instruction. Bail out cheaply when that's already visible
+            // so we don't build the request or hop off MainActor for nothing.
+            // `GatewayHTTPClient.stream` additionally wraps data-task creation
+            // in an ObjC `@try/@catch` trampoline, which is the authoritative
+            // defense against invalidation that lands after this guard but
+            // before `URLSession` creates the underlying task.
             guard !Task.isCancelled, self.sseSession === session else { return }
 
             do {
