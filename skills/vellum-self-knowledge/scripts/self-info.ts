@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     let config: { model?: string; provider?: string; mode?: string };
     if (raw === "(not set)" || raw === "") {
       config = {
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-7",
         provider: "anthropic",
         mode: "your-own",
       };
