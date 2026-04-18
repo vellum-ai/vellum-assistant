@@ -112,7 +112,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
 
     if (!wakeResult.invoked) {
       log.warn(
-        { conversationId: conv.id },
+        { conversationId: conv.id, reason: wakeResult.reason },
         "Update bulletin wake silently no-op'd (invoked=false); cleaning up orphan background conversation and leaving checkpoint unchanged so next startup retries",
       );
       // Belt-and-suspenders cleanup: even though `runUpdateBulletinJobIfNeeded`
