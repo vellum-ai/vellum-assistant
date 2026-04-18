@@ -1130,6 +1130,8 @@ export async function runAgentLoopImpl(
 
     let denyCompressionMessage: Message | null = null;
 
+    rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -1137,6 +1139,11 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
       turnCallSite,
+    );
+
+    rlog.info(
+      { resultMessageCount: updatedHistory.length },
+      "Agent loop run completed",
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
