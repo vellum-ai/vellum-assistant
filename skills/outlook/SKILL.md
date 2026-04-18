@@ -80,7 +80,12 @@ bun run scripts/outlook-scan.ts sender-digest [--query "..."] [--time-range "90d
 bun run scripts/outlook-scan.ts outreach-scan [--time-range "90d"] [--account "..."]
 ```
 
-Scan scripts return full JSON results including a sender list with message counts, unsubscribe availability, and sample subjects.
+Scan scripts store message IDs in the daemon's in-memory cache (via `assistant cache`) and return a lightweight summary with a `cache_key`. This keeps thousands of message IDs out of the conversation context. To retrieve cached message IDs for a specific sender:
+
+```bash
+assistant cache get <cache_key> --json
+# Returns: { "ok": true, "data": { "sender@example.com": ["msgId1", "msgId2", ...], ... } }
+```
 
 ## Email Routing Priority
 
@@ -172,10 +177,10 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 ### Workflow
 
-1. **Scan**: Run `bun run scripts/outlook-scan.ts sender-digest`. Default query targets promotional messages from the last 90 days. The script returns full JSON with a sender list containing message counts, unsubscribe availability (`has_unsubscribe`), and sample subjects.
-2. **Present**: Show results to the user - senders, email counts, and whether unsubscribe is available for each. Pre-select all senders so users deselect what they want to keep.
+1. **Scan**: Run `bun run scripts/outlook-scan.ts sender-digest`. The script returns a `cache_key` plus a lightweight sender summary (counts, unsubscribe availability, sample subjects). Message IDs are stored daemon-side — do NOT ask for them unless needed for archiving.
+2. **Present**: Show results to the user — senders, email counts, and whether unsubscribe is available for each. Pre-select all senders so users deselect what they want to keep.
 3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user explicitly confirms which senders to clean up and which action to take ("Archive & Unsubscribe" or "Archive Only").
-4. **Act on selection**: After confirmation, archive selected senders and, if requested, run unsubscribe for senders with `has_unsubscribe: true`. Process unsubscribe operations in bulk rather than one-at-a-time.
+4. **Act on selection**: After confirmation, use `messaging_archive_by_sender` with `from:<email>` queries to archive selected senders. For unsubscribe, run the unsubscribe script for senders with `has_unsubscribe: true`. If you need specific message IDs (e.g., for targeted operations), retrieve them via `assistant cache get <cache_key> --json`.
 5. **Accurate summary**: Report exact counts: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer**: After reporting results, offer inbox rules:
    - "Want me to set up inbox rules so future emails from these senders skip your inbox?"

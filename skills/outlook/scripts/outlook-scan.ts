@@ -29,13 +29,44 @@ interface GraphMessagesResponse {
   "@odata.nextLink"?: string;
 }
 
-interface SenderEntry {
-  email: string;
+/** Aggregated sender data (internal, includes messageIds for caching). */
+interface SenderAgg {
   displayName: string;
   count: number;
   hasUnsubscribe: boolean;
   sampleSubjects: string[];
   messageIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Cache helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Store data in the daemon's in-memory cache via `assistant cache set`.
+ * Returns the cache key. Keeps large payloads (e.g. thousands of message IDs)
+ * out of the LLM conversation context.
+ */
+async function cacheStore(data: unknown): Promise<string> {
+  const proc = Bun.spawn(
+    ["assistant", "cache", "set", "--ttl", "30m", "--json"],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+  );
+  proc.stdin.write(JSON.stringify(data));
+  proc.stdin.end();
+
+  const stdout = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new Error(`assistant cache set failed (exit ${exitCode}): ${stdout}`);
+  }
+
+  const result = JSON.parse(stdout);
+  if (!result.ok) {
+    throw new Error(`assistant cache set error: ${result.error}`);
+  }
+  return result.key;
 }
 
 interface PaginateOptions {
@@ -240,16 +271,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
   }
 
   // Aggregate by sender
-  const senderMap = new Map<
-    string,
-    {
-      displayName: string;
-      count: number;
-      hasUnsubscribe: boolean;
-      sampleSubjects: string[];
-      messageIds: string[];
-    }
-  >();
+  const senderMap = new Map<string, SenderAgg>();
 
   for (const msg of result.messages) {
     const email = msg.from?.emailAddress?.address?.toLowerCase();
@@ -280,13 +302,24 @@ async function senderDigest(args: Record<string, string | boolean>) {
   }
 
   // Sort by count descending, limit to maxSenders
-  const senders: SenderEntry[] = Array.from(senderMap.entries())
+  const sorted = Array.from(senderMap.entries())
     .map(([email, data]) => ({ email, ...data }))
     .sort((a, b) => b.count - a.count)
     .slice(0, maxSenders);
 
+  // Store message IDs in daemon cache to keep them out of LLM context.
+  // The cache key can be used with `assistant cache get <key>` to retrieve
+  // the full sender→messageIds mapping for archiving.
+  const cachePayload: Record<string, string[]> = {};
+  for (const s of sorted) {
+    cachePayload[s.email] = s.messageIds;
+  }
+  const cacheKey = await cacheStore(cachePayload);
+
+  // Return lightweight summary (no messageIds) + cache key
   ok({
-    senders,
+    cache_key: cacheKey,
+    senders: sorted.map(({ messageIds: _ids, ...rest }) => rest),
     totalMessagesScanned: result.messages.length,
     truncated: result.truncated,
   });
@@ -369,13 +402,22 @@ async function outreachScan(args: Record<string, string | boolean>) {
   }
 
   // Sort by count descending, limit to maxSenders
-  const senders = Array.from(senderMap.entries())
+  const sorted = Array.from(senderMap.entries())
     .map(([email, data]) => ({ email, ...data }))
     .sort((a, b) => b.count - a.count)
     .slice(0, maxSenders);
 
+  // Store message IDs in daemon cache
+  const cachePayload: Record<string, string[]> = {};
+  for (const s of sorted) {
+    cachePayload[s.email] = s.messageIds;
+  }
+  const cacheKey = await cacheStore(cachePayload);
+
+  // Return lightweight summary (no messageIds) + cache key
   ok({
-    senders,
+    cache_key: cacheKey,
+    senders: sorted.map(({ messageIds: _ids, ...rest }) => rest),
     totalMessagesScanned: result.messages.length,
     truncated: result.truncated,
   });
