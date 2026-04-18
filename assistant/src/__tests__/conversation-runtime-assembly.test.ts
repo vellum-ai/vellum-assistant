@@ -1800,9 +1800,11 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   const FLAT_REMINDER = buildPkbReminder([]);
 
-  // Use a platform-agnostic absolute root so the tests work on macOS and
-  // Linux runners alike.
-  const pkbRoot = "/tmp/fake-pkb-root";
+  // Use a platform-agnostic absolute workspace root so the tests work on
+  // macOS and Linux runners alike. `pkbRoot` sits under `pkbWorkingDir` to
+  // mirror production, where `pkbRoot = join(workingDir, "pkb")`.
+  const pkbWorkingDir = "/tmp/fake-workspace";
+  const pkbRoot = `${pkbWorkingDir}/pkb`;
 
   function makePkbOptions(overrides: Record<string, unknown> = {}) {
     return {
@@ -1811,6 +1813,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       pkbScopeId: "scope-1",
       pkbConversation: { messages: baseMessages },
       pkbRoot,
+      pkbWorkingDir,
       pkbAutoInjectList: [],
       ...overrides,
     };
@@ -2013,6 +2016,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       pkbScopeId: "scope-1",
       pkbConversation: preCompactionConversation,
       pkbRoot,
+      pkbWorkingDir,
       pkbAutoInjectList: [],
     });
     // Unwrap the injected reminder from the last user message.
@@ -2057,6 +2061,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       pkbScopeId: "scope-1",
       pkbConversation: postCompactionConversation,
       pkbRoot,
+      pkbWorkingDir,
       pkbAutoInjectList: [],
     });
     const rebuiltTexts = extractTexts(rebuiltResult);
