@@ -3246,6 +3246,7 @@ public final class SettingsStore: ObservableObject {
             log.error("replaceCallSiteOverride: unknown call-site id \(id, privacy: .public)")
             return Task { false }
         }
+        let previousSnapshot = callSiteOverrides
         if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
             callSiteOverrides[index].provider = provider
             callSiteOverrides[index].model = model
@@ -3257,6 +3258,9 @@ public final class SettingsStore: ObservableObject {
             ])
             if !clearSuccess {
                 log.error("Failed to clear llm.callSites.\(id, privacy: .public) before replace")
+                // Roll back optimistic UI state — the daemon still holds
+                // whatever it had before this call, so the UI should match.
+                callSiteOverrides = previousSnapshot
                 return false
             }
             var entry: [String: Any] = [:]
@@ -3269,21 +3273,36 @@ public final class SettingsStore: ObservableObject {
             ])
             if !setSuccess {
                 log.error("Failed to set llm.callSites.\(id, privacy: .public) after clear")
+                // Clear succeeded but write failed. The daemon now has no
+                // override for this id, so converge the UI by clearing
+                // the row's fields locally too.
+                if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+                    callSiteOverrides[index].provider = nil
+                    callSiteOverrides[index].model = nil
+                    callSiteOverrides[index].profile = nil
+                }
             }
             return setSuccess
         }
         return task
     }
 
-    /// Batch update of every entry in `overrides`. Each entry's
-    /// `provider`/`model`/`profile` is written verbatim; `nil` fields are
-    /// emitted as JSON null so the daemon clears them via the same
-    /// deep-merge mechanism as `clearCallSiteOverride(_:)`.
+    /// Batch update of every entry in `overrides`. Mirrors
+    /// `replaceCallSiteOverride`'s per-row semantics in batch form: first
+    /// nulls every catalog entry at the `callSites.<id>` level so stale
+    /// leaves (including non-UI fields like `maxTokens`/`effort`/`speed`/
+    /// `thinking`/`contextWindow`) are cleared, then writes the new
+    /// values in a second PATCH with nil fields omitted entirely.
+    ///
+    /// Omitting nil fields (rather than emitting JSON null) is required
+    /// now that the daemon's deep-merge is type-aware: assigning null to
+    /// a scalar leaf persists `null` in config, which fails Zod since
+    /// `LLMCallSiteConfig` declares fields as `.optional()` but not
+    /// `.nullable()`. The entry-level pre-clear handles field deletions.
     ///
     /// Useful for "reset all overrides" or "apply preset" actions that
-    /// touch many call sites in a single round trip. The local
-    /// `callSiteOverrides` cache is replaced so SwiftUI views reflect
-    /// the new state immediately.
+    /// touch many call sites. The local `callSiteOverrides` cache is
+    /// replaced so SwiftUI views reflect the new state immediately.
     @discardableResult
     func setCallSiteOverrides(_ overrides: [CallSiteOverride]) -> Task<Bool, Never> {
         let validOverrides = overrides.filter { CallSiteCatalog.validIds.contains($0.id) }
@@ -3295,6 +3314,7 @@ public final class SettingsStore: ObservableObject {
             validOverrides.map { ($0.id, $0) },
             uniquingKeysWith: { _, new in new }
         )
+        let previousSnapshot = callSiteOverrides
         callSiteOverrides = CallSiteCatalog.all.map { entry in
             var merged = entry
             if let provided = overrideById[entry.id] {
@@ -3308,44 +3328,49 @@ public final class SettingsStore: ObservableObject {
             }
             return merged
         }
-        var callSitesPayload: [String: Any] = [:]
+        // Step 1 payload: null every catalog entry at the entry level so
+        // any existing leaves are deleted. This is the "entry-level
+        // NSNull pre-clear" — it works correctly under type-aware
+        // deep-merge because a null at the object level is still treated
+        // as deletion.
+        var clearPayload: [String: Any] = [:]
+        for entry in CallSiteCatalog.all {
+            clearPayload[entry.id] = NSNull()
+        }
+        // Step 2 payload: write only the non-nil fields for entries the
+        // caller wants to set. Omitting nil fields avoids persisting
+        // `null` scalars that would fail Zod's `.optional()`-but-not-
+        // `.nullable()` validation on the next config load.
+        var setPayload: [String: Any] = [:]
         for entry in validOverrides {
-            // Emit explicit JSON null for absent fields so the daemon's
-            // deep-merge clears them rather than leaving stale values in
-            // place. Build the dict with NSNull placeholders, then
-            // overwrite with the real string values when present — this
-            // avoids the Optional-to-Any nil-flattening trap.
-            var rawEntry: [String: Any] = [
-                "provider": NSNull(),
-                "model": NSNull(),
-                "profile": NSNull(),
-            ]
+            var rawEntry: [String: Any] = [:]
             if let provider = entry.provider { rawEntry["provider"] = provider }
             if let model = entry.model { rawEntry["model"] = model }
             if let profile = entry.profile { rawEntry["profile"] = profile }
-            callSitesPayload[entry.id] = rawEntry
+            guard !rawEntry.isEmpty else { continue }
+            setPayload[entry.id] = rawEntry
         }
-        // Align remote with local: any catalog entry NOT in `validOverrides`
-        // is locally cleared above (provider/model/profile -> nil), so the
-        // PATCH must explicitly clear those entries on the daemon as well.
-        // Without this, omitted entries would appear cleared in the UI but
-        // the daemon would retain their previous values, and the stale
-        // values would "reappear" on the next config sync.
-        //
-        // Null the entire `callSites.<id>` entry (rather than just the three
-        // Settings-managed fields) so any other leaves an entry might have
-        // — `maxTokens`, `effort`, `speed`, `thinking`, `contextWindow` —
-        // are cleared too. Same rationale as `clearCallSiteOverride`.
-        for entry in CallSiteCatalog.all where callSitesPayload[entry.id] == nil {
-            callSitesPayload[entry.id] = NSNull()
-        }
-        let payload: [String: Any] = ["llm": ["callSites": callSitesPayload]]
         let task = Task {
-            let success = await settingsClient.patchConfig(payload)
-            if !success {
-                log.error("Failed to patch config for batch llm.callSites update (\(validOverrides.count, privacy: .public) entries)")
+            let clearSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": clearPayload]
+            ])
+            if !clearSuccess {
+                log.error("Failed to clear llm.callSites before batch write (\(validOverrides.count, privacy: .public) entries)")
+                // Roll back — the daemon still holds its previous state.
+                callSiteOverrides = previousSnapshot
+                return false
             }
-            return success
+            guard !setPayload.isEmpty else { return true }
+            let setSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": setPayload]
+            ])
+            if !setSuccess {
+                log.error("Failed to patch config for batch llm.callSites update (\(validOverrides.count, privacy: .public) entries)")
+                // Clear succeeded but write failed — daemon now has no
+                // overrides. Converge the UI by clearing all rows too.
+                callSiteOverrides = CallSiteCatalog.all
+            }
+            return setSuccess
         }
         return task
     }
