@@ -727,7 +727,7 @@ public final class GatewayConnectionManager {
     /// Default timeout for `attemptRePair`. Long enough for a real bootstrap
     /// (guardian token poll + provision) to land, short enough that the
     /// Re-pair menu item becomes clickable again after a stuck attempt.
-    internal static let defaultRePairTimeout: TimeInterval = 90.0
+    public static let defaultRePairTimeout: TimeInterval = 90.0
 
     /// Attempts to recover from a stuck `isAuthFailed` state by re-running
     /// the bootstrap flow (clear stored credentials + re-provision). Runs the
