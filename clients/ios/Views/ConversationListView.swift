@@ -287,7 +287,7 @@ struct ConversationListView: View {
                 store: store,
                 conversation: conversation
             )
-            .onAppear {
+            .task(id: conversationLocalId) {
                 store.loadHistoryIfNeeded(for: conversationLocalId)
                 store.markConversationSeenIfNeeded(conversationLocalId: conversationLocalId, isExplicitOpen: true)
                 store.viewModel(for: conversationLocalId).consumeDeepLinkIfNeeded()
