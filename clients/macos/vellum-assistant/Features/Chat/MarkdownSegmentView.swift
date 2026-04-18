@@ -802,6 +802,20 @@ struct MarkdownSegmentView: View, Equatable {
             }
         }
 
+        // Core Text honors .obliqueness on every glyph in the range, including
+        // Apple Color Emoji substitutions. Strip it from emoji grapheme clusters
+        // so they render upright inside italic runs.
+        let swiftString = ns.string
+        var cursor = swiftString.startIndex
+        while cursor < swiftString.endIndex {
+            let next = swiftString.index(after: cursor)
+            if swiftString[cursor].rendersAsEmoji {
+                let charRange = NSRange(cursor..<next, in: swiftString)
+                ns.removeAttribute(.obliqueness, range: charRange)
+            }
+            cursor = next
+        }
+
         let hasUnresolvedEmphasis = unresolvedEmphasisCount > 0
         if hasUnresolvedEmphasis {
             mdConvertLog.warning(
@@ -967,5 +981,17 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+fileprivate extension Character {
+    /// True iff this grapheme cluster renders as emoji — either default emoji
+    /// presentation, or text-default codepoints forced into emoji presentation
+    /// via U+FE0F (VS16). Excludes text-presentation characters like digits
+    /// and `#`/`*` that carry the bare Emoji property but not Emoji_Presentation.
+    var rendersAsEmoji: Bool {
+        let scalars = unicodeScalars
+        if scalars.contains(where: { $0.value == 0xFE0F }) { return true }
+        return scalars.contains(where: { $0.properties.isEmojiPresentation })
     }
 }
