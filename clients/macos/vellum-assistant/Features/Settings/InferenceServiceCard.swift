@@ -66,11 +66,12 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when changing inference mode/provider would invalidate the current web search config.
+    /// True when changing inference mode/provider/model would invalidate the current web search config.
     private var wouldInvalidateWebSearch: Bool {
         let modeChanging = draftMode != store.inferenceMode
         let providerChanging = draftProvider != store.selectedInferenceProvider
-        guard modeChanging || providerChanging else { return false }
+        let modelChanging = draftModel != store.selectedModel
+        guard modeChanging || providerChanging || modelChanging else { return false }
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
@@ -85,10 +86,14 @@ struct InferenceServiceCard: View {
                 return true
             }
         }
-        // Switching providers while web search uses Provider Native — invalidate
-        // when the new provider cannot support native web search.
+        // Switching providers OR models while web search uses Provider Native —
+        // invalidate when the new provider/model combo cannot support native
+        // web search. Model-only switches matter because routing providers
+        // like OpenRouter flip native capability based on the model prefix
+        // (e.g. `anthropic/*` supports native search, `openai/*` does not)
+        // while the provider ID stays the same.
         // Skip when web search is in managed mode (webSearchProvider is stale).
-        if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+        if (providerChanging || modelChanging) && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
             if !store.isNativeWebSearchCapable(draftProvider, model: draftModel) {
                 return true
             }
