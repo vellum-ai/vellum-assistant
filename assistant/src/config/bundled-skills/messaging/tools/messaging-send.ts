@@ -8,11 +8,10 @@ import {
 import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
 import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
 import {
-  batchGetMessages,
   createDraft,
   createDraftRaw,
   getProfile,
-  listMessages,
+  getThread,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
 import type {
@@ -72,18 +71,18 @@ export async function run(
       const gmailConn = conn;
       // Reply mode: thread_id provided - create a threaded draft with reply-all recipients
       if (threadId) {
-        // Fetch thread messages to extract recipients and threading headers
-        const list = await listMessages(gmailConn, `thread:${threadId}`, 10);
-        if (!list.messages?.length) {
+        // Fetch thread messages directly via Threads API
+        const thread = await getThread(gmailConn, threadId, "metadata", [
+          "From",
+          "To",
+          "Cc",
+          "Message-ID",
+          "Subject",
+        ]);
+        const messages = thread.messages ?? [];
+        if (!messages.length) {
           return err("No messages found in this thread.");
         }
-
-        const messages = await batchGetMessages(
-          gmailConn,
-          list.messages.map((m) => m.id),
-          "metadata",
-          ["From", "To", "Cc", "Message-ID", "Subject"],
-        );
 
         // Use the latest message for threading and recipient extraction
         const latest = messages[messages.length - 1];

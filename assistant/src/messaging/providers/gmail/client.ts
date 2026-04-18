@@ -16,6 +16,7 @@ import type {
   GmailMessageListResponse,
   GmailModifyRequest,
   GmailProfile,
+  GmailThread,
   GmailVacationSettings,
 } from "./types.js";
 
@@ -255,6 +256,25 @@ export async function getMessage(
     undefined,
     paramsToQuery(params),
     signal,
+  );
+}
+
+/** Get a thread and all its messages by thread ID. */
+export async function getThread(
+  connection: OAuthConnection,
+  threadId: string,
+  format: GmailMessageFormat = "full",
+  metadataHeaders?: string[],
+): Promise<GmailThread> {
+  const params = new URLSearchParams({ format });
+  if (format === "metadata" && metadataHeaders) {
+    for (const h of metadataHeaders) params.append("metadataHeaders", h);
+  }
+  return request<GmailThread>(
+    connection,
+    `/threads/${threadId}`,
+    undefined,
+    paramsToQuery(params),
   );
 }
 

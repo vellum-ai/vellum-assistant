@@ -61,6 +61,8 @@ export async function run(
   const senderIds = input.sender_ids as string[] | undefined;
   let messageIds = input.message_ids as string[] | undefined;
   const messageId = input.message_id as string | undefined;
+  const userApproved =
+    input.user_approved === true && context.trustClass === "guardian";
 
   // Resolve message IDs via priority: query → scan_id+sender_ids → message_ids → message_id
   if (query) {
@@ -68,7 +70,8 @@ export async function run(
     if (
       !context.triggeredBySurfaceAction &&
       !context.batchAuthorizedByTask &&
-      !context.approvedViaPrompt
+      !context.approvedViaPrompt &&
+      !userApproved
     ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
@@ -127,7 +130,8 @@ export async function run(
     if (
       !context.triggeredBySurfaceAction &&
       !context.batchAuthorizedByTask &&
-      !context.approvedViaPrompt
+      !context.approvedViaPrompt &&
+      !userApproved
     ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
@@ -214,7 +218,8 @@ export async function run(
     if (
       !context.triggeredBySurfaceAction &&
       !context.batchAuthorizedByTask &&
-      !context.approvedViaPrompt
+      !context.approvedViaPrompt &&
+      !userApproved
     ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
