@@ -129,10 +129,9 @@ describe("getInContextPkbPaths", () => {
   });
 
   test("workspace-relative file_read path inside pkb/ is recognized", () => {
-    // Regression: previously `pkb/threads.md` was resolved against `pkbRoot`
-    // itself (→ `<pkbRoot>/pkb/threads.md`) and missed entirely. The model
-    // actually emits workspace-relative paths, so the tracker must resolve
-    // them against `workingDir` and then verify they fall inside `pkbRoot`.
+    // The model emits workspace-relative paths like `pkb/threads.md`.
+    // The tracker resolves them against `workingDir` (matching `file_read`'s
+    // own rule) and verifies the result falls inside `pkbRoot`.
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse("pkb/threads.md")]),
     ]);

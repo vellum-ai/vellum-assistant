@@ -1272,8 +1272,8 @@ export async function applyRuntimeInjections(
     pkbRoot?: string;
     /**
      * Working directory against which relative `file_read` tool paths
-     * resolve. Required alongside `pkbConversation` + `pkbRoot` to detect
-     * workspace-relative reads like `pkb/threads.md`.
+     * resolve, used to detect workspace-relative reads like
+     * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
      */
     pkbWorkingDir?: string;
     nowScratchpad?: string | null;
@@ -1342,8 +1342,7 @@ export async function applyRuntimeInjections(
         queryVector.length > 0 &&
         options.pkbScopeId &&
         options.pkbConversation &&
-        options.pkbRoot &&
-        options.pkbWorkingDir
+        options.pkbRoot
       ) {
         try {
           const results = await searchPkbFiles(
@@ -1352,11 +1351,12 @@ export async function applyRuntimeInjections(
             8,
             [options.pkbScopeId],
           );
+          const workingDir = options.pkbWorkingDir ?? options.pkbRoot;
           const inContext = getInContextPkbPaths(
             options.pkbConversation,
             options.pkbAutoInjectList ?? [],
             options.pkbRoot,
-            options.pkbWorkingDir,
+            workingDir,
           );
           const pkbRoot = options.pkbRoot;
           hints = results
