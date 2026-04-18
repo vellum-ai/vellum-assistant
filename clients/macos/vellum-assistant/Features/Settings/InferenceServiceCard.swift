@@ -310,6 +310,11 @@ struct InferenceServiceCard: View {
                 return
             }
             guard didInitialSync else { return }
+            // Always clear any unsaved API key text on a real provider
+            // transition — it belongs to the previous provider's context
+            // and must not leak forward, even when the model itself is
+            // preserved by the cross-provider validity check below.
+            apiKeyText = ""
             // Defense-in-depth: preserve draftModel when it is already a
             // valid ID in the new provider's catalog. Cross-provider model
             // IDs essentially never overlap, so this still triggers the
@@ -322,7 +327,6 @@ struct InferenceServiceCard: View {
                 let defaultModel = store.dynamicProviderDefaultModel(newProvider)
                 let fallback = providerModels.first?.id ?? ""
                 draftModel = defaultModel.isEmpty ? fallback : defaultModel
-                apiKeyText = ""
             }
         }
         .onChange(of: draftMode) { _, newMode in
