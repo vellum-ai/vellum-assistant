@@ -18,7 +18,8 @@ function isRateLimitError(e: unknown): boolean {
 
 function isAbortError(e: unknown): boolean {
   if (e instanceof DOMException && e.name === "AbortError") return true;
-  if (e instanceof Error && e.message === "fetch deadline exceeded") return true;
+  if (e instanceof Error && e.message === "fetch deadline exceeded")
+    return true;
   // AbortSignal.reason propagated through promise chains
   if (
     e instanceof Error &&
@@ -30,8 +31,8 @@ function isAbortError(e: unknown): boolean {
   return false;
 }
 
-const MAX_MESSAGES_CAP = 5000;
-const MAX_IDS_PER_SENDER = 5000;
+const MAX_MESSAGES_CAP = 2000;
+const MAX_IDS_PER_SENDER = 2000;
 const MAX_SAMPLE_SUBJECTS = 3;
 const MAX_SENDERS_CAP = 75;
 const MAX_SUBJECT_LENGTH = 80;
@@ -74,7 +75,7 @@ export async function run(
   const query =
     (input.query as string) ?? "in:inbox category:promotions newer_than:90d";
   const maxMessages = Math.min(
-    (input.max_messages as number) ?? 2000,
+    (input.max_messages as number) ?? 1000,
     MAX_MESSAGES_CAP,
   );
   const maxSenders = Math.min(
@@ -107,15 +108,10 @@ export async function run(
         truncated = true;
         break;
       }
-      const pageSize = Math.min(100, maxMessages - allMessageIds.length);
+      const pageSize = Math.min(500, maxMessages - allMessageIds.length);
       let listResp;
       try {
-        listResp = await listMessages(
-          connection,
-          query,
-          pageSize,
-          pageToken,
-        );
+        listResp = await listMessages(connection, query, pageSize, pageToken);
       } catch (e) {
         if (isRateLimitError(e)) {
           rateLimited = true;
