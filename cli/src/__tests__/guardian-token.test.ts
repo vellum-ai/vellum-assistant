@@ -7,6 +7,7 @@ import {
   getOrCreatePersistedDeviceId,
   loadGuardianToken,
   saveGuardianToken,
+  seedGuardianTokenFromSiblingEnv,
   type GuardianTokenData,
 } from "../lib/guardian-token.js";
 
@@ -168,5 +169,56 @@ describe("guardian-token paths are env-scoped", () => {
     const first = getOrCreatePersistedDeviceId();
     const second = getOrCreatePersistedDeviceId();
     expect(first).toBe(second);
+  });
+
+  test("seedGuardianTokenFromSiblingEnv copies a dev token into the current local env", () => {
+    // Write a token under the dev env.
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    saveGuardianToken("alpha", makeTokenData("dev"));
+
+    // Switch to local env — no token present yet.
+    process.env.VELLUM_ENVIRONMENT = "local";
+    expect(loadGuardianToken("alpha")).toBeNull();
+
+    const seeded = seedGuardianTokenFromSiblingEnv("alpha");
+    expect(seeded).toBe(true);
+
+    const localPath = join(
+      tempHome,
+      "vellum-local",
+      "assistants",
+      "alpha",
+      "guardian-token.json",
+    );
+    expect(existsSync(localPath)).toBe(true);
+    const loaded = loadGuardianToken("alpha");
+    expect(loaded).not.toBeNull();
+    expect(loaded!.guardianPrincipalId).toBe("principal-dev");
+
+    // Idempotent — second call is a no-op.
+    expect(seedGuardianTokenFromSiblingEnv("alpha")).toBe(false);
+  });
+
+  test("seedGuardianTokenFromSiblingEnv returns false when no sibling token exists", () => {
+    process.env.VELLUM_ENVIRONMENT = "local";
+    expect(seedGuardianTokenFromSiblingEnv("nonexistent")).toBe(false);
+    expect(loadGuardianToken("nonexistent")).toBeNull();
+  });
+
+  test("seedGuardianTokenFromSiblingEnv does not overwrite an existing token", () => {
+    // Token already present in the current env.
+    process.env.VELLUM_ENVIRONMENT = "local";
+    saveGuardianToken("alpha", makeTokenData("local"));
+
+    // And a different sibling token in dev.
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    saveGuardianToken("alpha", makeTokenData("dev"));
+
+    // Back to local — seed should no-op because a token is already present.
+    process.env.VELLUM_ENVIRONMENT = "local";
+    expect(seedGuardianTokenFromSiblingEnv("alpha")).toBe(false);
+    expect(loadGuardianToken("alpha")!.guardianPrincipalId).toBe(
+      "principal-local",
+    );
   });
 });
