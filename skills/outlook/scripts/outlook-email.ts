@@ -13,7 +13,7 @@ import {
   optionalArg,
   parseCsv,
 } from "./lib/common.js";
-import { graphPost, graphPatch } from "./lib/graph-client.js";
+import { graphRequest, graphPost, graphPatch } from "./lib/graph-client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,7 +87,7 @@ Options:
   if (inReplyTo) {
     // Create a reply draft from an existing message
     const replyResponse = await graphPost<DraftMessageResponse>(
-      `/v1.0/me/messages/${inReplyTo}/createReply`,
+      `/v1.0/me/messages/${encodeURIComponent(inReplyTo)}/createReply`,
       { comment: body },
       account,
     );
@@ -107,7 +107,7 @@ Options:
     if (bccRecipientsList) patchBody.bccRecipients = bccRecipientsList;
 
     const patchResponse = await graphPatch<DraftMessageResponse>(
-      `/v1.0/me/messages/${draftId}`,
+      `/v1.0/me/messages/${encodeURIComponent(draftId)}`,
       patchBody,
       account,
     );
@@ -171,11 +171,11 @@ Options:
   const draftId = requireArg(args, "draft-id");
   const account = optionalArg(args, "account");
 
-  const response = await graphPost(
-    `/v1.0/me/messages/${draftId}/send`,
-    {},
+  const response = await graphRequest({
+    method: "POST",
+    path: `/v1.0/me/messages/${encodeURIComponent(draftId)}/send`,
     account,
-  );
+  });
 
   if (!response.ok) {
     printError(`Failed to send draft: status ${response.status}`);
@@ -212,14 +212,16 @@ Options:
   const comment = optionalArg(args, "comment");
   const account = optionalArg(args, "account");
 
-  const toRecipientsList = toRecipients(parseCsv(to));
+  const recipients = toRecipients(parseCsv(to));
 
-  // Create a forward draft
-  const forwardBody: Record<string, unknown> = {};
+  // Create a forward draft with recipients included
+  const forwardBody: Record<string, unknown> = {
+    toRecipients: recipients,
+  };
   if (comment) forwardBody.comment = comment;
 
   const response = await graphPost<ForwardResponse>(
-    `/v1.0/me/messages/${messageId}/createForward`,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createForward`,
     forwardBody,
     account,
   );
@@ -230,18 +232,6 @@ Options:
   }
 
   const draftId = response.data.id;
-
-  // Patch the draft to add recipients
-  const patchResponse = await graphPatch(
-    `/v1.0/me/messages/${draftId}`,
-    { toRecipients: toRecipientsList },
-    account,
-  );
-
-  if (!patchResponse.ok) {
-    printError(`Failed to update forward recipients: status ${patchResponse.status}`);
-    return;
-  }
 
   ok({ draftId });
 }
@@ -266,7 +256,7 @@ Options:
   const account = optionalArg(args, "account");
 
   const response = await graphPost(
-    `/v1.0/me/messages/${messageId}/move`,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
     { destinationId: "deleteditems" },
     account,
   );
