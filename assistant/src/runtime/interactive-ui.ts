@@ -39,6 +39,25 @@ import { mintDecisionToken } from "./decision-token.js";
 
 const log = getLogger("interactive-ui");
 
+// ── Cancellation reasons ─────────────────────────────────────────────
+
+/**
+ * Machine-readable reason for a `"cancelled"` outcome.
+ *
+ * - `"user_dismissed"` — the user explicitly closed/dismissed the surface
+ * - `"no_interactive_surface"` — no resolver was registered (headless / test)
+ * - `"conversation_not_found"` — the target conversation could not be located
+ * - `"resolver_unavailable"` — a resolver was registered but is not currently
+ *   available (e.g. the surface transport is disconnected)
+ * - `"resolver_error"` — the resolver threw an unexpected error
+ */
+export type CancellationReason =
+  | "user_dismissed"
+  | "no_interactive_surface"
+  | "conversation_not_found"
+  | "resolver_unavailable"
+  | "resolver_error";
+
 // ── Request / Result contracts ───────────────────────────────────────
 
 /**
@@ -111,6 +130,16 @@ export interface InteractiveUiResult {
   summary?: string;
   /** The surface identifier that was shown, for audit/correlation. */
   surfaceId: string;
+  /**
+   * Machine-readable reason for a `"cancelled"` outcome. Present only
+   * when `status === "cancelled"`. Allows callers to distinguish
+   * user-initiated dismissals from operational fail-closed outcomes
+   * without parsing log messages.
+   *
+   * Optional for backward compatibility — existing callers that only
+   * check `status` continue to work unchanged.
+   */
+  cancellationReason?: CancellationReason;
   /**
    * Short-lived informational decision token, present when
    * `status === "submitted"` and `surfaceType === "confirmation"`.
@@ -247,6 +276,7 @@ export async function requestInteractiveUi(
     const failResult: InteractiveUiResult = {
       status: "cancelled",
       surfaceId,
+      cancellationReason: "no_interactive_surface",
     };
     emitAuditLog(request, failResult);
     return failResult;
@@ -299,6 +329,7 @@ export async function requestInteractiveUi(
     const failResult: InteractiveUiResult = {
       status: "cancelled",
       surfaceId,
+      cancellationReason: "resolver_error",
     };
     emitAuditLog(request, failResult);
     return failResult;

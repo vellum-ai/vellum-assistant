@@ -127,7 +127,7 @@ describe("ui_request IPC route", () => {
 
   // ── Unknown conversation (resolver throws) ────────────────────────
 
-  test("returns cancelled when resolver throws for unknown conversation", async () => {
+  test("returns cancelled with resolver_error reason when resolver throws for unknown conversation", async () => {
     registerInteractiveUiResolver(async (_req: InteractiveUiRequest) => {
       throw new Error("Unknown conversation: conv-nonexistent");
     });
@@ -141,12 +141,13 @@ describe("ui_request IPC route", () => {
     expect(result.ok).toBe(true);
     expect(result.result).toBeDefined();
     expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("resolver_error");
     expect(result.result!.surfaceId).toBeDefined();
   });
 
   // ── Non-interactive failure (no resolver registered) ──────────────
 
-  test("returns cancelled when no resolver is registered", async () => {
+  test("returns cancelled with no_interactive_surface reason when no resolver is registered", async () => {
     // No resolver registered — resetInteractiveUiResolverForTests()
     // was called in beforeEach, so the module-level resolver is null.
 
@@ -158,6 +159,7 @@ describe("ui_request IPC route", () => {
     expect(result.ok).toBe(true);
     expect(result.result).toBeDefined();
     expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("no_interactive_surface");
     expect(result.result!.surfaceId).toBeDefined();
   });
 
@@ -274,6 +276,70 @@ describe("ui_request IPC route", () => {
     expect(result.result!.status).toBe("submitted");
     expect(result.result!.summary).toBe("Confirm Action");
   });
+
+  // ── Cancellation reason round-trip ────────────────────────────────
+
+  test("round-trips user_dismissed cancellation reason from resolver", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: "mock-surface-dismissed",
+        cancellationReason: "user_dismissed",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams(),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("user_dismissed");
+  });
+
+  test("round-trips conversation_not_found cancellation reason from resolver", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: "mock-surface-not-found",
+        cancellationReason: "conversation_not_found",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: "conv-missing" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("conversation_not_found");
+  });
+
+  test("submitted result does not carry cancellationReason through IPC", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "submitted",
+        actionId: "confirm",
+        surfaceId: "mock-surface-submitted",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams(),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("submitted");
+    expect(result.result!.cancellationReason).toBeUndefined();
+  });
+
+  // ── Optional fields (continued) ────────────────────────────────────
 
   test("accepts form surfaceType with submittedData", async () => {
     registerInteractiveUiResolver(
