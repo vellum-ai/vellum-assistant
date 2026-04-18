@@ -292,6 +292,16 @@ export interface SurfaceConversationContext {
       surfaceType: SurfaceType;
     }
   >;
+  /**
+   * Short-lived tombstone set of recently-completed standalone surface IDs.
+   * Prevents late client actions (arriving after timeout/resolution) from
+   * falling through to the history-restored path and triggering an
+   * unintended LLM turn. Entries are auto-removed after a TTL.
+   */
+  recentlyCompletedStandaloneSurfaces?: Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -385,6 +395,12 @@ export function createSurfaceMutex(): SurfaceMutex {
 
 /** Default timeout for standalone surfaces when the caller does not specify one. */
 const DEFAULT_STANDALONE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * How long a tombstone entry persists after a standalone surface is completed.
+ * Late client actions arriving within this window are silently dropped.
+ */
+const STANDALONE_TOMBSTONE_TTL_MS = 30_000; // 30 seconds
 
 /**
  * Check whether the conversation can show interactive UI surfaces.
@@ -581,13 +597,16 @@ function buildStandaloneSurfaceData(
 
 /**
  * Cleanup a standalone surface entry: clear the timeout timer, remove
- * the pending entry, and remove surface state. Idempotent — safe to
- * call multiple times for the same surfaceId.
+ * the pending entry, remove surface state, and record a short-lived
+ * tombstone so late client actions are silently dropped instead of
+ * falling through to the LLM path. Idempotent — safe to call multiple
+ * times for the same surfaceId.
  */
 export function cleanupStandaloneSurface(
   ctx: Pick<
     SurfaceConversationContext,
     | "pendingStandaloneSurfaces"
+    | "recentlyCompletedStandaloneSurfaces"
     | "surfaceState"
     | "pendingSurfaceActions"
     | "lastSurfaceAction"
@@ -606,6 +625,19 @@ export function cleanupStandaloneSurface(
   ctx.lastSurfaceAction.delete(surfaceId);
   ctx.accumulatedSurfaceState.delete(surfaceId);
   ctx.surfaceUndoStacks.delete(surfaceId);
+
+  // Record a tombstone so late client actions are silently dropped.
+  if (ctx.recentlyCompletedStandaloneSurfaces) {
+    // Clear any existing tombstone timer for this surfaceId (idempotency).
+    const existingTimer =
+      ctx.recentlyCompletedStandaloneSurfaces.get(surfaceId);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const tombstoneTimer = setTimeout(() => {
+      ctx.recentlyCompletedStandaloneSurfaces?.delete(surfaceId);
+    }, STANDALONE_TOMBSTONE_TTL_MS);
+    ctx.recentlyCompletedStandaloneSurfaces.set(surfaceId, tombstoneTimer);
+  }
 }
 
 /**
@@ -1031,6 +1063,18 @@ export async function handleSurfaceAction(
     );
 
     // Return without enqueuing a model message.
+    return { accepted: true, conversationId: ctx.conversationId };
+  }
+
+  // ── Tombstone guard for recently-completed standalone surfaces ────
+  // After a standalone surface times out or is resolved, cleanup removes
+  // all state. Without this guard a late client action would fall through
+  // to the history-restored path below and enqueue a message to the LLM.
+  if (ctx.recentlyCompletedStandaloneSurfaces?.has(surfaceId)) {
+    log.debug(
+      { conversationId: ctx.conversationId, surfaceId, actionId },
+      "Dropping late action for recently-completed standalone surface",
+    );
     return { accepted: true, conversationId: ctx.conversationId };
   }
 
