@@ -21,8 +21,17 @@ interface ScanPayload {
 const TTL_MS = 30 * 60_000; // 30 minutes
 
 /**
+ * Maximum number of scan IDs to track. Matches the shared cache capacity
+ * so bookkeeping never grows beyond what the cache itself can hold.
+ */
+const MAX_TRACKED_SCAN_IDS = 64;
+
+/**
  * Local bookkeeping of scan IDs produced by this module so
  * `clearScanStore()` can delete them from the shared cache.
+ *
+ * Bounded to `MAX_TRACKED_SCAN_IDS` — when full, the oldest entry
+ * (first in Set iteration order) is evicted.
  */
 const _trackedScanIds = new Set<string>();
 
@@ -47,6 +56,13 @@ export function storeScanResult(
   const payload: ScanPayload = { senders: sendersObj };
   const { key: scanId } = setCacheEntry(payload, { ttlMs: TTL_MS });
   _trackedScanIds.add(scanId);
+
+  // Evict the oldest tracked ID when over capacity (Set preserves insertion order).
+  if (_trackedScanIds.size > MAX_TRACKED_SCAN_IDS) {
+    const oldest = _trackedScanIds.values().next().value;
+    if (oldest !== undefined) _trackedScanIds.delete(oldest);
+  }
+
   return scanId;
 }
 
@@ -96,4 +112,8 @@ export function clearScanStore(): void {
 }
 
 /** Visible for testing. */
-export const _internals = { TTL_MS, trackedScanIds: _trackedScanIds };
+export const _internals = {
+  TTL_MS,
+  MAX_TRACKED_SCAN_IDS,
+  trackedScanIds: _trackedScanIds,
+};
