@@ -545,7 +545,7 @@ describe("bundled browser skill", () => {
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.description).toBe(
-      "Navigate and interact with web pages using a headless browser",
+      "Browse the web using `assistant browser` CLI commands",
     );
   });
 
