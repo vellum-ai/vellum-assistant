@@ -3,7 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readAutoinjectList } from "../daemon/conversation-runtime-assembly.js";
+import {
+  getPkbAutoInjectList,
+  readAutoinjectList,
+} from "../daemon/conversation-runtime-assembly.js";
+
+const PKB_DEFAULT_FILES = [
+  "INDEX.md",
+  "essentials.md",
+  "threads.md",
+  "buffer.md",
+];
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -92,5 +102,31 @@ describe("readAutoinjectList", () => {
       "utf-8",
     );
     expect(readAutoinjectList(pkbDir)).toEqual(["INDEX.md", "essentials.md"]);
+  });
+});
+
+describe("getPkbAutoInjectList", () => {
+  test("returns PKB_DEFAULT_FILES when _autoinject.md is missing", () => {
+    // No _autoinject.md in the fresh pkbDir.
+    expect(getPkbAutoInjectList(pkbDir)).toEqual(PKB_DEFAULT_FILES);
+  });
+
+  test("returns parsed list when _autoinject.md is present", () => {
+    writeFileSync(
+      join(pkbDir, "_autoinject.md"),
+      "INDEX.md\ncustom-topic.md\n",
+      "utf-8",
+    );
+    expect(getPkbAutoInjectList(pkbDir)).toEqual([
+      "INDEX.md",
+      "custom-topic.md",
+    ]);
+  });
+
+  test("returns empty list (explicit opt-out) when _autoinject.md is empty", () => {
+    // Empty file is an explicit "inject nothing" signal — do NOT fall back
+    // to defaults.
+    writeFileSync(join(pkbDir, "_autoinject.md"), "", "utf-8");
+    expect(getPkbAutoInjectList(pkbDir)).toEqual([]);
   });
 });

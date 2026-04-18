@@ -222,7 +222,12 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
   readPkbContext: () => null,
-  readAutoinjectList: () => null,
+  getPkbAutoInjectList: () => [
+    "INDEX.md",
+    "essentials.md",
+    "threads.md",
+    "buffer.md",
+  ],
 }));
 
 mock.module("../daemon/date-context.js", () => ({

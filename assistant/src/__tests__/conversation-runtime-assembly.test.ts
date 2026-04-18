@@ -1841,6 +1841,42 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(reminder).toContain("these files look especially relevant");
   });
 
+  test("default auto-injected files (from PKB_DEFAULT_FILES) are filtered out of hints", async () => {
+    // Regression test: when `_autoinject.md` is missing, `readPkbContext`
+    // falls back to PKB_DEFAULT_FILES — so those files ARE in the prompt.
+    // The tracker must know about them too, otherwise the reminder would
+    // redundantly recommend e.g. `essentials.md` even though its contents
+    // are already injected. The agent-loop passes the effective auto-inject
+    // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
+    pkbSearchResults = [
+      { path: "essentials.md", score: 0.95 },
+      { path: "topics/alpha.md", score: 0.9 },
+    ];
+    pkbSearchThrows = null;
+
+    const result = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions({
+        // Simulate the fallback the agent-loop now threads through:
+        // `_autoinject.md` is missing, so defaults are injected.
+        pkbAutoInjectList: [
+          "INDEX.md",
+          "essentials.md",
+          "threads.md",
+          "buffer.md",
+        ],
+      }),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    // essentials.md is a default auto-inject file, so it's already in the
+    // prompt — the reminder must not recommend it again.
+    expect(reminder).not.toContain("- essentials.md");
+    // The other hit, which is not auto-injected, still appears.
+    expect(reminder).toContain("- topics/alpha.md");
+  });
+
   test("in-context paths are filtered out of hints", async () => {
     pkbSearchResults = [
       { path: "topics/alpha.md", score: 0.9 },

@@ -642,6 +642,21 @@ export function readAutoinjectList(pkbDir: string): string[] | null {
 }
 
 /**
+ * Resolve the effective list of auto-inject filenames for a PKB directory.
+ *
+ * This is the single source of truth used both by `readPkbContext` (which
+ * actually injects the files) and by the PKB reminder-hint tracker in
+ * `conversation-agent-loop.ts` (which needs to know what's already in
+ * context so it doesn't redundantly recommend those files).
+ *
+ * Returns `PKB_DEFAULT_FILES` when `_autoinject.md` is missing/unreadable,
+ * or the parsed list (possibly empty) when it is present.
+ */
+export function getPkbAutoInjectList(pkbRoot: string): string[] {
+  return readAutoinjectList(pkbRoot) ?? PKB_DEFAULT_FILES;
+}
+
+/**
  * Read the always-loaded PKB files and append a nudge encouraging the
  * assistant to proactively read topic files and use `remember` aggressively.
  *
@@ -655,7 +670,7 @@ export function readPkbContext(): string | null {
   const pkbDir = join(getWorkspaceDir(), "pkb");
   if (!existsSync(pkbDir)) return null;
 
-  const filesToInject = readAutoinjectList(pkbDir) ?? PKB_DEFAULT_FILES;
+  const filesToInject = getPkbAutoInjectList(pkbDir);
 
   const parts: string[] = [];
   for (const file of filesToInject) {
