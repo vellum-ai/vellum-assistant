@@ -748,15 +748,28 @@ async function handleUnsubscribe(
     }
   }
 
-  // Fall back to mailto
+  // Fall back to mailto: send unsubscribe email via Graph API
   if (parsed.mailto.length > 0) {
-    ok({
-      method: "mailto",
-      address: parsed.mailto[0],
-      message:
-        "Send an unsubscribe email to this address to complete unsubscription",
-    });
-    return;
+    const mailtoAddr = parsed.mailto[0];
+    const sendRes = await graphPost("/v1.0/me/sendMail", {
+      message: {
+        subject: "Unsubscribe",
+        body: { contentType: "text", content: "" },
+        toRecipients: [{ emailAddress: { address: mailtoAddr } }],
+      },
+    }, account);
+
+    if (sendRes.ok) {
+      ok({
+        method: "mailto",
+        address: mailtoAddr,
+        success: true,
+      });
+      return;
+    }
+
+    printError(`Failed to send unsubscribe email to ${mailtoAddr} (HTTP ${sendRes.status})`);
+    throw new Error("unreachable");
   }
 
   printError(
