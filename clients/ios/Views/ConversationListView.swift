@@ -774,22 +774,6 @@ struct ConversationChatView: View {
         }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if let forkAction = makeCurrentTipForkToolbarAction(store: store, conversation: conversation) {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: forkAction) {
-                            Label {
-                                Text("Fork conversation")
-                            } icon: {
-                                VIconView(.gitBranch, size: 14)
-                            }
-                        }
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    exportMenu
-                }
-            }
             .sheet(isPresented: $showShareSheet) {
                 ActivityViewController(activityItems: [shareMarkdown])
             }
