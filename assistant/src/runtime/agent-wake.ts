@@ -352,6 +352,7 @@ export async function wakeAgentForOpportunity(
     let producedToolCalls = false;
     let toolUseNames: string[] = [];
     let tailMessageCount = 0;
+    let drainedInTry = false;
     try {
       let updatedHistory: Message[];
       try {
@@ -381,8 +382,11 @@ export async function wakeAgentForOpportunity(
       // `drainSingleMessage` reads `ctx.messages` mid-tail and writes a
       // DB row that lands out of chronological order (queued user msg
       // before the wake's just-produced assistant outputs).
-      const { tailMessages, hasVisibleText, toolUseNames: names } =
-        inspectWakeOutput(baseline.length, updatedHistory);
+      const {
+        tailMessages,
+        hasVisibleText,
+        toolUseNames: names,
+      } = inspectWakeOutput(baseline.length, updatedHistory);
       toolUseNames = names;
       producedToolCalls = names.length > 0;
       const producedOutput = producedToolCalls || hasVisibleText;
@@ -437,11 +441,12 @@ export async function wakeAgentForOpportunity(
         }
       }
 
-      return { invoked: true, producedToolCalls };
-    } finally {
-      // Release the processing marker regardless of success/failure so
-      // the next user turn (or wake) isn't blocked waiting on a stale
-      // flag.
+      // Drain queued messages AFTER tail is pushed + persisted so the
+      // next dequeued user message sees the complete, up-to-date
+      // history. markProcessing(false) must come first (the queue only
+      // accepts entries while processing === true, and drain expects
+      // processing to already be false). The finally block handles the
+      // error/early-return paths where no tail was produced.
       try {
         target.markProcessing(false);
       } catch (err) {
@@ -450,15 +455,6 @@ export async function wakeAgentForOpportunity(
           "agent-wake: markProcessing(false) threw; continuing",
         );
       }
-      // Drain any messages queued during the wake. Order matters:
-      // `enqueueMessage()` only queues when `processing === true`, so
-      // late sends arriving while the wake was running landed on the
-      // queue. The canonical user-turn finally calls drain after
-      // resetting `processing = false` AND after `ctx.messages` has
-      // been updated with the new tail; mirror that here so a queued
-      // message is picked up against an updated history rather than
-      // stranded behind an out-of-order DB row. Wrapped in try/catch
-      // so a drain failure can't propagate out of the wake.
       if (target.drainQueue) {
         try {
           await target.drainQueue();
@@ -467,6 +463,35 @@ export async function wakeAgentForOpportunity(
             { conversationId, source, err },
             "agent-wake: drainQueue threw; continuing",
           );
+        }
+      }
+      drainedInTry = true;
+
+      return { invoked: true, producedToolCalls };
+    } finally {
+      // The success path (above) already called markProcessing(false)
+      // + drainQueue after tail persist. This catch-all handles the
+      // error and early-return paths where no tail was produced — those
+      // exit the try body before reaching the drain block, so
+      // `drainedInTry` is still false.
+      if (!drainedInTry) {
+        try {
+          target.markProcessing(false);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: markProcessing(false) threw; continuing",
+          );
+        }
+        if (target.drainQueue) {
+          try {
+            await target.drainQueue();
+          } catch (err) {
+            log.warn(
+              { conversationId, source, err },
+              "agent-wake: drainQueue threw; continuing",
+            );
+          }
         }
       }
 
