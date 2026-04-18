@@ -839,8 +839,11 @@ export async function runDaemon(): Promise<void> {
           const { reconcilePkbIndex } = await import(
             "../memory/pkb/pkb-reconcile.js"
           );
+          const { PKB_WORKSPACE_SCOPE } = await import(
+            "../memory/pkb/types.js"
+          );
           const pkbRoot = join(getWorkspaceDir(), "pkb");
-          await reconcilePkbIndex(pkbRoot, "default");
+          await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
         } catch (err) {
           log.warn(
             { err },

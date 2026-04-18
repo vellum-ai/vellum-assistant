@@ -108,6 +108,23 @@ describe("getInContextPkbPaths", () => {
     expect(result).toEqual(new Set());
   });
 
+  test("relative file_read path is NOT treated as inside pkbRoot", () => {
+    // `file_read` accepts absolute paths and paths relative to the tool's
+    // working directory — NOT to `pkbRoot`. So a relative path like
+    // `"notes.md"` is ambiguous: the actual file might have been read from
+    // `<workingDir>/notes.md`, not `<pkbRoot>/notes.md`. Marking it as
+    // in-context would false-positive and suppress hints for files the
+    // model did not actually load.
+    const conversation = makeConversation([
+      assistantMessageWithBlocks([
+        fileReadToolUse("notes.md"),
+        fileReadToolUse("./deep/subdir/file.md"),
+      ]),
+    ]);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT);
+    expect(result).toEqual(new Set());
+  });
+
   test("resolves relative auto-inject paths against pkbRoot", () => {
     const conversation = makeConversation([]);
     const result = getInContextPkbPaths(

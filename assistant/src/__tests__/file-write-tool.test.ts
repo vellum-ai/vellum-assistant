@@ -49,6 +49,7 @@ function setWorkspaceDir(dir: string): void {
   process.env.VELLUM_WORKSPACE_DIR = dir;
 }
 
+import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import { getTool } from "../tools/registry.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
@@ -192,11 +193,11 @@ describe("file_write tool PKB re-index hook", () => {
     expect(enqueueCalls[0]).toEqual({
       pkbRoot: join(workingDir, "pkb"),
       absPath: join(workingDir, "pkb", "note.md"),
-      memoryScopeId: "default",
+      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   });
 
-  test("forwards memoryScopeId from context when present", async () => {
+  test("always uses PKB_WORKSPACE_SCOPE regardless of context.memoryScopeId", async () => {
     const workingDir = makeTempDir();
     setWorkspaceDir(workingDir);
     mkdirSync(join(workingDir, "pkb"), { recursive: true });
@@ -213,7 +214,10 @@ describe("file_write tool PKB re-index hook", () => {
 
     expect(result.isError).toBe(false);
     expect(enqueueCalls).toHaveLength(1);
-    expect(enqueueCalls[0]?.memoryScopeId).toBe("private:abc123");
+    // PKB files are workspace-level — the per-conversation scopeId is NOT
+    // threaded through so different conversations can't overwrite each
+    // other's Qdrant points via target_id upsert deduplication.
+    expect(enqueueCalls[0]?.memoryScopeId).toBe(PKB_WORKSPACE_SCOPE);
   });
 
   test("does NOT enqueue when writing outside pkb/", async () => {

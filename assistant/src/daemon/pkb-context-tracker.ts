@@ -97,6 +97,12 @@ export function getInContextPkbPaths(
       if (block.name !== FILE_READ_TOOL_NAME) continue;
       const rawPath = block.input?.path;
       if (typeof rawPath !== "string") continue;
+      // `file_read` accepts both absolute paths and paths relative to the
+      // tool's working directory — NOT to `pkbRoot`. Resolving a relative
+      // `rawPath` against `pkbRoot` would treat e.g. `"notes.md"` as inside
+      // the PKB even if the actual read was against `workingDir/notes.md`.
+      // Only absolute paths are unambiguous here.
+      if (!path.isAbsolute(rawPath)) continue;
       const resolved = resolveInsidePkbRoot(rawPath, normalizedRoot);
       if (resolved !== undefined) {
         inContext.add(resolved);

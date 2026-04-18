@@ -11,6 +11,7 @@ import {
   test,
 } from "bun:test";
 
+import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import type { ToolContext } from "../types.js";
 
 let tmpWorkspace: string;
@@ -114,6 +115,8 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   test("enqueues re-index jobs for both buffer and daily archive paths", async () => {
     const result = await rememberTool.execute(
       { content: "index me please" },
+      // Passes a non-default per-conversation scopeId to prove the PKB
+      // enqueue ignores it and pins to PKB_WORKSPACE_SCOPE instead.
       makeContext({ memoryScopeId: "scope-enqueue" }),
     );
     expect(result.isError).toBe(false);
@@ -133,12 +136,12 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
     expect(enqueueCalls[0]).toEqual({
       pkbRoot,
       absPath: bufferPath,
-      memoryScopeId: "scope-enqueue",
+      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
     expect(enqueueCalls[1]).toEqual({
       pkbRoot,
       absPath: archivePath,
-      memoryScopeId: "scope-enqueue",
+      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   });
 

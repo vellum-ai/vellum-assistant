@@ -1,6 +1,7 @@
 import { join, resolve, sep } from "node:path";
 
 import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
+import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -120,7 +121,7 @@ class FileWriteTool implements Tool {
         enqueuePkbIndexJob({
           pkbRoot,
           absPath: filePath,
-          memoryScopeId: context.memoryScopeId ?? "default",
+          memoryScopeId: PKB_WORKSPACE_SCOPE,
         });
       }
     } catch (err) {

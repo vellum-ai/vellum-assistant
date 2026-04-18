@@ -66,6 +66,7 @@ import {
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
+import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -871,7 +872,9 @@ export async function runAgentLoopImpl(
     // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
     // so post-compaction re-injects see the updated history.
     const pkbConversation = pkbActive ? ctx : undefined;
-    const pkbScopeId = pkbActive ? ctx.memoryPolicy.scopeId : undefined;
+    // PKB points live under a single workspace sentinel scope, not the
+    // conversation's memoryPolicy.scopeId. See `PKB_WORKSPACE_SCOPE` for why.
+    const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
 
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
