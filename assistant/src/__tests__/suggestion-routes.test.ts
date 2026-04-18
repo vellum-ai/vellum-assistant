@@ -383,6 +383,163 @@ describe("GET /v1/suggestion", () => {
     expect(body.suggestion).toBeNull();
   });
 
+  test("strips leaked <reply> tags from LLM response", async () => {
+    // Realistic output when the model re-emits </reply> before the stop_sequence
+    // catches, or when a leading <reply> slips in.
+    const provider = makeMockProvider("sounds good</reply>");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-1",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Want to go?" }]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const res = await handleGetSuggestion(url, deps);
+    const body = (await res.json()) as { suggestion: string };
+
+    expect(body.suggestion).toBe("sounds good");
+  });
+
+  test("passes prefill message, stop_sequences, and max_tokens", async () => {
+    const provider = makeMockProvider("on my way");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-user-1",
+        conversationId: "conv-test",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "heading out" }]),
+        createdAt: Date.now() - 1000,
+        metadata: null,
+      },
+      {
+        id: "msg-asst-shape",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "see you there — which door?" },
+        ]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(url, deps);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const messages = callArgs[0] as Array<{
+      role: string;
+      content: Array<{ type: string; text: string }>;
+    }>;
+    const options = callArgs[3] as {
+      config?: {
+        stop_sequences?: string[];
+        max_tokens?: number;
+      };
+    };
+
+    expect(messages.length).toBe(2);
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].content[0].text).toBe("<reply>");
+    expect(options.config?.stop_sequences).toEqual(["</reply>"]);
+    expect(options.config?.max_tokens).toBe(60);
+    expect(messages[0].content[0].text).toContain("<assistant_message>");
+    expect(messages[0].content[0].text).toContain("<user_message>");
+  });
+
+  test("includes prior user message in prompt when present", async () => {
+    const provider = makeMockProvider("on my way");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-user-1",
+        conversationId: "conv-test",
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "running late, should I grab coffee?" },
+        ]),
+        createdAt: Date.now() - 1000,
+        metadata: null,
+      },
+      {
+        id: "msg-asst-1",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "yes please, an americano would be great" },
+        ]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(url, deps);
+
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const messages = callArgs[0] as Array<{
+      content: Array<{ text: string }>;
+    }>;
+    const userPrompt = messages[0].content[0].text;
+    expect(userPrompt).toContain(
+      "<user_message>running late, should I grab coffee?</user_message>",
+    );
+    expect(userPrompt).toContain(
+      "<assistant_message>yes please, an americano would be great</assistant_message>",
+    );
+  });
+
+  test("uses placeholder when no prior user message exists", async () => {
+    const provider = makeMockProvider("sure");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-first",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "hi there!" }]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(url, deps);
+
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const messages = callArgs[0] as Array<{
+      content: Array<{ text: string }>;
+    }>;
+    const userPrompt = messages[0].content[0].text;
+    expect(userPrompt).toContain(
+      "<user_message>(no prior user message)</user_message>",
+    );
+  });
+
   test("uses conversationStarters call site", async () => {
     const provider = makeMockProvider("Quick reply");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
