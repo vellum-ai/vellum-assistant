@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { decodeDecisionToken } from "../decision-token.js";
 import {
+  type CancellationReason,
   type InteractiveUiRequest,
   type InteractiveUiResult,
   registerInteractiveUiResolver,
@@ -36,7 +37,7 @@ beforeEach(() => {
 // ── Missing resolver (fail-closed) ───────────────────────────────────
 
 describe("requestInteractiveUi without resolver", () => {
-  test("returns cancelled when no resolver is registered", async () => {
+  test("returns cancelled with no_interactive_surface reason when no resolver is registered", async () => {
     const request: InteractiveUiRequest = {
       conversationId: "conv-1",
       surfaceType: "confirmation",
@@ -46,6 +47,7 @@ describe("requestInteractiveUi without resolver", () => {
     const result = await requestInteractiveUi(request);
 
     expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("no_interactive_surface");
     expect(result.surfaceId).toBeString();
     expect(result.surfaceId.length).toBeGreaterThan(0);
     expect(result.actionId).toBeUndefined();
@@ -73,6 +75,7 @@ describe("requestInteractiveUi without resolver", () => {
     });
 
     expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("no_interactive_surface");
     expect(result.decisionToken).toBeUndefined();
   });
 });
@@ -204,7 +207,7 @@ describe("requestInteractiveUi with resolver", () => {
 // ── Error handling (fail-closed on resolver throw) ──────────────────
 
 describe("resolver error handling", () => {
-  test("returns cancelled when resolver throws", async () => {
+  test("returns cancelled with resolver_error reason when resolver throws", async () => {
     registerInteractiveUiResolver(async () => {
       throw new Error("Surface rendering failed");
     });
@@ -216,11 +219,12 @@ describe("resolver error handling", () => {
     });
 
     expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("resolver_error");
     expect(result.surfaceId).toBeString();
     expect(result.surfaceId.length).toBeGreaterThan(0);
   });
 
-  test("returns cancelled when resolver rejects", async () => {
+  test("returns cancelled with resolver_error reason when resolver rejects", async () => {
     registerInteractiveUiResolver(() =>
       Promise.reject(new Error("Connection lost")),
     );
@@ -232,6 +236,7 @@ describe("resolver error handling", () => {
     });
 
     expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("resolver_error");
     expect(result.surfaceId).toBeString();
   });
 
@@ -247,6 +252,7 @@ describe("resolver error handling", () => {
     });
 
     expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("resolver_error");
     expect(result.decisionToken).toBeUndefined();
   });
 });
@@ -461,6 +467,124 @@ describe("decision token", () => {
 
     // Tokens differ due to nonce even with same conversation/action
     expect(result1.decisionToken).not.toBe(result2.decisionToken);
+  });
+});
+
+// ── Cancellation reason propagation ──────────────────────────────────
+
+describe("cancellation reason", () => {
+  test("no_interactive_surface reason when no resolver registered", async () => {
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-no-resolver",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe(
+      "no_interactive_surface" satisfies CancellationReason,
+    );
+  });
+
+  test("resolver_error reason when resolver throws", async () => {
+    registerInteractiveUiResolver(async () => {
+      throw new Error("boom");
+    });
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-error",
+      surfaceType: "form",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe(
+      "resolver_error" satisfies CancellationReason,
+    );
+  });
+
+  test("resolver can return user_dismissed reason", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "cancelled",
+      surfaceId: "dismissed-surface",
+      cancellationReason: "user_dismissed",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-user-dismissed",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("user_dismissed");
+  });
+
+  test("resolver can return conversation_not_found reason", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "cancelled",
+      surfaceId: "not-found-surface",
+      cancellationReason: "conversation_not_found",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-not-found",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("conversation_not_found");
+  });
+
+  test("resolver can return resolver_unavailable reason", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "cancelled",
+      surfaceId: "unavailable-surface",
+      cancellationReason: "resolver_unavailable",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-unavailable",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.cancellationReason).toBe("resolver_unavailable");
+  });
+
+  test("submitted result does not carry cancellationReason", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "confirm",
+      surfaceId: "no-reason-submit",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-submitted",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("submitted");
+    expect(result.cancellationReason).toBeUndefined();
+  });
+
+  test("timed_out result does not carry cancellationReason", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "timed_out",
+      surfaceId: "no-reason-timeout",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-reason-timeout",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("timed_out");
+    expect(result.cancellationReason).toBeUndefined();
   });
 });
 
