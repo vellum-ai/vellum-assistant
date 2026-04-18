@@ -182,7 +182,11 @@ describe("ui confirm — surface shape", () => {
   test("maps --message to data.message", async () => {
     await runCommand(["ui", "confirm", "--message", "Are you sure?"]);
 
-    expect(lastIpcCall!.params!.data).toEqual({ message: "Are you sure?" });
+    expect(lastIpcCall!.params!.data).toEqual({
+      message: "Are you sure?",
+      confirmLabel: "Confirm",
+      cancelLabel: "Deny",
+    });
   });
 
   test("maps --title to IPC title param", async () => {
