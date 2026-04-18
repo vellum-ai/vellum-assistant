@@ -35,6 +35,31 @@ const MAX_TRACKED_SCAN_IDS = 64;
  */
 const _trackedScanIds = new Set<string>();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSenderData(value: unknown): value is SenderData {
+  if (!isRecord(value)) return false;
+  const messageIds = value.messageIds;
+  return (
+    Array.isArray(messageIds) &&
+    messageIds.every((id) => typeof id === "string") &&
+    typeof value.newestMessageId === "string" &&
+    (typeof value.newestUnsubscribableMessageId === "string" ||
+      value.newestUnsubscribableMessageId === null)
+  );
+}
+
+function parseScanPayload(
+  data: unknown,
+): { senders: Record<string, unknown> } | null {
+  if (!isRecord(data)) return null;
+  const senders = data.senders;
+  if (!isRecord(senders)) return null;
+  return { senders };
+}
+
 /** Store scan results and return a unique scan ID. */
 export function storeScanResult(
   senders: Array<{
@@ -57,12 +82,11 @@ export function storeScanResult(
   const { key: scanId } = setCacheEntry(payload, { ttlMs: TTL_MS });
   _trackedScanIds.add(scanId);
 
-  // Evict the oldest tracked ID when over capacity (Set preserves insertion order).
+  // Keep bookkeeping bounded without mutating shared cache contents.
   if (_trackedScanIds.size > MAX_TRACKED_SCAN_IDS) {
     const oldest = _trackedScanIds.values().next().value;
     if (oldest !== undefined) {
       _trackedScanIds.delete(oldest);
-      deleteCacheEntry(oldest);
     }
   }
 
@@ -77,11 +101,12 @@ export function getSenderMessageIds(
   const result = getCacheEntry(scanId);
   if (!result) return null;
 
-  const payload = result.data as ScanPayload;
+  const payload = parseScanPayload(result.data);
+  if (!payload) return null;
   const ids: string[] = [];
   for (const sid of senderIds) {
     const data = payload.senders[sid];
-    if (data) ids.push(...data.messageIds);
+    if (isSenderData(data)) ids.push(...data.messageIds);
   }
   return ids;
 }
@@ -97,9 +122,10 @@ export function getSenderMetadata(
   const result = getCacheEntry(scanId);
   if (!result) return null;
 
-  const payload = result.data as ScanPayload;
+  const payload = parseScanPayload(result.data);
+  if (!payload) return null;
   const data = payload.senders[senderId];
-  if (!data) return null;
+  if (!isSenderData(data)) return null;
   return {
     newestMessageId: data.newestMessageId,
     newestUnsubscribableMessageId: data.newestUnsubscribableMessageId,

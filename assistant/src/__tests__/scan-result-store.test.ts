@@ -7,7 +7,11 @@ import {
   getSenderMetadata,
   storeScanResult,
 } from "../config/bundled-skills/gmail/tools/scan-result-store.js";
-import { clearCacheForTests } from "../skills/skill-cache-store.js";
+import {
+  _internals as cacheInternals,
+  clearCacheForTests,
+  setCacheEntry,
+} from "../skills/skill-cache-store.js";
 
 afterEach(() => {
   clearScanStore();
@@ -81,6 +85,35 @@ describe("missing scan ID returns null", () => {
 
   test("getSenderMetadata returns null for unknown scan ID", () => {
     expect(getSenderMetadata("no-such-scan", "s1")).toBeNull();
+  });
+});
+
+describe("malformed cache payloads", () => {
+  test("getSenderMessageIds returns null for non-scan payload", () => {
+    const { key } = setCacheEntry({ foo: "bar" });
+    expect(getSenderMessageIds(key, ["sender-a"])).toBeNull();
+  });
+
+  test("getSenderMetadata returns null for non-scan payload", () => {
+    const { key } = setCacheEntry(["not", "a", "scan"]);
+    expect(getSenderMetadata(key, "sender-a")).toBeNull();
+  });
+
+  test("getSenderMessageIds skips malformed sender payloads without throwing", () => {
+    const { key } = setCacheEntry({
+      senders: {
+        "sender-good": {
+          messageIds: ["m1"],
+          newestMessageId: "m1",
+          newestUnsubscribableMessageId: null,
+        },
+        "sender-bad": { messageIds: "oops-not-an-array" },
+      },
+    });
+
+    expect(getSenderMessageIds(key, ["sender-good", "sender-bad"])).toEqual([
+      "m1",
+    ]);
   });
 });
 
@@ -176,6 +209,41 @@ describe("clearScanStore", () => {
     expect(_internals.trackedScanIds.size).toBe(1);
     clearScanStore();
     expect(_internals.trackedScanIds.size).toBe(0);
+  });
+});
+
+describe("tracked scan ID bounds", () => {
+  test("capping tracked IDs does not delete active shared-cache entries", () => {
+    const limit = _internals.MAX_TRACKED_SCAN_IDS;
+    const scanIds: string[] = [];
+
+    for (let i = 0; i < limit; i++) {
+      scanIds.push(
+        storeScanResult([
+          {
+            id: `sender-${i}`,
+            messageIds: [`m-${i}`],
+            newestMessageId: `m-${i}`,
+            newestUnsubscribableMessageId: null,
+          },
+        ]),
+      );
+    }
+
+    // Refresh the first entry so shared-cache LRU keeps it hot.
+    expect(getSenderMessageIds(scanIds[0], ["sender-0"])).toEqual(["m-0"]);
+
+    storeScanResult([
+      {
+        id: "sender-overflow",
+        messageIds: ["m-overflow"],
+        newestMessageId: "m-overflow",
+        newestUnsubscribableMessageId: null,
+      },
+    ]);
+
+    expect(cacheInternals.store.size).toBe(cacheInternals.DEFAULT_MAX_ENTRIES);
+    expect(getSenderMessageIds(scanIds[0], ["sender-0"])).toEqual(["m-0"]);
   });
 });
 
