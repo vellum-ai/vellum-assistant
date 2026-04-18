@@ -1101,9 +1101,17 @@ public final class SettingsStore: ObservableObject {
         Self.managedCapableProviderIds.contains(provider)
     }
 
-    /// Whether a given provider supports native web search.
-    func isNativeWebSearchCapable(_ provider: String) -> Bool {
-        Self.nativeWebSearchCapableProviderIds.contains(provider)
+    /// Whether the current inference selection supports native web search.
+    /// OpenRouter routes `anthropic/*` models through the Anthropic-compat
+    /// endpoint, which accepts Anthropic's native `web_search_20250305` tool.
+    func isNativeWebSearchCapable(_ provider: String, model: String) -> Bool {
+        if Self.nativeWebSearchCapableProviderIds.contains(provider) {
+            return true
+        }
+        if provider == "openrouter" && model.hasPrefix("anthropic/") {
+            return true
+        }
+        return false
     }
 
     // MARK: - Embedding Config Actions

@@ -250,6 +250,7 @@ export async function initializeProviders(
       "openrouter",
       new RetryProvider(
         new OpenRouterProvider(openrouterKey, model, {
+          useNativeWebSearch,
           streamTimeoutMs,
         }),
       ),

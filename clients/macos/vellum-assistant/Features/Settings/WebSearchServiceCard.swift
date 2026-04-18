@@ -45,11 +45,12 @@ struct WebSearchServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// The available providers depend on the current inference provider's capabilities.
+    /// The available providers depend on the current inference selection's capabilities.
     /// Provider Native is available whenever the inference provider supports native web search
-    /// (e.g. Anthropic, OpenAI), regardless of whether inference is managed or your-own.
+    /// (e.g. Anthropic, OpenAI, or OpenRouter routing to an `anthropic/*` model),
+    /// regardless of whether inference is managed or your-own.
     private var availableProviders: [String] {
-        store.isNativeWebSearchCapable(store.selectedInferenceProvider)
+        store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel)
             ? ["inference-provider-native", "perplexity", "brave"]
             : ["perplexity", "brave"]
     }
@@ -159,7 +160,7 @@ struct WebSearchServiceCard: View {
             }
             if newValue == "managed" && draftProvider == "inference-provider-native" {
                 // Only auto-correct when the managed provider lacks native web search support.
-                if !store.isNativeWebSearchCapable(store.selectedInferenceProvider) {
+                if !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel) {
                     draftProvider = "perplexity"
                 }
             }
@@ -167,7 +168,14 @@ struct WebSearchServiceCard: View {
         .onChange(of: store.selectedInferenceProvider) { _, newProvider in
             // Auto-correct when the inference provider changes to one that
             // does not support native web search while provider-native is selected.
-            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider) {
+            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
+                draftProvider = "perplexity"
+            }
+        }
+        .onChange(of: store.selectedModel) { _, newModel in
+            // Auto-correct when the model changes to one that breaks native web search
+            // for the current provider (e.g. OpenRouter switching off an `anthropic/*` model).
+            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
                 draftProvider = "perplexity"
             }
         }

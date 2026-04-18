@@ -81,7 +81,7 @@ struct InferenceServiceCard: View {
         // only invalidate when the resulting provider cannot support native web search.
         // Skip when web search is in managed mode (webSearchProvider is stale).
         if draftMode == "managed" && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
-            if !store.isNativeWebSearchCapable(draftProvider) {
+            if !store.isNativeWebSearchCapable(draftProvider, model: draftModel) {
                 return true
             }
         }
@@ -89,7 +89,7 @@ struct InferenceServiceCard: View {
         // when the new provider cannot support native web search.
         // Skip when web search is in managed mode (webSearchProvider is stale).
         if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
-            if !store.isNativeWebSearchCapable(draftProvider) {
+            if !store.isNativeWebSearchCapable(draftProvider, model: draftModel) {
                 return true
             }
         }
