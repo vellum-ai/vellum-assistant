@@ -8,7 +8,6 @@ metadata:
   version: "1.0"
   vellum:
     display-name: "GitHub App Setup"
-    user-invocable: true
 ---
 
 ## Overview

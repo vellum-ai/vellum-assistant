@@ -421,8 +421,7 @@
         "author": "vellum-ai",
         "version": "1.0",
         "vellum": {
-          "display-name": "GitHub App Setup",
-          "user-invocable": "true"
+          "display-name": "GitHub App Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI."

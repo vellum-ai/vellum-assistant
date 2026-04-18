@@ -67,7 +67,9 @@ MANIFEST = {
 }
 
 MANIFEST_JSON = json.dumps(MANIFEST, indent=2)
-MANIFEST_JS = json.dumps(MANIFEST)
+# Escape </script> sequences to prevent breaking out of the script context.
+# json.dumps doesn't escape forward slashes by default.
+MANIFEST_JS = json.dumps(MANIFEST).replace("</", r"<\/")
 
 # Permission badges
 perm_badges = "".join(
