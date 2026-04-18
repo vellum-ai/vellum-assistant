@@ -125,37 +125,50 @@ struct ScrollDebugOverlayView: View {
 
     private func recordControl(now: Date) -> some View {
         let elapsed: String = {
-            guard recorder.isRecording, let start = recorder.startTime else { return "" }
+            guard recorder.isRecording, let start = recorder.sessionStartTime else { return "" }
             return String(format: "%.1fs", now.timeIntervalSince(start))
         }()
         let frameCount = recorder.frames.count
 
-        return Button(action: toggleRecording) {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(recorder.isRecording ? Color.red : Color.clear)
-                    .overlay(
-                        Circle().strokeBorder(
-                            recorder.isRecording ? Color.red : VColor.contentSecondary,
-                            lineWidth: 1
+        return HStack(spacing: 6) {
+            Button(action: toggleRecording) {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(recorder.isRecording ? Color.red : Color.clear)
+                        .overlay(
+                            Circle().strokeBorder(
+                                recorder.isRecording ? Color.red : VColor.contentSecondary,
+                                lineWidth: 1
+                            )
                         )
-                    )
-                    .frame(width: 7, height: 7)
-                Text(recorder.isRecording ? "stop" : "rec")
-                    .foregroundStyle(VColor.contentDefault)
-                if recorder.isRecording {
-                    Text(elapsed)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Spacer(minLength: 4)
-                    Text("\(frameCount)f")
-                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(width: 7, height: 7)
+                    Text(recorder.isRecording ? "stop" : "rec")
+                        .foregroundStyle(VColor.contentDefault)
+                    if recorder.isRecording {
+                        Text(elapsed)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(recorder.isRecording ? "Stop recording and save CSV to ~/Downloads" : "Start/resume recording per-frame scroll data (appends to existing buffer)")
+
+            Spacer(minLength: 4)
+
+            if frameCount > 0 {
+                Text("\(frameCount)f")
+                    .foregroundStyle(VColor.contentSecondary)
+
+                Button(action: clearFrames) {
+                    Text("clear")
+                        .foregroundStyle(VColor.contentSecondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Discard the recording buffer")
+            }
         }
-        .buttonStyle(.plain)
-        .help(recorder.isRecording ? "Stop recording and save CSV to ~/Downloads" : "Start recording per-frame scroll data")
     }
 
     private func toggleRecording() {
@@ -166,6 +179,10 @@ struct ScrollDebugOverlayView: View {
         } else {
             recorder.start()
         }
+    }
+
+    private func clearFrames() {
+        recorder.clear()
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -201,11 +218,14 @@ struct ScrollDebugOverlayView: View {
 @MainActor
 final class ScrollDebugRecorder {
     /// Observed so the record button's label/indicator update when recording
-    /// toggles. The frame buffer and start time are `@ObservationIgnored` —
+    /// toggles. The frame buffer and session start are `@ObservationIgnored` —
     /// appending to them inside the HUD's body would otherwise invalidate
     /// the view and cause "modifying state during view update" warnings.
     var isRecording: Bool = false
-    @ObservationIgnored var startTime: Date?
+    /// Set on each `start()` and cleared on `stop()` — drives the "3.2s"
+    /// elapsed readout next to the stop button. Separate from CSV elapsed
+    /// time, which is computed off the first frame's timestamp.
+    @ObservationIgnored var sessionStartTime: Date?
     @ObservationIgnored var frames: [Frame] = []
 
     struct Frame {
@@ -229,9 +249,10 @@ final class ScrollDebugRecorder {
         let conversationId: UUID?
     }
 
+    /// Begin (or resume) recording. Appends to the existing buffer — call
+    /// `clear()` first for a fresh recording.
     func start() {
-        frames.removeAll(keepingCapacity: true)
-        startTime = Date()
+        sessionStartTime = Date()
         isRecording = true
     }
 
@@ -243,20 +264,31 @@ final class ScrollDebugRecorder {
         frames.append(frame)
     }
 
-    /// Stop recording and write frames to `~/Downloads/vellum-scroll-debug-<timestamp>.csv`.
-    /// Returns the written URL, or `nil` if there was nothing to write or the
-    /// write failed.
+    /// Stop recording and write the accumulated buffer to
+    /// `~/Downloads/vellum-scroll-debug-<timestamp>.csv`. Frames are kept so
+    /// a subsequent `start()` appends to the same buffer; call `clear()` to
+    /// reset. Returns the written URL, or `nil` if the buffer was empty or
+    /// the write failed.
     func stop() -> URL? {
-        let captured = frames
-        let start = startTime
         isRecording = false
-        startTime = nil
-        frames.removeAll(keepingCapacity: true)
-        guard !captured.isEmpty, let start else { return nil }
-        return writeCSV(frames: captured, start: start)
+        sessionStartTime = nil
+        guard !frames.isEmpty else { return nil }
+        return writeCSV(frames: frames)
     }
 
-    private func writeCSV(frames: [Frame], start: Date) -> URL? {
+    /// Discard the buffer. Safe to call while recording — the next captured
+    /// frame becomes the new anchor, and the HUD's elapsed readout restarts.
+    func clear() {
+        frames.removeAll(keepingCapacity: true)
+        if isRecording {
+            sessionStartTime = Date()
+        } else {
+            sessionStartTime = nil
+        }
+    }
+
+    private func writeCSV(frames: [Frame]) -> URL? {
+        guard let start = frames.first?.timestamp else { return nil }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
