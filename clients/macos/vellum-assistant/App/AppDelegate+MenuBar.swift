@@ -458,6 +458,7 @@ extension AppDelegate {
                 item.target = self
                 item.image = VIcon.refreshCw.nsImage(size: 16)
                 menu.addItem(item)
+                menu.addItem(.separator())
             }
 
             let currentConversationItem: NSMenuItem = {
