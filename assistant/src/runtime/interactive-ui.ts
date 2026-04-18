@@ -35,6 +35,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
+import { mintDecisionToken } from "./decision-token.js";
 
 const log = getLogger("interactive-ui");
 
@@ -110,6 +111,15 @@ export interface InteractiveUiResult {
   summary?: string;
   /** The surface identifier that was shown, for audit/correlation. */
   surfaceId: string;
+  /**
+   * Short-lived informational decision token, present when
+   * `status === "submitted"` and `surfaceType === "confirmation"`.
+   *
+   * Non-authoritative — carries metadata about the decision for audit
+   * and correlation purposes only. Does not grant any capability.
+   * Verification/replay enforcement is out of scope for v1.
+   */
+  decisionToken?: string;
 }
 
 // ── Resolver type ────────────────────────────────────────────────────
@@ -173,6 +183,31 @@ export function resetSurfaceIdCounterForTests(): void {
   _surfaceIdCounter = 0;
 }
 
+// ── Audit logging ────────────────────────────────────────────────────
+
+/**
+ * Emit a structured audit log entry for an interactive UI decision.
+ * Keyed by conversation/surface/request IDs so downstream consumers
+ * can correlate decisions across the system.
+ */
+function emitAuditLog(
+  request: InteractiveUiRequest,
+  result: InteractiveUiResult,
+): void {
+  log.info(
+    {
+      event: "interactive_ui_decision",
+      conversationId: request.conversationId,
+      surfaceId: result.surfaceId,
+      surfaceType: request.surfaceType,
+      status: result.status,
+      actionId: result.actionId,
+      timestamp: new Date().toISOString(),
+    },
+    "interactive-ui: decision recorded",
+  );
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
@@ -181,6 +216,14 @@ export function resetSurfaceIdCounterForTests(): void {
  *
  * Fails closed: when no resolver is registered (headless, tests without
  * setup), returns `{ status: "cancelled", surfaceId }` immediately.
+ *
+ * When the surface type is `"confirmation"` and the user submits, a
+ * short-lived informational decision token is minted and attached to
+ * the result. The token is non-authoritative — see
+ * {@link mintDecisionToken} for details.
+ *
+ * Structured audit logs are emitted for all terminal outcomes
+ * (`submitted`, `cancelled`, `timed_out`).
  *
  * @param request - The interaction request describing the surface.
  * @returns The user's response or a fail-closed cancellation.
@@ -198,20 +241,41 @@ export async function requestInteractiveUi(
       },
       "interactive-ui: no resolver registered; failing closed",
     );
-    return {
+    const failResult: InteractiveUiResult = {
       status: "cancelled",
       surfaceId,
     };
+    emitAuditLog(request, failResult);
+    return failResult;
   }
 
   try {
-    const result = await _resolver(request);
+    const resolverResult = await _resolver(request);
     // Ensure the surfaceId is consistent — the resolver may or may not
     // populate it, but the contract guarantees it is always present.
-    return {
-      ...result,
-      surfaceId: result.surfaceId || surfaceId,
+    const finalSurfaceId = resolverResult.surfaceId || surfaceId;
+
+    const result: InteractiveUiResult = {
+      ...resolverResult,
+      surfaceId: finalSurfaceId,
     };
+
+    // Mint an informational decision token for submitted confirmation
+    // requests. The token encodes the decision metadata and is
+    // short-lived (5 minutes). It is non-authoritative in v1.
+    if (
+      result.status === "submitted" &&
+      request.surfaceType === "confirmation"
+    ) {
+      result.decisionToken = mintDecisionToken({
+        conversationId: request.conversationId,
+        surfaceId: finalSurfaceId,
+        action: result.actionId ?? "submitted",
+      });
+    }
+
+    emitAuditLog(request, result);
+    return result;
   } catch (err) {
     log.error(
       {
@@ -221,9 +285,11 @@ export async function requestInteractiveUi(
       },
       "interactive-ui: resolver threw; failing closed",
     );
-    return {
+    const failResult: InteractiveUiResult = {
       status: "cancelled",
       surfaceId,
     };
+    emitAuditLog(request, failResult);
+    return failResult;
   }
 }
