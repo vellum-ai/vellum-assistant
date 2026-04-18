@@ -75,7 +75,11 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    // EPERM means the process exists but is owned by another user — still
+    // alive from our perspective, and we must not clobber its lock file.
+    // Only ESRCH ("no such process") is a reliable liveness signal.
+    if ((err as NodeJS.ErrnoException)?.code === "EPERM") return true;
     return false;
   }
 }
@@ -93,13 +97,14 @@ async function sleep(ms: number): Promise<void> {
 export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
   const displayIndex = parseDisplayIndex(display);
   const lockPath = lockFilePath(displayIndex);
+  const canonicalDisplay = `:${displayIndex}`;
 
   if (existsSync(lockPath)) {
     // Verify the lock holder is still alive. If Xvfb died uncleanly its
     // lock file lingers and prevents respawning.
     const pid = parseLockPid(lockPath);
     if (pid !== null && isProcessAlive(pid)) {
-      return { display, process: null };
+      return { display: canonicalDisplay, process: null };
     }
     // Stale lock — remove it so we can respawn.
     try {
@@ -109,7 +114,6 @@ export async function startXvfb(display = ":99"): Promise<XvfbHandle> {
     }
   }
 
-  const canonicalDisplay = `:${displayIndex}`;
   const proc = Bun.spawn(
     ["Xvfb", canonicalDisplay, "-screen", "0", "1280x720x24"],
     {
