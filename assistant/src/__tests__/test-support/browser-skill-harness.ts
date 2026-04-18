@@ -5,9 +5,6 @@ import type { Message } from "../../providers/types.js";
 // so existing test imports continue to work.
 export { BROWSER_TOOL_NAMES };
 
-/** Number of browser tools provided by the skill. */
-export const BROWSER_TOOL_COUNT = BROWSER_TOOL_NAMES.length;
-
 /** Skill ID for the bundled browser skill. */
 export const BROWSER_SKILL_ID = "browser";
 

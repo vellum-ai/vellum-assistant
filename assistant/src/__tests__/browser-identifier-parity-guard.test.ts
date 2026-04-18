@@ -11,10 +11,6 @@
  * Drift between any of these causes silent mismatches between the CLI,
  * tool dispatch, and permission defaults. This guard catches additions
  * or removals in one source that aren't mirrored in the others.
- *
- * Note: TOOLS.json was removed as part of the browser tool removal
- * migration — browser tools are now dispatched via skill_execute and
- * no longer have a skill-tool manifest.
  */
 
 import { describe, expect, test } from "bun:test";

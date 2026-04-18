@@ -92,8 +92,8 @@ describe("browser skill migration end-state", () => {
       "../config/bundled-skills/browser",
     );
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
-    // TOOLS.json was removed — browser tools are dispatched via
-    // skill_execute without a skill-tool manifest.
+    // Browser tools are dispatched via skill_execute and do not use
+    // a skill-tool manifest.
     expect(fs.existsSync(path.join(skillDir, "TOOLS.json"))).toBe(false);
   });
 
@@ -132,8 +132,8 @@ describe("browser skill migration end-state", () => {
       import.meta.dirname,
       "../config/bundled-skills/browser/tools",
     );
-    // Wrapper scripts were removed — browser tools are dispatched
-    // directly via skill_execute without per-tool executor files.
+    // Browser tools are dispatched directly via skill_execute
+    // without per-tool executor files.
     expect(fs.existsSync(toolsDir)).toBe(false);
   });
 
@@ -169,7 +169,7 @@ describe("browser skill migration end-state", () => {
 
   // ── 6. Runtime projection has no browser tools ──────────────
 
-  test("skill_load projection registers no browser tools (no TOOLS.json)", () => {
+  test("skill_load projection registers no browser tools", () => {
     const history = buildSkillLoadHistory(BROWSER_SKILL_ID);
     const tracking = new Map<string, string>();
 
@@ -182,8 +182,8 @@ describe("browser skill migration end-state", () => {
       // skill_execute), so toolDefinitions is expected to be empty.
       expect(projection.toolDefinitions).toHaveLength(0);
 
-      // Without TOOLS.json the projection should register no browser tools.
-      // Browser operations are dispatched directly via skill_execute.
+      // The projection registers no browser tools — browser operations
+      // are dispatched directly via skill_execute.
       expect(projection.allowedToolNames.size).toBe(0);
     } finally {
       resetSkillToolProjection(tracking);

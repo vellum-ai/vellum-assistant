@@ -549,12 +549,12 @@ describe("bundled browser skill", () => {
     );
   });
 
-  test("browser skill has no tool manifest (TOOLS.json removed)", () => {
+  test("browser skill has no tool manifest", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
-    // TOOLS.json was removed — browser tools are dispatched via
-    // skill_execute without a skill-tool manifest.
+    // Browser tools are dispatched via skill_execute and do not use
+    // a skill-tool manifest.
     expect(browserSkill!.toolManifest).toBeUndefined();
   });
 });
