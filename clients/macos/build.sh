@@ -1102,6 +1102,12 @@ fi
 _LSE_ENTRIES+="
         <key>VELLUM_ENVIRONMENT</key>
         <string>$VELLUM_ENVIRONMENT</string>"
+if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
+    echo "Embedding VELLUM_CHROME_EXTENSION_IDS"
+    _LSE_ENTRIES+="
+        <key>VELLUM_CHROME_EXTENSION_IDS</key>
+        <string>$CHROME_EXTENSION_IDS_CSV</string>"
+fi
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="

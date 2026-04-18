@@ -335,18 +335,20 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 /**
  * Load the assistant catalog from the worker and render the selector.
  */
-function isNativeHostUnavailable(error: string | undefined): boolean {
+function isNativeHostMissing(error: string | undefined): boolean {
   if (!error) return false;
   const lower = error.toLowerCase();
-  // Match only Chrome's specific host-not-installed error messages:
+  // Match only Chrome's host-not-installed error message:
   //   "Specified native messaging host not found."
-  //   "Access to the specified native messaging host is forbidden."
-  // Recoverable errors like timeouts, generic helper errors, and
-  // disconnect-before-response must NOT trigger the no-native-host phase.
-  return (
-    (lower.includes('native messaging host') && lower.includes('not found')) ||
-    (lower.includes('native messaging host') && lower.includes('forbidden'))
-  );
+  // Recoverable errors, allowlist errors ("forbidden"), generic helper
+  // errors, and disconnect-before-response must NOT trigger no-native-host.
+  return lower.includes('native messaging host') && lower.includes('not found');
+}
+
+function isNativeHostForbidden(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return lower.includes('native messaging host') && lower.includes('forbidden');
 }
 
 function loadAssistantCatalog(): void {
@@ -354,8 +356,15 @@ function loadAssistantCatalog(): void {
     if (chrome.runtime.lastError || !response?.ok) {
       const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
 
-      if (isNativeHostUnavailable(errMsg)) {
+      if (isNativeHostMissing(errMsg)) {
         setPhase('no-native-host');
+        return;
+      }
+
+      if (isNativeHostForbidden(errMsg)) {
+        showError(
+          'Native host access is blocked for this extension ID. Add the ID to ~/.vellum/chrome-extension-allowlist.local.json, restart the assistant, then reload Chrome.',
+        );
         return;
       }
 

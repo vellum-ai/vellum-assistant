@@ -92,46 +92,120 @@ extension AppDelegate {
 }
 
 /// Chrome extension IDs used when writing the native messaging manifest's
-/// `allowed_origins` entries. Resolved from the canonical config at
-/// `meta/browser-extension/chrome-extension-allowlist.json` when available.
+/// `allowed_origins` entries. Resolved from merged allowlist sources:
+/// canonical config, local override, and environment overrides.
 ///
 /// Kept in a standalone enum so unit tests can reference it without
 /// instantiating `AppDelegate`.
 enum ChromeExtensionAllowlist {
     private static let fallbackPlaceholderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private static let extensionIdRegex = try! NSRegularExpression(pattern: "^[a-p]{32}$")
+    private static let localOverrideFilename = "chrome-extension-allowlist.local.json"
 
-    /// All valid extension IDs from the canonical config. Used to populate
-    /// the native messaging manifest's `allowed_origins` array so both the
-    /// development (sideloaded) and CWS-published extension are accepted.
+    /// All valid extension IDs merged from:
+    /// 1. Canonical repo allowlist config.
+    /// 2. Per-machine local override under `~/.vellum/`.
+    /// 3. Environment overrides (`VELLUM_CHROME_EXTENSION_IDS` /
+    ///    `VELLUM_CHROME_EXTENSION_ID`).
+    ///
+    /// Used to populate the native messaging manifest's `allowed_origins`
+    /// array so both the published extension and local unpacked builds can
+    /// connect when explicitly allowlisted.
     static var allIds: [String] {
-        if let fromEnv = ProcessInfo.processInfo.environment["VELLUM_CHROME_EXTENSION_IDS"] {
-            let ids = fromEnv.components(separatedBy: CharacterSet(charactersIn: ", "))
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { isValidExtensionId($0) }
-            if !ids.isEmpty { return ids }
+        let ids = mergedIds(
+            canonicalCandidates: canonicalConfigPathCandidates(),
+            localOverridePath: localOverridePath(),
+            environment: ProcessInfo.processInfo.environment
+        )
+        if !ids.isEmpty {
+            return ids
         }
-
-        if let fromConfig = loadAllIdsFromCanonicalConfig() {
-            return fromConfig
-        }
-
         return [fallbackPlaceholderId]
     }
 
     /// The first valid extension ID — used when a single ID is needed.
     static var primaryId: String {
-        if let fromEnv = ProcessInfo.processInfo.environment["VELLUM_CHROME_EXTENSION_ID"],
-           isValidExtensionId(fromEnv)
-        {
-            return fromEnv
+        allIds.first ?? fallbackPlaceholderId
+    }
+
+    /// Testable helper: merge IDs from canonical/local/env sources.
+    ///
+    /// Canonical config uses first-valid-candidate-wins semantics so source
+    /// and cwd path candidates are treated as one logical source.
+    static func mergedIds(
+        canonicalCandidates: [URL],
+        localOverridePath: URL,
+        environment: [String: String]
+    ) -> [String] {
+        var merged: [String] = []
+        var seen = Set<String>()
+
+        for candidate in canonicalCandidates {
+            guard let canonicalIds = readIdsFromAllowlistFile(candidate) else {
+                continue
+            }
+            appendUnique(canonicalIds, into: &merged, seen: &seen)
+            break
         }
 
-        if let fromCanonicalConfig = loadPrimaryIdFromCanonicalConfig() {
-            return fromCanonicalConfig
+        if let localIds = readIdsFromAllowlistFile(localOverridePath, allowEmpty: true) {
+            appendUnique(localIds, into: &merged, seen: &seen)
         }
 
-        return fallbackPlaceholderId
+        appendUnique(
+            parseIdsFromEnvironmentList(environment["VELLUM_CHROME_EXTENSION_IDS"]),
+            into: &merged,
+            seen: &seen
+        )
+        if let singleEnvId = parseSingleIdFromEnvironment(environment["VELLUM_CHROME_EXTENSION_ID"]) {
+            appendUnique([singleEnvId], into: &merged, seen: &seen)
+        }
+
+        return merged
+    }
+
+    private static func appendUnique(
+        _ ids: [String],
+        into merged: inout [String],
+        seen: inout Set<String>
+    ) {
+        for id in ids where !seen.contains(id) {
+            seen.insert(id)
+            merged.append(id)
+        }
+    }
+
+    private static func parseIdsFromEnvironmentList(_ raw: String?) -> [String] {
+        guard let raw else { return [] }
+        let tokens = raw
+            .components(separatedBy: CharacterSet(charactersIn: ",").union(.whitespacesAndNewlines))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return tokens.filter { isValidExtensionId($0) }
+    }
+
+    private static func parseSingleIdFromEnvironment(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isValidExtensionId(trimmed) ? trimmed : nil
+    }
+
+    private static func readIdsFromAllowlistFile(
+        _ path: URL,
+        allowEmpty: Bool = false
+    ) -> [String]? {
+        guard let data = try? Data(contentsOf: path),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ids = raw["allowedExtensionIds"] as? [String]
+        else {
+            return nil
+        }
+
+        let valid = ids.filter { isValidExtensionId($0) }
+        if valid.isEmpty && !allowEmpty {
+            return nil
+        }
+        return valid
     }
 
     private static func isValidExtensionId(_ value: String) -> Bool {
@@ -140,33 +214,10 @@ enum ChromeExtensionAllowlist {
         return match != nil
     }
 
-    private static func loadAllIdsFromCanonicalConfig() -> [String]? {
-        for candidate in canonicalConfigPathCandidates() {
-            guard let data = try? Data(contentsOf: candidate),
-                  let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let ids = raw["allowedExtensionIds"] as? [String]
-            else {
-                continue
-            }
-            let valid = ids.filter { isValidExtensionId($0) }
-            if !valid.isEmpty { return valid }
-        }
-        return nil
-    }
-
-    private static func loadPrimaryIdFromCanonicalConfig() -> String? {
-        for candidate in canonicalConfigPathCandidates() {
-            guard let data = try? Data(contentsOf: candidate),
-                  let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let ids = raw["allowedExtensionIds"] as? [String],
-                  let first = ids.first,
-                  isValidExtensionId(first)
-            else {
-                continue
-            }
-            return first
-        }
-        return nil
+    private static func localOverridePath() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum", isDirectory: true)
+            .appendingPathComponent(localOverrideFilename, isDirectory: false)
     }
 
     private static func canonicalConfigPathCandidates() -> [URL] {
