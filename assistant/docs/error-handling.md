@@ -92,9 +92,11 @@ User decisions — including declining — are normal operational results:
 
 Scripts must handle all three non-confirmation outcomes. A `cancelled` status means the user deliberately chose not to proceed — log it as a normal flow, not an error. A `timed_out` status means the user was unresponsive — abort without side effects.
 
-### Cancellation reasons
+### Cancellation reasons (`ui request` only)
 
-A `cancelled` status includes a `cancellationReason` field that distinguishes **user-driven** cancellations from **operational fail-closed** cancellations. This allows scripts to choose different recovery strategies depending on why the surface was cancelled.
+When using `assistant ui request --json`, a `cancelled` result includes a `cancellationReason` field that distinguishes **user-driven** cancellations from **operational fail-closed** cancellations. This allows scripts to choose different recovery strategies depending on why the surface was cancelled.
+
+> **Note:** `assistant ui confirm --json` does not include `cancellationReason`. For confirmations, use the exit code (0 = confirmed, non-zero = denied/cancelled) or check the `status` field.
 
 #### User-driven cancellation
 
