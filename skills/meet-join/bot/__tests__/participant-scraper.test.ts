@@ -386,7 +386,7 @@ describe("startParticipantScraper", () => {
     // deliberately unique display name.
     const page = makeFakePage([
       { id: "p-alice", name: "Alice", isSelfByDom: false },
-      { id: "p-bot", name: "Velissa (Sidd's assistant)", isSelfByDom: false },
+      { id: "p-bot", name: "Aria", isSelfByDom: false },
     ]);
     const handle = startParticipantScraper(
       page as unknown as Parameters<typeof startParticipantScraper>[0],
@@ -394,7 +394,7 @@ describe("startParticipantScraper", () => {
       {
         meetingId: "m-1",
         pollMs: 50,
-        selfName: "Velissa (Sidd's assistant)",
+        selfName: "Aria",
       },
     );
     handles.push(handle);
@@ -403,7 +403,7 @@ describe("startParticipantScraper", () => {
 
     expect(events.length).toBe(1);
     const joined = events[0]!.joined;
-    const bot = joined.find((p) => p.name === "Velissa (Sidd's assistant)");
+    const bot = joined.find((p) => p.name === "Aria");
     expect(bot?.isSelf).toBe(true);
     const alice = joined.find((p) => p.id === "p-alice");
     expect(alice?.isSelf).toBeUndefined();

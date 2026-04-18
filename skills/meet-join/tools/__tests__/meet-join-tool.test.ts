@@ -236,7 +236,7 @@ describe("meet_join input validation", () => {
 
 describe("meet_join session-manager delegation", () => {
   test("substitutes {assistantName} into the consent message before joining", async () => {
-    assistantNameValue = "Velissa";
+    assistantNameValue = "Aria";
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
       makeContext({ conversationId: "conv-123" }),
@@ -249,7 +249,7 @@ describe("meet_join session-manager delegation", () => {
     expect(call.conversationId).toBe("conv-123");
     expect(call.consentMessage).toBeDefined();
     expect(call.consentMessage).not.toContain("{assistantName}");
-    expect(call.consentMessage).toContain("Velissa");
+    expect(call.consentMessage).toContain("Aria");
     expect(call.meetingId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );

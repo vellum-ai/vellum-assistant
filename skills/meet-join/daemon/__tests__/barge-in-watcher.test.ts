@@ -174,7 +174,7 @@ function participantChangeWithSelf(): MeetBotEvent {
     type: "participant.change",
     meetingId: MEETING_ID,
     timestamp: "2024-01-01T00:00:00.000Z",
-    joined: [{ id: BOT_PARTICIPANT_ID, name: "Velissa", isSelf: true }],
+    joined: [{ id: BOT_PARTICIPANT_ID, name: "Aria", isSelf: true }],
     left: [],
   };
 }
@@ -370,7 +370,7 @@ describe("MeetBargeInWatcher — speaker.change cancel path", () => {
     // Floor returns to the bot before the debounce expires.
     dispatcher.dispatch(
       MEETING_ID,
-      speakerChange(BOT_PARTICIPANT_ID, "Velissa"),
+      speakerChange(BOT_PARTICIPANT_ID, "Aria"),
     );
     expect(watcher._hasPendingCancel()).toBe(false);
     expect(timer.pending.size).toBe(0);
@@ -391,7 +391,7 @@ describe("MeetBargeInWatcher — speaker.change cancel path", () => {
 
     dispatcher.dispatch(
       MEETING_ID,
-      speakerChange(BOT_PARTICIPANT_ID, "Velissa"),
+      speakerChange(BOT_PARTICIPANT_ID, "Aria"),
     );
     expect(timer.pending.size).toBe(0);
     expect(watcher._hasPendingCancel()).toBe(false);
