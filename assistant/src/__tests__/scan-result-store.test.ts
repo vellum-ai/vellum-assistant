@@ -183,4 +183,22 @@ describe("_internals", () => {
   test("TTL_MS is 30 minutes", () => {
     expect(_internals.TTL_MS).toBe(30 * 60_000);
   });
+
+  test("trackedScanIds stays bounded at MAX_TRACKED_SCAN_IDS", () => {
+    const limit = _internals.MAX_TRACKED_SCAN_IDS;
+
+    // Store more scan results than the cap allows.
+    for (let i = 0; i < limit + 10; i++) {
+      storeScanResult([
+        {
+          id: `sender-${i}`,
+          messageIds: [`m-${i}`],
+          newestMessageId: `m-${i}`,
+          newestUnsubscribableMessageId: null,
+        },
+      ]);
+    }
+
+    expect(_internals.trackedScanIds.size).toBe(limit);
+  });
 });
