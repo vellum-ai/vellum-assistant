@@ -9,6 +9,13 @@ import Foundation
 /// once at least `minFailures` have occurred inside `windowSeconds`. Any 2xx
 /// response (signalled via `recordSuccess()`) immediately clears the window.
 ///
+/// The default `windowSeconds=90` / `minFailures=4` is sized for the production
+/// duty cycle of `GatewayConnectionManager.performHealthCheck()`, which fires
+/// every 15s in steady state. Four sequential health checks at 401 land at
+/// t≈0, 15, 30, 45 — all fit comfortably inside a 90s window with slack for
+/// jitter. A 30s window (the original default) could hold at most 3 such
+/// entries and so could never trip the detector.
+///
 /// The clock is injected so tests can drive time deterministically without
 /// relying on `sleep`. All mutation is serialized through a private
 /// `DispatchQueue` so the tracker is safe to call from a periodic health-check
@@ -30,7 +37,7 @@ public final class AuthFailureTracker {
     private var _lastPath: String?
 
     public init(
-        windowSeconds: TimeInterval = 30,
+        windowSeconds: TimeInterval = 90,
         minFailures: Int = 4,
         now: @escaping () -> Date = Date.init
     ) {

@@ -116,4 +116,45 @@ final class AuthFailureTrackerTests: XCTestCase {
         XCTAssertTrue(tracker.isAuthFailed)
         XCTAssertEqual(tracker.lastStatusCode, 429)
     }
+
+    /// (g) Production duty cycle: four 401s spaced 15s apart (the
+    /// `GatewayConnectionManager.performHealthCheck()` cadence) must trip the
+    /// detector. Entries land at t=0, 15, 30, 45; with the 90s default window
+    /// all four remain live and `isAuthFailed` becomes `true`.
+    func testFourFailuresSpaced15sApartTripsTracker() {
+        let clock = Clock()
+        // Use the real default windowSeconds (90) to lock in the production config.
+        let tracker = AuthFailureTracker(
+            minFailures: 4,
+            now: { clock.now }
+        )
+
+        for i in 0..<4 {
+            tracker.recordFailure(statusCode: 401, path: "/api/ping")
+            if i < 3 {
+                clock.advance(15)
+            }
+        }
+
+        XCTAssertTrue(tracker.isAuthFailed)
+    }
+
+    /// (h) Edge: three 401s at the 15s health-check cadence must NOT trip —
+    /// `minFailures=4` remains the gate even after the window was widened.
+    func testThreeFailuresSpaced15sApartDoesNotTrip() {
+        let clock = Clock()
+        let tracker = AuthFailureTracker(
+            minFailures: 4,
+            now: { clock.now }
+        )
+
+        for i in 0..<3 {
+            tracker.recordFailure(statusCode: 401, path: "/api/ping")
+            if i < 2 {
+                clock.advance(15)
+            }
+        }
+
+        XCTAssertFalse(tracker.isAuthFailed)
+    }
 }
