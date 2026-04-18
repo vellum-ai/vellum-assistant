@@ -836,12 +836,45 @@ export class DaemonServer {
 
     // Install the interactive UI resolver so skills and IPC handlers can
     // present ad-hoc UI surfaces (confirmations, forms) to the user via
-    // `requestInteractiveUi()`. The resolver verifies the target
-    // conversation exists and is live, then delegates to the
-    // conversation-level standalone surface lifecycle which blocks until
-    // the user responds or the timeout elapses.
+    // `requestInteractiveUi()`. The resolver uses a two-step lookup:
+    //   Step A: use the in-memory conversation when present.
+    //   Step B: if absent (evicted), check persistent storage and hydrate
+    //           via getOrCreateConversation when the conversation exists
+    //           in the DB.
+    // When the conversation does not exist at all, the resolver returns
+    // `status: "cancelled"` with `cancellationReason: "conversation_not_found"`
+    // so callers can distinguish not-found from other fail-closed outcomes.
     registerInteractiveUiResolver(async (request) => {
-      const conversation = this.conversations.get(request.conversationId);
+      // Step A: fast path — in-memory conversation
+      let conversation = this.conversations.get(request.conversationId);
+
+      // Step B: conversation was evicted from memory — check persistent
+      // storage and hydrate if the conversation exists in the DB.
+      if (!conversation) {
+        const persisted = getConversation(request.conversationId);
+        if (persisted) {
+          try {
+            conversation = await this.getOrCreateConversation(
+              request.conversationId,
+            );
+          } catch (err) {
+            log.warn(
+              {
+                err,
+                conversationId: request.conversationId,
+                surfaceType: request.surfaceType,
+              },
+              "interactive-ui resolver: failed to hydrate persisted conversation; failing closed",
+            );
+            return {
+              status: "cancelled" as const,
+              surfaceId: `ui-resolver-${Date.now()}`,
+              cancellationReason: "resolver_error" as const,
+            };
+          }
+        }
+      }
+
       if (!conversation) {
         log.warn(
           {
@@ -853,6 +886,7 @@ export class DaemonServer {
         return {
           status: "cancelled" as const,
           surfaceId: `ui-resolver-${Date.now()}`,
+          cancellationReason: "conversation_not_found" as const,
         };
       }
 

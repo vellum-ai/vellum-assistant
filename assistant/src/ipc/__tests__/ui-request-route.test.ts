@@ -339,6 +339,64 @@ describe("ui_request IPC route", () => {
     expect(result.result!.cancellationReason).toBeUndefined();
   });
 
+  // ── Persisted-but-not-loaded conversation (hydration path) ─────────
+
+  test("succeeds for a valid persisted-but-not-loaded conversation ID", async () => {
+    // Simulates the daemon resolver's Step B: the conversation was
+    // evicted from memory but still exists in persistent storage.
+    // The resolver hydrates it and delegates to the surface lifecycle.
+    const hydratedConversationId = "conv-persisted-not-loaded";
+    registerInteractiveUiResolver(
+      async (req: InteractiveUiRequest): Promise<InteractiveUiResult> => {
+        // Simulate successful hydration: the resolver found the
+        // conversation in storage and reconstituted it.
+        expect(req.conversationId).toBe(hydratedConversationId);
+        return {
+          status: "submitted",
+          actionId: "confirm",
+          surfaceId: `hydrated-surface-${req.conversationId}`,
+        };
+      },
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: hydratedConversationId }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("submitted");
+    expect(result.result!.actionId).toBe("confirm");
+    expect(result.result!.surfaceId).toContain(hydratedConversationId);
+  });
+
+  // ── Truly unknown conversation ID ─────────────────────────────────
+
+  test("returns cancelled with conversation_not_found for truly unknown conversation ID", async () => {
+    // Simulates the daemon resolver when the conversation does not
+    // exist in memory OR in persistent storage — the resolver returns
+    // conversation_not_found without throwing.
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: `ui-resolver-not-found`,
+        cancellationReason: "conversation_not_found",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: "conv-truly-unknown-xyz" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("conversation_not_found");
+    expect(result.result!.surfaceId).toBeDefined();
+  });
+
   // ── Optional fields (continued) ────────────────────────────────────
 
   test("accepts form surfaceType with submittedData", async () => {
