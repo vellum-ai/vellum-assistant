@@ -3246,7 +3246,12 @@ public final class SettingsStore: ObservableObject {
             log.error("replaceCallSiteOverride: unknown call-site id \(id, privacy: .public)")
             return Task { false }
         }
-        let previousSnapshot = callSiteOverrides
+        // Snapshot only the target row's prior state, not the entire
+        // array. Row and batch saves are fire-and-forget and daemon
+        // config refreshes can mutate `callSiteOverrides` concurrently,
+        // so restoring a full-array snapshot on failure would clobber
+        // newer changes from other rows with stale data.
+        let previousRow: CallSiteOverride? = callSiteOverrides.first(where: { $0.id == id })
         if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
             callSiteOverrides[index].provider = provider
             callSiteOverrides[index].model = model
@@ -3258,9 +3263,14 @@ public final class SettingsStore: ObservableObject {
             ])
             if !clearSuccess {
                 log.error("Failed to clear llm.callSites.\(id, privacy: .public) before replace")
-                // Roll back optimistic UI state — the daemon still holds
-                // whatever it had before this call, so the UI should match.
-                callSiteOverrides = previousSnapshot
+                // Roll back optimistic UI state for just this row — the
+                // daemon still holds whatever it had before this call,
+                // so the UI should match. Leave other rows untouched so
+                // concurrent in-flight edits and daemon refreshes are
+                // preserved.
+                if let previousRow, let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+                    callSiteOverrides[index] = previousRow
+                }
                 return false
             }
             var entry: [String: Any] = [:]
