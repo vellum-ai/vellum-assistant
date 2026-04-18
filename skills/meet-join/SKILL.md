@@ -1,11 +1,11 @@
 ---
 name: meet-join
 description: Join a Google Meet call to take notes; only when the user explicitly asks.
-feature-flag: meet
 metadata:
   emoji: "📹"
   vellum:
     display-name: "Meet Join"
+    feature-flag: meet
 ---
 
 Use this skill when the user explicitly asks the assistant to join a Google Meet call (e.g. "join my meet", "can you join this call and take notes", usually with a `https://meet.google.com/...` URL in context). Joining a call causes the assistant to appear as a visible participant — never do it proactively.
