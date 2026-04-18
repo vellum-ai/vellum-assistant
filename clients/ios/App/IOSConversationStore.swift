@@ -1088,6 +1088,10 @@ class IOSConversationStore: ObservableObject {
                 observeForForkAvailability(vm: existing, conversationLocalId: conversationLocalId)
             }
             updateForkCommandHandler(vm: existing, conversationLocalId: conversationLocalId)
+            // Ensure the SSE message loop is running so cross-device messages
+            // (e.g. sent from macOS) appear in real-time. ensureMessageLoopStarted()
+            // is a no-op when the loop is already active (guards on messageLoopTask).
+            existing.ensureMessageLoopStarted()
             return existing
         }
         let vm = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
@@ -1110,6 +1114,10 @@ class IOSConversationStore: ObservableObject {
         observeForForkAvailability(vm: vm, conversationLocalId: conversationLocalId)
         updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId)
         observeForActivityTracking(vm: vm, conversationLocalId: conversationLocalId)
+        // Start the SSE message loop so messages from other devices (e.g. macOS)
+        // appear in real-time. Without this, the loop only starts as a side-effect
+        // of sending a message via MessageSendCoordinator. (LUM-1034)
+        vm.ensureMessageLoopStarted()
         return vm
     }
 
