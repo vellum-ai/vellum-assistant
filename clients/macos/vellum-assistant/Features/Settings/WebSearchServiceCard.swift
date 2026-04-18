@@ -168,15 +168,28 @@ struct WebSearchServiceCard: View {
         .onChange(of: store.selectedInferenceProvider) { _, newProvider in
             // Auto-correct when the inference provider changes to one that
             // does not support native web search while provider-native is selected.
+            // Persist the fix so the daemon's services.web-search.provider does
+            // not remain pinned to "inference-provider-native" while the new
+            // provider can't support it — otherwise getWebSearchProvider falls
+            // back to Perplexity and breaks search for users without a key.
             if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
                 draftProvider = "perplexity"
+                if store.webSearchProvider == "inference-provider-native" {
+                    store.setWebSearchProvider("perplexity")
+                    initialProvider = "perplexity"
+                }
             }
         }
         .onChange(of: store.selectedModel) { _, newModel in
             // Auto-correct when the model changes to one that breaks native web search
             // for the current provider (e.g. OpenRouter switching off an `anthropic/*` model).
+            // Persist the fix — see comment on selectedInferenceProvider above.
             if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
                 draftProvider = "perplexity"
+                if store.webSearchProvider == "inference-provider-native" {
+                    store.setWebSearchProvider("perplexity")
+                    initialProvider = "perplexity"
+                }
             }
         }
     }
