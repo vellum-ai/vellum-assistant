@@ -488,7 +488,7 @@ struct InferenceServiceCard: View {
     }
 
     private func performSave() {
-        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        let persistProvider = draftProvider
 
         // If the resolved provider ID is changing AND the user has any
         // per-call-site overrides pinned to the OLD provider, ask whether
@@ -552,7 +552,7 @@ struct InferenceServiceCard: View {
         // managed and your-own implies a provider change even if the
         // resolved provider ID happens to match initialProvider (ensures
         // config stays consistent).
-        let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
+        let persistProvider = draftProvider
         let providerChanged = persistProvider != initialProvider || modeChanged
         if providerChanged {
             initialProvider = draftProvider
