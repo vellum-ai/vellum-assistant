@@ -74,6 +74,22 @@ mock.module("../memory/conversation-bootstrap.js", () => ({
   },
 }));
 
+// ── deleteConversation mock (orphan cleanup path) ────────────────────
+let deleteCalls = 0;
+const deletedIds: string[] = [];
+let deleteShouldThrow = false;
+
+mock.module("../memory/conversation-crud.js", () => ({
+  deleteConversation: (id: string) => {
+    deleteCalls += 1;
+    deletedIds.push(id);
+    if (deleteShouldThrow) {
+      throw new Error("simulated delete failure");
+    }
+    return { segmentIds: [], deletedSummaryIds: [] };
+  },
+}));
+
 mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: async (opts: Record<string, unknown>) => {
     wakeCalls += 1;
@@ -118,6 +134,9 @@ describe("runUpdateBulletinJobIfNeeded", () => {
     wakeSideEffect = null;
     readFileSyncOverride = null;
     updatesConfig.enabled = true;
+    deleteCalls = 0;
+    deletedIds.length = 0;
+    deleteShouldThrow = false;
     if (existsSync(workspacePath)) {
       rmSync(workspacePath);
     }
@@ -204,7 +223,7 @@ describe("runUpdateBulletinJobIfNeeded", () => {
     expect(setCheckpointCallCount).toBe(0);
   });
 
-  test("wake returns invoked:false — checkpoint UNCHANGED (resolver not registered case)", async () => {
+  test("wake returns invoked:false — checkpoint UNCHANGED + orphan conversation is cleaned up", async () => {
     const content = "## Release Q\n\nResolver-missing scenario.\n";
     writeFileSync(workspacePath, content, "utf-8");
     wakeInvoked = false;
@@ -214,9 +233,45 @@ describe("runUpdateBulletinJobIfNeeded", () => {
 
     expect(bootstrapCalls).toBe(1);
     expect(wakeCalls).toBe(1);
-    // Critical: do NOT poison the checkpoint.
+    // Critical: do NOT poison the checkpoint (round-1 behavior preserved).
     expect(store.has(HASH_CHECKPOINT_KEY)).toBe(false);
     expect(setCheckpointCallCount).toBe(0);
+    // Belt-and-suspenders: the orphan background conversation bootstrapped
+    // before the wake must be deleted so we don't leak DB rows on every
+    // silent no-op.
+    expect(deleteCalls).toBe(1);
+    expect(deletedIds).toEqual(["conv-1"]);
+  });
+
+  test("wake returns invoked:false AND deleteConversation throws — function still returns (cleanup error is swallowed)", async () => {
+    const content = "## Release Q2\n\nDelete-throws scenario.\n";
+    writeFileSync(workspacePath, content, "utf-8");
+    wakeInvoked = false;
+    wakeProducedToolCalls = false;
+    deleteShouldThrow = true;
+
+    await expect(runUpdateBulletinJobIfNeeded()).resolves.toBeUndefined();
+
+    expect(bootstrapCalls).toBe(1);
+    expect(wakeCalls).toBe(1);
+    expect(deleteCalls).toBe(1);
+    // Checkpoint still untouched.
+    expect(store.has(HASH_CHECKPOINT_KEY)).toBe(false);
+    expect(setCheckpointCallCount).toBe(0);
+  });
+
+  test("wake invoked normally — deleteConversation is NOT called (happy path)", async () => {
+    const content = "## Release Q3\n\nNormal happy-path scenario.\n";
+    writeFileSync(workspacePath, content, "utf-8");
+    wakeInvoked = true;
+    wakeProducedToolCalls = true;
+
+    await runUpdateBulletinJobIfNeeded();
+
+    expect(bootstrapCalls).toBe(1);
+    expect(wakeCalls).toBe(1);
+    expect(deleteCalls).toBe(0);
+    expect(deletedIds).toEqual([]);
   });
 
   test("wake invoked but no tool calls AND file unchanged — checkpoint UNCHANGED (retry next startup)", async () => {

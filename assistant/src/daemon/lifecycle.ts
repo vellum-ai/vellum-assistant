@@ -544,15 +544,6 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
-    // Kick off the update bulletin background job once the DB is ready.
-    if (dbReady) {
-      void import("../prompts/update-bulletin-job.js")
-        .then((m) => m.runUpdateBulletinJobIfNeeded())
-        .catch((err) =>
-          log.warn({ err }, "Update bulletin job failed — continuing startup"),
-        );
-    }
-
     // Seed module-level ingress state from the workspace config so that
     // getIngressPublicBaseUrl() returns the correct value immediately after
     // startup (before any handleIngressConfig("set") call). Without this,
@@ -687,6 +678,24 @@ export async function runDaemon(): Promise<void> {
 
     await server.start();
     log.info("Daemon startup: DaemonServer started");
+
+    // Kick off the update bulletin background job AFTER `server.start()`
+    // resolves. `server.start()` installs the default wake resolver (via
+    // `registerDefaultWakeResolver()`), which the job depends on to actually
+    // invoke the agent. Dispatching before that point races the resolver
+    // registration and causes `wakeAgentForOpportunity()` to silently return
+    // `{invoked: false}`, leaving an orphan background conversation and a
+    // wasted LLM title-generation call every startup.
+    //
+    // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
+    // daemon never blocks startup on it.
+    if (dbReady) {
+      void import("../prompts/update-bulletin-job.js")
+        .then((m) => m.runUpdateBulletinJobIfNeeded())
+        .catch((err) =>
+          log.warn({ err }, "Update bulletin job failed — continuing startup"),
+        );
+    }
 
     // Mutable refs for Qdrant, memory worker, and backup worker so background
     // init can assign them and the shutdown handler always sees the latest value.
