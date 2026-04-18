@@ -1311,10 +1311,14 @@ class IOSConversationStore: ObservableObject {
         saveConnectedCache()
     }
 
+    /// Pin is only valid on non-archived conversations: `sendReorderConversations()`
+    /// filters archived entries, so pinning an archived conversation would never reach
+    /// the server and would create permanent local/remote divergence.
     func pinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
               let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
               conversations[idx].conversationId != nil,
+              !conversations[idx].isArchived,
               !conversations[idx].isPinned else { return }
 
         conversations[idx].isPinned = true
@@ -1328,10 +1332,12 @@ class IOSConversationStore: ObservableObject {
         saveConnectedCache()
     }
 
+    /// Unpin is only valid on non-archived conversations (see `pinConversation` docstring).
     func unpinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
               let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
               conversations[idx].conversationId != nil,
+              !conversations[idx].isArchived,
               conversations[idx].isPinned else { return }
 
         conversations[idx].isPinned = false

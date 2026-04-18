@@ -334,8 +334,12 @@ struct ConversationListView: View {
         renameText = conversation.title
     }
 
+    /// Pin/Unpin is hidden on archived conversations: `sendReorderConversations()` filters
+    /// archived entries, so a local pin would never reach the server, and
+    /// `locallyEditedPinConversationIds` would then suppress inbound server pin state —
+    /// leaving the conversation permanently divergent across devices.
     private func canToggleConversationPin(_ conversation: IOSConversation) -> Bool {
-        store.isConnectedMode && conversation.conversationId != nil
+        store.isConnectedMode && conversation.conversationId != nil && !conversation.isArchived
     }
 
     /// Archive is hidden for channel-bound conversations (Telegram, Slack, etc.) to match
