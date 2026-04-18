@@ -119,6 +119,12 @@ describe("cache IPC routes", () => {
 
   // ── Validation errors ─────────────────────────────────────────────
 
+  test("cache/set rejects missing data field", async () => {
+    const result = await cliIpcCall("cache/set", {});
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("data is required");
+  });
+
   test("cache/set rejects empty key", async () => {
     const result = await cliIpcCall("cache/set", {
       data: "value",
