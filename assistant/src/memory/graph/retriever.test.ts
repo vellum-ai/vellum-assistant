@@ -53,7 +53,8 @@ mock.module("../../providers/provider-send-message.js", () => ({
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { initializeDb, resetDb } from "../db.js";
-import { loadContextMemory } from "./retriever.js";
+import { InContextTracker } from "./injection.js";
+import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 
 const TEST_CONFIG: AssistantConfig = { ...DEFAULT_CONFIG };
 
@@ -103,6 +104,70 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
       scopeId: "test-scope",
       recentSummaries: [],
       config: TEST_CONFIG,
+    });
+
+    expect(result.queryVector).toBeUndefined();
+    expect(result.sparseVector).toBeUndefined();
+  });
+});
+
+describe("retrieveForTurn — query/sparse vector surfacing", () => {
+  beforeAll(() => {
+    initializeDb();
+  });
+
+  beforeEach(() => {
+    embedShouldThrow = false;
+    embedVector = [0.1, 0.2, 0.3];
+    resetDb();
+    initializeDb();
+  });
+
+  test("returns the dense queryVector when embedding succeeds", async () => {
+    embedVector = [0.9, 0.8, 0.7];
+
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "What did we decide yesterday?",
+      userLastMessage: "We decided to ship on Friday.",
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    // Even though the scored candidate list is empty (mocked Qdrant returns
+    // nothing), the queryVector should still be surfaced so the PKB hint
+    // retriever can fire on every turn.
+    expect(result.queryVector).toEqual([0.9, 0.8, 0.7]);
+    expect(result.sparseVector).toBeUndefined();
+  });
+
+  test("returns undefined queryVector when the embedding backend throws", async () => {
+    embedShouldThrow = true;
+
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "hello",
+      userLastMessage: "how are you?",
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    // Circuit-breaker path: embedding failure is swallowed; no throw and no
+    // vector surfaced.
+    expect(result.queryVector).toBeUndefined();
+    expect(result.sparseVector).toBeUndefined();
+  });
+
+  test("returns undefined queryVector when there is no text to embed", async () => {
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "",
+      userLastMessage: "",
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
     });
 
     expect(result.queryVector).toBeUndefined();

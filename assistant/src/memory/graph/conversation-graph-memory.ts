@@ -293,11 +293,13 @@ export class ConversationGraphMemory {
     /** Retrieval pipeline metrics (null for noop/error paths). */
     metrics: RetrievalMetrics | null;
     /**
-     * Dense query vector computed from recent conversation summaries during
-     * context-load. Surfaced so downstream callers (e.g. the PKB hint
-     * retriever in `applyRuntimeInjections`) can reuse the same embedding
-     * for a second Qdrant query without paying for another embedding call.
-     * `undefined` for per-turn mode or when embedding failed.
+     * Dense query vector computed from the retrieval query — recent summaries
+     * for context-load, the last-exchange text for per-turn. Surfaced so
+     * downstream callers (e.g. the PKB hint retriever in
+     * `applyRuntimeInjections`) can reuse the same embedding for a second
+     * Qdrant query without paying for another embedding call. `undefined`
+     * when no text was embedded (image-only turn, empty queries) or the
+     * embedding call failed (circuit breaker).
      */
     queryVector?: number[];
     /** Optional sparse vector accompanying `queryVector`. */
@@ -498,6 +500,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -513,6 +517,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -535,6 +541,8 @@ export class ConversationGraphMemory {
       mode: "per-turn" as const,
       injectedBlockText: injectionBlock,
       metrics: result.metrics,
+      queryVector: result.queryVector,
+      sparseVector: result.sparseVector,
     };
   }
 }

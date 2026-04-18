@@ -746,6 +746,21 @@ export interface TurnRetrievalResult {
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
   metrics: RetrievalMetrics;
+  /**
+   * Dense query vector computed from the last-exchange text (assistant +
+   * user message). Surfaced so downstream callers (e.g. the PKB hint
+   * retriever in `applyRuntimeInjections`) can reuse the same embedding
+   * for a second Qdrant query without paying for another embedding call.
+   * `undefined` when no text was embedded (image-only turn) or embedding
+   * failed (circuit breaker).
+   */
+  queryVector?: number[];
+  /**
+   * Optional sparse vector passed alongside `queryVector`. Currently always
+   * `undefined` — reserved for future hybrid retrieval that produces a
+   * sparse vector at the call site.
+   */
+  sparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -848,6 +863,8 @@ export async function retrieveForTurn(
         embeddingModel,
         queryContext: queryText || null,
       },
+      queryVector: undefined,
+      sparseVector: undefined,
     };
   }
 
@@ -920,6 +937,8 @@ export async function retrieveForTurn(
             embeddingModel,
             queryContext: queryText || null,
           },
+          queryVector: undefined,
+          sparseVector: undefined,
         };
       }
     }
@@ -972,6 +991,8 @@ export async function retrieveForTurn(
         embeddingModel,
         queryContext: queryText || null,
       },
+      queryVector: queryEmbeddings[0],
+      sparseVector: undefined,
     };
   }
 
@@ -1154,5 +1175,7 @@ export async function retrieveForTurn(
       queryContext: queryText || null,
       topCandidates,
     },
+    queryVector: queryEmbeddings[0],
+    sparseVector: undefined,
   };
 }
