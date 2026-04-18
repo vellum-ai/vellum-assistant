@@ -1,4 +1,7 @@
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import { getProvider } from "../providers/registry.js";
+import type { Provider } from "../providers/types.js";
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
@@ -25,8 +28,12 @@ import type {
  */
 export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator {
   return async (context, options = {}) => {
-    const provider = await getConfiguredProvider("guardianQuestionCopy");
-    if (!provider) return null;
+    const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!baseProvider) return null;
+    // Wrap so the per-call `callSite` can route to a different provider
+    // transport when `llm.callSites.guardianQuestionCopy.provider` overrides
+    // the default. Without this, callSite only affects request metadata.
+    const provider = wrapWithCallSiteRouting(baseProvider);
 
     const fallbackText =
       options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
@@ -124,10 +131,11 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
  */
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
-    const provider = await getConfiguredProvider("guardianQuestionCopy");
-    if (!provider) {
+    const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!baseProvider) {
       throw new Error("No configured provider available for follow-up conversation");
     }
+    const provider = wrapWithCallSiteRouting(baseProvider);
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,
@@ -183,4 +191,20 @@ export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpC
     };
     return result;
   };
+}
+
+/**
+ * Wrap a base Provider so per-call `callSite` metadata can route the actual
+ * transport to a different provider when `llm.callSites.<id>.provider`
+ * differs from the default. Without this wrapper, only request metadata
+ * reflects the callSite — the HTTP transport stays bound to the default.
+ */
+function wrapWithCallSiteRouting(base: Provider): Provider {
+  return new CallSiteRoutingProvider(base, (name) => {
+    try {
+      return getProvider(name);
+    } catch {
+      return undefined;
+    }
+  });
 }
