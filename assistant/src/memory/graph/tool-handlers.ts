@@ -14,6 +14,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
+import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { searchGraphNodes } from "./graph-search.js";
 import { getNodesByIds } from "./store.js";
 
@@ -260,7 +261,7 @@ export interface RememberResult {
 export function handleRemember(
   input: RememberInput,
   _conversationId: string,
-  _scopeId: string,
+  scopeId: string,
 ): RememberResult {
   if (!input.content || input.content.trim().length === 0) {
     return { success: false, message: "content is required" };
@@ -287,6 +288,7 @@ export function handleRemember(
   // Append to buffer.md
   const bufferPath = join(pkbDir, "buffer.md");
   appendFileSync(bufferPath, entry, "utf-8");
+  enqueuePkbReindex(pkbDir, bufferPath, scopeId);
 
   // Append to daily archive
   const yyyy = now.getFullYear();
@@ -297,6 +299,26 @@ export function handleRemember(
     appendFileSync(archivePath, `# ${month} ${day}, ${yyyy}\n\n`, "utf-8");
   }
   appendFileSync(archivePath, entry, "utf-8");
+  enqueuePkbReindex(pkbDir, archivePath, scopeId);
 
   return { success: true, message: "Saved to knowledge base." };
+}
+
+/**
+ * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
+ *
+ * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
+ * the remember call — the write has already succeeded and the user's fact
+ * is safe on disk.
+ */
+function enqueuePkbReindex(
+  pkbRoot: string,
+  absPath: string,
+  memoryScopeId: string,
+): void {
+  try {
+    enqueuePkbIndexJob({ pkbRoot, absPath, memoryScopeId });
+  } catch (err) {
+    log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
+  }
 }
