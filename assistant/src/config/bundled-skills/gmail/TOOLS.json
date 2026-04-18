@@ -186,7 +186,11 @@
           },
           "in_reply_to": {
             "type": "string",
-            "description": "RFC 822 Message-ID header value (e.g. `<CABx...@mail.gmail.com>`), NOT the Gmail message ID. Look up the original message's Message-ID header."
+            "description": "RFC 822 Message-ID header (e.g. `<CABx...@mail.gmail.com>`) or a Gmail message ID. If a Gmail message ID is provided (no angle brackets), the RFC 822 Message-ID is resolved automatically."
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Gmail thread ID. Places the draft in the specified thread so it appears as a reply in Gmail's conversation view."
           },
           "cc": {
             "type": "string",
