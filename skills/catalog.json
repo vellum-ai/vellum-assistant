@@ -254,6 +254,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "outlook",
+      "name": "outlook",
+      "description": "Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📧",
+        "vellum": {
+          "display-name": "Outlook",
+          "user-invocable": true
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "public-ingress",
       "name": "public-ingress",
       "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
