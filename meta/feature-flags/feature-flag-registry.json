@@ -322,14 +322,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-x-oauth-integration",
-      "scope": "assistant",
-      "key": "managed-x-oauth-integration",
-      "label": "Managed X/Twitter OAuth",
-      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
-      "defaultEnabled": false
-    },
-    {
       "id": "onboarding-pre-chat",
       "scope": "macos",
       "key": "onboarding-pre-chat",
