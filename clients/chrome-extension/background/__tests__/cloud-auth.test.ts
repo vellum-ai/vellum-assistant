@@ -153,6 +153,44 @@ describe('signInCloud', () => {
     expect(seenUrl).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
     expect(seenUrl).not.toContain('www.vellum.ai//accounts');
   });
+
+  test('retries without assistant_id when Chrome reports auth page load failure', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      if (seenUrls.length === 1) {
+        throw new Error('Authorization page could not be loaded.');
+      }
+      return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
+    };
+
+    await signInCloud(ASSISTANT_A, config);
+
+    expect(seenUrls.length).toBe(2);
+    expect(seenUrls[0]).toContain(`assistant_id=${ASSISTANT_A}`);
+    expect(seenUrls[1]).not.toContain('assistant_id=');
+  });
+
+  test('retries against runtimeBaseUrl after webBaseUrl auth page load failures', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      if (seenUrls.length < 3) {
+        throw new Error('Authorization page could not be loaded.');
+      }
+      return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
+    };
+
+    await signInCloud(ASSISTANT_A, {
+      ...config,
+      runtimeBaseUrl: 'https://platform.vellum.ai',
+    });
+
+    expect(seenUrls.length).toBe(3);
+    expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[1]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[2]).toContain('https://platform.vellum.ai/accounts/chrome-extension/start');
+  });
 });
 
 describe('getStoredToken', () => {

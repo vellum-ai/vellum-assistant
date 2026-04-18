@@ -1012,6 +1012,7 @@ async function connectPreflight(
       // Non-interactive: attempt a silent refresh first.
       const refreshed = await refreshCloudToken(assistantId, {
         webBaseUrl: CLOUD_WEB_BASE_URL,
+        runtimeBaseUrl: assistant?.runtimeUrl,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
@@ -1030,6 +1031,7 @@ async function connectPreflight(
     // Interactive: launch the full OAuth sign-in flow.
     const stored = await signInCloud(assistantId, {
       webBaseUrl: CLOUD_WEB_BASE_URL,
+      runtimeBaseUrl: assistant?.runtimeUrl,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
     const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
@@ -1234,18 +1236,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // Run the OAuth flow in the service worker — not the popup — so the
     // awaited promise survives the popup losing focus during the Chrome
     // identity window. The popup just awaits this message response.
-    const assistantId =
+    const requestedAssistantId =
       typeof message.assistantId === 'string' ? message.assistantId : null;
-    (assistantId
-      ? Promise.resolve(assistantId)
-      : loadSelectedAssistantId()
-    )
-      .then(async (resolvedId) => {
+    getAssistantCatalogAndSelection()
+      .then(async ({ assistants, selected }) => {
+        const resolvedId = requestedAssistantId ?? selected?.assistantId ?? null;
         if (!resolvedId) {
           throw new Error('No assistant selected. Fetch the assistant catalog first.');
         }
+        const descriptor =
+          assistants.find((assistant) => assistant.assistantId === resolvedId) ?? null;
         const config: CloudAuthConfig = {
           webBaseUrl: CLOUD_WEB_BASE_URL,
+          runtimeBaseUrl: descriptor?.runtimeUrl,
           clientId:
             typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
         };
