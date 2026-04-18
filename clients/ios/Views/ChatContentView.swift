@@ -386,6 +386,13 @@ struct ChatContentView: View {
             }
             .onAppear {
                 attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+                // Re-entering the same conversation does not change
+                // `visibleMessages.last?.id` or `conversationId`, so the
+                // reactive observers above will not re-scroll. Handle the
+                // re-appear case here.
+                if !hasPendingAnchor && isNearBottom {
+                    scrollToBottom(proxy: proxy, animated: false)
+                }
             }
             .onChange(of: pendingAnchorRequestId) { _, _ in
                 attemptPendingAnchorScrollIfNeeded(proxy: proxy)
