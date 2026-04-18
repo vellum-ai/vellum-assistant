@@ -20,17 +20,19 @@ ENV PATH="/root/.bun/bin:${PATH}"
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
-# Copy meet-join skill (contracts + daemon + config) needed at runtime
+# Copy meet-join manifests for dependency install (source copied after install for layer cache)
 COPY skills/meet-join/package.json skills/meet-join/bun.lock ./skills/meet-join/
+# Install assistant dependencies first for cache reuse
+COPY assistant/package.json assistant/bun.lock ./assistant/
+RUN cd /app/skills/meet-join && bun install --frozen-lockfile 2>/dev/null || bun install
+RUN cd /app/assistant && bun install --frozen-lockfile
+
+# Copy meet-join skill source (contracts + daemon + config) needed at runtime
 COPY skills/meet-join/contracts ./skills/meet-join/contracts
 COPY skills/meet-join/config-schema.ts skills/meet-join/meet-config.ts ./skills/meet-join/
 COPY skills/meet-join/daemon ./skills/meet-join/daemon
 COPY skills/meet-join/tools ./skills/meet-join/tools
 COPY skills/meet-join/routes ./skills/meet-join/routes
-# Install assistant dependencies first for cache reuse
-COPY assistant/package.json assistant/bun.lock ./assistant/
-RUN cd /app/skills/meet-join && bun install --frozen-lockfile 2>/dev/null || bun install
-RUN cd /app/assistant && bun install --frozen-lockfile
 
 # Copy source
 COPY assistant ./assistant
