@@ -13,13 +13,14 @@ import {
 
 function makeTokenData(suffix: string): GuardianTokenData {
   const now = new Date().toISOString();
+  const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   return {
     guardianPrincipalId: `principal-${suffix}`,
     accessToken: `access-${suffix}`,
-    accessTokenExpiresAt: now,
+    accessTokenExpiresAt: oneHourFromNow,
     refreshToken: `refresh-${suffix}`,
-    refreshTokenExpiresAt: now,
-    refreshAfter: now,
+    refreshTokenExpiresAt: oneHourFromNow,
+    refreshAfter: oneHourFromNow,
     isNew: true,
     deviceId: `device-${suffix}`,
     leasedAt: now,
