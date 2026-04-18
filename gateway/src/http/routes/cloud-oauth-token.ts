@@ -27,18 +27,21 @@ export function createCloudOAuthTokenHandler() {
     async handleMintToken(req: Request): Promise<Response> {
       // Restrict to service tokens only — the platform calls this via vembda.
       // Actor tokens from regular users must not be able to mint arbitrary
-      // guardian JWTs (would allow impersonation).
+      // guardian JWTs (would allow impersonation). Fail closed: reject
+      // unless we can positively confirm the caller is svc_gateway.
       const authHeader = req.headers.get("authorization");
-      if (authHeader) {
-        const token = authHeader.replace(/^Bearer\s+/i, "");
-        const result = validateEdgeToken(token);
-        if (result.ok) {
-          const sub = parseSub(result.claims.sub);
-          if (!sub.ok || sub.principalType !== "svc_gateway") {
-            log.warn("Cloud OAuth token request rejected: not a service token");
-            return Response.json({ error: "Forbidden" }, { status: 403 });
-          }
-        }
+      const bearerToken = authHeader?.replace(/^Bearer\s+/i, "");
+      if (!bearerToken) {
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const tokenResult = validateEdgeToken(bearerToken);
+      if (!tokenResult.ok) {
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const sub = parseSub(tokenResult.claims.sub);
+      if (!sub.ok || sub.principalType !== "svc_gateway") {
+        log.warn("Cloud OAuth token request rejected: not a service token");
+        return Response.json({ error: "Forbidden" }, { status: 403 });
       }
 
       let body: unknown;
