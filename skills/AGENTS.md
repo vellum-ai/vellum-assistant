@@ -110,7 +110,7 @@
 
   if [ "$STATUS" = "submitted" ]; then
     # Extract user-submitted data and proceed
-    ACCOUNTS=$(echo "$RESULT" | jq -r '.data.accounts')
+    ACCOUNTS=$(echo "$RESULT" | jq -r '.submittedData.accounts')
     archive_accounts "$ACCOUNTS"
   elif [ "$STATUS" = "cancelled" ]; then
     echo "User cancelled."
@@ -126,8 +126,8 @@
 
   | Status | Meaning | Typical action |
   |--------|---------|----------------|
-  | `submitted` | User completed the interaction (confirmed, submitted form) | Proceed with the gated action. Check `actionId` or `data` for specifics. |
-  | `cancelled` | User explicitly dismissed or denied | Abort gracefully. Inform the user the action was skipped. |
+  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | Check `actionId` to determine the action taken — e.g. `"confirm"` or `"deny"` for confirmations. For `ui confirm`, exit code 0 = confirmed, 1 = denied. |
+  | `cancelled` | User dismissed the surface without choosing an action (e.g. closed the dialog) | Abort gracefully. Inform the user the action was skipped. |
   | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
 
   **Cancellation vs. failure**: A `cancelled` status means the user made a deliberate choice not to proceed — this is a normal outcome, not an error. Operational failures (IPC unavailable, invalid payload, no conversation context) surface as `ok: false` in JSON mode or a non-zero exit with an error message. Scripts should distinguish the two: cancellation is graceful, failure is exceptional.

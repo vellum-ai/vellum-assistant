@@ -79,12 +79,16 @@ The `assistant ui` commands present blocking interactive surfaces (confirmations
 
 User decisions — including declining — are normal operational results:
 
+**`assistant ui confirm`** maps outcomes to exit codes for simple shell branching:
+
 | Status                              | Exit code | Meaning                                                                  |
 | ----------------------------------- | --------- | ------------------------------------------------------------------------ |
 | `submitted` (confirmed)             | 0         | User completed the interaction. Proceed with the gated action.           |
 | `submitted` (denied via `actionId`) | 1         | User explicitly chose the deny/secondary action. Abort gracefully.       |
 | `cancelled`                         | 1         | User dismissed the surface without choosing an action. Abort gracefully. |
 | `timed_out`                         | 1         | No user response within the timeout window. Abort safely.                |
+
+**`assistant ui request`** always exits 0 on successful IPC (regardless of user action). Use `--json` and check the `status` field to branch on user decisions.
 
 Scripts must handle all three non-confirmation outcomes. A `cancelled` status means the user deliberately chose not to proceed — log it as a normal flow, not an error. A `timed_out` status means the user was unresponsive — abort without side effects.
 
