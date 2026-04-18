@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -112,7 +112,8 @@ describe("scanPkbFiles", () => {
     await utimes(join(root, "b.md"), mtimeB, mtimeB);
 
     const entries = await scanPkbFiles(root);
-    const byPath = new Map(entries.map((e) => [e.path, e]));
+    expect(entries).not.toBeNull();
+    const byPath = new Map(entries!.map((e) => [e.path, e]));
 
     expect(byPath.size).toBe(2);
     expect(byPath.has("a.md")).toBe(true);
@@ -126,7 +127,7 @@ describe("scanPkbFiles", () => {
 
     // Hash is stable across scans.
     const entriesAgain = await scanPkbFiles(root);
-    const aAgain = entriesAgain.find((e) => e.path === "a.md")!;
+    const aAgain = entriesAgain!.find((e) => e.path === "a.md")!;
     expect(aAgain.contentHash).toBe(a.contentHash);
   });
 
@@ -138,7 +139,38 @@ describe("scanPkbFiles", () => {
 
     const entries = await scanPkbFiles(root);
     expect(entries).toHaveLength(1);
-    expect(entries[0].path).toBe(join("sub", "nested.md"));
+    expect(entries![0].path).toBe(join("sub", "nested.md"));
+  });
+
+  test("returns null when pkbRoot does not exist", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pkb-scan-missing-"));
+    const missing = join(parent, "does-not-exist");
+    const entries = await scanPkbFiles(missing);
+    expect(entries).toBeNull();
+  });
+
+  test("returns null when pkbRoot existed then was removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pkb-scan-removed-"));
+    await writeFile(join(root, "a.md"), "# A");
+    await rm(root, { recursive: true, force: true });
+
+    const entries = await scanPkbFiles(root);
+    expect(entries).toBeNull();
+  });
+
+  test("returns [] (not null) when pkbRoot exists but is empty", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pkb-scan-empty-"));
+    const entries = await scanPkbFiles(root);
+    expect(entries).not.toBeNull();
+    expect(entries).toEqual([]);
+  });
+
+  test("returns null when pkbRoot points at a file instead of a directory", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pkb-scan-file-"));
+    const filePath = join(parent, "not-a-dir");
+    await writeFile(filePath, "just a file");
+    const entries = await scanPkbFiles(filePath);
+    expect(entries).toBeNull();
   });
 });
 
