@@ -1042,4 +1042,130 @@ describe("ui request — --actions parsing", () => {
     // so stdout should be empty and IPC should not have been called
     expect(lastIpcCall).toBeNull();
   });
+
+  test("rejects 'selection_changed' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"selection_changed","label":"Select"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "selection_changed" is reserved for internal use',
+    );
+    expect(parsed.error).toContain("Reserved IDs:");
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'content_changed' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"content_changed","label":"Change"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "content_changed" is reserved for internal use',
+    );
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'state_update' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"state_update","label":"Update"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "state_update" is reserved for internal use',
+    );
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("reserved ID error references the correct array index", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    // First action is valid, second uses a reserved ID
+    const actions = [
+      { id: "approve", label: "Approve" },
+      { id: "state_update", label: "Update State" },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions[1]");
+    expect(parsed.error).toContain('id "state_update" is reserved');
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("non-reserved IDs are accepted alongside validation", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = [
+      { id: "approve", label: "Approve" },
+      { id: "reject", label: "Reject" },
+    ];
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall).toBeDefined();
+    expect(lastIpcCall!.params!.actions).toEqual(actions);
+  });
 });

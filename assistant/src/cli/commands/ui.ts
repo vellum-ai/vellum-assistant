@@ -149,6 +149,19 @@ function readPayload(payloadFlag?: string): Record<string, unknown> {
 
 // ── Action parsing ────────────────────────────────────────────────────
 
+/**
+ * Action IDs reserved for internal surface lifecycle events. These IDs
+ * are intercepted by `handleSurfaceAction` in conversation-surfaces.ts
+ * as non-terminal events (early return without resolving the pending
+ * `ui_request`). If a caller defines one of these as a custom button ID,
+ * clicking it would silently return early without resolving.
+ */
+export const RESERVED_ACTION_IDS = new Set([
+  "selection_changed",
+  "content_changed",
+  "state_update",
+]);
+
 /** Valid variant values for action buttons. */
 const VALID_VARIANTS = new Set(["primary", "danger", "secondary"]);
 
@@ -204,6 +217,13 @@ function parseActions(raw: string): InteractiveUiAction[] {
       throw new Error(
         `--actions[${i}]: "id" is required and must be a non-empty string.\n` +
           '  Example: {"id":"approve","label":"Approve"}',
+      );
+    }
+
+    if (RESERVED_ACTION_IDS.has(obj.id)) {
+      const reserved = [...RESERVED_ACTION_IDS].sort().join(", ");
+      throw new Error(
+        `--actions[${i}]: id "${obj.id}" is reserved for internal use. Reserved IDs: ${reserved}`,
       );
     }
 
