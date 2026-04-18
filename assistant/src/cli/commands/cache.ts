@@ -53,8 +53,8 @@ function parseTtl(raw: string | undefined): number | undefined {
 // ── Stdin helpers ─────────────────────────────────────────────────────
 
 /**
- * Read JSON payload from stdin when piped. Returns `undefined` when stdin
- * is a TTY (no piped input). Throws on invalid/missing JSON so the CLI
+ * Read JSON payload from stdin when piped. Throws when stdin is a TTY
+ * (no piped input) or when the input is empty/invalid JSON, so the CLI
  * can surface actionable parse errors.
  */
 function readPayloadFromStdin(): unknown {
@@ -152,7 +152,7 @@ Arguments:
   (none — payload is read from stdin)
 
 Options:
-  --key <key>       Cache key string. Omit to auto-generate a UUID key.
+  --key <key>       Cache key string. Omit to auto-generate a random hex key.
   --ttl <duration>  Expiry duration. Accepted units: ms, s, m, h.
                     Examples: 500ms, 30s, 5m, 2h. Defaults to 30m if omitted.
   --json            Output as JSON: { "ok": true, "key": "..." }

@@ -60,7 +60,10 @@ export function storeScanResult(
   // Evict the oldest tracked ID when over capacity (Set preserves insertion order).
   if (_trackedScanIds.size > MAX_TRACKED_SCAN_IDS) {
     const oldest = _trackedScanIds.values().next().value;
-    if (oldest !== undefined) _trackedScanIds.delete(oldest);
+    if (oldest !== undefined) {
+      _trackedScanIds.delete(oldest);
+      deleteCacheEntry(oldest);
+    }
   }
 
   return scanId;
