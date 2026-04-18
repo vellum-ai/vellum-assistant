@@ -11,6 +11,15 @@ extension Notification.Name {
     static let activateChatSearch = Notification.Name("activateChatSearch")
 }
 
+/// Paired snapshot of the two `GatewayConnectionManager` signals the menu-bar
+/// observer cares about. Wrapping them in a single `Equatable` value lets the
+/// single `observationStream` task wake on either change without needing a
+/// second Task/cleanup site.
+private struct ConnectionStatusSnapshot: Equatable, Sendable {
+    let isConnected: Bool
+    let isAuthFailed: Bool
+}
+
 /// Delegate installed on the app submenu to patch the menu bar title to
 /// "Vellum" right before macOS renders it.  SwiftUI resets the title from
 /// the bundle display name, so we override it in `menuWillOpen`.
@@ -169,7 +178,16 @@ extension AppDelegate {
     func rebindConnectionStatusObserver() {
         connectionStatusTask?.cancel()
         connectionStatusTask = Task { @MainActor [weak self] in
-            for await _ in observationStream({ [weak self] in self?.connectionManager.isConnected ?? false }) {
+            // Observe `isConnected` and `isAuthFailed` together so the menu bar
+            // icon reacts to either signal changing. Both are plain `public var`
+            // properties on the `@Observable @MainActor` GCM, so reading them
+            // inside the closure registers dependency tracking on each.
+            for await _ in observationStream({ [weak self] in
+                ConnectionStatusSnapshot(
+                    isConnected: self?.connectionManager.isConnected ?? false,
+                    isAuthFailed: self?.connectionManager.isAuthFailed ?? false
+                )
+            }) {
                 guard let self, !Task.isCancelled else { break }
                 self.updateMenuBarIcon()
             }
@@ -391,6 +409,7 @@ extension AppDelegate {
     }
 
     var currentAssistantStatus: AssistantStatus {
+        if connectionManager.isAuthFailed { return .authFailed }
         if !connectionManager.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.conversationManager.activeViewModel else { return .idle }
         if viewModel.errorText != nil { return .error }
