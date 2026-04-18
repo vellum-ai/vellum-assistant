@@ -119,6 +119,34 @@ describe("searchPkbFiles", () => {
     expect(targetTypeClause?.match.value).toBe("pkb_file");
   });
 
+  test("both search paths exclude _meta sentinel points", async () => {
+    // Hybrid path
+    hybridResults = [];
+    await searchPkbFiles(
+      [0.1],
+      { indices: [1], values: [1] },
+      5,
+    );
+    const hybridFilter = hybridSearchCalls[0]?.filter as {
+      must_not: Array<Record<string, unknown>>;
+    };
+    const hybridMetaClause = hybridFilter.must_not.find(
+      (c) => c.key === "_meta",
+    ) as { match: { value: boolean } } | undefined;
+    expect(hybridMetaClause?.match.value).toBe(true);
+
+    // Dense-only path (no sparse vector)
+    denseResults = [];
+    await searchPkbFiles([0.1], undefined, 5);
+    const denseFilter = searchCalls[0]?.filter as {
+      must_not: Array<Record<string, unknown>>;
+    };
+    const denseMetaClause = denseFilter.must_not.find(
+      (c) => c.key === "_meta",
+    ) as { match: { value: boolean } } | undefined;
+    expect(denseMetaClause?.match.value).toBe(true);
+  });
+
   test("two points on the same path collapse to the higher score", async () => {
     hybridResults = [
       {
