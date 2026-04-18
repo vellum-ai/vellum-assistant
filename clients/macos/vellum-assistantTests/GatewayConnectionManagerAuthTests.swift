@@ -48,4 +48,49 @@ final class GatewayConnectionManagerAuthTests: XCTestCase {
         gcm._testIngestHealthStatus(200)
         XCTAssertFalse(gcm.isAuthFailed, "200 after a single 401 must leave isAuthFailed false")
     }
+
+    // MARK: - attemptRePair clears isAuthFailed on successful bootstrap
+
+    func testAttemptRePairClearsIsAuthFailedOnSuccess() async {
+        let gcm = GatewayConnectionManager()
+
+        for _ in 0..<4 {
+            gcm._testIngestHealthStatus(401)
+        }
+        XCTAssertTrue(gcm.isAuthFailed, "Four 401s should trip isAuthFailed before re-pair")
+
+        await gcm.attemptRePair(bootstrap: {
+            // Successful fake bootstrap — no-op.
+        })
+
+        XCTAssertFalse(gcm.isAuthFailed, "Successful re-pair should flip isAuthFailed back to false")
+    }
+
+    // MARK: - Overlapping attemptRePair calls coalesce
+
+    func testOverlappingAttemptRePairCallsCoalesce() async {
+        let gcm = GatewayConnectionManager()
+
+        // Actor-safe counter for concurrent increments.
+        actor Counter {
+            var value = 0
+            func increment() { value += 1 }
+            func read() -> Int { value }
+        }
+        let counter = Counter()
+
+        // A bootstrap that suspends long enough for a second call to observe
+        // `isAttemptingRePair == true` and bail out.
+        let bootstrap: @MainActor @Sendable () async throws -> Void = {
+            await counter.increment()
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        }
+
+        async let first: Void = gcm.attemptRePair(bootstrap: bootstrap)
+        async let second: Void = gcm.attemptRePair(bootstrap: bootstrap)
+        _ = await (first, second)
+
+        let invocations = await counter.read()
+        XCTAssertEqual(invocations, 1, "Overlapping attemptRePair calls should coalesce to a single bootstrap invocation")
+    }
 }

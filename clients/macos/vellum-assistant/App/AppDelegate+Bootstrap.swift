@@ -222,6 +222,18 @@ extension AppDelegate {
         }
     }
 
+    /// Clears any stored actor-token credentials and re-runs the initial
+    /// bootstrap flow. Unlike `ensureActorCredentials()`, which short-circuits
+    /// when a stored token is already present, this method deliberately wipes
+    /// the existing credential first so `performInitialBootstrap()` is forced
+    /// to re-provision from scratch. Intended as a recovery primitive for
+    /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
+    func forceReBootstrap() async {
+        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
+        ActorTokenManager.deleteAllCredentials()
+        await performInitialBootstrap()
+    }
+
     /// Performs the initial actor token bootstrap, reactively waiting for a
     /// gateway connection before each attempt. Called only when no actor token
     /// exists (first launch or after credential wipe).

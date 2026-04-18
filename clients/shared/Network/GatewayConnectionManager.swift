@@ -112,6 +112,16 @@ public final class GatewayConnectionManager {
     // MARK: - Auto-Wake
 
     @ObservationIgnored public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
+    /// Handler invoked by `attemptRePair()` to re-run the bootstrap flow
+    /// (clear stored credentials + re-provision). Set by the macOS app to
+    /// `AppDelegate.forceReBootstrap()`; iOS does not currently wire one up.
+    /// Keeping this as an injected closure avoids a shared-module dependency
+    /// on the macOS-only `AppDelegate`.
+    @ObservationIgnored public var rePairHandler: (@MainActor @Sendable () async throws -> Void)?
+    /// Guards against concurrent `attemptRePair()` invocations. The flag is
+    /// flipped on the main actor before the handler runs and cleared when the
+    /// call returns (success or failure).
+    @ObservationIgnored private var isAttemptingRePair: Bool = false
     /// Handler called after a Sparkle update is detected.
     /// Receives `(name: String, fromVersion: String)` so the macOS app can invoke
     /// CLI `upgradeFinalize` without the shared module depending on `AppDelegate`.
@@ -691,6 +701,44 @@ public final class GatewayConnectionManager {
             case .transientError:
                 break // Coordinator already logs warning
             }
+        }
+    }
+
+    // MARK: - Re-Pair Recovery
+
+    /// Attempts to recover from a stuck `isAuthFailed` state by re-running
+    /// the bootstrap flow (clear stored credentials + re-provision). Runs the
+    /// injected `rePairHandler` by default, but callers (e.g. unit tests) may
+    /// supply an explicit `bootstrap` closure to substitute a fake.
+    ///
+    /// Concurrent invocations coalesce — if a re-pair is already in flight,
+    /// subsequent calls return immediately without re-running the handler.
+    /// On success, the `AuthFailureTracker` is reset so the UI flips back
+    /// promptly on the next health check. On failure, the tracker is left
+    /// alone (the next successful health check will eventually clear it).
+    public func attemptRePair(
+        bootstrap: (@MainActor @Sendable () async throws -> Void)? = nil
+    ) async {
+        if isAttemptingRePair {
+            log.info("attemptRePair: already in flight — skipping")
+            return
+        }
+        isAttemptingRePair = true
+        defer { isAttemptingRePair = false }
+
+        log.info("attemptRePair: started")
+        let handler = bootstrap ?? rePairHandler
+        guard let handler else {
+            log.error("attemptRePair: failed — no bootstrap handler configured")
+            return
+        }
+        do {
+            try await handler()
+            authFailureTracker.recordSuccess()
+            updateAuthFailedSignal()
+            log.info("attemptRePair: completed")
+        } catch {
+            log.error("attemptRePair: failed — \(error.localizedDescription, privacy: .public)")
         }
     }
 
