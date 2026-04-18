@@ -549,33 +549,13 @@ describe("bundled browser skill", () => {
     );
   });
 
-  test("browser skill has a valid tool manifest with all browser tools", () => {
+  test("browser skill has no tool manifest (TOOLS.json removed)", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.toolManifest).toBeDefined();
-    expect(browserSkill!.toolManifest!.present).toBe(true);
-    expect(browserSkill!.toolManifest!.valid).toBe(true);
-    expect(browserSkill!.toolManifest!.toolCount).toBe(17);
-    expect(browserSkill!.toolManifest!.toolNames).toEqual([
-      "browser_navigate",
-      "browser_snapshot",
-      "browser_screenshot",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_scroll",
-      "browser_select_option",
-      "browser_hover",
-      "browser_wait_for",
-      "browser_extract",
-      "browser_wait_for_download",
-      "browser_fill_credential",
-      "browser_status",
-    ]);
+    // TOOLS.json was removed — browser tools are dispatched via
+    // skill_execute without a skill-tool manifest.
+    expect(browserSkill!.toolManifest).toBeUndefined();
   });
 });
 
