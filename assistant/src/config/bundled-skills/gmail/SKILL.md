@@ -84,8 +84,9 @@ Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail 
 
 When replying to or continuing an email thread:
 
-- Use `messaging_send` with the thread's `thread_id` - it automatically handles threading, reply-all recipients, and subject lines.
-- The `in_reply_to` field on `gmail_draft` requires the **RFC 822 Message-ID header** (looks like `<CABx...@mail.gmail.com>`), NOT the Gmail message ID (which looks like `18e4a5b2c3d4e5f6`). Get it by reading the thread messages and extracting the `Message-ID` header.
+- **Preferred**: Use `messaging_send` with the thread's `thread_id` — it automatically handles threading, reply-all recipients, and subject lines.
+- **Manual drafting**: Use `gmail_draft` with both `thread_id` and `in_reply_to` for full control. The `thread_id` places the draft in the correct Gmail thread; `in_reply_to` sets the RFC 822 threading headers.
+- **Getting the Message-ID**: Search and read results include `rfc822MessageId` in message metadata (looks like `<CABx...@mail.gmail.com>`). This is the value to pass as `in_reply_to`. You can also pass a Gmail message ID directly — `gmail_draft` auto-resolves it to the RFC 822 header.
 
 ## Gmail Search Syntax
 

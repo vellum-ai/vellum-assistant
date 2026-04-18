@@ -44,6 +44,13 @@ export interface GmailMessage {
   raw?: string;
 }
 
+/** Gmail thread response */
+export interface GmailThread {
+  id: string;
+  historyId?: string;
+  messages?: GmailMessage[];
+}
+
 /** Gmail label */
 export interface GmailLabel {
   id: string;
