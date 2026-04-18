@@ -8,7 +8,6 @@ enum UserDefaultsKeys {
 
     // Voice mode settings
     static let voiceListeningTimeout = "voice_listening_timeout"
-    static let voiceTTSProvider = "voice_tts_provider"
     static let voiceSilenceThreshold = "voice_silence_threshold"
 
     // Media embed settings

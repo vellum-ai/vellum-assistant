@@ -57,8 +57,6 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Vellum Assistant uses the camera to scan QR codes for pairing with your Assistant.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Vellum Assistant connects to your Assistant on your local network to send and receive messages.</string>
 	<key>NSMicrophoneUsageDescription</key>
