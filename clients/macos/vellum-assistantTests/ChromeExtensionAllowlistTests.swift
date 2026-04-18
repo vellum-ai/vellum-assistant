@@ -24,7 +24,7 @@ final class ChromeExtensionAllowlistTests: XCTestCase {
         try writeAllowlist(
             at: canonicalPath,
             ids: [
-                "hphbdmpffeigpcdjkckleobjmhhokpne",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "invalid",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             ]
@@ -33,7 +33,7 @@ final class ChromeExtensionAllowlistTests: XCTestCase {
             at: localPath,
             ids: [
                 "cccccccccccccccccccccccccccccccc",
-                "hphbdmpffeigpcdjkckleobjmhhokpne",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             ]
         )
 
@@ -49,7 +49,7 @@ final class ChromeExtensionAllowlistTests: XCTestCase {
         XCTAssertEqual(
             merged,
             [
-                "hphbdmpffeigpcdjkckleobjmhhokpne",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "cccccccccccccccccccccccccccccccc",
                 "dddddddddddddddddddddddddddddddd",
