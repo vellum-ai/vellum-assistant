@@ -16,18 +16,23 @@ const log = getLogger("update-bulletin-job");
 const HASH_CHECKPOINT_KEY = "updates:last_processed_hash";
 const EMPTY_HASH = "empty";
 const UPDATE_BULLETIN_HINT =
-  "Check ~/.vellum/workspace/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete UPDATES.md with `rm ~/.vellum/workspace/UPDATES.md` (already auto-allowed). A silent no-op is preferable to low-signal chatter.";
+  "Check ~/.vellum/workspace/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete the file by running `cd ~/.vellum/workspace && rm UPDATES.md` (the bare-filename `rm UPDATES.md` is auto-allowed; path-qualified deletes are not). A silent no-op is preferable to low-signal chatter.";
+
+type ReadResult =
+  | { kind: "missing" }
+  | { kind: "error"; err: unknown }
+  | { kind: "ok"; content: string };
 
 function computeHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function readTrimmedContent(path: string): string | null {
-  if (!existsSync(path)) return null;
+function readTrimmedContent(path: string): ReadResult {
+  if (!existsSync(path)) return { kind: "missing" };
   try {
-    return readFileSync(path, "utf-8").trim();
-  } catch {
-    return null;
+    return { kind: "ok", content: readFileSync(path, "utf-8").trim() };
+  } catch (err) {
+    return { kind: "error", err };
   }
 }
 
@@ -43,6 +48,16 @@ function readTrimmedContent(path: string): string | null {
  * The function never throws: any error inside the bootstrap/wake flow is
  * logged at `warn` and swallowed, so callers can safely invoke it in a
  * non-awaited context.
+ *
+ * Checkpoint write rules (intentionally conservative — prefer retry over
+ * poisoning the checkpoint when state is ambiguous):
+ *   - File missing → checkpoint = `EMPTY_HASH`.
+ *   - File present but unreadable → checkpoint UNCHANGED, warn logged.
+ *   - Wake not invoked (e.g. resolver not yet registered) → UNCHANGED.
+ *   - Wake invoked but no tool calls AND file unchanged → UNCHANGED
+ *     (indistinguishable from a silent failure; safer to retry).
+ *   - Wake invoked + (produced tool calls OR file deleted) → checkpoint
+ *     reflects the post-wake state.
  */
 export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
   if (getConfig().updates.enabled === false) {
@@ -50,9 +65,17 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
   }
 
   const updatesPath = getWorkspacePromptPath("UPDATES.md");
-  const trimmed = readTrimmedContent(updatesPath);
+  const initial = readTrimmedContent(updatesPath);
 
-  if (trimmed === null || trimmed.length === 0) {
+  if (initial.kind === "error") {
+    log.warn(
+      { err: initial.err, path: updatesPath },
+      "update-bulletin-job: failed to read UPDATES.md; leaving checkpoint unchanged so next startup retries",
+    );
+    return;
+  }
+
+  if (initial.kind === "missing" || initial.content.length === 0) {
     const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
     if (stored !== EMPTY_HASH) {
       setMemoryCheckpoint(HASH_CHECKPOINT_KEY, EMPTY_HASH);
@@ -60,7 +83,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
     return;
   }
 
-  const currentHash = computeHash(trimmed);
+  const currentHash = computeHash(initial.content);
   const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
   if (stored === currentHash) {
     return;
@@ -69,27 +92,63 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
   try {
     const conv = bootstrapConversation({
       conversationType: "background",
-      source: "updates-bulletin",
-      origin: "updates-bulletin",
+      source: "updates_bulletin",
+      origin: "updates_bulletin",
       systemHint: "Processing release updates",
       groupId: "system:background",
     });
-    await wakeAgentForOpportunity({
+    const wakeResult = await wakeAgentForOpportunity({
       conversationId: conv.id,
       hint: UPDATE_BULLETIN_HINT,
-      source: "updates-bulletin",
+      source: "updates_bulletin",
     });
 
-    // Self-healing: re-read after the wake. If the agent deleted the file
-    // (or emptied it), store the empty sentinel. Otherwise, store the
-    // fresh hash so we don't re-wake on the same content if the agent
-    // chose to no-op.
-    const afterTrimmed = readTrimmedContent(updatesPath);
-    if (afterTrimmed === null || afterTrimmed.length === 0) {
-      setMemoryCheckpoint(HASH_CHECKPOINT_KEY, EMPTY_HASH);
-    } else {
-      setMemoryCheckpoint(HASH_CHECKPOINT_KEY, computeHash(afterTrimmed));
+    if (!wakeResult.invoked) {
+      log.warn(
+        { conversationId: conv.id },
+        "update-bulletin-job: wake not invoked (e.g. default resolver not yet registered); leaving checkpoint unchanged so next startup retries",
+      );
+      return;
     }
+
+    // Re-read after the wake. We need to know whether the file was deleted
+    // or modified to decide whether to advance the checkpoint.
+    const after = readTrimmedContent(updatesPath);
+
+    if (after.kind === "error") {
+      log.warn(
+        { err: after.err, path: updatesPath },
+        "update-bulletin-job: failed to re-read UPDATES.md after wake; leaving checkpoint unchanged so next startup retries",
+      );
+      return;
+    }
+
+    const fileMissingOrEmpty =
+      after.kind === "missing" || after.content.length === 0;
+
+    if (fileMissingOrEmpty) {
+      // The agent (or another process) emptied/removed the file. This is the
+      // expected happy path — record the empty sentinel.
+      setMemoryCheckpoint(HASH_CHECKPOINT_KEY, EMPTY_HASH);
+      return;
+    }
+
+    if (!wakeResult.producedToolCalls) {
+      // Wake returned cleanly but the agent did nothing observable AND the
+      // file is still here. We can't distinguish "agent processed and chose
+      // to no-op" from "silent failure", so leave the checkpoint alone and
+      // let the next startup retry.
+      log.warn(
+        { conversationId: conv.id },
+        "update-bulletin-job: wake produced no tool calls and file is unchanged; leaving checkpoint unchanged so next startup retries",
+      );
+      return;
+    }
+
+    // Wake produced tool calls and the file is still present — the agent
+    // intentionally left it (or modified it). Record the current hash so we
+    // don't re-wake on the same content.
+    setMemoryCheckpoint(HASH_CHECKPOINT_KEY, computeHash(after.content));
   } catch (err) {
     log.warn(
       { err },
