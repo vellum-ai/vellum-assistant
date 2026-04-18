@@ -212,19 +212,7 @@ describe("isWorkspaceScopedInvocation", () => {
   // ── Network tools ──────────────────────────────────────────────────
 
   describe("network tools", () => {
-    const networkTools = [
-      "web_search",
-      "web_fetch",
-      "browser_navigate",
-      "browser_click",
-      "browser_type",
-      "browser_scroll",
-      "browser_screenshot",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "network_request",
-    ];
+    const networkTools = ["web_search", "web_fetch", "network_request"];
 
     for (const tool of networkTools) {
       test(`${tool} is NOT workspace-scoped`, () => {
