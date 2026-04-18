@@ -141,4 +141,4 @@ After critical actions (form submission, booking confirmation, checkout), take a
 assistant browser screenshot --output /tmp/verify.jpg
 ```
 
-Then use `file_read` to inspect the saved image before reporting success.
+Then read the saved image to inspect it before reporting success. Use `file_read` if the screenshot was taken via `bash`, or `host_file_read` if it was taken via `host_bash`.
