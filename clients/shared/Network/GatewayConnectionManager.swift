@@ -459,7 +459,7 @@ public final class GatewayConnectionManager {
         if tripped {
             let status = authFailureTracker.lastStatusCode ?? -1
             let path = authFailureTracker.lastPath ?? "?"
-            log.warning("AuthFailureTracker tripped: status=\(status, privacy: .public) path=\(path, privacy: .public) window=30 failures=4")
+            log.warning("AuthFailureTracker tripped: status=\(status, privacy: .public) path=\(path, privacy: .public) window=\(self.authFailureTracker.windowSeconds, privacy: .public) failures=\(self.authFailureTracker.minFailures, privacy: .public)")
         } else {
             log.info("AuthFailureTracker cleared")
         }
@@ -679,6 +679,9 @@ public final class GatewayConnectionManager {
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
             )))
+            // Managed mode surfaces auth failures through the SSE `authenticationRequired` error
+            // stream, not through the menu-bar `.authFailed` state. The disconnect path's tracker
+            // reset is intentional — see AuthFailureTracker / GatewayConnectionManager integration.
             disconnect()
             return
         }

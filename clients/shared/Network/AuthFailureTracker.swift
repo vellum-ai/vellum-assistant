@@ -27,8 +27,8 @@ public final class AuthFailureTracker {
         let path: String
     }
 
-    private let windowSeconds: TimeInterval
-    private let minFailures: Int
+    public let windowSeconds: TimeInterval
+    public let minFailures: Int
     private let now: () -> Date
     private let queue = DispatchQueue(label: "ai.vellum.AuthFailureTracker")
 
