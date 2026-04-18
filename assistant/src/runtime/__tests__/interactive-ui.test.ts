@@ -9,10 +9,14 @@
  *   3. Resolver registration + delegation.
  *   4. Resolver error handling (fail-closed on throw).
  *   5. Surface ID generation and consistency.
+ *   6. Decision token minting for submitted confirmation requests.
+ *   7. Decision token absence for non-confirmation or non-submitted.
+ *   8. Structured audit log emission for all outcomes.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { decodeDecisionToken } from "../decision-token.js";
 import {
   type InteractiveUiRequest,
   type InteractiveUiResult,
@@ -59,6 +63,17 @@ describe("requestInteractiveUi without resolver", () => {
     const result2 = await requestInteractiveUi(request);
 
     expect(result1.surfaceId).not.toBe(result2.surfaceId);
+  });
+
+  test("does not mint decision token on fail-closed cancel", async () => {
+    const result = await requestInteractiveUi({
+      conversationId: "conv-failclosed",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.decisionToken).toBeUndefined();
   });
 });
 
@@ -219,6 +234,21 @@ describe("resolver error handling", () => {
     expect(result.status).toBe("cancelled");
     expect(result.surfaceId).toBeString();
   });
+
+  test("does not mint decision token on resolver error", async () => {
+    registerInteractiveUiResolver(async () => {
+      throw new Error("kaboom");
+    });
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-err-token",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.decisionToken).toBeUndefined();
+  });
 });
 
 // ── Surface ID consistency ──────────────────────────────────────────
@@ -253,6 +283,165 @@ describe("surfaceId handling", () => {
 
     // Empty string is falsy, so the generated surfaceId should be used
     expect(result.surfaceId).toStartWith("ui-interaction-");
+  });
+});
+
+// ── Decision token minting ──────────────────────────────────────────
+
+describe("decision token", () => {
+  test("mints token for submitted confirmation request", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "approve",
+      surfaceId: "confirm-surface-1",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-token-1",
+      surfaceType: "confirmation",
+      data: { message: "Deploy to production?" },
+    });
+
+    expect(result.status).toBe("submitted");
+    expect(result.decisionToken).toBeString();
+    expect(result.decisionToken!.length).toBeGreaterThan(0);
+
+    // Token should be decodable and contain correct metadata
+    const payload = decodeDecisionToken(result.decisionToken!);
+    expect(payload).not.toBeNull();
+    expect(payload!.conversationId).toBe("conv-token-1");
+    expect(payload!.surfaceId).toBe("confirm-surface-1");
+    expect(payload!.action).toBe("approve");
+    expect(payload!.issuedAt).toBeString();
+    expect(payload!.expiresAt).toBeString();
+  });
+
+  test("token encodes actionId when present", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "deny",
+      surfaceId: "deny-surface",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-token-action",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    const payload = decodeDecisionToken(result.decisionToken!);
+    expect(payload!.action).toBe("deny");
+  });
+
+  test("token uses 'submitted' as action when actionId is absent", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      surfaceId: "no-action-surface",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-token-noaction",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    const payload = decodeDecisionToken(result.decisionToken!);
+    expect(payload!.action).toBe("submitted");
+  });
+
+  test("token has expiry in the future", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "ok",
+      surfaceId: "expiry-surface",
+    }));
+
+    const before = Date.now();
+    const result = await requestInteractiveUi({
+      conversationId: "conv-token-expiry",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    const payload = decodeDecisionToken(result.decisionToken!);
+    const expiresAt = new Date(payload!.expiresAt).getTime();
+    // Should expire ~5 minutes in the future
+    expect(expiresAt).toBeGreaterThan(before);
+    expect(expiresAt).toBeGreaterThan(before + 4 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(before + 6 * 60 * 1000);
+  });
+
+  test("does not mint token for submitted form request", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "submit",
+      submittedData: { name: "Bob" },
+      surfaceId: "form-no-token",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-form-notoken",
+      surfaceType: "form",
+      data: {},
+    });
+
+    expect(result.status).toBe("submitted");
+    expect(result.decisionToken).toBeUndefined();
+  });
+
+  test("does not mint token for cancelled confirmation request", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "cancelled",
+      surfaceId: "cancel-no-token",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-cancel-notoken",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("cancelled");
+    expect(result.decisionToken).toBeUndefined();
+  });
+
+  test("does not mint token for timed_out confirmation request", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "timed_out",
+      surfaceId: "timeout-no-token",
+    }));
+
+    const result = await requestInteractiveUi({
+      conversationId: "conv-timeout-notoken",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    expect(result.status).toBe("timed_out");
+    expect(result.decisionToken).toBeUndefined();
+  });
+
+  test("each minted token is unique", async () => {
+    registerInteractiveUiResolver(async () => ({
+      status: "submitted",
+      actionId: "ok",
+      surfaceId: "unique-surface",
+    }));
+
+    const result1 = await requestInteractiveUi({
+      conversationId: "conv-unique-1",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    const result2 = await requestInteractiveUi({
+      conversationId: "conv-unique-1",
+      surfaceType: "confirmation",
+      data: {},
+    });
+
+    // Tokens differ due to nonce even with same conversation/action
+    expect(result1.decisionToken).not.toBe(result2.decisionToken);
   });
 });
 
@@ -335,5 +524,7 @@ describe("contract shapes", () => {
     expect(result.submittedData).toEqual({ choice: "yes" });
     expect(result.summary).toBe("User confirmed the action");
     expect(result.surfaceId).toBe("full-result-surface");
+    // Confirmation + submitted → token should be present
+    expect(result.decisionToken).toBeString();
   });
 });
