@@ -134,10 +134,10 @@ struct ScrollDebugOverlayView: View {
             Button(action: toggleRecording) {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(recorder.isRecording ? Color.red : Color.clear)
+                        .fill(recorder.isRecording ? VColor.systemNegativeStrong : Color.clear)
                         .overlay(
                             Circle().strokeBorder(
-                                recorder.isRecording ? Color.red : VColor.contentSecondary,
+                                recorder.isRecording ? VColor.systemNegativeStrong : VColor.contentSecondary,
                                 lineWidth: 1
                             )
                         )
