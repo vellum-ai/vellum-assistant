@@ -96,6 +96,10 @@ final class ChatMessagesCollectionViewController: UIViewController {
     /// True while a pagination load is in flight; used to preserve scroll
     /// position when older messages are prepended.
     private var isPaginationInFlight: Bool = false
+    /// Tracks the previous `viewModel.isSending` value so we can detect the
+    /// `false -> true` transition and re-engage auto-follow when the user
+    /// sends a new message (matching iMessage/WhatsApp behaviour).
+    private var lastIsSending: Bool = false
 
     /// Observation handle used to rebuild the snapshot whenever any observed
     /// property on `ChatViewModel` (or the managers it forwards to) changes.
@@ -132,6 +136,7 @@ final class ChatMessagesCollectionViewController: UIViewController {
         view.backgroundColor = .clear
         collectionView.backgroundColor = .clear
         lastConversationId = .some(viewModel.conversationId)
+        lastIsSending = viewModel.isSending
         observeViewModel()
         rebuildSnapshot(animated: false)
     }
@@ -328,6 +333,19 @@ final class ChatMessagesCollectionViewController: UIViewController {
     private func rebuildSnapshot(animated: Bool) {
         guard isViewLoaded, dataSource != nil else { return }
         let snapshot = buildSnapshot()
+
+        // When the user sends a new message (`isSending` flips false -> true),
+        // re-engage auto-follow so the sent message and streaming response
+        // appear on-screen — even if the user had scrolled up to read earlier
+        // history. Matches iMessage/WhatsApp send behaviour. Skip while a
+        // pending-anchor (deep-link / fork) resolution is active so we don't
+        // yank the user off the historical anchor.
+        let isSendingNow = viewModel.isSending
+        if isSendingNow && !lastIsSending && lastPendingAnchorRequestId == nil {
+            shouldAutoFollow = true
+        }
+        lastIsSending = isSendingNow
+
         let wasAutoFollowing = shouldAutoFollow
         let heightBefore = collectionView.contentSize.height
         let offsetBefore = collectionView.contentOffset
@@ -377,6 +395,7 @@ final class ChatMessagesCollectionViewController: UIViewController {
             hasPerformedInitialScroll = false
             shouldAutoFollow = true
             isPaginationInFlight = false
+            lastIsSending = viewModel.isSending
             pendingAnchorTask?.cancel()
             observeViewModel()
             rebuildSnapshot(animated: false)
@@ -387,6 +406,7 @@ final class ChatMessagesCollectionViewController: UIViewController {
             hasPerformedInitialScroll = false
             shouldAutoFollow = true
             isPaginationInFlight = false
+            lastIsSending = viewModel.isSending
         }
         lastConversationId = .some(currentConversationId)
 
