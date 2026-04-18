@@ -442,6 +442,18 @@ extension AppDelegate {
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
 
+        if currentAssistantStatus == .authFailed {
+            let item = NSMenuItem(
+                title: "Re-pair Assistant",
+                action: #selector(rePairAssistant),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.image = VIcon.refreshCw.nsImage(size: 16)
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+
         // During onboarding, only show the status line and Quit to prevent
         // users from bypassing the onboarding flow via Settings or conversations.
         if onboardingWindow == nil {
@@ -608,6 +620,12 @@ extension AppDelegate {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.windowState.dismissOverlay()
+    }
+
+    @objc private func rePairAssistant() {
+        Task { @MainActor in
+            await self.connectionManager.attemptRePair()
+        }
     }
 
     @objc public func openNewChat() {
