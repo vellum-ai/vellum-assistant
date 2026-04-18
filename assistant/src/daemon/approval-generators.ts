@@ -119,6 +119,7 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
       {
         config: {
           max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
+          callSite: "approvalCopy",
         },
         signal: AbortSignal.timeout(
           options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS,
@@ -173,6 +174,7 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
       {
         config: {
           max_tokens: APPROVAL_CONVERSATION_MAX_TOKENS,
+          callSite: "approvalConversation",
         },
         signal: AbortSignal.timeout(APPROVAL_CONVERSATION_TIMEOUT_MS),
       },

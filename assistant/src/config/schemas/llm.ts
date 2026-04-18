@@ -55,6 +55,8 @@ export const LLMCallSiteEnum = z.enum([
   "notificationDecision",
   "preferenceExtraction",
   "guardianQuestionCopy",
+  "approvalCopy",
+  "approvalConversation",
   "watchCommentary",
   "watchSummary",
   "interactionClassifier",
