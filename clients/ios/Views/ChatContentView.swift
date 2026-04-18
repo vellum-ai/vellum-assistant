@@ -341,6 +341,17 @@ struct ChatContentView: View {
                     attemptPendingAnchorScrollIfNeeded(proxy: proxy)
                 }
             }
+            // Re-enter the pending-anchor search loop after an older-history
+            // page finishes loading. `attemptPendingAnchorScrollIfNeeded`
+            // exits while `isLoadingMoreMessages` is true (line ~891), and
+            // prepending older messages does not change
+            // `visibleMessages.last?.id`, so the window-bottom observer
+            // above would not re-trigger the search for multi-page backfills.
+            .onChange(of: viewModel.isLoadingMoreMessages) { _, isLoading in
+                if !isLoading && hasPendingAnchor {
+                    attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+                }
+            }
             .onChange(of: viewModel.messages.last?.text) { _, _ in
                 // Scroll without animation during streaming to avoid jank.
                 // Only scroll when actively streaming and the user hasn't
