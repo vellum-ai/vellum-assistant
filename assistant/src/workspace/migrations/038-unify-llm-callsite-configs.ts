@@ -60,14 +60,33 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
       return;
     }
 
-    // Idempotency: if `llm.default` already present, the workspace has
-    // already been migrated.
+    // Idempotency: skip only when `llm.default` is present AND no legacy
+    // source key remains on disk. The `&& !hasLegacyData` clause matters
+    // because `AssistantConfigSchema` wires `llm: LLMSchema.default(LLMSchema
+    // .parse({}))`, which makes `loadConfig()` inject a full schema-default
+    // `llm.default` block to disk on first daemon boot under the new schema.
+    // If that boot happened before this migration was added (or before the
+    // daemon binary that includes it landed on the user's machine),
+    // `llm.default` will be present BUT will hold schema defaults rather
+    // than the user's actual `services.inference.{provider, model}` values.
+    // Returning early here would let migration 039 strip the legacy keys
+    // silently, dropping the user's real configuration.
     const existingLlm = readObject(config.llm);
-    if (existingLlm !== null && readObject(existingLlm.default) !== null) {
+    const existingDefault = existingLlm
+      ? readObject(existingLlm.default)
+      : null;
+    const hasLegacyData =
+      hasLegacyLlmDefaultSource(config) || hasLegacyCallSiteSource(config);
+    if (existingDefault !== null && !hasLegacyData) {
       return;
     }
 
     // ── Build llm.default ──────────────────────────────────────────────
+    // Precedence (highest wins): legacy source key → existing `llm.default`
+    // value → migration fallback. Existing values come second so that on a
+    // re-run AFTER legacy keys are stripped, user-set `llm.default.*` values
+    // survive untouched (the early-return above handles the common no-op
+    // path; this ordering covers the partial-state case).
     const services = readObject(config.services) ?? {};
     const inference = readObject(services.inference) ?? {};
 
@@ -75,23 +94,42 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
       provider:
         readString(inference.provider) ??
         readString(config.provider) ??
+        readString(existingDefault?.provider) ??
         "anthropic",
       model:
         readString(inference.model) ??
         readString(config.model) ??
+        readString(existingDefault?.model) ??
         "claude-opus-4-6",
-      maxTokens: readPositiveInt(config.maxTokens) ?? 64000,
-      effort: readEnum(config.effort, EFFORT_VALUES) ?? "max",
-      speed: readEnum(config.speed, SPEED_VALUES) ?? "standard",
-      // No current config key maps to temperature — seed null to match
-      // `LLMConfigBase` defaults.
-      temperature: null,
+      maxTokens:
+        readPositiveInt(config.maxTokens) ??
+        readPositiveInt(existingDefault?.maxTokens) ??
+        64000,
+      effort:
+        readEnum(config.effort, EFFORT_VALUES) ??
+        readEnum(existingDefault?.effort, EFFORT_VALUES) ??
+        "max",
+      speed:
+        readEnum(config.speed, SPEED_VALUES) ??
+        readEnum(existingDefault?.speed, SPEED_VALUES) ??
+        "standard",
+      // No current legacy key maps to temperature; preserve existing
+      // `llm.default.temperature` if a user set one, else seed null to
+      // match `LLMConfigBase` defaults.
+      temperature:
+        existingDefault && "temperature" in existingDefault
+          ? (existingDefault.temperature as number | null)
+          : null,
     };
-    const thinking = readObject(config.thinking);
+    const thinking =
+      readObject(config.thinking) ??
+      (existingDefault ? readObject(existingDefault.thinking) : null);
     if (thinking !== null) {
       defaultBlock.thinking = thinking;
     }
-    const contextWindow = readObject(config.contextWindow);
+    const contextWindow =
+      readObject(config.contextWindow) ??
+      (existingDefault ? readObject(existingDefault.contextWindow) : null);
     if (contextWindow !== null) {
       defaultBlock.contextWindow = contextWindow;
     }
@@ -302,7 +340,12 @@ export const unifyLlmCallSiteConfigsMigration: WorkspaceMigration = {
 // Helpers — self-contained per workspace migrations AGENTS.md
 // ---------------------------------------------------------------------------
 
-const EFFORT_VALUES = new Set(["low", "medium", "high", "max"]);
+// `xhigh` was added to the runtime enum in main PR #26117 after this
+// migration was authored. Widening the validation set is safe (it can only
+// admit MORE legitimate values, never narrow them) and prevents an `effort:
+// "xhigh"` legacy value from being silently downgraded to "max" during the
+// consolidation below.
+const EFFORT_VALUES = new Set(["low", "medium", "high", "xhigh", "max"]);
 const SPEED_VALUES = new Set(["standard", "fast"]);
 const MODEL_INTENT_VALUES = new Set([
   "latency-optimized",
@@ -399,4 +442,75 @@ function readTemperature(value: unknown): number | undefined {
     value <= 2
     ? value
     : undefined;
+}
+
+/**
+ * Returns true if any source key that this migration consolidates into
+ * `llm.default` is still present on disk. The `provider`/`model`/etc. checks
+ * cover the `services.inference` and top-level legacy locations; their
+ * presence proves migration 039 hasn't yet stripped them, which means we
+ * MUST re-process even if `llm.default` already exists (it may have been
+ * injected by `loadConfig()`'s schema-default backfill rather than by a
+ * previous run of this migration).
+ */
+function hasLegacyLlmDefaultSource(config: Record<string, unknown>): boolean {
+  const services = readObject(config.services);
+  const inference = services ? readObject(services.inference) : null;
+  if (
+    inference &&
+    (readString(inference.provider) !== undefined ||
+      readString(inference.model) !== undefined)
+  ) {
+    return true;
+  }
+  for (const key of [
+    "provider",
+    "model",
+    "maxTokens",
+    "effort",
+    "speed",
+    "thinking",
+    "contextWindow",
+    "pricingOverrides",
+  ]) {
+    if (key in config) return true;
+  }
+  return false;
+}
+
+/**
+ * Returns true if any source key that this migration consolidates into
+ * `llm.callSites` is still present on disk. Same idempotency justification
+ * as `hasLegacyLlmDefaultSource`: their presence proves migration 039
+ * hasn't yet stripped them and re-processing is required.
+ */
+function hasLegacyCallSiteSource(config: Record<string, unknown>): boolean {
+  const heartbeat = readObject(config.heartbeat);
+  if (heartbeat && "speed" in heartbeat) return true;
+  const filing = readObject(config.filing);
+  if (filing && "speed" in filing) return true;
+  const analysis = readObject(config.analysis);
+  if (analysis && ("modelIntent" in analysis || "modelOverride" in analysis)) {
+    return true;
+  }
+  const memory = readObject(config.memory);
+  const summarization = memory ? readObject(memory.summarization) : null;
+  if (summarization && "modelIntent" in summarization) return true;
+  const notifications = readObject(config.notifications);
+  if (notifications && "decisionModelIntent" in notifications) return true;
+  const ui = readObject(config.ui);
+  if (ui && "greetingModelIntent" in ui) return true;
+  const calls = readObject(config.calls);
+  if (calls && "model" in calls) return true;
+  const workspaceGit = readObject(config.workspaceGit);
+  const commitMessageLLM = workspaceGit
+    ? readObject(workspaceGit.commitMessageLLM)
+    : null;
+  if (
+    commitMessageLLM &&
+    ("maxTokens" in commitMessageLLM || "temperature" in commitMessageLLM)
+  ) {
+    return true;
+  }
+  return false;
 }
