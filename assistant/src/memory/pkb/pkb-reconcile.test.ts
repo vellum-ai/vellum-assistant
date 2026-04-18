@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -92,7 +92,7 @@ async function seedPkbAndHash(
   }
   const entries = await scanPkbFiles(root);
   const byPath = new Map<string, string>();
-  for (const e of entries) byPath.set(e.path, e.contentHash);
+  for (const e of entries ?? []) byPath.set(e.path, e.contentHash);
   return byPath;
 }
 
@@ -188,6 +188,41 @@ describe("reconcilePkbIndex", () => {
     expect(result.deleted).toBe(1);
     expect(deleteCalls).toEqual(["gone.md"]);
     expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("missing pkbRoot: indexed points are preserved (no wholesale deletion)", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pkb-reconcile-missing-"));
+    const missing = join(parent, "does-not-exist");
+
+    // Qdrant has points for paths that would look "stale" if we treated a
+    // missing root as an empty disk view — the regression this test guards
+    // against is those being wholesale-deleted.
+    scrollPoints = [
+      pkbPoint("a.md", "aaaaaaaaaaaaaaaa"),
+      pkbPoint("b.md", "bbbbbbbbbbbbbbbb"),
+      pkbPoint("notes/c.md", "cccccccccccccccc"),
+    ];
+
+    const result = await reconcilePkbIndex(missing, "default");
+
+    expect(result.enqueued).toBe(0);
+    expect(result.deleted).toBe(0);
+    expect(enqueuedJobs).toHaveLength(0);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  test("pkbRoot existed then was removed: indexed points are preserved", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pkb-reconcile-vanished-"));
+    await writeFile(join(root, "a.md"), "# A");
+    await rm(root, { recursive: true, force: true });
+
+    scrollPoints = [pkbPoint("a.md", "aaaaaaaaaaaaaaaa")];
+
+    const result = await reconcilePkbIndex(root, "default");
+
+    expect(result.enqueued).toBe(0);
+    expect(result.deleted).toBe(0);
+    expect(deleteCalls).toHaveLength(0);
   });
 
   test("collapses multiple chunk points for the same path", async () => {

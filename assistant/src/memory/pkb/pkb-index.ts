@@ -33,9 +33,36 @@ const CHAR_WINDOW_SIZE = 4000;
  * every `*.md` file found. Paths in the returned entries are relative to
  * `pkbRoot`; mtime is read from the filesystem and `contentHash` is the
  * first 16 hex chars of the sha256 of the file's contents.
+ *
+ * Returns `null` if `pkbRoot` does not exist (or is not a directory). This
+ * is distinct from returning `[]` for a directory that exists but has no
+ * `*.md` files — callers that run destructive reconciliation against the
+ * result (e.g. `reconcilePkbIndex`) use the sentinel to avoid interpreting
+ * a transiently missing directory as "delete every indexed point".
  */
-export async function scanPkbFiles(pkbRoot: string): Promise<PkbIndexEntry[]> {
+export async function scanPkbFiles(
+  pkbRoot: string,
+): Promise<PkbIndexEntry[] | null> {
   const entries: PkbIndexEntry[] = [];
+
+  // Verify the root exists up front. If it doesn't, return the missing
+  // sentinel so callers can distinguish "nothing on disk" from "root
+  // vanished". Other stat errors (permissions, etc.) fall through to the
+  // recursive walk, which logs+swallows per-directory errors.
+  try {
+    const rootStat = await stat(pkbRoot);
+    if (!rootStat.isDirectory()) {
+      return null;
+    }
+  } catch (err) {
+    if (isEnoent(err)) {
+      return null;
+    }
+    // Non-ENOENT stat errors: treat as empty (same conservative behavior
+    // the per-directory walk has). The destructive delete path is still
+    // gated by the explicit missing-directory check above.
+    return entries;
+  }
 
   async function walk(dir: string): Promise<void> {
     let dirents;
@@ -80,6 +107,15 @@ export async function scanPkbFiles(pkbRoot: string): Promise<PkbIndexEntry[]> {
 
   await walk(pkbRoot);
   return entries;
+}
+
+function isEnoent(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "ENOENT"
+  );
 }
 
 /**

@@ -42,7 +42,21 @@ export async function reconcilePkbIndex(
   // Build the on-disk view keyed by relative path. `scanPkbFiles` emits one
   // entry per chunk — every chunk of the same file shares the same
   // contentHash, so collapsing to a per-path map is lossless for our purposes.
+  //
+  // `scanPkbFiles` returns `null` when `pkbRoot` itself is missing (vs. `[]`
+  // for an existing-but-empty directory). Treating a missing root as "empty"
+  // would cause reconciliation to delete every indexed PKB point in Qdrant,
+  // which is catastrophic if the directory is only transiently gone (fs
+  // hiccup, workspace dir mis-set, user moved the workspace). Bail out with
+  // a warning instead of touching Qdrant in that case.
   const diskEntries = await scanPkbFiles(pkbRoot);
+  if (diskEntries === null) {
+    log.warn(
+      { pkbRoot, memoryScopeId },
+      "PKB root directory missing — skipping reconciliation to avoid wiping the index",
+    );
+    return { enqueued: 0, deleted: 0 };
+  }
   const diskByPath = new Map<string, { contentHash: string }>();
   for (const entry of diskEntries) {
     if (!diskByPath.has(entry.path)) {
