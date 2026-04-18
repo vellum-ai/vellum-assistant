@@ -157,6 +157,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     /// the daemon-instance-changed observer. Stored so we can properly remove
     /// the closure-based observer before registering a new one.
     private var instanceChangeObserver: NSObjectProtocol?
+    /// Combine subscription that re-registers the stored APNS token each time
+    /// the daemon connection transitions into the connected state. Held for
+    /// the app's lifetime so token registration recovers from any
+    /// disconnect/reconnect cycle (cold launch on cellular, background→
+    /// foreground, pairing rebuild, etc.) without polling.
+    private var pushTokenRetryCancellable: AnyCancellable?
     override init() {
         let cm = GatewayConnectionManager()
         let conversationKey = resolveConversationKey()
@@ -222,6 +228,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // yet, the refresh loop simply waits until pairing provides one.
         ensureActorCredentials()
 
+        // Re-send the stored APNS token on every successful connection. APNS can
+        // deliver the device token before the daemon connection is established
+        // (common on cellular / cold launches), in which case the initial send
+        // from `didRegisterForRemoteNotificationsWithDeviceToken` no-ops.
+        observeConnectionForPushTokenRetry()
+
         return true
     }
 
@@ -244,6 +256,24 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         guard clientProvider.client.isConnected else { return }
         let settingsClient = SettingsClient()
         _ = await settingsClient.registerDeviceToken(token: token, platform: "ios")
+    }
+
+    /// Subscribe to `ClientProvider.isConnected` and re-send the stored APNS
+    /// token on every transition into the connected state. `ClientProvider`
+    /// rebinds its internal observation across `rebuildClient()` swaps, so
+    /// `$isConnected` is the stable surface that survives pairing changes,
+    /// v4 migration, and Settings-driven client rebuilds.
+    private func observeConnectionForPushTokenRetry() {
+        pushTokenRetryCancellable = clientProvider.$isConnected
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                guard let self,
+                      let token = UserDefaults.standard.string(forKey: Self.pushRegistrationUD),
+                      !token.isEmpty
+                else { return }
+                Task { try? await self.sendDeviceTokenToDaemon(token) }
+            }
     }
 
     // MARK: - v4 Pairing Migration
