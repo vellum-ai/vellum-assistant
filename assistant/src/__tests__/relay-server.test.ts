@@ -186,7 +186,7 @@ mock.module("../providers/registry.js", () => {
       const defaults: Record<string, string> = {
         anthropic: "claude-opus-4-6",
         openai: "gpt-5.4",
-        gemini: "gemini-3-flash",
+        gemini: "gemini-2.5-flash",
         ollama: "llama3.2",
         fireworks: "accounts/fireworks/models/kimi-k2p5",
         openrouter: "x-ai/grok-4.20-beta",

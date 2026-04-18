@@ -22,9 +22,9 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
-    "latency-optimized": "gemini-3-flash",
-    "quality-optimized": "gemini-3-flash",
-    "vision-optimized": "gemini-3-flash",
+    "latency-optimized": "gemini-2.5-flash-lite",
+    "quality-optimized": "gemini-2.5-flash",
+    "vision-optimized": "gemini-2.5-flash",
   },
   ollama: {
     "latency-optimized": "llama3.2",

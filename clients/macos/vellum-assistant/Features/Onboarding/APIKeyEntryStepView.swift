@@ -35,9 +35,10 @@ struct APIKeyEntryStepView: View {
                 CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
             ], defaultModel: "gpt-5.4", apiKeyUrl: "https://platform.openai.com/api-keys", apiKeyPlaceholder: "sk-proj-..."),
             ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
-                CatalogModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
-                CatalogModel(id: "gemini-3-pro", displayName: "Gemini 3 Pro"),
-            ], defaultModel: "gemini-3-flash", apiKeyUrl: "https://aistudio.google.com/apikey", apiKeyPlaceholder: "AIza..."),
+                CatalogModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
+                CatalogModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
+                CatalogModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
+            ], defaultModel: "gemini-2.5-flash", apiKeyUrl: "https://aistudio.google.com/apikey", apiKeyPlaceholder: "AIza..."),
             ProviderCatalogEntry(id: "ollama", displayName: "Ollama", models: [
                 CatalogModel(id: "llama3.2", displayName: "Llama 3.2"),
                 CatalogModel(id: "mistral", displayName: "Mistral"),
