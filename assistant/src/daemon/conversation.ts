@@ -67,6 +67,7 @@ import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
+import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
@@ -263,6 +264,19 @@ export class Conversation {
   /** @internal */ accumulatedSurfaceState = new Map<
     string,
     Record<string, unknown>
+  >();
+  /**
+   * Pending standalone UI requests keyed by surfaceId.
+   * Daemon-driven surfaces that block the caller until user response or timeout.
+   * @internal
+   */
+  pendingStandaloneSurfaces = new Map<
+    string,
+    {
+      resolve: (result: InteractiveUiResult) => void;
+      timer: ReturnType<typeof setTimeout>;
+      surfaceType: SurfaceType;
+    }
   >();
   /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
@@ -720,6 +734,26 @@ export class Conversation {
 
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
+    // Cancel all pending standalone surfaces so callers get a clean
+    // cancellation instead of hanging forever. Emit dismiss notifications
+    // to the client so surfaces don't remain visually active if the client
+    // reconnects after dispose.
+    const emitDispose =
+      this.broadcastToAllClients ?? this.sendToClient.bind(this);
+    for (const [surfaceId, entry] of this.pendingStandaloneSurfaces) {
+      clearTimeout(entry.timer);
+      try {
+        emitDispose({
+          type: "ui_surface_dismiss",
+          conversationId: this.conversationId,
+          surfaceId,
+        });
+      } catch {
+        // Best-effort: the client may already be disconnected during dispose.
+      }
+      entry.resolve({ status: "cancelled", surfaceId });
+    }
+    this.pendingStandaloneSurfaces.clear();
     this.hostBashProxy?.dispose();
     this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
