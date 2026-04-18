@@ -6,19 +6,37 @@ struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
 
-    /// The currently configured platform base URL for the managed cloud assistant,
-    /// written during onboarding's managed bootstrap. Shown as read-only status.
-    /// Absent until a user completes `performManagedBootstrap`.
-    private var managedPlatformURL: String? {
-        UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL)
-            .flatMap { $0.isEmpty ? nil : $0 }
+    /// Describes which UserDefaults key populated the current connection, so the
+    /// status row can label the URL appropriately. Mirrors the branches of
+    /// `GatewayHTTPClient.resolveConnection()` on iOS.
+    private enum ConnectionSource {
+        case managedPlatform
+        case gateway
+    }
+
+    /// The URL and source backing the current iOS connection, resolved in the
+    /// same priority order as `GatewayHTTPClient.resolveConnection()`:
+    /// managed platform first, then legacy `gateway_base_url` as a fallback.
+    private var resolvedConnection: (url: String, source: ConnectionSource)? {
+        let defaults = UserDefaults.standard
+        if let managedId = defaults.string(forKey: UserDefaultsKeys.managedAssistantId),
+           !managedId.isEmpty,
+           let platformURL = defaults.string(forKey: UserDefaultsKeys.managedPlatformBaseURL),
+           !platformURL.isEmpty {
+            return (platformURL, .managedPlatform)
+        }
+        if let gatewayURL = defaults.string(forKey: UserDefaultsKeys.gatewayBaseURL),
+           !gatewayURL.isEmpty {
+            return (gatewayURL, .gateway)
+        }
+        return nil
     }
 
     var body: some View {
         Form {
             // Connection status section — always visible
             Section {
-                if let url = managedPlatformURL {
+                if let connection = resolvedConnection {
                     if clientProvider.isConnected {
                         HStack {
                             VIconView(.circleCheck, size: 16)
@@ -37,17 +55,17 @@ struct DaemonConnectionSection: View {
                         }
                     }
                     HStack {
-                        Text("Platform")
+                        Text(connection.source == .managedPlatform ? "Platform" : "Gateway")
                             .foregroundStyle(VColor.contentSecondary)
                         Spacer()
-                        Text(url)
+                        Text(connection.url)
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 } else {
-                    // Managed bootstrap has not run yet — user must sign in.
+                    // No managed bootstrap and no legacy gateway URL on disk.
                     Text("Sign in with your Vellum account to connect.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
