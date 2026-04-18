@@ -18,11 +18,18 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: meta/package.json
+          sparse-checkout-cone-mode: false
+
       - name: Compute dev version
         id: version
         run: |
+          BASE_VERSION=$(node -e "console.log(require('./meta/package.json').version)")
           SHORT_SHA="${GITHUB_SHA::7}"
-          VERSION="dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}"
+          VERSION="${BASE_VERSION}-dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "Dev release version: ${VERSION}"
