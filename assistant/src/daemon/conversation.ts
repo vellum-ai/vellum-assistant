@@ -735,9 +735,22 @@ export class Conversation {
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
     // Cancel all pending standalone surfaces so callers get a clean
-    // cancellation instead of hanging forever.
+    // cancellation instead of hanging forever. Emit dismiss notifications
+    // to the client so surfaces don't remain visually active if the client
+    // reconnects after dispose.
+    const emitDispose =
+      this.broadcastToAllClients ?? this.sendToClient.bind(this);
     for (const [surfaceId, entry] of this.pendingStandaloneSurfaces) {
       clearTimeout(entry.timer);
+      try {
+        emitDispose({
+          type: "ui_surface_dismiss",
+          conversationId: this.conversationId,
+          surfaceId,
+        });
+      } catch {
+        // Best-effort: the client may already be disconnected during dispose.
+      }
       entry.resolve({ status: "cancelled", surfaceId });
     }
     this.pendingStandaloneSurfaces.clear();

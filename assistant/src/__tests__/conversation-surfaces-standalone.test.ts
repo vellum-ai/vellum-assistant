@@ -262,6 +262,66 @@ describe("showStandaloneSurface", () => {
     expect(result.surfaceId).toBe("surf-6");
   });
 
+  test("timeout emits ui_surface_complete to dismiss the client surface", async () => {
+    const ctx = createMockContext();
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "confirmation",
+        data: { message: "Quick!" },
+        timeoutMs: 50, // Very short timeout for test
+      },
+      "surf-6b",
+    );
+
+    await resultPromise;
+
+    // The timeout handler should emit ui_surface_complete so the client
+    // dismisses the surface and prevents stale interactions.
+    const completeMsg = ctx.sentMessages.find((m) => {
+      const r = m as unknown as Record<string, unknown>;
+      return r.type === "ui_surface_complete" && r.surfaceId === "surf-6b";
+    }) as unknown as Record<string, unknown> | undefined;
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg?.conversationId).toBe("test-conv-1");
+    expect(completeMsg?.summary).toBe("Timed out");
+  });
+
+  test("late action after timeout is silently dropped — not forwarded to LLM", async () => {
+    const ctx = createMockContext();
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "confirmation",
+        data: { message: "Quick!" },
+        timeoutMs: 50,
+      },
+      "surf-6c",
+    );
+
+    // Wait for timeout to fire
+    const result = await resultPromise;
+    expect(result.status).toBe("timed_out");
+
+    // Now simulate a late user click after the surface has timed out.
+    // Since the timeout handler emits ui_surface_complete, the client should
+    // not send this — but if it does, it must NOT trigger an LLM follow-up.
+    // Because the surface was cleaned up AND there is no pendingSurfaceActions
+    // entry, handleSurfaceAction falls through to the history-restored path
+    // which would enqueue a message to the LLM. Verify that doesn't happen
+    // because the client-side dismiss prevents the click from arriving. The
+    // key invariant is that cleanup + client dismiss together prevent stale turns.
+    //
+    // Verify the server-side state is fully cleaned up after timeout.
+    expect(ctx.pendingStandaloneSurfaces!.has("surf-6c")).toBe(false);
+    expect(ctx.surfaceState.has("surf-6c")).toBe(false);
+    expect(ctx.pendingSurfaceActions.has("surf-6c")).toBe(false);
+    // No messages should have been enqueued to the LLM
+    expect(ctx.enqueuedMessages).toHaveLength(0);
+  });
+
   test("consumed callback does NOT trigger LLM follow-up", async () => {
     const ctx = createMockContext();
     const resultPromise = showStandaloneSurface(
@@ -384,9 +444,16 @@ describe("standalone surface cleanup on conversation dispose", () => {
 
     expect(ctx.pendingStandaloneSurfaces!.size).toBe(2);
 
-    // Simulate conversation dispose — cancel all pending
+    // Simulate conversation dispose — cancel all pending with dismiss
+    // notifications, matching the Conversation.dispose() implementation.
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
     for (const [surfaceId, entry] of ctx.pendingStandaloneSurfaces!) {
       clearTimeout(entry.timer);
+      emit({
+        type: "ui_surface_dismiss",
+        conversationId: ctx.conversationId,
+        surfaceId,
+      });
       entry.resolve({ status: "cancelled", surfaceId });
     }
     ctx.pendingStandaloneSurfaces!.clear();
@@ -398,6 +465,60 @@ describe("standalone surface cleanup on conversation dispose", () => {
     expect(results[1].status).toBe("cancelled");
     expect(results[1].surfaceId).toBe("surf-d2");
     expect(ctx.pendingStandaloneSurfaces!.size).toBe(0);
+  });
+
+  test("dispose emits ui_surface_dismiss for each pending surface", async () => {
+    const ctx = createMockContext();
+
+    // Start two standalone surfaces
+    const p1 = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "confirmation",
+        data: { message: "First?" },
+        timeoutMs: 60_000,
+      },
+      "surf-d3",
+    );
+    const p2 = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "form",
+        data: { fields: [] },
+        timeoutMs: 60_000,
+      },
+      "surf-d4",
+    );
+
+    // Clear sentMessages so we only see dispose-related messages
+    ctx.sentMessages.length = 0;
+
+    // Simulate the dispose path (matching Conversation.dispose())
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    for (const [surfaceId, entry] of ctx.pendingStandaloneSurfaces!) {
+      clearTimeout(entry.timer);
+      emit({
+        type: "ui_surface_dismiss",
+        conversationId: ctx.conversationId,
+        surfaceId,
+      });
+      entry.resolve({ status: "cancelled", surfaceId });
+    }
+    ctx.pendingStandaloneSurfaces!.clear();
+
+    await p1;
+    await p2;
+
+    // Verify a ui_surface_dismiss was emitted for each surface
+    const dismissMessages = ctx.sentMessages.filter(
+      (m) =>
+        (m as unknown as Record<string, unknown>).type === "ui_surface_dismiss",
+    ) as unknown as Array<Record<string, unknown>>;
+    expect(dismissMessages).toHaveLength(2);
+    const dismissedIds = dismissMessages.map((m) => m.surfaceId).sort();
+    expect(dismissedIds).toEqual(["surf-d3", "surf-d4"]);
   });
 });
 

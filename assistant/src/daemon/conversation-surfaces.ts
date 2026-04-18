@@ -459,6 +459,18 @@ export function showStandaloneSurface(
   return new Promise<InteractiveUiResult>((resolve) => {
     // ── Arm timeout ──
     const timer = setTimeout(() => {
+      // Notify the client BEFORE cleanup so the surface is dismissed on
+      // the client side, preventing stale user interactions from reaching
+      // handleSurfaceAction and being misrouted to the LLM.
+      const emitTimeout =
+        ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+      emitTimeout({
+        type: "ui_surface_complete",
+        conversationId: ctx.conversationId,
+        surfaceId,
+        summary: "Timed out",
+      });
+
       cleanupStandaloneSurface(ctx, surfaceId);
       log.info(
         { conversationId: ctx.conversationId, surfaceId, timeoutMs },
