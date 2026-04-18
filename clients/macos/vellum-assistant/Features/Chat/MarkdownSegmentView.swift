@@ -989,9 +989,12 @@ fileprivate extension Character {
     /// presentation, or text-default codepoints forced into emoji presentation
     /// via U+FE0F (VS16). Excludes text-presentation characters like digits
     /// and `#`/`*` that carry the bare Emoji property but not Emoji_Presentation.
+    /// U+FE0E (VS15) explicitly requests text presentation and short-circuits
+    /// to `false` so sequences like `⌚︎` keep italic obliqueness.
     var rendersAsEmoji: Bool {
         let scalars = unicodeScalars
         if scalars.contains(where: { $0.value == 0xFE0F }) { return true }
+        if scalars.contains(where: { $0.value == 0xFE0E }) { return false }
         return scalars.contains(where: { $0.properties.isEmojiPresentation })
     }
 }
