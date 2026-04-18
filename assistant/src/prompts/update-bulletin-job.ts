@@ -22,7 +22,7 @@ const EMPTY_HASH = "empty";
 
 function updateBulletinHint(): string {
   const workspace = getWorkspaceDirDisplay();
-  return `Check ${workspace}/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete the file by running \`cd ${workspace} && rm UPDATES.md\` (the bare-filename \`rm UPDATES.md\` is auto-allowed; path-qualified deletes are not). A silent no-op is preferable to low-signal chatter.`;
+  return `Check ${workspace}/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete the file by running \`cd "${workspace}" && rm UPDATES.md\` (the bare-filename \`rm UPDATES.md\` is auto-allowed; path-qualified deletes are not). A silent no-op is preferable to low-signal chatter.`;
 }
 
 type ReadResult =
