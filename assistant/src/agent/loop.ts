@@ -208,6 +208,7 @@ export class AgentLoop {
     callSite?: LLMCallSite,
   ): Promise<Message[]> {
     const history = [...messages];
+    const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
@@ -472,18 +473,25 @@ export class AgentLoop {
         // correctly ending its turn — nudging would mislead it into thinking
         // its earlier text didn't land and cause a verbatim re-send.
         //
-        // Note: we check ANY prior assistant turn in history, not just the
-        // most recent one. In multi-step tool-use chains (say-something →
-        // call-tool → call-another-tool → end), the "say-something" text
-        // lives on an earlier assistant turn while the most recent assistant
-        // turn is a pure tool_use with no text. Restricting the check to the
-        // most recent assistant turn would falsely nudge in that case and
-        // trigger a duplicate re-send of text the user already saw.
+        // Note: we check ANY prior assistant turn from this run()
+        // invocation, not just the most recent one. In multi-step tool-use
+        // chains (say-something → call-tool → call-another-tool → end),
+        // the "say-something" text lives on an earlier assistant turn while
+        // the most recent assistant turn is a pure tool_use with no text.
+        // Restricting the check to the most recent assistant turn would
+        // falsely nudge in that case and trigger a duplicate re-send of
+        // text the user already saw.
+        //
+        // Scope the scan to messages appended during this run() call only.
+        // Assistant text from prior conversation turns (earlier run()
+        // invocations passed in via `messages`) must NOT suppress the
+        // nudge — those turns completed long ago and have no bearing on
+        // whether the current tool-use chain has delivered text yet.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
         const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= 0; i--) {
+          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
             const msg = history[i];
             if (msg.role !== "assistant") continue;
             const hasText = msg.content.some(
