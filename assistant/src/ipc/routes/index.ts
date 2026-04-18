@@ -2,6 +2,7 @@ import type { IpcRoute } from "../cli-server.js";
 import { attachmentRoutes } from "./attachment.js";
 import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
+import { searchContactsRoute } from "./search-contacts.js";
 import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
 import { uiRequestRoute } from "./ui-request.js";
@@ -12,6 +13,7 @@ import { watcherRoutes } from "./watcher.js";
 export const cliIpcRoutes: IpcRoute[] = [
   ...attachmentRoutes,
   browserExecuteRoute,
+  searchContactsRoute,
   uiRequestRoute,
   wakeConversationRoute,
   ...cacheRoutes,
