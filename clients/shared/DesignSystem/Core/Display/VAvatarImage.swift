@@ -41,12 +41,12 @@ public struct VAvatarImage: View {
 
     /// Alpha byte value at or above which a pixel is considered opaque.
     /// Derived from `ceil(0.95 * 255) = 243`.
-    static let alphaOpaqueThreshold: UInt8 = 243
+    nonisolated static let alphaOpaqueThreshold: UInt8 = 243
 
     /// Maximum dimension for the sampling CGContext. Images larger than this
     /// are downsampled before pixel inspection — we only need 8 sample points,
     /// so full-resolution rendering is unnecessary.
-    static let maxSamplingDimension = 64
+    nonisolated static let maxSamplingDimension = 64
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
