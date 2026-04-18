@@ -13,6 +13,8 @@
 
 import { getLogger } from "../../logger.js";
 import { mintToken } from "../../auth/token-service.js";
+import { validateEdgeToken } from "../../auth/token-exchange.js";
+import { parseSub } from "../../auth/subject.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
 const log = getLogger("cloud-oauth-token");
@@ -23,6 +25,22 @@ const GUARDIAN_TOKEN_TTL_SECONDS = 3600;
 export function createCloudOAuthTokenHandler() {
   return {
     async handleMintToken(req: Request): Promise<Response> {
+      // Restrict to service tokens only — the platform calls this via vembda.
+      // Actor tokens from regular users must not be able to mint arbitrary
+      // guardian JWTs (would allow impersonation).
+      const authHeader = req.headers.get("authorization");
+      if (authHeader) {
+        const token = authHeader.replace(/^Bearer\s+/i, "");
+        const result = validateEdgeToken(token);
+        if (result.ok) {
+          const sub = parseSub(result.claims.sub);
+          if (!sub.ok || sub.principalType !== "svc_gateway") {
+            log.warn("Cloud OAuth token request rejected: not a service token");
+            return Response.json({ error: "Forbidden" }, { status: 403 });
+          }
+        }
+      }
+
       let body: unknown;
       try {
         body = await req.json();
@@ -49,6 +67,13 @@ export function createCloudOAuthTokenHandler() {
         );
       }
 
+      if (assistantId.includes(":")) {
+        return Response.json(
+          { error: "assistantId must not contain colon characters" },
+          { status: 400 },
+        );
+      }
+
       if (
         typeof actorPrincipalId !== "string" ||
         actorPrincipalId.trim() === ""
@@ -58,6 +83,13 @@ export function createCloudOAuthTokenHandler() {
             error:
               "actorPrincipalId is required and must be a non-empty string",
           },
+          { status: 400 },
+        );
+      }
+
+      if (actorPrincipalId.includes(":")) {
+        return Response.json(
+          { error: "actorPrincipalId must not contain colon characters" },
           { status: 400 },
         );
       }
