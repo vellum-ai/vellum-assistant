@@ -177,6 +177,6 @@ switch (result.status) {
 }
 ```
 
-For `ui request --json`, the output additionally includes a `cancellationReason` field when `status` is `"cancelled"`, allowing scripts to distinguish user dismissal (`user_dismissed`) from operational failures (`no_interactive_surface`, `conversation_not_found`, etc.). See the [cancellation reasons](#cancellation-reasons) section above and `skills/AGENTS.md` for the `ui request` branching pattern.
+For `ui request --json`, the output additionally includes a `cancellationReason` field when `status` is `"cancelled"`, allowing scripts to distinguish user dismissal (`user_dismissed`) from operational failures (`no_interactive_surface`, `conversation_not_found`, etc.). See the [cancellation reasons](#cancellation-reasons-ui-request-only) section above and `skills/AGENTS.md` for the `ui request` branching pattern.
 
 The key distinction: **cancellation and denial are user decisions** (handle gracefully, no error logging). **IPC failures and missing context are bugs** (throw or log as errors).
