@@ -338,6 +338,49 @@ struct ConversationListView: View {
         store.isConnectedMode && conversation.conversationId != nil
     }
 
+    /// Archive is hidden for channel-bound conversations (Telegram, Slack, etc.) to match
+    /// macOS behavior in `ConversationActionsMenuContent`. Archiving a channel conversation
+    /// loses the binding, so the assistant blocks it.
+    private func canArchiveConversation(_ conversation: IOSConversation) -> Bool {
+        !conversation.isChannelConversation
+    }
+
+    @ViewBuilder
+    private func pinSwipeButton(for conversation: IOSConversation) -> some View {
+        Button {
+            if conversation.isPinned {
+                store.unpinConversation(conversation)
+            } else {
+                store.pinConversation(conversation)
+            }
+        } label: {
+            Label {
+                Text(conversation.isPinned ? "Unpin" : "Pin")
+            } icon: {
+                VIconView(conversation.isPinned ? .pinOff : .pin, size: 14)
+            }
+        }
+        .tint(VColor.primaryBase)
+    }
+
+    @ViewBuilder
+    private func renameSwipeButton(for conversation: IOSConversation) -> some View {
+        Button {
+            beginRenaming(conversation)
+        } label: {
+            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+        }
+        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+    }
+
+    @ViewBuilder
+    private func leadingSwipeActions(for conversation: IOSConversation) -> some View {
+        if canToggleConversationPin(conversation) {
+            pinSwipeButton(for: conversation)
+        }
+        renameSwipeButton(for: conversation)
+    }
+
     private func canMarkConversationUnread(_ conversation: IOSConversation) -> Bool {
         store.isConnectedMode &&
             conversation.conversationId != nil &&
@@ -377,10 +420,12 @@ struct ConversationListView: View {
             Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
         }
 
-        Button {
-            archiveActiveConversation(conversation)
-        } label: {
-            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+        if canArchiveConversation(conversation) {
+            Button {
+                archiveActiveConversation(conversation)
+            } label: {
+                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+            }
         }
 
         Button {
@@ -455,20 +500,17 @@ struct ConversationListView: View {
                         } label: {
                             Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                         }
-                        Button {
-                            archiveActiveConversation(conversation)
-                        } label: {
-                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                        if canArchiveConversation(conversation) {
+                            Button {
+                                archiveActiveConversation(conversation)
+                            } label: {
+                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            }
+                            .tint(VColor.systemNegativeHover)
                         }
-                        .tint(VColor.systemNegativeHover)
                     }
                     .swipeActions(edge: .leading) {
-                        Button {
-                            beginRenaming(conversation)
-                        } label: {
-                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                        }
-                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                        leadingSwipeActions(for: conversation)
                     }
                 }
             }
@@ -500,6 +542,9 @@ struct ConversationListView: View {
                                     Label { Text("Unarchive") } icon: { VIconView(.inbox, size: 14) }
                                 }
                                 .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                            }
+                            .swipeActions(edge: .leading) {
+                                leadingSwipeActions(for: conversation)
                             }
                         }
                     }
@@ -588,20 +633,17 @@ struct ConversationListView: View {
                     } label: {
                         Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                     }
-                    Button {
-                        archiveActiveConversation(conversation)
-                    } label: {
-                        Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                    if canArchiveConversation(conversation) {
+                        Button {
+                            archiveActiveConversation(conversation)
+                        } label: {
+                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                        }
+                        .tint(VColor.systemNegativeHover)
                     }
-                    .tint(VColor.systemNegativeHover)
                 }
                 .swipeActions(edge: .leading) {
-                    Button {
-                        beginRenaming(conversation)
-                    } label: {
-                        Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                    }
-                    .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                    leadingSwipeActions(for: conversation)
                 }
             }
         } else {
@@ -623,20 +665,17 @@ struct ConversationListView: View {
                             } label: {
                                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
-                            Button {
-                                archiveActiveConversation(conversation)
-                            } label: {
-                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            if canArchiveConversation(conversation) {
+                                Button {
+                                    archiveActiveConversation(conversation)
+                                } label: {
+                                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                                }
+                                .tint(VColor.systemNegativeHover)
                             }
-                            .tint(VColor.systemNegativeHover)
                         }
                         .swipeActions(edge: .leading) {
-                            Button {
-                                beginRenaming(conversation)
-                            } label: {
-                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                            }
-                            .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                            leadingSwipeActions(for: conversation)
                         }
                     }
                 }
