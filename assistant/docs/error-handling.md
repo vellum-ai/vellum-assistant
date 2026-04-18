@@ -125,9 +125,9 @@ These indicate infrastructure or configuration problems, not user decisions:
 
 In `--json` mode, operational errors return `{ "ok": false, "error": "<message>" }`. Without `--json`, they print to stderr and exit non-zero.
 
-### Branching pattern
+### Branching pattern for `ui confirm`
 
-The canonical pattern branches on `status` first, then on `cancellationReason` when the status is `cancelled`:
+The `ui confirm --json` output includes `ok`, `confirmed`, `status`, `actionId`, `surfaceId`, and optional `decisionToken`/`summary` — but does **not** include `cancellationReason`. Branch on `status` and `confirmed`:
 
 ```typescript
 const proc = Bun.spawn(
@@ -153,7 +153,7 @@ const result = JSON.parse(raw);
 
 if (!result.ok) {
   // Operational error — IPC failure, no conversation, etc.
-  throw new Error(`UI request failed: ${result.error}`);
+  throw new Error(`UI confirm failed: ${result.error}`);
 }
 
 switch (result.status) {
@@ -167,17 +167,14 @@ switch (result.status) {
     }
     break;
   case "cancelled":
-    if (result.cancellationReason === "user_dismissed") {
-      // User deliberately closed the surface — treat like a deny
-      return { sent: false, reason: "User dismissed" };
-    }
-    // Operational cancellation — the surface could not be shown
-    log.warn(`Surface cancelled (reason: ${result.cancellationReason})`);
-    return { sent: false, reason: result.cancellationReason };
+    // User dismissed the surface — treat like a deny
+    return { sent: false, reason: "User dismissed" };
   case "timed_out":
     // No response — abort safely
     return { sent: false, reason: "Timed out" };
 }
 ```
 
-The key distinction: **cancellation and denial are user decisions** (handle gracefully, no error logging). **Operational cancellations are environment issues** (log a warning, consider retry or fallback). **IPC failures and missing context are bugs** (throw or log as errors).
+For `ui request --json`, the output additionally includes a `cancellationReason` field when `status` is `"cancelled"`, allowing scripts to distinguish user dismissal (`user_dismissed`) from operational failures (`no_interactive_surface`, `conversation_not_found`, etc.). See the [cancellation reasons](#cancellation-reasons) section above and `skills/AGENTS.md` for the `ui request` branching pattern.
+
+The key distinction: **cancellation and denial are user decisions** (handle gracefully, no error logging). **IPC failures and missing context are bugs** (throw or log as errors).

@@ -53,7 +53,7 @@ else
 fi
 ```
 
-For scripts that need to distinguish why the surface was cancelled (user dismissal vs. operational failure), use `--json` and branch on both `status` and `cancellationReason`:
+For scripts that need to inspect the result programmatically, use `--json` and branch on `status` and `confirmed`:
 
 ```bash
 RESULT=$(assistant ui confirm \
@@ -76,20 +76,15 @@ case "$STATUS" in
     fi
     ;;
   cancelled)
-    REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
-    if [ "$REASON" = "user_dismissed" ]; then
-      echo "User dismissed the prompt — event not deleted."
-    else
-      # Operational cancellation (no_interactive_surface, conversation_not_found, etc.)
-      echo "Could not show confirmation surface (reason: $REASON). Aborting." >&2
-      exit 1
-    fi
+    echo "User dismissed the prompt — event not deleted."
     ;;
   timed_out)
     echo "Confirmation timed out — event not deleted."
     ;;
 esac
 ```
+
+> **Note**: The `cancellationReason` field (for distinguishing user dismissal from operational failures like `no_interactive_surface`) is only available in `assistant ui request --json` output, not `ui confirm --json`. For `ui confirm`, use the exit-code pattern above for simple cases, or branch on `status` and `confirmed` for `--json` mode.
 
 For read-only requests (fetching data, listing resources), no confirmation gate is needed.
 

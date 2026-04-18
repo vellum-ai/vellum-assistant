@@ -169,15 +169,15 @@
 
   ### Status and cancellation reason branching reference
 
-  Every `assistant ui` response includes a `status` field and, when `status` is `"cancelled"`, a `cancellationReason` field. Branch on **both** to handle all outcomes safely.
+  Both `ui confirm` and `ui request` return a `status` field in `--json` mode. However, the `cancellationReason` field is only available in `ui request --json` output. The `ui confirm` command uses the simpler exit-code pattern (0 = confirmed, 1 = denied/cancelled/timed out) and its `--json` output includes `ok`, `confirmed`, `status`, `actionId`, `surfaceId`, and optional `decisionToken`/`summary` — but not `cancellationReason`.
 
   | Status | Meaning | Typical action |
   |--------|---------|----------------|
-  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | Check `actionId` to determine the action taken — e.g. `"confirm"` or `"deny"` for confirmations. For `ui confirm`, exit code 0 = confirmed, 1 = denied. |
-  | `cancelled` | Surface was cancelled — check `cancellationReason` to determine why | See cancellation reason table below. |
+  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | For `ui confirm`: exit code 0 = confirmed, 1 = denied. For `ui request`: check `actionId` or `submittedData`. |
+  | `cancelled` | Surface was cancelled | For `ui confirm`: exit code 1 — abort gracefully. For `ui request`: check `cancellationReason` to determine why. |
   | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
 
-  **Cancellation reasons**: The `cancellationReason` field distinguishes user-driven from operational cancellations:
+  **Cancellation reasons** (`ui request` only): The `cancellationReason` field distinguishes user-driven from operational cancellations. This field is only present in `ui request --json` output.
 
   | `cancellationReason` | Category | Meaning |
   |----------------------|----------|---------|
@@ -187,13 +187,18 @@
   | `resolver_unavailable` | Operational | UI transport is disconnected (e.g. desktop client dropped). May be transient. |
   | `resolver_error` | Operational | UI resolver threw an unexpected error. Log for investigation. |
 
-  **Canonical branching pattern** for scripts that need to distinguish user dismissal from operational failures:
+  **Canonical branching pattern for `ui request`** — for scripts that need to distinguish user dismissal from operational failures:
 
   ```bash
+  RESULT=$(assistant ui request \
+    --payload '{"message":"Confirm the operation"}' \
+    --title "Operation" \
+    --json)
+
   STATUS=$(echo "$RESULT" | jq -r '.status')
   case "$STATUS" in
     submitted)
-      # Handle based on actionId
+      # Handle based on actionId or submittedData
       ;;
     cancelled)
       REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
@@ -216,7 +221,7 @@
   esac
   ```
 
-  Scripts that do not need to differentiate cancellation reasons can continue checking `status` alone — the `cancellationReason` field is optional and additive.
+  For `ui confirm`, use the simpler exit-code pattern (see the `ui confirm` section above) or check `status` and `confirmed` fields in `--json` mode. Do not branch on `cancellationReason` with `ui confirm` — it is not included in the output.
 
   **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
 
