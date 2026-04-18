@@ -278,6 +278,15 @@ export class Conversation {
       surfaceType: SurfaceType;
     }
   >();
+  /**
+   * Short-lived tombstone set of recently-completed standalone surface IDs.
+   * Prevents late client actions from falling through to the LLM path.
+   * @internal
+   */
+  recentlyCompletedStandaloneSurfaces = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{
@@ -754,6 +763,11 @@ export class Conversation {
       entry.resolve({ status: "cancelled", surfaceId });
     }
     this.pendingStandaloneSurfaces.clear();
+    // Clear tombstone timers to prevent dangling references after dispose.
+    for (const timer of this.recentlyCompletedStandaloneSurfaces.values()) {
+      clearTimeout(timer);
+    }
+    this.recentlyCompletedStandaloneSurfaces.clear();
     this.hostBashProxy?.dispose();
     this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();

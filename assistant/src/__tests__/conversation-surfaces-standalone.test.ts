@@ -52,6 +52,7 @@ function createMockContext(
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set(),
     pendingStandaloneSurfaces: new Map(),
+    recentlyCompletedStandaloneSurfaces: new Map(),
     currentTurnSurfaces: [],
     hostCuProxy: undefined,
     hasNoClient: overrides?.hasNoClient ?? false,
@@ -305,19 +306,47 @@ describe("showStandaloneSurface", () => {
     const result = await resultPromise;
     expect(result.status).toBe("timed_out");
 
-    // Now simulate a late user click after the surface has timed out.
-    // Since the timeout handler emits ui_surface_complete, the client should
-    // not send this — but if it does, it must NOT trigger an LLM follow-up.
-    // Because the surface was cleaned up AND there is no pendingSurfaceActions
-    // entry, handleSurfaceAction falls through to the history-restored path
-    // which would enqueue a message to the LLM. Verify that doesn't happen
-    // because the client-side dismiss prevents the click from arriving. The
-    // key invariant is that cleanup + client dismiss together prevent stale turns.
-    //
     // Verify the server-side state is fully cleaned up after timeout.
     expect(ctx.pendingStandaloneSurfaces!.has("surf-6c")).toBe(false);
     expect(ctx.surfaceState.has("surf-6c")).toBe(false);
     expect(ctx.pendingSurfaceActions.has("surf-6c")).toBe(false);
+
+    // The surfaceId should now be in the tombstone set.
+    expect(ctx.recentlyCompletedStandaloneSurfaces!.has("surf-6c")).toBe(true);
+
+    // Now simulate a late user click after the surface has timed out.
+    // Without the tombstone guard, this would fall through to the
+    // history-restored path and enqueue a message to the LLM.
+    await handleSurfaceAction(ctx, "surf-6c", "confirm", {});
+
+    // No messages should have been enqueued to the LLM
+    expect(ctx.enqueuedMessages).toHaveLength(0);
+  });
+
+  test("late action after user-resolved surface is silently dropped", async () => {
+    const ctx = createMockContext();
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "test-conv-1",
+        surfaceType: "confirmation",
+        data: { message: "Proceed?" },
+        timeoutMs: 60_000,
+      },
+      "surf-6d",
+    );
+
+    // User confirms — resolves the surface
+    await handleSurfaceAction(ctx, "surf-6d", "confirm");
+    const result = await resultPromise;
+    expect(result.status).toBe("submitted");
+
+    // Tombstone should be recorded
+    expect(ctx.recentlyCompletedStandaloneSurfaces!.has("surf-6d")).toBe(true);
+
+    // A duplicate/late click arrives — must be silently dropped
+    await handleSurfaceAction(ctx, "surf-6d", "confirm", {});
+
     // No messages should have been enqueued to the LLM
     expect(ctx.enqueuedMessages).toHaveLength(0);
   });
@@ -399,8 +428,14 @@ describe("cleanupStandaloneSurface", () => {
     expect(ctx.accumulatedSurfaceState.has("surf-c1")).toBe(false);
     expect(ctx.surfaceUndoStacks.has("surf-c1")).toBe(false);
 
-    // Cleanup the timer ourselves for the test
+    // Tombstone should be recorded for the completed surface
+    expect(ctx.recentlyCompletedStandaloneSurfaces!.has("surf-c1")).toBe(true);
+
+    // Cleanup the timer and tombstone timer ourselves for the test
     clearTimeout(timer);
+    const tombstoneTimer =
+      ctx.recentlyCompletedStandaloneSurfaces!.get("surf-c1");
+    if (tombstoneTimer) clearTimeout(tombstoneTimer);
   });
 
   test("is idempotent — safe to call multiple times", () => {
