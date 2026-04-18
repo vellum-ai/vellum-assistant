@@ -135,7 +135,7 @@ Examples:
     )
     .option(
       "--ttl <duration>",
-      "Time-to-live with unit: ms, s, m, or h (e.g. 30s, 5m, 2h). Omit for no expiry.",
+      "Time-to-live with unit: ms, s, m, or h (e.g. 30s, 5m, 2h). Defaults to 30m if omitted.",
     )
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -153,7 +153,7 @@ Arguments:
 Options:
   --key <key>       Cache key string. Omit to auto-generate a UUID key.
   --ttl <duration>  Expiry duration. Accepted units: ms, s, m, h.
-                    Examples: 500ms, 30s, 5m, 2h. Omit for no TTL.
+                    Examples: 500ms, 30s, 5m, 2h. Defaults to 30m if omitted.
   --json            Output as JSON: { "ok": true, "key": "..." }
 
 Examples:
