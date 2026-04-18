@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 const config: CloudAuthConfig = {
-  gatewayBaseUrl: 'https://api.vellum.ai',
+  webBaseUrl: 'https://www.vellum.ai',
   clientId: 'test-client-id',
 };
 
@@ -94,7 +94,7 @@ describe('signInCloud', () => {
   test('happy path stores a token and returns it', async () => {
     launchWebAuthFlowImpl = async (details) => {
       // The redirect URL the gateway would send back.
-      expect(details.url).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
+      expect(details.url).toContain('https://www.vellum.ai/oauth/chrome-extension/start');
       expect(details.url).toContain('client_id=test-client-id');
       expect(details.interactive).toBe(true);
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc123&expires_in=3600&guardian_id=g-42';
@@ -142,15 +142,15 @@ describe('signInCloud', () => {
     expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 
-  test('trims trailing slash on gatewayBaseUrl', async () => {
+  test('trims trailing slash on webBaseUrl', async () => {
     let seenUrl = '';
     launchWebAuthFlowImpl = async (details) => {
       seenUrl = details.url;
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
     };
-    await signInCloud(ASSISTANT_A, { gatewayBaseUrl: 'https://api.vellum.ai/', clientId: 'cid' });
-    expect(seenUrl).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
-    expect(seenUrl).not.toContain('api.vellum.ai//oauth');
+    await signInCloud(ASSISTANT_A, { webBaseUrl: 'https://www.vellum.ai/', clientId: 'cid' });
+    expect(seenUrl).toContain('https://www.vellum.ai/oauth/chrome-extension/start');
+    expect(seenUrl).not.toContain('www.vellum.ai//oauth');
   });
 });
 
@@ -301,7 +301,7 @@ describe('refreshCloudToken', () => {
     let seenInteractive: boolean | undefined;
     launchWebAuthFlowImpl = async (details) => {
       seenInteractive = details.interactive;
-      expect(details.url).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
+      expect(details.url).toContain('https://www.vellum.ai/oauth/chrome-extension/start');
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=fresh-jwt&expires_in=3600&guardian_id=g-99';
     };
 

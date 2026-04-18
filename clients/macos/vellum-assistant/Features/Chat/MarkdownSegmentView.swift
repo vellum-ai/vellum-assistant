@@ -443,8 +443,15 @@ struct MarkdownSegmentView: View, Equatable {
         // the next render will rebuild from scratch, which may succeed.
         // Also skip caching while this is the streaming tail: the value is
         // for an intermediate state that may not match the final content.
+        // And never cache a collapsed (zero-height) measurement: the
+        // environment can briefly deliver a zero `effectiveMaxWidth` during
+        // the first LazyVStack layout, and persisting that result would
+        // leave the cell collapsed and stacked under its neighbor.
         let textLen = Self.segmentTextLength(runSegments)
-        if !isStreamingTail && !hasUnresolvedEmphasis && textLen <= Self.maxCacheableTextLength {
+        if size.height > 0
+            && !isStreamingTail
+            && !hasUnresolvedEmphasis
+            && textLen <= Self.maxCacheableTextLength {
             Self.measuredTextCache.setObject(
                 MeasuredTextCacheEntry(nsAttributedString: nsAttributed, size: size),
                 forKey: keyNS,
@@ -795,6 +802,20 @@ struct MarkdownSegmentView: View, Equatable {
             }
         }
 
+        // Core Text honors .obliqueness on every glyph in the range, including
+        // Apple Color Emoji substitutions. Strip it from emoji grapheme clusters
+        // so they render upright inside italic runs.
+        let swiftString = ns.string
+        var cursor = swiftString.startIndex
+        while cursor < swiftString.endIndex {
+            let next = swiftString.index(after: cursor)
+            if swiftString[cursor].rendersAsEmoji {
+                let charRange = NSRange(cursor..<next, in: swiftString)
+                ns.removeAttribute(.obliqueness, range: charRange)
+            }
+            cursor = next
+        }
+
         let hasUnresolvedEmphasis = unresolvedEmphasisCount > 0
         if hasUnresolvedEmphasis {
             mdConvertLog.warning(
@@ -960,5 +981,17 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+fileprivate extension Character {
+    /// True iff this grapheme cluster renders as emoji — either default emoji
+    /// presentation, or text-default codepoints forced into emoji presentation
+    /// via U+FE0F (VS16). Excludes text-presentation characters like digits
+    /// and `#`/`*` that carry the bare Emoji property but not Emoji_Presentation.
+    var rendersAsEmoji: Bool {
+        let scalars = unicodeScalars
+        if scalars.contains(where: { $0.value == 0xFE0F }) { return true }
+        return scalars.contains(where: { $0.properties.isEmojiPresentation })
     }
 }

@@ -1,15 +1,16 @@
 /**
  * Cloud OAuth sign-in state machine for the Vellum chrome extension.
  *
- * Launches chrome.identity.launchWebAuthFlow against the Vellum gateway and
- * persists the guardian-bound JWT in chrome.storage.local. The token is used
- * to authenticate the browser-relay WebSocket against the cloud gateway.
+ * Launches chrome.identity.launchWebAuthFlow against the Vellum web app
+ * and persists the guardian-bound JWT in chrome.storage.local. The token
+ * is used to authenticate the browser-relay WebSocket against the cloud
+ * gateway.
  *
- * The gateway base URL is now resolved per-assistant: cloud-managed
- * assistants carry a `runtimeUrl` in their lockfile entry, which the
- * worker passes as `CloudAuthConfig.gatewayBaseUrl` when signing in or
- * refreshing. When no assistant-specific URL is available, the caller
- * falls back to the default cloud gateway (`https://api.vellum.ai`).
+ * The `CloudAuthConfig.webBaseUrl` field points to the Next.js web app
+ * that serves the browser-facing OAuth start page
+ * (`/oauth/chrome-extension/start`). Always `https://www.vellum.ai` in
+ * production. The gateway / relay URL is managed separately by the
+ * caller (worker.ts) and is not part of the auth config.
  *
  * Also exposes {@link refreshCloudToken}, the non-interactive refresh helper
  * used by the relay reconnect path when the stored token has expired or the
@@ -25,8 +26,8 @@
  */
 
 export interface CloudAuthConfig {
-  /** Gateway base URL, e.g. https://api.vellum.ai */
-  gatewayBaseUrl: string;
+  /** Web app base URL for browser-facing pages, e.g. https://www.vellum.ai */
+  webBaseUrl: string;
   /** OAuth client id registered for the chrome extension. */
   clientId: string;
 }
@@ -224,7 +225,7 @@ function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
 function buildAuthUrl(config: CloudAuthConfig): string {
   const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
   return (
-    `${config.gatewayBaseUrl.replace(/\/$/, '')}/oauth/chrome-extension/start` +
+    `${config.webBaseUrl.replace(/\/$/, '')}/oauth/chrome-extension/start` +
     `?client_id=${encodeURIComponent(config.clientId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`
   );

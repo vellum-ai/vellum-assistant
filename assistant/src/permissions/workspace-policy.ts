@@ -1,8 +1,6 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, normalize, resolve } from "node:path";
 
-import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
-
 /**
  * Resolve a path to its canonical form. When the target itself doesn't
  * exist (e.g. a new file being written), walk up to the nearest existing
@@ -55,15 +53,8 @@ export function isPathWithinWorkspaceRoot(
 /** File-path tools whose workspace-scoped-ness depends on the file_path input. */
 const PATH_SCOPED_TOOLS = new Set(["file_read", "file_write", "file_edit"]);
 
-/** Network-accessing tools — never workspace-scoped.
- * Browser tool names are sourced from the shared browser operations contract
- * (BROWSER_TOOL_NAMES) to avoid maintaining a separate browser tool list. */
-const NETWORK_TOOLS = new Set([
-  "web_search",
-  "web_fetch",
-  ...BROWSER_TOOL_NAMES,
-  "network_request",
-]);
+/** Network-accessing tools — never workspace-scoped. */
+const NETWORK_TOOLS = new Set(["web_search", "web_fetch", "network_request"]);
 
 /** Host-level tools — operate outside the sandbox, never workspace-scoped. */
 const HOST_TOOLS = new Set([

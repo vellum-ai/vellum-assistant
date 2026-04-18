@@ -459,6 +459,7 @@ final class ConversationListStore {
             lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
             kind: item.conversationType == "private" ? .private : .standard,
             source: item.source,
+            conversationType: item.conversationType,
             hostAccess: item.hostAccess ?? false,
             scheduleJobId: item.scheduleJobId,
             hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),

@@ -162,6 +162,75 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertGreaterThan(abs(CGFloat(truncating: obliqueness!)), 0.01)
     }
 
+    func testItalicEmojiHasNoObliqueness() throws {
+        let input = "*harder than the 🥺 did*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        // Surrounding italic text keeps obliqueness.
+        let textObliqueness = rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(textObliqueness)
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(textObliqueness))), 0.01)
+
+        // The emoji grapheme cluster has obliqueness stripped.
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01, "Emoji inside italic runs must not be skewed")
+        }
+    }
+
+    func testBoldItalicEmojiHasNoObliqueness() throws {
+        let input = "***oof 🥺***"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let textObliqueness = rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(textObliqueness)
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(textObliqueness))), 0.01)
+
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01)
+        }
+    }
+
+    func testCompoundZWJEmojiHasNoObliqueness() throws {
+        // Family emoji is a multi-scalar ZWJ sequence — must be treated as one
+        // grapheme cluster so obliqueness is stripped across the whole sequence.
+        let input = "*family 👨‍👩‍👧 time*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "👨\u{200D}👩\u{200D}👧", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01)
+        }
+    }
+
+    func testTextPresentationDigitKeepsObliqueness() throws {
+        // Digits have the Emoji property but not Emoji_Presentation, and no VS16.
+        // They must remain italicized inside an italic run.
+        let input = "*round 1 ends*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let digitOffset = try XCTUnwrap(utf16Offset(of: "1", in: rendered.string))
+        let digitObliqueness = rendered.attribute(.obliqueness, at: digitOffset, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(digitObliqueness, "Text-presentation digits must keep italic obliqueness")
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(digitObliqueness))), 0.01)
+    }
+
+    func testNonItalicEmojiRendersWithoutObliqueness() throws {
+        // Sanity check: when nothing applied obliqueness, the strip pass is a no-op.
+        let (rendered, _) = makeRenderedMarkdown("plain 🥺 text")
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        XCTAssertNil(emojiObliqueness)
+    }
+
     func testInvalidEmphasisFontsSkipMeasurementCaching() throws {
         #if DEBUG
         VFont._chatMarkdownFontSetOverride = { size in
@@ -206,6 +275,36 @@ final class MarkdownSegmentViewTests: XCTestCase {
             0,
             "Unresolved emphasis must not be inserted into the measured text cache"
         )
+    }
+
+    /// `bubbleMaxWidth` is 0 during the first LazyVStack pass, before the
+    /// chat column's width resolves. A collapsed measurement must NOT be
+    /// cached at either the `measuredTextCache` or
+    /// `VSelectableTextView.measurementSizeCache` layer — caching (0,0)
+    /// would leave the cell stacked under its neighbor and cause the
+    /// multi-message overlap seen in practice.
+    func testZeroWidthReturnsZeroSizeWithoutPoisoningCaches() {
+        let segments = parseMarkdownSegments("a long enough run of text to wrap")
+        let view = MarkdownSegmentView(segments: segments, maxContentWidth: 0)
+        let result = view.resolveSelectableRunMeasurementResult(segments)
+
+        XCTAssertEqual(result.size.height, 0)
+        XCTAssertEqual(
+            MarkdownSegmentView._measuredTextCacheInsertCount,
+            0,
+            "Zero-height measurement must not populate the measured text cache"
+        )
+
+        // Now re-measure at a real width. Because nothing poisoned the
+        // caches, this must produce a non-zero height and populate the
+        // measured text cache exactly once.
+        let resolvedView = MarkdownSegmentView(
+            segments: segments,
+            maxContentWidth: VSpacing.chatBubbleMaxWidth
+        )
+        let resolved = resolvedView.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertGreaterThan(resolved.size.height, 0)
+        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
     }
 
     func testWarmupRefreshClearsRenderCachesAndForcesRebuild() {
@@ -344,6 +443,11 @@ final class MarkdownSegmentViewTests: XCTestCase {
 
     private func renderedObliqueness(from rendered: NSAttributedString) -> NSNumber? {
         rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+    }
+
+    private func utf16Offset(of needle: String, in haystack: String) -> Int? {
+        guard let range = haystack.range(of: needle) else { return nil }
+        return haystack.utf16.distance(from: haystack.utf16.startIndex, to: range.lowerBound.samePosition(in: haystack.utf16)!)
     }
 
     private func familyName(for font: NSFont) -> String {

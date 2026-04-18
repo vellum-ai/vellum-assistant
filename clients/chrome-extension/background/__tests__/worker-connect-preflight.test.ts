@@ -69,13 +69,14 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
  */
 interface PreflightDeps {
   bootstrapLocalToken: (assistantId: string | null) => Promise<StoredLocalToken>;
-  signInCloud: (assistantId: string, config: { gatewayBaseUrl: string; clientId: string }) => Promise<StoredCloudToken>;
-  refreshCloudToken: (assistantId: string, config: { gatewayBaseUrl: string; clientId: string }) => Promise<StoredCloudToken | null>;
+  signInCloud: (assistantId: string, config: { webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken>;
+  refreshCloudToken: (assistantId: string, config: { webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken | null>;
   getStoredCloudToken: (assistantId: string) => Promise<StoredCloudToken | null>;
   getRelayPort: () => Promise<number>;
 }
 
 const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_WEB_BASE_URL = 'https://www.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 /**
@@ -122,9 +123,8 @@ async function connectPreflight(
     }
 
     if (!options.interactive) {
-      const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
       const refreshed = await deps.refreshCloudToken(assistantId, {
-        gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
@@ -140,9 +140,8 @@ async function connectPreflight(
       throw new MissingTokenError(missingTokenMessage('cloud-oauth'));
     }
 
-    const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
     const stored = await deps.signInCloud(assistantId, {
-      gatewayBaseUrl,
+      webBaseUrl: CLOUD_WEB_BASE_URL,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
     const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
@@ -337,10 +336,10 @@ describe('connectPreflight — cloud-oauth topology', () => {
       token: null,
     };
     const signedIn = makeStoredCloudToken({ token: 'fresh-cloud-jwt' });
-    let signInCalledWith: { assistantId: string; gatewayBaseUrl: string } | null = null;
+    let signInCalledWith: { assistantId: string } | null = null;
     const deps = makeDeps({
-      signInCloud: async (id, config) => {
-        signInCalledWith = { assistantId: id, gatewayBaseUrl: config.gatewayBaseUrl };
+      signInCloud: async (id, _config) => {
+        signInCalledWith = { assistantId: id };
         return signedIn;
       },
     });
@@ -355,7 +354,6 @@ describe('connectPreflight — cloud-oauth topology', () => {
 
     expect(signInCalledWith).not.toBeNull();
     expect(signInCalledWith!.assistantId).toBe('cloud-1');
-    expect(signInCalledWith!.gatewayBaseUrl).toBe('https://rt.vellum.cloud');
     expect(result.kind).toBe('cloud');
     expect(result.token).toBe('fresh-cloud-jwt');
     expect(result.baseUrl).toBe('https://rt.vellum.cloud');
@@ -399,10 +397,10 @@ describe('connectPreflight — cloud-oauth topology', () => {
       token: null,
     };
     const refreshed = makeStoredCloudToken({ token: 'refreshed-jwt' });
-    let refreshCalledWith: { assistantId: string; gatewayBaseUrl: string } | null = null;
+    let refreshCalledWith: { assistantId: string } | null = null;
     const deps = makeDeps({
-      refreshCloudToken: async (id, config) => {
-        refreshCalledWith = { assistantId: id, gatewayBaseUrl: config.gatewayBaseUrl };
+      refreshCloudToken: async (id, _config) => {
+        refreshCalledWith = { assistantId: id };
         return refreshed;
       },
     });
@@ -525,7 +523,7 @@ describe('connectPreflight — cloud-oauth topology', () => {
     expect(result.token).toBe('existing-jwt');
   });
 
-  test('non-interactive: uses runtimeUrl from assistant for refresh', async () => {
+  test('non-interactive: relay baseUrl uses runtimeUrl from assistant', async () => {
     const assistant = makeCloudAssistant({
       runtimeUrl: 'https://custom-gateway.vellum.cloud',
     });
@@ -535,12 +533,8 @@ describe('connectPreflight — cloud-oauth topology', () => {
       token: null,
     };
     const refreshed = makeStoredCloudToken({ token: 'refreshed-jwt' });
-    let refreshCalledWith: { gatewayBaseUrl: string } | null = null;
     const deps = makeDeps({
-      refreshCloudToken: async (_id, config) => {
-        refreshCalledWith = { gatewayBaseUrl: config.gatewayBaseUrl };
-        return refreshed;
-      },
+      refreshCloudToken: async () => refreshed,
     });
 
     const result = await connectPreflight(
@@ -551,7 +545,6 @@ describe('connectPreflight — cloud-oauth topology', () => {
       deps,
     );
 
-    expect(refreshCalledWith!.gatewayBaseUrl).toBe('https://custom-gateway.vellum.cloud');
     expect(result.baseUrl).toBe('https://custom-gateway.vellum.cloud');
   });
 });
@@ -628,7 +621,7 @@ describe('connectPreflight — edge cases', () => {
     }
   });
 
-  test('cloud interactive falls back to default gateway when no runtimeUrl', async () => {
+  test('cloud interactive falls back to default gateway for relay baseUrl when no runtimeUrl', async () => {
     const assistant = makeCloudAssistant({ runtimeUrl: '' });
     const mode: RelayMode = {
       kind: 'cloud',
@@ -636,12 +629,8 @@ describe('connectPreflight — edge cases', () => {
       token: null,
     };
     const signedIn = makeStoredCloudToken({ token: 'fallback-jwt' });
-    let signInCalledWith: { gatewayBaseUrl: string } | null = null;
     const deps = makeDeps({
-      signInCloud: async (_id, config) => {
-        signInCalledWith = { gatewayBaseUrl: config.gatewayBaseUrl };
-        return signedIn;
-      },
+      signInCloud: async () => signedIn,
     });
 
     const result = await connectPreflight(
@@ -652,7 +641,6 @@ describe('connectPreflight — edge cases', () => {
       deps,
     );
 
-    expect(signInCalledWith!.gatewayBaseUrl).toBe(CLOUD_GATEWAY_BASE_URL);
     expect(result.baseUrl).toBe(CLOUD_GATEWAY_BASE_URL);
     expect(result.token).toBe('fallback-jwt');
   });

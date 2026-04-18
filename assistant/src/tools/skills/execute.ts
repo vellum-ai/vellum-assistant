@@ -6,7 +6,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 export class SkillExecuteTool implements Tool {
   name = "skill_execute";
   description =
-    "Execute a tool provided by a loaded skill. Use this instead of calling skill tools directly. The skill's instructions (from skill_load) describe available tools and their parameters.";
+    "Execute a tool provided by a loaded skill. Use this instead of calling skill tools directly. The skill's instructions (from skill_load) describe available tools and their parameters. For browser automation, use the `assistant browser` CLI commands instead.";
   category = "skills";
   defaultRiskLevel = RiskLevel.Low;
 
@@ -20,7 +20,7 @@ export class SkillExecuteTool implements Tool {
           tool: {
             type: "string",
             description:
-              "The skill tool name to execute (e.g. 'browser_navigate', 'task_create')",
+              "The skill tool name to execute (e.g. 'task_create', 'deploy_run')",
           },
           input: {
             type: "object",

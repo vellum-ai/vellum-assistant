@@ -979,11 +979,17 @@ public struct ToolCallData: Identifiable, Equatable {
     }
 
     /// Brief past-tense plain-language description of what was done.
+    ///
+    /// Sources from `inputRawValue` (full, untruncated input) rather than
+    /// `inputSummary` so heuristics that scan tokens (e.g. picking the last
+    /// non-flag arg of an `ls` command) don't latch onto a mid-word truncation
+    /// suffix like `"pkb/N..."` and produce garbage like `"Listed N..."`.
     public var actionDescription: String {
-        let name = lastName(of: inputSummary)
+        let source = inputRawValue
+        let name = lastName(of: source)
         switch toolName {
         case "bash", "host_bash":
-            return inputSummary.isEmpty ? "Ran a command" : interpretBashCommand(inputSummary)
+            return source.isEmpty ? "Ran a command" : interpretBashCommand(source)
         case "file_edit", "host_file_edit":
             return name.isEmpty ? "Made some edits" : "Edited \(name)"
         case "file_write", "host_file_write":
@@ -991,19 +997,19 @@ public struct ToolCallData: Identifiable, Equatable {
         case "file_read", "host_file_read":
             return name.isEmpty ? "Read a file" : "Read \(name)"
         case "glob":
-            return interpretGlobPattern(inputSummary)
+            return interpretGlobPattern(source)
         case "grep":
-            return inputSummary.isEmpty ? "Searched through files" : "Searched for \"\(truncated(inputSummary, to: 50))\""
+            return source.isEmpty ? "Searched through files" : "Searched for \"\(truncated(source, to: 50))\""
         case "web_fetch":
-            if let host = URL(string: inputSummary)?.host { return "Fetched data from \(host)" }
+            if let host = URL(string: source)?.host { return "Fetched data from \(host)" }
             return "Fetched a webpage"
         case "browser_navigate":
-            if let host = URL(string: inputSummary)?.host { return "Opened \(host)" }
+            if let host = URL(string: source)?.host { return "Opened \(host)" }
             return "Opened a page"
         case "browser_screenshot":
             return "Took a screenshot"
         case "browser_click":
-            return inputSummary.isEmpty ? "Clicked something on the page" : "Clicked \"\(truncated(inputSummary, to: 50))\""
+            return source.isEmpty ? "Clicked something on the page" : "Clicked \"\(truncated(source, to: 50))\""
         case "browser_type":
             return "Typed in a field"
         case "app_create":
@@ -1011,11 +1017,11 @@ public struct ToolCallData: Identifiable, Equatable {
         case "app_refresh", "app_update":
             return "Refreshed the app"
         case "app_open":
-            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
+            return source.isEmpty ? "Opened an app" : "Opened \(source)"
         case "request_system_permission":
             return "Requested system access"
         case "web_search":
-            return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
+            return source.isEmpty ? "Searched the web" : "Searched for \"\(truncated(source, to: 50))\""
         case "memory_manage":
             let op = inputRawDict?["op"]?.value as? String ?? "save"
             switch op {
@@ -1024,9 +1030,9 @@ public struct ToolCallData: Identifiable, Equatable {
             default: return "Saved a memory"
             }
         case "memory_recall":
-            return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
+            return source.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(source, to: 40))\""
         case "task_run":
-            return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
+            return source.isEmpty ? "Ran a task" : "Ran \"\(truncated(source, to: 50))\""
         case "task_save":
             return "Saved a task"
         case "task_list", "work_item_list", "task_list_show":
@@ -1038,31 +1044,31 @@ public struct ToolCallData: Identifiable, Equatable {
         case "evaluate_typescript_code":
             return "Evaluated a code snippet"
         case "followup_create":
-            return inputSummary.isEmpty ? "Set a follow-up" : "Set a reminder: \(truncated(inputSummary, to: 50))"
+            return source.isEmpty ? "Set a follow-up" : "Set a reminder: \(truncated(source, to: 50))"
         case "followup_list":
             return "Checked follow-ups"
         case "followup_resolve":
             return "Resolved a follow-up"
         case "contact_search":
-            return inputSummary.isEmpty ? "Looked up a contact" : "Looked up \"\(truncated(inputSummary, to: 40))\""
+            return source.isEmpty ? "Looked up a contact" : "Looked up \"\(truncated(source, to: 40))\""
         case "contact_upsert":
-            return inputSummary.isEmpty ? "Saved a contact" : "Saved contact \"\(truncated(inputSummary, to: 40))\""
+            return source.isEmpty ? "Saved a contact" : "Saved contact \"\(truncated(source, to: 40))\""
         case "contact_merge":
             return "Merged contacts"
         case "asset_search":
-            return inputSummary.isEmpty ? "Searched assets" : "Searched for \"\(truncated(inputSummary, to: 40))\""
+            return source.isEmpty ? "Searched assets" : "Searched for \"\(truncated(source, to: 40))\""
         case "asset_materialize":
             return "Prepared an asset"
         case "computer_use_key":
-            return inputSummary.isEmpty ? "Pressed a key" : "Pressed \(inputSummary)"
+            return source.isEmpty ? "Pressed a key" : "Pressed \(source)"
         case "computer_use_type_text":
-            return inputSummary.isEmpty ? "Typed text" : "Typed \"\(truncated(inputSummary, to: 40))\""
+            return source.isEmpty ? "Typed text" : "Typed \"\(truncated(source, to: 40))\""
         case "computer_use_scroll":
             return "Scrolled the page"
         case "computer_use_drag":
             return "Dragged an element"
         case "computer_use_open_app":
-            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
+            return source.isEmpty ? "Opened an app" : "Opened \(source)"
         case "computer_use_run_applescript":
             return "Ran an AppleScript"
         case "computer_use_wait":
@@ -1070,7 +1076,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "computer_use_done", "computer_use_respond":
             return "Finished the task"
         case "ui_show":
-            return inputSummary.isEmpty ? "Showed a panel" : "Opened \(inputSummary)"
+            return source.isEmpty ? "Showed a panel" : "Opened \(source)"
         case "ui_update":
             return "Updated the panel"
         case "ui_dismiss":
@@ -1082,7 +1088,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "playbook_list":
             return "Listed playbooks"
         case "skill_execute":
-            return inputSummary.isEmpty ? "Used a skill" : inputSummary
+            return source.isEmpty ? "Used a skill" : source
         default:
             return friendlyName
         }

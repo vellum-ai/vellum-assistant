@@ -134,9 +134,19 @@ struct MessageListView: View {
                     scrollViewContent
                         .frame(width: widths.chatColumnWidth)
                         .background(
-                            MessageListScrollObserver { newState in
-                                enqueueScrollGeometryUpdate(newState)
-                            }
+                            MessageListScrollObserver(
+                                onGeometryChange: { newState in
+                                    enqueueScrollGeometryUpdate(newState)
+                                },
+                                shouldPreserveScrollAnchor: { [scrollState] in
+                                    // Skip during pagination — the explicit
+                                    // scroll-to-anchor in `handlePaginationSentinel`
+                                    // is the source of truth for that flow, and
+                                    // shifting the offset to absorb the older
+                                    // page's height would race the snap.
+                                    !scrollState.isPaginationInFlight
+                                }
+                            )
                         )
                     Spacer(minLength: 0)
                 }

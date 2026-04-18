@@ -4,23 +4,6 @@
 // Used by private-conversation gating and permission simulation to decide
 // whether a tool invocation requires explicit approval.
 
-import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
-
-/**
- * Browser tools that are read-only / observational and do NOT have
- * side effects. These are excluded from the side-effect set.
- * The mutating browser tools (navigate, click, type, etc.) are derived
- * from BROWSER_TOOL_NAMES by subtracting this set.
- */
-const BROWSER_READONLY_TOOLS = new Set([
-  "browser_snapshot",
-  "browser_screenshot",
-  "browser_extract",
-  "browser_wait_for",
-  "browser_wait_for_download",
-  "browser_status",
-]);
-
 const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "file_write",
   "file_edit",
@@ -29,7 +12,6 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "bash",
   "host_bash",
   "web_fetch",
-  ...BROWSER_TOOL_NAMES.filter((name) => !BROWSER_READONLY_TOOLS.has(name)),
   "document_create",
   "document_update",
   "schedule_create",

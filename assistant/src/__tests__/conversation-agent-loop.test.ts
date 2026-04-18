@@ -16,7 +16,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({    
+  getConfig: () => ({
     llm: {
       default: {
         provider: "mock-provider",
@@ -1756,72 +1756,6 @@ describe("session-agent-loop", () => {
       expect(handoff).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
-    });
-
-    test("does not yield during browser flow even when handoff is available", async () => {
-      const events: ServerMessage[] = [];
-
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
-        // All tool uses are browser_ prefixed
-        onEvent({
-          type: "tool_use",
-          id: "tu-1",
-          name: "browser_navigate",
-          input: {},
-        });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "navigated",
-          isError: false,
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "browsing" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        if (onCheckpoint) {
-          onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "browsing" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      // Browser flows should NOT yield
-      const handoff = events.find((e) => e.type === "generation_handoff");
-      expect(handoff).toBeUndefined();
     });
   });
 

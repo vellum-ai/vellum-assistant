@@ -1147,14 +1147,6 @@ describe("isSideEffectTool", () => {
       "bash",
       "host_bash",
       "web_fetch",
-      "browser_navigate",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_fill_credential",
       "document_create",
       "document_update",
       "schedule_create",
@@ -1175,6 +1167,14 @@ describe("isSideEffectTool", () => {
       "memory_recall",
       "memory_manage",
       "web_search",
+      "browser_navigate",
+      "browser_click",
+      "browser_type",
+      "browser_press_key",
+      "browser_close",
+      "browser_attach",
+      "browser_detach",
+      "browser_fill_credential",
       "browser_snapshot",
       "browser_screenshot",
       "browser_wait_for",
@@ -1582,51 +1582,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
     expect(result.isError).toBe(false);
     expect(promptCalled).toBe(true);
-  });
-
-  // ── Browser action tools as side-effect tools (PR fix2) ──────────
-
-  test("browser_click forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_click",
-      { selector: "#submit-btn" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("browser_type forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_type",
-      { selector: "#search-input", text: "query" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("browser_snapshot does NOT force prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_snapshot",
-      {},
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    // browser_snapshot is read-only — must NOT trigger forced prompting
-    expect(promptCalled).toBe(false);
   });
 
   // ── Always-mutating document tools (PR fix5) ──────────

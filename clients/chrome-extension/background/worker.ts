@@ -89,6 +89,7 @@ import {
 // avoids the MV3 popup teardown race where closing the popup mid-auth kills
 // the awaited promise before the token is persisted.
 const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_WEB_BASE_URL = 'https://www.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
@@ -694,29 +695,6 @@ function resetCloudRefreshAttempts(): void {
 }
 
 /**
- * Resolve the gateway base URL for the cloud reconnect hook. When a
- * selected assistant has a runtime URL, use it as the OAuth/gateway
- * base. Otherwise fall back to the default cloud gateway.
- */
-async function resolveCloudGatewayBase(): Promise<string> {
-  const selectedId = await loadSelectedAssistantId();
-  if (!selectedId) return CLOUD_GATEWAY_BASE_URL;
-
-  // Re-resolve the assistant catalog to get the runtime URL. This is
-  // cheap (native messaging round-trip) and ensures we get the latest
-  // lockfile state.
-  try {
-    const catalog = await listAssistants();
-    const match = catalog.assistants.find((a) => a.assistantId === selectedId);
-    if (match?.runtimeUrl) return match.runtimeUrl;
-  } catch {
-    // Fall back to the default gateway if the native host is
-    // unreachable during a reconnect attempt.
-  }
-  return CLOUD_GATEWAY_BASE_URL;
-}
-
-/**
  * Reconnect hook for cloud mode. Called by {@link RelayConnection} when
  * the WebSocket closes unexpectedly — responsible for deciding whether
  * to reuse the existing token, swap in a freshly refreshed one, or
@@ -757,17 +735,13 @@ async function cloudReconnectHook(
 
   // action.kind === 'refresh'
   cloudRefreshAttempts += 1;
-  // Resolve the gateway base URL from the selected assistant's runtime
-  // URL when available. This ensures refresh requests go to the correct
-  // gateway for the assistant's topology.
-  const gatewayBaseUrl = await resolveCloudGatewayBase();
   // refreshCloudToken requires an assistantId to persist the refreshed
   // token under the correct scoped key. When no assistant is selected
   // we can't scope the refresh, so we skip it — the user will be
   // prompted to sign in again (abort path on the next reconnect).
   const refreshed = selectedId
     ? await refreshCloudToken(selectedId, {
-        gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       })
     : null;
@@ -1036,9 +1010,8 @@ async function connectPreflight(
 
     if (!options.interactive) {
       // Non-interactive: attempt a silent refresh first.
-      const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
       const refreshed = await refreshCloudToken(assistantId, {
-        gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
@@ -1055,9 +1028,8 @@ async function connectPreflight(
     }
 
     // Interactive: launch the full OAuth sign-in flow.
-    const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
     const stored = await signInCloud(assistantId, {
-      gatewayBaseUrl,
+      webBaseUrl: CLOUD_WEB_BASE_URL,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
     const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
@@ -1272,22 +1244,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         if (!resolvedId) {
           throw new Error('No assistant selected. Fetch the assistant catalog first.');
         }
-        // Resolve the gateway base URL from the assistant's runtime URL
-        // when available. This scopes the OAuth flow to the correct
-        // gateway for cloud-managed assistants.
-        let gatewayBaseUrl = CLOUD_GATEWAY_BASE_URL;
-        try {
-          const catalog = await listAssistants();
-          const match = catalog.assistants.find((a) => a.assistantId === resolvedId);
-          if (match?.runtimeUrl) {
-            gatewayBaseUrl = match.runtimeUrl;
-          }
-        } catch {
-          // Fall back to default gateway if native host unreachable.
-        }
         const config: CloudAuthConfig = {
-          gatewayBaseUrl:
-            typeof message.gatewayBaseUrl === 'string' ? message.gatewayBaseUrl : gatewayBaseUrl,
+          webBaseUrl: CLOUD_WEB_BASE_URL,
           clientId:
             typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
         };

@@ -100,7 +100,7 @@ public final class AuthManager {
             guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: allowedReturnToChars) else {
                 throw AuthServiceError.invalidURL
             }
-            let loginURLString = "\(VellumEnvironment.resolvedPlatformURL)/account/login?returnTo=\(encodedReturnTo)"
+            let loginURLString = "\(VellumEnvironment.resolvedWebURL)/account/login?returnTo=\(encodedReturnTo)"
             guard let loginURL = URL(string: loginURLString) else {
                 throw AuthServiceError.invalidURL
             }

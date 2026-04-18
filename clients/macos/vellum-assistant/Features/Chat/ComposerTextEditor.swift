@@ -332,6 +332,16 @@ struct ComposerTextEditor: NSViewRepresentable {
             coordinator.boundsObserver = nil
         }
         coordinator.cancelPendingMeasureHeight()
+
+        // NSTextView registers text-edit undo actions on the window's undo
+        // manager with the text view as an unsafe-unretained target — weak
+        // zeroing does not apply, so a later cmd+z after the view is torn
+        // down dereferences a freed pointer in `_undoRedoTextOperation:`.
+        // Purge our actions before the view dies.
+        if let textView = scrollView.documentView as? ComposerTextView {
+            textView.breakUndoCoalescing()
+            textView.undoManager?.removeAllActions(withTarget: textView)
+        }
     }
 
     // MARK: - Coordinator

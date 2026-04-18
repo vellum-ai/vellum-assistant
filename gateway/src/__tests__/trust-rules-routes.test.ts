@@ -173,7 +173,7 @@ describe("POST /v1/trust-rules — canonicalization", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tool: "browser_navigate",
+        tool: "network_request",
         pattern: "https://example.com/**",
         scope: "everywhere",
         decision: "allow",

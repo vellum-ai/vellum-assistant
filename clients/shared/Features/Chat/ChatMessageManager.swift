@@ -298,6 +298,11 @@ extension ProviderCatalogEntry {
             CatalogModel(id: "accounts/fireworks/models/kimi-k2p5", displayName: "Kimi K2.5"),
         ], defaultModel: "accounts/fireworks/models/kimi-k2p5", apiKeyUrl: "https://fireworks.ai/account/api-keys", apiKeyPlaceholder: "fw_..."),
         ProviderCatalogEntry(id: "openrouter", displayName: "OpenRouter", models: [
+            // Anthropic
+            CatalogModel(id: "anthropic/claude-opus-4.7", displayName: "Claude Opus 4.7"),
+            CatalogModel(id: "anthropic/claude-opus-4.6", displayName: "Claude Opus 4.6"),
+            CatalogModel(id: "anthropic/claude-sonnet-4.6", displayName: "Claude Sonnet 4.6"),
+            CatalogModel(id: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku 4.5"),
             // xAI
             CatalogModel(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
             CatalogModel(id: "x-ai/grok-4", displayName: "Grok 4"),
