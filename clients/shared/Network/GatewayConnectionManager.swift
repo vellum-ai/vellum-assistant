@@ -32,6 +32,11 @@ public final class GatewayConnectionManager {
     // MARK: - Observable State
 
     public var isConnected: Bool = false
+    /// Independent signal from `isConnected`: flips to `true` after sustained
+    /// auth failures (401/429) observed by `authFailureTracker`. Cleared on
+    /// the next successful health check. Observe alongside `isConnected` —
+    /// the two represent orthogonal failure modes of "unable to make progress".
+    public var isAuthFailed: Bool = false
     public var isConnecting: Bool = false
     public internal(set) var assistantVersion: String?
     public internal(set) var versionMismatch: Bool = false
@@ -85,6 +90,7 @@ public final class GatewayConnectionManager {
     // MARK: - Health Check
 
     @ObservationIgnored private var healthCheckTask: Task<Void, Never>?
+    @ObservationIgnored private let authFailureTracker = AuthFailureTracker()
     private let healthCheckInterval: TimeInterval = 15.0
     @ObservationIgnored private var shouldReconnect = true
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -285,6 +291,11 @@ public final class GatewayConnectionManager {
 
         // Reset published state
         isConnected = false
+        if isAuthFailed {
+            isAuthFailed = false
+            log.info("AuthFailureTracker cleared")
+        }
+        authFailureTracker.recordSuccess()
         assistantVersion = nil
         versionMismatch = false
         isUpdateInProgress = false
@@ -366,15 +377,24 @@ public final class GatewayConnectionManager {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         } catch {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         }
 
         guard (200..<300).contains(outcome.statusCode) else {
+            // Feed auth-relevant statuses into the sliding-window tracker.
+            // AuthFailureTracker itself filters to the 401/429 it cares about;
+            // passing 403 here is harmless and keeps the call site honest
+            // about which statuses look like auth problems.
+            if outcome.statusCode == 401 || outcome.statusCode == 403 || outcome.statusCode == 429 {
+                authFailureTracker.recordFailure(statusCode: outcome.statusCode, path: "/v1/health")
+            }
             if outcome.statusCode == 401 {
                 handleAuthenticationFailure()
             } else if outcome.statusCode == 404, isManaged {
@@ -382,8 +402,13 @@ public final class GatewayConnectionManager {
             }
             consecutiveHealthCheckSuccesses = 0
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         }
+
+        // 2xx — auth is working. Any accumulated window is cleared.
+        authFailureTracker.recordSuccess()
+        updateAuthFailedSignal()
 
         if let newVersion = outcome.version, newVersion != assistantVersion {
             assistantVersion = newVersion
@@ -395,6 +420,39 @@ public final class GatewayConnectionManager {
             log.info("Health check passed")
         }
         setConnected(true)
+    }
+
+    /// Reconciles `isAuthFailed` against the tracker's current state and logs
+    /// the single transition lines. Idempotent — safe to call on every health
+    /// check cycle. The two signals (`isConnected`, `isAuthFailed`) are
+    /// independent; a tripped auth signal never forces `isConnected = false`
+    /// on its own and vice-versa.
+    private func updateAuthFailedSignal() {
+        let tripped = authFailureTracker.isAuthFailed
+        guard tripped != isAuthFailed else { return }
+        isAuthFailed = tripped
+        if tripped {
+            let status = authFailureTracker.lastStatusCode ?? -1
+            let path = authFailureTracker.lastPath ?? "?"
+            log.warning("AuthFailureTracker tripped: status=\(status, privacy: .public) path=\(path, privacy: .public) window=30 failures=4")
+        } else {
+            log.info("AuthFailureTracker cleared")
+        }
+    }
+
+    // MARK: - Test Hooks
+
+    /// Internal hook used by unit tests to drive the same code path as
+    /// `performHealthCheck()` without standing up a URLProtocol fake. Mirrors
+    /// the tracker-update + signal-update behavior used on real HTTP
+    /// outcomes. Production code must not call this.
+    internal func _testIngestHealthStatus(_ statusCode: Int) {
+        if (200..<300).contains(statusCode) {
+            authFailureTracker.recordSuccess()
+        } else if statusCode == 401 || statusCode == 403 || statusCode == 429 {
+            authFailureTracker.recordFailure(statusCode: statusCode, path: "/v1/health")
+        }
+        updateAuthFailedSignal()
     }
 
     private func startHealthCheckLoop() {
