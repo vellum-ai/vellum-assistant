@@ -581,19 +581,23 @@ function buildStandaloneSurfaceData(
   }
 
   if (request.surfaceType === "form") {
+    // Preserve the full form payload (pages, pageLabels, and any future
+    // additive keys) via spreading. Apply defensive normalization so that
+    // `fields` is always a valid array — callers that use `pages` instead
+    // of top-level `fields` may omit the latter entirely.
+    const raw = request.data as Record<string, unknown>;
+    const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
+
+    // Ensure `fields` is always a valid array — callers that supply `pages`
+    // instead of top-level `fields` may omit the latter entirely.
+    const fields: FormSurfaceData["fields"] = hasFields
+      ? (raw.fields as FormSurfaceData["fields"])
+      : [];
+
     return {
-      description:
-        typeof request.data.description === "string"
-          ? request.data.description
-          : undefined,
-      fields: Array.isArray(request.data.fields)
-        ? (request.data.fields as FormSurfaceData["fields"])
-        : [],
-      submitLabel:
-        typeof request.data.submitLabel === "string"
-          ? request.data.submitLabel
-          : undefined,
-    } satisfies FormSurfaceData;
+      ...raw,
+      fields,
+    } as FormSurfaceData;
   }
 
   // Fallback: pass through opaque data
