@@ -43,29 +43,6 @@ func applyConversationSelectionRequest(
 }
 
 @MainActor
-func shouldShowCurrentTipForkAction(
-    store: IOSConversationStore,
-    for conversation: IOSConversation
-) -> Bool {
-    conversation.conversationId != nil
-        && !conversation.isPrivate
-        && store.latestPersistedTipDaemonMessageId(for: conversation.id) != nil
-}
-
-@MainActor
-func makeCurrentTipForkToolbarAction(
-    store: IOSConversationStore,
-    conversation: IOSConversation
-) -> (() -> Void)? {
-    guard shouldShowCurrentTipForkAction(store: store, for: conversation) else { return nil }
-    return {
-        Task { @MainActor in
-            _ = await store.forkCurrentTip(conversationLocalId: conversation.id)
-        }
-    }
-}
-
-@MainActor
 func makeConversationForkFromMessageAction(
     store: IOSConversationStore,
     conversation: IOSConversation

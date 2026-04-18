@@ -35,7 +35,7 @@ clients/
 │   └── AGENTS.md              # Agent development guidance (macOS-specific)
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, etc.)
-│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
+│   ├── Views/                 # iOS-specific SwiftUI views (ConversationListView, ChatContentView, etc.)
 │   │   └── Settings/          # Settings sections (Connection + Developer diagnostics)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist

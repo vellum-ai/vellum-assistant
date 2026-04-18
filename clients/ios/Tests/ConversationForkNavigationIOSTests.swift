@@ -176,59 +176,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
     }
 
-    func testCurrentTipForkToolbarActionOnlyExistsForPersistedConversationAndForksCurrentTip() async throws {
-        let (userDefaults, suiteName) = makeUserDefaults()
-        defer { clear(userDefaults, suiteName: suiteName) }
-
-        let connectionManager = GatewayConnectionManager()
-        connectionManager.isConnected = true
-        let forkClient = MockConversationForkClient()
-        forkClient.response = makeForkedConversationItem(messageId: "msg-tip")
-
-        let store = IOSConversationStore(
-            connectionManager: connectionManager,
-            eventStreamClient: connectionManager.eventStreamClient,
-            connectedModeOverride: true,
-            conversationForkClient: forkClient,
-            userDefaults: userDefaults
-        )
-        store.isLoadingInitialConversations = false
-
-        let persistedConversation = IOSConversation(
-            title: "Persisted",
-            conversationId: "conv-parent"
-        )
-        let localConversation = IOSConversation(title: "Draft")
-        store.conversations = [persistedConversation, localConversation]
-
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(store: store, conversation: localConversation)
-        )
-        XCTAssertFalse(
-            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
-        )
-
-        let viewModel = store.viewModel(for: persistedConversation.id)
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
-        )
-        viewModel.messages = [makeMessage(text: "Persisted assistant reply", daemonMessageId: "msg-tip")]
-        XCTAssertTrue(
-            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
-        )
-
-        let action = try XCTUnwrap(
-            makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
-        )
-        action()
-
-        await waitUntil(timeout: 1.0) { store.selectionRequest != nil }
-
-        XCTAssertEqual(forkClient.requests.count, 1)
-        XCTAssertEqual(forkClient.requests.first?.conversationId, "conv-parent")
-        XCTAssertEqual(forkClient.requests.first?.throughMessageId, "msg-tip")
-    }
-
     func testForkActionsAreHiddenForPrivateConversations() {
         let privateConversation = IOSConversation(
             title: "Private",
@@ -241,13 +188,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true), for: privateConversation))
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(
-                store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
-                conversation: privateConversation
-            )
-        )
         XCTAssertNil(
             makeOpenForkParentAction(
                 store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),

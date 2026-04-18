@@ -1,5 +1,8 @@
 import os
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 private let log = Logger(
     subsystem: Bundle.appBundleIdentifier,
@@ -304,6 +307,16 @@ public struct MessageBubbleView: View {
                 Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
             }
         }
+
+        #if os(iOS)
+        if !message.text.isEmpty {
+            Button {
+                UIPasteboard.general.string = message.text
+            } label: {
+                Label { Text("Copy") } icon: { VIconView(.copy, size: 14) }
+            }
+        }
+        #endif
 
         if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
             Button {
