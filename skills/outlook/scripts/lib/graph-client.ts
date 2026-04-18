@@ -73,16 +73,18 @@ export async function graphRequest<T = unknown>(
   const stderr = await new Response(proc.stderr).text();
   const exitCode = await proc.exited;
 
-  if (exitCode !== 0) {
-    throw new Error(
-      `assistant oauth request failed (exit ${exitCode}): ${stderr || stdout}`,
-    );
-  }
-
+  // Always attempt to parse stdout JSON first, even on non-zero exit.
+  // `assistant oauth request --json` emits structured { ok, status, body }
+  // even for HTTP 4xx/5xx responses. Only throw if JSON parsing fails.
   let result: { ok: boolean; status: number; headers: unknown; body: unknown };
   try {
     result = JSON.parse(stdout);
   } catch (err) {
+    if (exitCode !== 0) {
+      throw new Error(
+        `assistant oauth request failed (exit ${exitCode}): ${stderr || stdout}`,
+      );
+    }
     throw new Error(
       `Failed to parse assistant oauth request output: ${err instanceof Error ? err.message : String(err)}. stdout: ${stdout}`,
     );

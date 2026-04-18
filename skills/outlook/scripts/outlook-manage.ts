@@ -403,7 +403,7 @@ async function handleVacation(
       const internalMessage = requireArg(args, "internal-message");
       const externalMessage = optionalArg(args, "external-message");
       const externalAudience =
-        optionalArg(args, "external-audience") ?? "all";
+        optionalArg(args, "external-audience") ?? "none";
       const start = optionalArg(args, "start");
       const end = optionalArg(args, "end");
       const timezone = optionalArg(args, "timezone") ?? "UTC";
@@ -560,6 +560,7 @@ function pinnedHttpsRequest(
   hostname: string,
   method: string,
   headers: Record<string, string>,
+  body?: string,
 ): Promise<{ ok: boolean; status: number }> {
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
@@ -579,6 +580,9 @@ function pinnedHttpsRequest(
       },
     );
     req.on("error", reject);
+    if (body) {
+      req.write(body);
+    }
     req.end();
   });
 }
@@ -599,14 +603,19 @@ async function handleUnsubscribe(
     printError(`Failed to get message headers (HTTP ${res.status})`);
   }
 
-  const headers = res.data.internetMessageHeaders ?? [];
-  const unsubHeader = headers.find(
+  const msgHeaders = res.data.internetMessageHeaders ?? [];
+  const unsubHeader = msgHeaders.find(
     (h) => h.name.toLowerCase() === "list-unsubscribe",
   );
 
   if (!unsubHeader) {
     printError("No List-Unsubscribe header found on this message");
   }
+
+  // RFC 8058: only use POST when List-Unsubscribe-Post header is present
+  const postHeader = msgHeaders.find(
+    (h) => h.name.toLowerCase() === "list-unsubscribe-post",
+  );
 
   const parsed = parseListUnsubscribe(unsubHeader!.value);
 
@@ -640,26 +649,34 @@ async function handleUnsubscribe(
       const port = urlObj.port ? Number(urlObj.port) : 443;
       const pathAndSearch = urlObj.pathname + urlObj.search;
 
-      // Try POST first (RFC 8058 List-Unsubscribe-Post)
-      const postResult = await pinnedHttpsRequest(
-        resolvedIp,
-        port,
-        pathAndSearch,
-        hostname,
-        "POST",
-        { Host: hostname, "List-Unsubscribe": "One-Click" },
-      );
-      if (postResult.ok) {
-        ok({
-          method: "https",
-          url,
-          status: postResult.status,
-          success: true,
-        });
-        return;
+      // RFC 8058: only use POST when List-Unsubscribe-Post header is present
+      if (postHeader) {
+        const postBody = postHeader.value.trim();
+        const postResult = await pinnedHttpsRequest(
+          resolvedIp,
+          port,
+          pathAndSearch,
+          hostname,
+          "POST",
+          {
+            Host: hostname,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          postBody,
+        );
+        if (postResult.ok) {
+          ok({
+            method: "https",
+            url,
+            status: postResult.status,
+            success: true,
+          });
+          return;
+        }
       }
 
-      // Try GET if POST didn't work
+      // Use GET (either as fallback from POST failure, or when no
+      // List-Unsubscribe-Post header is present)
       const getResult = await pinnedHttpsRequest(
         resolvedIp,
         port,
@@ -678,7 +695,7 @@ async function handleUnsubscribe(
         return;
       }
 
-      // Both failed — continue to next URL
+      // GET failed — continue to next URL
       continue;
     } catch {
       // If this URL fails, try the next one

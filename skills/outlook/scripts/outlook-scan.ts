@@ -8,7 +8,7 @@
  */
 
 import { parseArgs, optionalArg, printError, ok } from "./lib/common.js";
-import { graphGet, graphRequest } from "./lib/graph-client.js";
+import { graphRequest } from "./lib/graph-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +43,7 @@ interface PaginateOptions {
   timeBudgetMs: number;
   account?: string;
   query?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,11 +98,13 @@ async function paginateMessages(
   let truncated = false;
 
   // Initial request
-  const firstResponse = await graphGet<GraphMessagesResponse>(
-    initialPath,
-    opts.query,
-    opts.account,
-  );
+  const firstResponse = await graphRequest<GraphMessagesResponse>({
+    method: "GET",
+    path: initialPath,
+    query: opts.query,
+    account: opts.account,
+    headers: opts.headers,
+  });
 
   if (!firstResponse.ok) {
     printError(
@@ -134,6 +137,7 @@ async function paginateMessages(
       method: "GET",
       path,
       account: opts.account,
+      headers: opts.headers,
     });
 
     if (!response.ok) {
@@ -181,20 +185,32 @@ async function senderDigest(args: Record<string, string | boolean>) {
   let result: { messages: GraphMessage[]; truncated: boolean };
 
   if (query) {
-    // Search mode: use $search with time-range filter
+    // Search mode: use $search WITHOUT $filter (Graph API does not support
+    // combining $search with $filter on /me/messages). Date filtering is
+    // applied client-side after fetching results.
     const escapedQuery = query.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    result = await paginateMessages("/v1.0/me/messages", {
+    const searchResult = await paginateMessages("/v1.0/me/messages", {
       maxMessages,
       timeBudgetMs,
       account,
       query: {
         $search: `"${escapedQuery}"`,
-        $filter: `receivedDateTime ge ${startDate}`,
         $top: "50",
         $select:
           "id,from,subject,receivedDateTime,internetMessageHeaders",
       },
+      // ConsistencyLevel: eventual is required when using $search
+      headers: { ConsistencyLevel: "eventual" },
     });
+
+    // Client-side date filtering since $filter cannot be combined with $search
+    const startMs = new Date(startDate).getTime();
+    searchResult.messages = searchResult.messages.filter((msg) => {
+      if (!msg.receivedDateTime) return false;
+      return new Date(msg.receivedDateTime).getTime() >= startMs;
+    });
+
+    result = searchResult;
   } else {
     // List mode: use $filter
     result = await paginateMessages("/v1.0/me/messages", {
@@ -282,7 +298,20 @@ async function outreachScan(args: Record<string, string | boolean>) {
     },
   });
 
-  // Aggregate senders WITHOUT List-Unsubscribe header
+  // Two-pass approach: exclude ENTIRE senders if ANY of their messages has
+  // List-Unsubscribe. This prevents false positives where a sender has some
+  // messages with the header and some without.
+
+  // Pass 1: collect sender emails that have ANY message with List-Unsubscribe
+  const sendersWithUnsubscribe = new Set<string>();
+  for (const msg of result.messages) {
+    if (hasUnsubscribeHeader(msg)) {
+      const email = msg.from?.emailAddress?.address?.toLowerCase();
+      if (email) sendersWithUnsubscribe.add(email);
+    }
+  }
+
+  // Pass 2: aggregate messages from senders NOT in the unsubscribe set
   const senderMap = new Map<
     string,
     {
@@ -294,11 +323,11 @@ async function outreachScan(args: Record<string, string | boolean>) {
   >();
 
   for (const msg of result.messages) {
-    // Skip messages WITH unsubscribe header
-    if (hasUnsubscribeHeader(msg)) continue;
-
     const email = msg.from?.emailAddress?.address?.toLowerCase();
     if (!email) continue;
+
+    // Skip entire sender if ANY of their messages had List-Unsubscribe
+    if (sendersWithUnsubscribe.has(email)) continue;
 
     let entry = senderMap.get(email);
     if (!entry) {
