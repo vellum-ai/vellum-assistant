@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Seed latency-optimized call-site defaults for existing workspaces.
+ * Seed latency-optimized call-site defaults for background LLM tasks.
  *
  * Migration 038 consolidated scattered LLM config keys but only wrote
  * per-call-site entries when the legacy config had *explicit* overrides.
@@ -13,9 +13,21 @@ import type { WorkspaceMigration } from "./types.js";
  * entries, causing them to fall through to `llm.default` (opus with max
  * effort) — a significant cost and latency regression.
  *
- * This migration seeds the missing entries with the appropriate fast
- * model for the workspace's configured provider. Existing user-defined
- * overrides are preserved.
+ * Seeds the missing entries with the appropriate fast model for the
+ * workspace's configured provider. Runs in two modes:
+ *
+ *   1. **Existing workspace** (config.json present): read provider from
+ *      `llm.default.provider`, merge seeds into `llm.callSites` without
+ *      overwriting any user-defined overrides.
+ *   2. **Fresh install** (config.json absent): write a minimal starter
+ *      config with just the callSite seeds, using the default provider
+ *      (anthropic — same as the schema default). `loadConfig()` runs
+ *      after migrations and backfills the remaining schema defaults via
+ *      `deepMergeMissing`, which preserves our seeded callSites.
+ *
+ * Without the fresh-install branch, new users permanently fall through
+ * to `llm.default` (opus + max effort) because `LLMSchema.callSites`
+ * defaults to `{}` and nothing else seeds the latency-optimized entries.
  */
 export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
   id: "040-seed-latency-callsite-defaults",
@@ -23,25 +35,29 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
     "Seed latency-optimized call-site defaults for background LLM tasks",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    const configExisted = existsSync(configPath);
 
-    let config: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      config = raw as Record<string, unknown>;
-    } catch {
-      return;
+    let config: Record<string, unknown> = {};
+    if (configExisted) {
+      try {
+        const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        config = raw as Record<string, unknown>;
+      } catch {
+        return;
+      }
     }
 
-    const llm = readObject(config.llm);
-    if (llm === null) return;
-
+    const llm = readObject(config.llm) ?? {};
     const defaultBlock = readObject(llm.default);
-    if (defaultBlock === null) return;
 
-    const provider =
-      readString(defaultBlock.provider) ?? "anthropic";
+    // Fresh install: no config.json yet, so no explicit provider — fall
+    // back to the schema default ("anthropic"). A platform-provided
+    // `VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH` override that specifies a
+    // non-anthropic provider should also set `llm.callSites` in that
+    // override file, since it runs after migrations via
+    // `mergeDefaultWorkspaceConfig` and will overwrite our seeds.
+    const provider = readString(defaultBlock?.provider) ?? "anthropic";
     const fastModel = resolveLatencyModel(provider);
     if (fastModel === undefined) return;
 
