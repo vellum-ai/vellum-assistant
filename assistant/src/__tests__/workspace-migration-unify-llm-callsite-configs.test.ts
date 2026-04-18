@@ -88,7 +88,11 @@ describe("038-unify-llm-callsite-configs migration", () => {
     expect(raw).toEqual([1, 2, 3]);
   });
 
-  test("idempotent: early-returns when llm.default is already present", () => {
+  test("idempotent: early-returns when llm.default is present and no legacy source remains", () => {
+    // True idempotency case: migration 039 has already stripped legacy
+    // source keys, leaving only `llm.default`. Re-running migration 038
+    // here must be a byte-identical no-op so daemon restarts don't churn
+    // the on-disk config.
     const original = {
       llm: {
         default: {
@@ -101,9 +105,8 @@ describe("038-unify-llm-callsite-configs migration", () => {
         },
       },
       services: {
-        inference: { provider: "anthropic", model: "claude-opus-4-6" },
+        inference: { mode: "your-own" },
       },
-      maxTokens: 64000,
     };
     writeConfig(original);
 
@@ -111,6 +114,108 @@ describe("038-unify-llm-callsite-configs migration", () => {
 
     const config = readConfig();
     expect(config).toEqual(original);
+  });
+
+  // ─── Schema-default-injection regression (the original bug) ────────────
+
+  test("legacy services.inference.{provider,model} win over schema-default-injected llm.default", () => {
+    // Reproduces the production bug: between PR #26095 (added
+    // `LLMSchema.default(LLMSchema.parse({}))` to AssistantConfigSchema)
+    // and PR #26101 (this migration), any daemon boot caused the loader's
+    // `backfillConfigDefaults()` to write a schema-default `llm.default`
+    // block to disk. Migration 038's old idempotency check (`return early
+    // if llm.default exists`) then silently skipped, and migration 039
+    // stripped `services.inference.{provider,model}` — losing the user's
+    // actual configuration. The fix prefers legacy source keys over the
+    // injected schema defaults whenever both are present.
+    writeConfig({
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "openrouter",
+          model: "anthropic/claude-opus-4.7",
+        },
+      },
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          maxTokens: 64000,
+          effort: "max",
+          speed: "standard",
+          temperature: null,
+          thinking: { enabled: true, streamThinking: true },
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 200000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize",
+              nonInteractiveLatestTurnCompression: "truncate",
+            },
+          },
+        },
+      },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as Record<string, Record<string, unknown>>;
+    expect(llm.default.provider).toBe("openrouter");
+    expect(llm.default.model).toBe("anthropic/claude-opus-4.7");
+  });
+
+  test("user-set llm.default fields survive when no legacy source exists for that field", () => {
+    // Ensures the precedence rule (legacy → existing-default → fallback)
+    // doesn't clobber values a user has explicitly set under `llm.default`
+    // when there's no corresponding legacy key to migrate.
+    writeConfig({
+      services: {
+        inference: {
+          mode: "your-own",
+          provider: "openai",
+          model: "gpt-5.4",
+        },
+      },
+      llm: {
+        default: {
+          provider: "anthropic", // schema-default — overridden by services.inference below
+          model: "claude-opus-4-7", // schema-default — overridden by services.inference below
+          effort: "low", // user-set; no top-level `effort` legacy key, must survive
+          maxTokens: 8000, // user-set; no top-level `maxTokens` legacy key, must survive
+        },
+      },
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as Record<string, Record<string, unknown>>;
+    // Legacy services.inference wins over existing llm.default
+    expect(llm.default.provider).toBe("openai");
+    expect(llm.default.model).toBe("gpt-5.4");
+    // Existing llm.default values for fields with no legacy source are kept
+    expect(llm.default.effort).toBe("low");
+    expect(llm.default.maxTokens).toBe(8000);
+  });
+
+  test("xhigh effort (added in main PR #26117 after this migration was authored) is preserved", () => {
+    // EFFORT_VALUES had to be widened to include `xhigh` so a legacy
+    // top-level `effort: "xhigh"` value isn't silently downgraded to "max"
+    // by `readEnum(...) ?? "max"`.
+    writeConfig({
+      services: { inference: { mode: "your-own", provider: "anthropic" } },
+      effort: "xhigh",
+    });
+
+    unifyLlmCallSiteConfigsMigration.run(workspaceDir);
+
+    const llm = readConfig().llm as Record<string, Record<string, unknown>>;
+    expect(llm.default.effort).toBe("xhigh");
   });
 
   // ─── Defaults from schema (no scattered keys) ──────────────────────────
