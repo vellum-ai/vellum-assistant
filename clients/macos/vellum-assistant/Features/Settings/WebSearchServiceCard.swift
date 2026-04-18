@@ -28,6 +28,12 @@ struct WebSearchServiceCard: View {
     @State private var perplexityHasKey = false
     /// Whether the Brave provider has a stored API key (fetched per-component).
     @State private var braveHasKey = false
+    /// Tail of the serial chain of in-flight `services.web-search.provider` PATCHes.
+    /// Both the auto-fallback writes in `onChange` and the explicit `save()` write
+    /// go through `enqueueProviderWrite` — chaining on this task guarantees the
+    /// last-enqueued value is the one the daemon ends up persisting, so a stale
+    /// auto-fallback PATCH cannot land after a user's explicit save.
+    @State private var pendingProviderWrite: Task<Void, Never>?
 
     private var isPerplexity: Bool {
         draftProvider == "perplexity"
@@ -175,7 +181,7 @@ struct WebSearchServiceCard: View {
             if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
                 draftProvider = "perplexity"
                 if store.webSearchProvider == "inference-provider-native" {
-                    store.setWebSearchProvider("perplexity")
+                    enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
                     initialProvider = "perplexity"
                 }
             }
@@ -187,7 +193,7 @@ struct WebSearchServiceCard: View {
             if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
                 draftProvider = "perplexity"
                 if store.webSearchProvider == "inference-provider-native" {
-                    store.setWebSearchProvider("perplexity")
+                    enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
                     initialProvider = "perplexity"
                 }
             }
@@ -268,10 +274,12 @@ struct WebSearchServiceCard: View {
         if draftMode == "your-own" {
             // Await the mode patch before writing the provider so the
             // daemon's read-modify-write cycle doesn't overwrite the mode.
+            // Funnel through the serial provider queue so any in-flight
+            // auto-fallback PATCH cannot land after this explicit save.
             let capturedProvider = draftProvider
-            Task {
+            enqueueProviderWrite {
                 if let pendingMode { _ = await pendingMode.value }
-                store.setWebSearchProvider(capturedProvider)
+                _ = await store.setWebSearchProvider(capturedProvider).value
             }
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -290,5 +298,15 @@ struct WebSearchServiceCard: View {
 
         // Update initial provider to reflect persisted state
         initialProvider = draftProvider
+    }
+
+    /// Serializes provider PATCHes by chaining each new write onto the tail of
+    /// the previous in-flight task. The last enqueued value wins deterministically.
+    private func enqueueProviderWrite(_ work: @MainActor @escaping () async -> Void) {
+        let previous = pendingProviderWrite
+        pendingProviderWrite = Task { @MainActor in
+            _ = await previous?.value
+            await work()
+        }
     }
 }
