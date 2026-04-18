@@ -13,8 +13,12 @@ final class AuthFailureTrackerTests: XCTestCase {
         }
     }
 
+    /// Default `windowSeconds` matches the production `AuthFailureTracker` default (90s)
+    /// so helper-using tests exercise the real config by default. Tests whose timing
+    /// assertions depend on a specific window size (e.g. pruning at specific offsets)
+    /// must pass `windowSeconds:` explicitly at the call site.
     private func makeTracker(
-        windowSeconds: TimeInterval = 30,
+        windowSeconds: TimeInterval = 90,
         minFailures: Int = 4,
         clock: Clock
     ) -> AuthFailureTracker {
