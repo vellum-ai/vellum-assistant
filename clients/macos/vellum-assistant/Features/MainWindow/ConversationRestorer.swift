@@ -353,6 +353,7 @@ final class ConversationRestorer {
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
+                conversationType: session.conversationType,
                 hostAccess: session.hostAccess ?? false,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
