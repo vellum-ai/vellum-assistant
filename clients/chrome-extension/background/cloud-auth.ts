@@ -6,14 +6,11 @@
  * is used to authenticate the browser-relay WebSocket against the cloud
  * gateway.
  *
- * Two base URLs are involved:
- * - `webBaseUrl` — the Next.js web app that serves the browser-facing
- *   OAuth start page (`/oauth/chrome-extension/start`). Always
- *   `https://www.vellum.ai` in production.
- * - `gatewayBaseUrl` — the API gateway / runtime that hosts the
- *   WebSocket relay. Resolved per-assistant: cloud-managed assistants
- *   carry a `runtimeUrl` in their lockfile entry, falling back to
- *   `https://api.vellum.ai`.
+ * The `CloudAuthConfig.webBaseUrl` field points to the Next.js web app
+ * that serves the browser-facing OAuth start page
+ * (`/oauth/chrome-extension/start`). Always `https://www.vellum.ai` in
+ * production. The gateway / relay URL is managed separately by the
+ * caller (worker.ts) and is not part of the auth config.
  *
  * Also exposes {@link refreshCloudToken}, the non-interactive refresh helper
  * used by the relay reconnect path when the stored token has expired or the
@@ -29,8 +26,6 @@
  */
 
 export interface CloudAuthConfig {
-  /** Gateway base URL, e.g. https://api.vellum.ai */
-  gatewayBaseUrl: string;
   /** Web app base URL for browser-facing pages, e.g. https://www.vellum.ai */
   webBaseUrl: string;
   /** OAuth client id registered for the chrome extension. */

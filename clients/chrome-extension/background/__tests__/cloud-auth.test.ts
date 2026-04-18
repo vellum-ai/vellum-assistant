@@ -78,7 +78,6 @@ afterEach(() => {
 });
 
 const config: CloudAuthConfig = {
-  gatewayBaseUrl: 'https://api.vellum.ai',
   webBaseUrl: 'https://www.vellum.ai',
   clientId: 'test-client-id',
 };
@@ -149,7 +148,7 @@ describe('signInCloud', () => {
       seenUrl = details.url;
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
     };
-    await signInCloud(ASSISTANT_A, { gatewayBaseUrl: 'https://api.vellum.ai/', webBaseUrl: 'https://www.vellum.ai/', clientId: 'cid' });
+    await signInCloud(ASSISTANT_A, { webBaseUrl: 'https://www.vellum.ai/', clientId: 'cid' });
     expect(seenUrl).toContain('https://www.vellum.ai/oauth/chrome-extension/start');
     expect(seenUrl).not.toContain('www.vellum.ai//oauth');
   });
