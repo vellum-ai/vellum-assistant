@@ -152,6 +152,13 @@ struct MessageListView: View {
                                     // pays nothing when the overlay is off.
                                     guard MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") else { return }
                                     scrollState.recordDebugAnchorShift()
+                                },
+                                onAnchorDecision: { [scrollState] event in
+                                    // Debug-only full-decision log. Captures
+                                    // skips (shrinks, live-scroll gate, etc.)
+                                    // plus applies, with pre/post offsets.
+                                    guard MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") else { return }
+                                    scrollState.recordAnchorDecision(event)
                                 }
                             )
                         )

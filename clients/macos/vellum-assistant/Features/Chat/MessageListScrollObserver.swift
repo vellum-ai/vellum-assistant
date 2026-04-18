@@ -22,12 +22,19 @@ struct MessageListScrollObserver: NSViewRepresentable {
     /// growth). Used only by the scroll-debug overlay to count anchor
     /// activations. `nil` when no observer cares.
     var onAnchorShift: (@MainActor () -> Void)? = nil
+    /// Fired for every anchor-preserver decision where the content height
+    /// actually changed, regardless of whether the shift was applied or
+    /// skipped. Used by the scroll-debug recorder to attribute missed
+    /// compensations (content shrinks, live-scroll gates, first-layout).
+    /// `nil` when no observer cares.
+    var onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onGeometryChange: onGeometryChange,
             shouldPreserveScrollAnchor: shouldPreserveScrollAnchor,
-            onAnchorShift: onAnchorShift
+            onAnchorShift: onAnchorShift,
+            onAnchorDecision: onAnchorDecision
         )
     }
 
@@ -45,6 +52,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
         context.coordinator.onGeometryChange = onGeometryChange
         context.coordinator.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
         context.coordinator.onAnchorShift = onAnchorShift
+        context.coordinator.onAnchorDecision = onAnchorDecision
         DispatchQueue.main.async { [weak nsView] in
             guard let nsView else { return }
             context.coordinator.attachIfNeeded(to: nsView)
@@ -65,6 +73,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
         var onGeometryChange: @MainActor (ScrollGeometrySnapshot) -> Void
         var shouldPreserveScrollAnchor: @MainActor () -> Bool
         var onAnchorShift: (@MainActor () -> Void)?
+        var onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)?
         private var observers: [NSObjectProtocol] = []
         private var lastSnapshot: ScrollGeometrySnapshot?
         /// Last observed `documentView.frame.height`. Used to compute the
@@ -89,11 +98,13 @@ struct MessageListScrollObserver: NSViewRepresentable {
         init(
             onGeometryChange: @escaping @MainActor (ScrollGeometrySnapshot) -> Void,
             shouldPreserveScrollAnchor: @escaping @MainActor () -> Bool,
-            onAnchorShift: (@MainActor () -> Void)? = nil
+            onAnchorShift: (@MainActor () -> Void)? = nil,
+            onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)? = nil
         ) {
             self.onGeometryChange = onGeometryChange
             self.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
             self.onAnchorShift = onAnchorShift
+            self.onAnchorDecision = onAnchorDecision
         }
 
         func attachIfNeeded(to hostView: NSView) {
@@ -136,6 +147,8 @@ struct MessageListScrollObserver: NSViewRepresentable {
 
             let clipView = scrollView.contentView
             let currentContentHeight = documentView.frame.height
+            let preOffsetY = clipView.bounds.origin.y
+            let contentHDelta = currentContentHeight - lastContentHeight
 
             // Anchor preservation: when the streaming assistant response
             // grows and the user is reading older content above the visual
@@ -146,21 +159,34 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // clip view by the height delta so the visible content stays
             // put. The decision lives in `ScrollAnchorPreserver` so the
             // logic is unit-testable without an NSScrollView.
-            if let delta = ScrollAnchorPreserver.offsetDelta(
+            let decision = ScrollAnchorPreserver.decide(
                 currentContentHeight: currentContentHeight,
                 lastContentHeight: lastContentHeight,
-                contentOffsetY: clipView.bounds.origin.y,
+                contentOffsetY: preOffsetY,
                 shouldPreserveAnchor: shouldPreserveScrollAnchor(),
                 isUserLiveScrolling: isLiveScrolling,
                 pinnedToLatestEpsilon: Self.pinnedToLatestEpsilon
-            ) {
+            )
+            if case .applied(let delta) = decision {
                 let newOrigin = NSPoint(
                     x: clipView.bounds.origin.x,
-                    y: clipView.bounds.origin.y + delta
+                    y: preOffsetY + delta
                 )
                 clipView.setBoundsOrigin(newOrigin)
                 scrollView.reflectScrolledClipView(clipView)
                 onAnchorShift?()
+            }
+            // Telemetry: only fire when content height actually changed so
+            // the recorder isn't spammed with no-op decisions from bounds
+            // notifications that didn't involve a layout change.
+            if contentHDelta != 0, let onAnchorDecision {
+                onAnchorDecision(ScrollAnchorDecisionEvent(
+                    outcome: decision,
+                    contentHDelta: contentHDelta,
+                    preOffsetY: preOffsetY,
+                    postOffsetY: clipView.bounds.origin.y,
+                    at: Date()
+                ))
             }
             lastContentHeight = currentContentHeight
 
@@ -282,9 +308,25 @@ struct MessageListScrollObserver: NSViewRepresentable {
 /// decision tree can be exercised in unit tests without standing up a real
 /// `NSScrollView`.
 enum ScrollAnchorPreserver {
-    /// Returns the offset delta to add to `contentOffsetY` so the visible
-    /// content stays anchored when the document grows, or `nil` if no
-    /// adjustment is needed.
+    /// Reason the preserver chose not to shift the offset. Used by the
+    /// scroll-debug telemetry so each skipped decision is attributable.
+    enum SkipReason: String {
+        case anchorPreservationDisabled
+        case userLiveScrolling
+        case firstLayout
+        case notGrowth
+        case pinnedToLatest
+    }
+
+    /// Outcome of a single `decide(...)` call.
+    enum Decision {
+        case applied(delta: CGFloat)
+        case skipped(SkipReason)
+    }
+
+    /// Rich decision for a single layout-change notification. `offsetDelta`
+    /// is a thin convenience over this, kept for tests and simple callers
+    /// that only need the CGFloat?.
     ///
     /// In the inverted scroll, `contentOffsetY = 0` is the visual bottom
     /// (latest messages). The streaming assistant response lives at the
@@ -293,6 +335,26 @@ enum ScrollAnchorPreserver {
     /// content (positive `contentOffsetY`) sees that content scroll upward
     /// off the top of the viewport unless the offset is shifted by the
     /// growth amount.
+    static func decide(
+        currentContentHeight: CGFloat,
+        lastContentHeight: CGFloat,
+        contentOffsetY: CGFloat,
+        shouldPreserveAnchor: Bool,
+        isUserLiveScrolling: Bool,
+        pinnedToLatestEpsilon: CGFloat
+    ) -> Decision {
+        if !shouldPreserveAnchor { return .skipped(.anchorPreservationDisabled) }
+        if isUserLiveScrolling { return .skipped(.userLiveScrolling) }
+        if lastContentHeight <= 0 { return .skipped(.firstLayout) }
+        if currentContentHeight <= lastContentHeight { return .skipped(.notGrowth) }
+        if contentOffsetY <= pinnedToLatestEpsilon { return .skipped(.pinnedToLatest) }
+        return .applied(delta: currentContentHeight - lastContentHeight)
+    }
+
+    /// Returns the offset delta to add to `contentOffsetY` so the visible
+    /// content stays anchored when the document grows, or `nil` if no
+    /// adjustment is needed. Kept for tests and simple callers — see
+    /// `decide(...)` for the richer outcome.
     static func offsetDelta(
         currentContentHeight: CGFloat,
         lastContentHeight: CGFloat,
@@ -301,12 +363,28 @@ enum ScrollAnchorPreserver {
         isUserLiveScrolling: Bool,
         pinnedToLatestEpsilon: CGFloat
     ) -> CGFloat? {
-        guard shouldPreserveAnchor,
-              !isUserLiveScrolling,
-              lastContentHeight > 0,
-              currentContentHeight > lastContentHeight,
-              contentOffsetY > pinnedToLatestEpsilon
-        else { return nil }
-        return currentContentHeight - lastContentHeight
+        switch decide(
+            currentContentHeight: currentContentHeight,
+            lastContentHeight: lastContentHeight,
+            contentOffsetY: contentOffsetY,
+            shouldPreserveAnchor: shouldPreserveAnchor,
+            isUserLiveScrolling: isUserLiveScrolling,
+            pinnedToLatestEpsilon: pinnedToLatestEpsilon
+        ) {
+        case .applied(let delta): return delta
+        case .skipped: return nil
+        }
     }
+}
+
+/// Single anchor-preserver decision captured for the debug HUD / recorder.
+/// Fired on every call where `contentHDelta` is non-zero, including skips
+/// so we can attribute missed compensations (shrinks, live-scroll blocks,
+/// first-layout).
+struct ScrollAnchorDecisionEvent {
+    let outcome: ScrollAnchorPreserver.Decision
+    let contentHDelta: CGFloat
+    let preOffsetY: CGFloat
+    let postOffsetY: CGFloat
+    let at: Date
 }

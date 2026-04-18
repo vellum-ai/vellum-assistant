@@ -60,6 +60,14 @@ struct ScrollDebugOverlayView: View {
         let velocity = metrics.displayedVelocity(at: now)
         let anchorsPerSec = metrics.anchorShiftsPerSecond(at: now)
 
+        let lastAnchor = metrics.lastAnchorDecision
+        let anchorAgeMs: Int? = lastAnchor.map { Int(max(0, now.timeIntervalSince($0.at)) * 1000) }
+        let anchorOutcome: String = lastAnchor.map(Self.outcomeLabel) ?? ""
+        let anchorDelta: CGFloat = {
+            guard case .applied(let d) = lastAnchor?.outcome else { return 0 }
+            return d
+        }()
+
         if recorder.isRecording {
             recorder.capture(ScrollDebugRecorder.Frame(
                 timestamp: now,
@@ -80,6 +88,12 @@ struct ScrollDebugOverlayView: View {
                 lastContentHDelta: metrics.lastContentHDelta,
                 anchorsPerSecond: anchorsPerSec,
                 anchorTotal: metrics.anchorShiftTotal,
+                anchorOutcome: anchorOutcome,
+                anchorDelta: anchorDelta,
+                anchorContentHDelta: lastAnchor?.contentHDelta ?? 0,
+                anchorPreOffsetY: lastAnchor?.preOffsetY ?? 0,
+                anchorPostOffsetY: lastAnchor?.postOffsetY ?? 0,
+                anchorAgeMs: anchorAgeMs ?? -1,
                 conversationId: scrollState.currentConversationId
             ))
         }
@@ -109,6 +123,14 @@ struct ScrollDebugOverlayView: View {
             )
             row("anchors/s", String(anchorsPerSec))
             row("anchorTotal", String(metrics.anchorShiftTotal))
+            // Most recent anchor decision, tagged in red when it was a skip
+            // accompanying a non-zero content change (i.e. a compensation we
+            // missed). Applied events show the delta and age directly.
+            row(
+                "lastAnchor",
+                anchorDecisionLabel(lastAnchor, ageMs: anchorAgeMs),
+                valueColor: Self.isMissedCompensation(lastAnchor) ? VColor.systemNegativeStrong : nil
+            )
             if let id = scrollState.currentConversationId {
                 row("conv", String(id.uuidString.prefix(8)))
             }
@@ -216,6 +238,33 @@ struct ScrollDebugOverlayView: View {
     }
 
     private func bool(_ v: Bool) -> String { v ? "yes" : "no" }
+
+    private func anchorDecisionLabel(_ event: ScrollAnchorDecisionEvent?, ageMs: Int?) -> String {
+        guard let event, let ageMs else { return "—" }
+        let prefix: String
+        switch event.outcome {
+        case .applied(let delta):
+            prefix = "applied \(String(format: "%+.0f", delta))"
+        case .skipped(let reason):
+            prefix = "skip:\(reason.rawValue)"
+        }
+        return "\(prefix) @ \(ageMs)ms"
+    }
+
+    static func outcomeLabel(_ event: ScrollAnchorDecisionEvent) -> String {
+        switch event.outcome {
+        case .applied: return "applied"
+        case .skipped(let reason): return reason.rawValue
+        }
+    }
+
+    /// A skip that accompanied a real content-height change is a compensation
+    /// we missed — this is the class of event the telemetry is meant to flag.
+    static func isMissedCompensation(_ event: ScrollAnchorDecisionEvent?) -> Bool {
+        guard let event else { return false }
+        if case .skipped = event.outcome, event.contentHDelta != 0 { return true }
+        return false
+    }
 }
 
 // MARK: - ScrollDebugRecorder
@@ -256,6 +305,22 @@ final class ScrollDebugRecorder {
         let lastContentHDelta: CGFloat
         let anchorsPerSecond: Int
         let anchorTotal: Int
+        /// Outcome string of the most recent anchor decision: `"applied"` or
+        /// the skip reason (`"notGrowth"`, `"pinnedToLatest"`, etc.). Empty
+        /// before the first decision fires.
+        let anchorOutcome: String
+        /// Delta applied by the anchor preserver on the most recent decision.
+        /// `0` for skips.
+        let anchorDelta: CGFloat
+        /// Content-height delta the preserver saw on the most recent decision.
+        /// Negative values mean content shrunk — the preserver currently does
+        /// not compensate for shrinks.
+        let anchorContentHDelta: CGFloat
+        let anchorPreOffsetY: CGFloat
+        let anchorPostOffsetY: CGFloat
+        /// Milliseconds since the most recent anchor decision. `-1` before the
+        /// first decision fires.
+        let anchorAgeMs: Int
         let conversationId: UUID?
     }
 
@@ -302,8 +367,8 @@ final class ScrollDebugRecorder {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        var csv = "elapsedSec,timestamp,offsetY,contentH,containerH,viewportH,distBottom,distTop,pinnedLatest,liveScrolling,paginating,paginationInRange,ctaVisible,updatesPerSecond,velocity,lastDeltaY,lastContentHDelta,anchorsPerSecond,anchorTotal,conversationId\n"
-        csv.reserveCapacity(frames.count * 190)
+        var csv = "elapsedSec,timestamp,offsetY,contentH,containerH,viewportH,distBottom,distTop,pinnedLatest,liveScrolling,paginating,paginationInRange,ctaVisible,updatesPerSecond,velocity,lastDeltaY,lastContentHDelta,anchorsPerSecond,anchorTotal,anchorOutcome,anchorDelta,anchorContentHDelta,anchorPreOffsetY,anchorPostOffsetY,anchorAgeMs,conversationId\n"
+        csv.reserveCapacity(frames.count * 240)
         for frame in frames {
             let elapsed = frame.timestamp.timeIntervalSince(start)
             let cols: [String] = [
@@ -326,6 +391,12 @@ final class ScrollDebugRecorder {
                 String(format: "%.2f", frame.lastContentHDelta),
                 String(frame.anchorsPerSecond),
                 String(frame.anchorTotal),
+                frame.anchorOutcome,
+                String(format: "%.2f", frame.anchorDelta),
+                String(format: "%.2f", frame.anchorContentHDelta),
+                String(format: "%.2f", frame.anchorPreOffsetY),
+                String(format: "%.2f", frame.anchorPostOffsetY),
+                String(frame.anchorAgeMs),
                 frame.conversationId?.uuidString ?? "",
             ]
             csv.append(cols.joined(separator: ","))

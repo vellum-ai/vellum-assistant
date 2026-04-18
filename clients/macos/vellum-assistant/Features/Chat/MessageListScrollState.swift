@@ -255,6 +255,14 @@ final class MessageListScrollState {
         debugMetricsVersion &+= 1
     }
 
+    /// Record a full anchor-preserver decision (applied or skipped) with
+    /// pre/post offsets and the content-height delta. Only called when the
+    /// `scroll-debug-overlay` flag is on.
+    func recordAnchorDecision(_ event: ScrollAnchorDecisionEvent) {
+        debugMetrics.recordAnchorDecision(event)
+        debugMetricsVersion &+= 1
+    }
+
     /// Reset debug metrics (e.g. on conversation switch) so counters start
     /// fresh and don't carry stale data across conversations.
     func resetDebugMetrics() {
@@ -289,6 +297,11 @@ struct ScrollDebugMetrics {
     /// Rolling buffer of anchor-shift timestamps — read once per render by the
     /// overlay to compute an anchor-shifts-per-second counter.
     var recentAnchorShiftTimes: [Date] = []
+    /// Most recent anchor-preserver decision (applied or skipped). Refreshed
+    /// on every call where the content height changed, so the HUD / CSV can
+    /// show what the preserver last decided and how long ago. `nil` until
+    /// the first such decision lands.
+    var lastAnchorDecision: ScrollAnchorDecisionEvent?
 
     private var lastSnapshotTime: Date?
     private var lastSnapshotOffsetY: CGFloat = 0
@@ -323,6 +336,10 @@ struct ScrollDebugMetrics {
         anchorShiftTotal += 1
         recentAnchorShiftTimes.append(now)
         Self.trim(&recentAnchorShiftTimes, at: now)
+    }
+
+    mutating func recordAnchorDecision(_ event: ScrollAnchorDecisionEvent) {
+        lastAnchorDecision = event
     }
 
     func updatesPerSecond(at now: Date = Date()) -> Int {
