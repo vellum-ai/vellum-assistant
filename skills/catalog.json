@@ -107,7 +107,7 @@
     {
       "id": "email-setup",
       "name": "email-setup",
-      "description": "Register the assistant's own @vellum.me email address (one-time setup)",
+      "description": "Set up this assistant's own `[name].vellum.me` domain and email address (one-time setup)",
       "metadata": {
         "emoji": "📧",
         "vellum": {
@@ -210,8 +210,7 @@
       "metadata": {
         "emoji": "📹",
         "vellum": {
-          "display-name": "Meet Join",
-          "feature-flag": "meet"
+          "display-name": "Meet Join"
         }
       }
     },
