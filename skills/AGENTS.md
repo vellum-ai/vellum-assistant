@@ -120,17 +120,103 @@
   fi
   ```
 
-  ### Status branching reference
+  ### `--actions` — custom action buttons
 
-  Every `assistant ui` response includes a `status` field. Handle all three terminal states:
+  Use `--actions` to define custom buttons on a `ui request` surface. Each action has an `id`, `label`, and optional `variant` (`"primary"`, `"danger"`, or `"secondary"`). The user's chosen action is returned in `actionId`.
+
+  ```bash
+  # Present a multi-option surface with custom actions
+  RESULT=$(assistant ui request \
+    --payload '{"message":"The staging deploy found 3 failing tests."}' \
+    --title "Deploy decision" \
+    --actions '[
+      {"id":"deploy_anyway","label":"Deploy Anyway","variant":"danger"},
+      {"id":"fix_first","label":"Fix Tests First","variant":"primary"},
+      {"id":"skip","label":"Skip This Deploy","variant":"secondary"}
+    ]' \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  ACTION=$(echo "$RESULT" | jq -r '.actionId')
+
+  if [ "$STATUS" = "submitted" ]; then
+    case "$ACTION" in
+      deploy_anyway)
+        run_deploy --force
+        ;;
+      fix_first)
+        echo "Aborting deploy. Fix the tests and re-run."
+        exit 0
+        ;;
+      skip)
+        echo "Deploy skipped."
+        exit 0
+        ;;
+    esac
+  elif [ "$STATUS" = "cancelled" ]; then
+    REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+    if [ "$REASON" = "user_dismissed" ]; then
+      echo "User dismissed the prompt."
+    else
+      echo "Surface cancelled (reason: $REASON). No action taken."
+    fi
+  else
+    echo "Timed out. No action taken."
+  fi
+  ```
+
+  Reserved action IDs (`selection_changed`, `content_changed`, `state_update`) are used internally for surface lifecycle events and are rejected by `--actions` validation.
+
+  ### Status and cancellation reason branching reference
+
+  Every `assistant ui` response includes a `status` field and, when `status` is `"cancelled"`, a `cancellationReason` field. Branch on **both** to handle all outcomes safely.
 
   | Status | Meaning | Typical action |
   |--------|---------|----------------|
   | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | Check `actionId` to determine the action taken — e.g. `"confirm"` or `"deny"` for confirmations. For `ui confirm`, exit code 0 = confirmed, 1 = denied. |
-  | `cancelled` | User dismissed the surface without choosing an action (e.g. closed the dialog) | Abort gracefully. Inform the user the action was skipped. |
+  | `cancelled` | Surface was cancelled — check `cancellationReason` to determine why | See cancellation reason table below. |
   | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
 
-  **Cancellation vs. failure**: A `cancelled` status means the user made a deliberate choice not to proceed — this is a normal outcome, not an error. Operational failures (IPC unavailable, invalid payload, no conversation context) surface as `ok: false` in JSON mode or a non-zero exit with an error message. Scripts should distinguish the two: cancellation is graceful, failure is exceptional.
+  **Cancellation reasons**: The `cancellationReason` field distinguishes user-driven from operational cancellations:
+
+  | `cancellationReason` | Category | Meaning |
+  |----------------------|----------|---------|
+  | `user_dismissed` | User-driven | User explicitly closed the surface. Treat as a deliberate "no." |
+  | `no_interactive_surface` | Operational | No interactive UI is available (headless/API channel). Consider a fallback. |
+  | `conversation_not_found` | Operational | Target conversation could not be located. Check the conversation ID. |
+  | `resolver_unavailable` | Operational | UI transport is disconnected (e.g. desktop client dropped). May be transient. |
+  | `resolver_error` | Operational | UI resolver threw an unexpected error. Log for investigation. |
+
+  **Canonical branching pattern** for scripts that need to distinguish user dismissal from operational failures:
+
+  ```bash
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  case "$STATUS" in
+    submitted)
+      # Handle based on actionId
+      ;;
+    cancelled)
+      REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+      if [ "$REASON" = "user_dismissed" ]; then
+        echo "User chose not to proceed."
+        exit 0
+      fi
+      # Operational cancellation — log and decide on recovery
+      echo "Surface cancelled: $REASON" >&2
+      exit 1
+      ;;
+    timed_out)
+      echo "Timed out — aborting."
+      exit 1
+      ;;
+    *)
+      echo "Unexpected status: $STATUS" >&2
+      exit 1
+      ;;
+  esac
+  ```
+
+  Scripts that do not need to differentiate cancellation reasons can continue checking `status` alone — the `cancellationReason` field is optional and additive.
 
   **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
 
