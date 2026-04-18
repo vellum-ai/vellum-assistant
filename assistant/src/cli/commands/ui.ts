@@ -373,7 +373,7 @@ Examples:
 
         // Parse actions (if provided)
         let actions: InteractiveUiAction[] | undefined;
-        if (opts.actions) {
+        if (opts.actions !== undefined) {
           try {
             actions = parseActions(opts.actions);
           } catch (err) {

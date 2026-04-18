@@ -762,6 +762,27 @@ describe("ui request — --actions parsing", () => {
     expect(lastIpcCall!.params!.actions).toBeUndefined();
   });
 
+  test("errors when --actions is an empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid JSON in --actions");
+  });
+
   test("errors on malformed JSON in --actions", async () => {
     process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
       conversationId: "conv-1",
