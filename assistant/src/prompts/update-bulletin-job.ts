@@ -115,13 +115,11 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
         { conversationId: conv.id, reason: wakeResult.reason },
         "Update bulletin wake silently no-op'd (invoked=false); cleaning up orphan background conversation and leaving checkpoint unchanged so next startup retries",
       );
-      // Belt-and-suspenders cleanup: even though `runUpdateBulletinJobIfNeeded`
-      // is now dispatched after `server.start()` (so the default wake
-      // resolver is registered before we wake), `wakeAgentForOpportunity()`
-      // can still return `{invoked: false}` for other reasons (resolver
-      // returns null because the conversation cannot be hydrated, a future
-      // regression, etc.). Without this cleanup each such occurrence leaks
-      // a conversation DB row.
+      // Belt-and-suspenders cleanup: `wakeAgentForOpportunity()` can return
+      // `{invoked: false}` for reasons unrelated to the wake-resolver
+      // registration order (resolver returns null because the conversation
+      // cannot be hydrated, etc.). Without this cleanup each such occurrence
+      // leaks a conversation DB row.
       //
       // Wrapped in its own try/catch so a cleanup failure never propagates
       // out of this fire-and-forget task.
@@ -132,8 +130,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       // writing, but the LLM sidechain call itself still runs against the
       // now-deleted conversation id. Adding a cancellation/existence hook
       // in `conversation-title-service.ts` would plug this one-call waste,
-      // but this code path is rare (resolver race is fixed by the primary
-      // change in `lifecycle.ts`), so we accept the one-time cost.
+      // but this code path is rare, so we accept the one-time cost.
       try {
         deleteConversation(conv.id);
       } catch (err) {
