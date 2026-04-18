@@ -132,6 +132,20 @@ export const PLACEHOLDER_EMPTY_TURN =
 export const PLACEHOLDER_BLOCKS_OMITTED =
   "\x00__PLACEHOLDER__[internal blocks omitted]";
 
+const PLACEHOLDER_SENTINEL_TEXTS: ReadonlySet<string> = new Set([
+  PLACEHOLDER_EMPTY_TURN,
+  PLACEHOLDER_BLOCKS_OMITTED,
+]);
+
+/**
+ * True when the text is one of the provider's internal alternation-preserving
+ * sentinels. These must never be persisted or rendered to users — they exist
+ * only in outbound Anthropic API request bodies.
+ */
+export function isPlaceholderSentinelText(text: string): boolean {
+  return PLACEHOLDER_SENTINEL_TEXTS.has(text);
+}
+
 /**
  * Synthetic placeholder injected as user-message content when Anthropic API
  * alternation requires a user turn but no real user content exists. Uses the

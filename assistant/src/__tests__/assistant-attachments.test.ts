@@ -284,6 +284,33 @@ describe("cleanAssistantContent", () => {
     expect(result.warnings).toHaveLength(0);
     expect(result.cleanedContent).toHaveLength(1);
   });
+
+  test("drops Anthropic placeholder sentinel text blocks", () => {
+    const content = [
+      { type: "text", text: "\x00__PLACEHOLDER__[empty assistant turn]" },
+      { type: "text", text: "\x00__PLACEHOLDER__[internal blocks omitted]" },
+      { type: "text", text: "real text" },
+      { type: "tool_use", id: "t1", name: "read", input: {} },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.cleanedContent).toHaveLength(2);
+    expect((result.cleanedContent[0] as { text: string }).text).toBe(
+      "real text",
+    );
+    expect((result.cleanedContent[1] as { type: string }).type).toBe(
+      "tool_use",
+    );
+  });
+
+  test("returns empty array when all text blocks are placeholder sentinels", () => {
+    const content = [
+      { type: "text", text: "\x00__PLACEHOLDER__[empty assistant turn]" },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.cleanedContent).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

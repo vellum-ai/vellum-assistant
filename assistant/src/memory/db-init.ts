@@ -146,6 +146,7 @@ import {
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
+  migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -370,6 +371,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersTokenExchangeBodyFormat,
     migrateNormalizeUserFileByPrincipal,
     migrateConversationsArchivedAt,
+    migrateStripPlaceholderSentinelsFromMessages,
   ];
 
   // Run each migration step, catching and logging individual failures so one
