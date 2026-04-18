@@ -135,4 +135,10 @@ assistant browser --browser-mode local navigate --url http://localhost:3000
 
 ## Verification
 
-Use `assistant browser screenshot --output <path>` after critical actions (form submission, booking confirmation, checkout) to visually verify results before reporting success to the user.
+After critical actions (form submission, booking confirmation, checkout), take a screenshot and read the saved image to visually verify results before reporting success to the user:
+
+```bash
+assistant browser screenshot --output /tmp/verify.jpg
+# then read the image to see its contents
+read_file /tmp/verify.jpg
+```
