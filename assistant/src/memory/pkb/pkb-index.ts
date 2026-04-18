@@ -179,6 +179,12 @@ export function chunkPkbFile(content: string): string[] {
  * Read a PKB file, chunk it, and upsert each chunk to Qdrant via the shared
  * embedding pipeline. `relPath` in the payload is computed relative to
  * `pkbRoot`.
+ *
+ * Self-cleaning: deletes any previously-indexed chunks for this (scope, path)
+ * before upserting the new ones. This keeps the index consistent when a file
+ * shrinks — e.g. a prior run wrote chunks `#0..#3` and the new content only
+ * produces `#0..#1`; without the pre-delete, `#2` and `#3` would linger as
+ * orphaned stale results in search.
  */
 export async function indexPkbFile(
   pkbRoot: string,
@@ -194,9 +200,15 @@ export async function indexPkbFile(
 
   const config = getConfig();
 
+  await deletePkbFilePoints(relPath, memoryScopeId);
+
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
     const chunk = chunks[chunkIndex];
-    const targetId = `${relPath}#${chunkIndex}`;
+    // Scope-namespace the target_id so `qdrant.upsert` — which dedupes on
+    // (target_type, target_id) — cannot collapse distinct scopes' chunks of
+    // the same relpath into a single point. Without the scope prefix, the
+    // second scope to index a shared path would overwrite the first's vectors.
+    const targetId = `${memoryScopeId}:${relPath}#${chunkIndex}`;
     await embedAndUpsert(
       config,
       PKB_TARGET_TYPE,
@@ -214,13 +226,18 @@ export async function indexPkbFile(
 }
 
 /**
- * Remove every Qdrant point belonging to a given PKB file (all chunks).
- * `relPath` must match the `path` payload written by `indexPkbFile`.
+ * Remove every Qdrant point belonging to a given PKB file (all chunks) within
+ * a single memory scope. `relPath` must match the `path` payload written by
+ * `indexPkbFile`. The `memoryScopeId` filter is required — omitting it would
+ * wipe that relpath's chunks across every scope that indexes the same file.
  */
-export async function deletePkbFilePoints(relPath: string): Promise<void> {
+export async function deletePkbFilePoints(
+  relPath: string,
+  memoryScopeId: string,
+): Promise<void> {
   const qdrant = getQdrantClient();
   await withQdrantBreaker(() =>
-    qdrant.deleteByTargetTypeAndPath(PKB_TARGET_TYPE, relPath),
+    qdrant.deleteByTargetTypeAndPath(PKB_TARGET_TYPE, relPath, memoryScopeId),
   );
 }
 

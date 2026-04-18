@@ -503,12 +503,15 @@ export class VellumQdrantClient {
   }
 
   /**
-   * Delete all vectors matching both a target_type and a payload path.
-   * Used to remove every chunk belonging to a single PKB file.
+   * Delete all vectors matching target_type, payload path, and memory scope.
+   * Used to remove every chunk belonging to a single PKB file within a scope.
+   * The memory_scope_id filter is required — omitting it would wipe that
+   * path's chunks across every scope that happens to index the same relpath.
    */
   async deleteByTargetTypeAndPath(
     targetType: string,
     path: string,
+    memoryScopeId: string,
   ): Promise<void> {
     await this.ensureCollection();
 
@@ -519,6 +522,7 @@ export class VellumQdrantClient {
           must: [
             { key: "target_type", match: { value: targetType } },
             { key: "path", match: { value: path } },
+            { key: "memory_scope_id", match: { value: memoryScopeId } },
           ],
         },
       });
@@ -643,6 +647,10 @@ export class VellumQdrantClient {
       }),
       this.client.createPayloadIndex(this.collection, {
         field_name: "memory_scope_id",
+        field_schema: "keyword",
+      }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "path",
         field_schema: "keyword",
       }),
     ]);

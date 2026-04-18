@@ -30,7 +30,7 @@ mock.module("../jobs/embed-pkb-file.js", () => ({
 
 // Capture calls into the fake Qdrant client.
 let scrollPoints: Array<{ id: string; payload: Record<string, unknown> }> = [];
-const deleteCalls: string[] = [];
+const deleteCalls: Array<{ path: string; memoryScopeId: string }> = [];
 
 mock.module("../qdrant-client.js", () => ({
   getQdrantClient: () => ({
@@ -38,8 +38,12 @@ mock.module("../qdrant-client.js", () => ({
       _targetType: string,
       _options?: { memoryScopeId?: string },
     ) => scrollPoints,
-    deleteByTargetTypeAndPath: async (_targetType: string, path: string) => {
-      deleteCalls.push(path);
+    deleteByTargetTypeAndPath: async (
+      _targetType: string,
+      path: string,
+      memoryScopeId: string,
+    ) => {
+      deleteCalls.push({ path, memoryScopeId });
     },
   }),
 }));
@@ -186,7 +190,9 @@ describe("reconcilePkbIndex", () => {
 
     expect(result.enqueued).toBe(0);
     expect(result.deleted).toBe(1);
-    expect(deleteCalls).toEqual(["gone.md"]);
+    expect(deleteCalls).toEqual([
+      { path: "gone.md", memoryScopeId: "default" },
+    ]);
     expect(enqueuedJobs).toHaveLength(0);
   });
 

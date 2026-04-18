@@ -104,7 +104,7 @@ export async function reconcilePkbIndex(
   for (const relPath of indexedByPath.keys()) {
     if (!diskByPath.has(relPath)) {
       try {
-        await deletePkbFilePoints(relPath);
+        await deletePkbFilePoints(relPath, memoryScopeId);
         deleted++;
       } catch (err) {
         log.warn(
