@@ -462,14 +462,21 @@ export function showStandaloneSurface(
       // Notify the client BEFORE cleanup so the surface is dismissed on
       // the client side, preventing stale user interactions from reaching
       // handleSurfaceAction and being misrouted to the LLM.
-      const emitTimeout =
-        ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-      emitTimeout({
-        type: "ui_surface_complete",
-        conversationId: ctx.conversationId,
-        surfaceId,
-        summary: "Timed out",
-      });
+      try {
+        const emitTimeout =
+          ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+        emitTimeout({
+          type: "ui_surface_complete",
+          conversationId: ctx.conversationId,
+          surfaceId,
+          summary: "Timed out",
+        });
+      } catch (err) {
+        log.warn(
+          { err, conversationId: ctx.conversationId, surfaceId },
+          "Failed to emit ui_surface_complete on timeout",
+        );
+      }
 
       cleanupStandaloneSurface(ctx, surfaceId);
       log.info(
@@ -1585,8 +1592,18 @@ export function buildCompletionSummary(
           : undefined;
       return confirmLabel ? `User chose: "${confirmLabel}"` : "Confirmed";
     }
+    if (actionId === "deny") {
+      // The deny button's custom label is passed as cancelLabel in the
+      // confirmation surface data (the deny action reuses the cancel label
+      // since both represent the "reject" path).
+      const denyLabel =
+        typeof surfaceData?.cancelLabel === "string"
+          ? surfaceData.cancelLabel
+          : undefined;
+      return denyLabel ? `User chose: "${denyLabel}"` : "Denied";
+    }
     // Preserve the actual action ID so the LLM knows the user's exact choice
-    // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
+    // rather than misreporting it as confirmed.
     return `User selected: ${actionId}`;
   }
   if (surfaceType === "form") {
@@ -1637,6 +1654,13 @@ export function buildUserFacingLabel(
           ? surfaceData.confirmLabel
           : undefined;
       return confirmLabel ?? "Confirmed";
+    }
+    if (actionId === "deny") {
+      const denyLabel =
+        typeof surfaceData?.cancelLabel === "string"
+          ? surfaceData.cancelLabel
+          : undefined;
+      return denyLabel ?? "Denied";
     }
     return `Selected: ${actionId}`;
   }

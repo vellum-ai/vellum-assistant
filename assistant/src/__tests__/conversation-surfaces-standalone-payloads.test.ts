@@ -678,9 +678,26 @@ describe("buildCompletionSummary for standalone surfaces", () => {
     );
   });
 
-  test("unknown action ID is passed through", () => {
+  test("confirmation deny with custom cancelLabel uses the label", () => {
+    expect(
+      buildCompletionSummary(
+        "confirmation",
+        "deny",
+        {},
+        { cancelLabel: "Keep" },
+      ),
+    ).toBe('User chose: "Keep"');
+  });
+
+  test("confirmation deny without custom label returns Denied", () => {
     expect(buildCompletionSummary("confirmation", "deny", {}, {})).toBe(
-      "User selected: deny",
+      "Denied",
+    );
+  });
+
+  test("unknown action ID is passed through", () => {
+    expect(buildCompletionSummary("confirmation", "reject", {}, {})).toBe(
+      "User selected: reject",
     );
   });
 });
