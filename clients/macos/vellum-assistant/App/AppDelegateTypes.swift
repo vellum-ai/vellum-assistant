@@ -5,6 +5,7 @@ enum AssistantStatus {
     case thinking
     case error
     case disconnected
+    case authFailed
 
     var menuTitle: String {
         menuTitle(assistantName: nil)
@@ -17,6 +18,7 @@ enum AssistantStatus {
         case .thinking: return "\(name) is thinking..."
         case .error: return "\(name) encountered an error"
         case .disconnected: return "Disconnected from \(name)"
+        case .authFailed: return "Authentication failed — click to re-pair \(name)"
         }
     }
 
@@ -26,6 +28,7 @@ enum AssistantStatus {
         case .thinking: return .systemGreen
         case .error: return .systemRed
         case .disconnected: return .systemOrange
+        case .authFailed: return .systemYellow
         }
     }
 
@@ -35,6 +38,7 @@ enum AssistantStatus {
         case .thinking:     return Self.thinkingIcon
         case .error:        return Self.errorIcon
         case .disconnected: return Self.disconnectedIcon
+        case .authFailed:   return Self.authFailedIcon
         }
     }
 
@@ -42,6 +46,7 @@ enum AssistantStatus {
     private static let thinkingIcon     = makeStatusDot(color: .systemGreen)
     private static let errorIcon        = makeStatusDot(color: .systemRed)
     private static let disconnectedIcon = makeStatusDot(color: .systemOrange)
+    private static let authFailedIcon   = makeStatusDot(color: .systemYellow)
 
     private static func makeStatusDot(color: NSColor) -> NSImage {
         let size: CGFloat = 8
