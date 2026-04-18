@@ -61,6 +61,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -828,6 +829,38 @@ export class DaemonServer {
         );
         return null;
       }
+    });
+
+    // Install the interactive UI resolver so skills and IPC handlers can
+    // present ad-hoc UI surfaces (confirmations, forms) to the user via
+    // `requestInteractiveUi()`. The resolver verifies the target
+    // conversation exists and is live before delegating to the
+    // conversation-level surface lifecycle (wired in PR 2). For now it
+    // validates the conversation and fails closed if not found — the
+    // actual surface show/await logic is added in the next PR.
+    registerInteractiveUiResolver(async (request) => {
+      const conversation = this.conversations.get(request.conversationId);
+      if (!conversation) {
+        log.warn(
+          {
+            conversationId: request.conversationId,
+            surfaceType: request.surfaceType,
+          },
+          "interactive-ui resolver: conversation not found; failing closed",
+        );
+        return {
+          status: "cancelled" as const,
+          surfaceId: `ui-resolver-${Date.now()}`,
+        };
+      }
+
+      // PR 2 will wire conversation-scoped surface lifecycle here.
+      // For now, fail closed — the resolver exists and is reachable,
+      // but the surface presentation layer is not yet implemented.
+      return {
+        status: "cancelled" as const,
+        surfaceId: `ui-resolver-${Date.now()}`,
+      };
     });
 
     // Start the CLI IPC server. Built-in methods (wake_conversation) are
