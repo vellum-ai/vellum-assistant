@@ -99,9 +99,9 @@ Options:
 
     const draftId = replyResponse.data.id;
 
-    // Patch the draft to update subject and recipients if specified
+    // Patch the draft to update recipients (do NOT patch subject —
+    // the Graph API auto-generates "Re: ..." and we should preserve it)
     const patchBody: Record<string, unknown> = {};
-    patchBody.subject = subject;
     patchBody.toRecipients = toRecipientsList;
     if (ccRecipientsList) patchBody.ccRecipients = ccRecipientsList;
     if (bccRecipientsList) patchBody.bccRecipients = bccRecipientsList;

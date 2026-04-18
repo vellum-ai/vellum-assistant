@@ -50,16 +50,29 @@ interface PaginateOptions {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a time-range string like "90d", "30d", "7d" into an ISO date. */
+/** Parse a time-range string like "90d", "24h", "30m" into an ISO date. */
 function parseTimeRange(range: string): string {
-  const match = range.match(/^(\d+)d$/);
+  const match = range.match(/^(\d+)([dhm])$/);
   if (!match) {
-    printError(`Invalid --time-range format: "${range}". Use e.g. "90d".`);
+    printError(
+      `Invalid --time-range format: "${range}". Use e.g. "90d", "24h", or "30m".`,
+    );
     throw new Error("unreachable");
   }
-  const days = parseInt(match[1], 10);
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
   const date = new Date();
-  date.setDate(date.getDate() - days);
+  switch (unit) {
+    case "d":
+      date.setDate(date.getDate() - value);
+      break;
+    case "h":
+      date.setHours(date.getHours() - value);
+      break;
+    case "m":
+      date.setMinutes(date.getMinutes() - value);
+      break;
+  }
   return date.toISOString();
 }
 
@@ -281,7 +294,14 @@ async function senderDigest(args: Record<string, string | boolean>) {
 
 async function outreachScan(args: Record<string, string | boolean>) {
   const timeRange = optionalArg(args, "time-range") ?? "90d";
+  const maxSendersStr = optionalArg(args, "max-senders") ?? "30";
   const account = optionalArg(args, "account");
+  const maxSenders = parseInt(maxSendersStr, 10);
+
+  if (isNaN(maxSenders) || maxSenders < 1) {
+    printError(`Invalid --max-senders: "${maxSendersStr}"`);
+    throw new Error("unreachable");
+  }
 
   const startDate = parseTimeRange(timeRange);
   const timeBudgetMs = 90_000;
@@ -348,10 +368,11 @@ async function outreachScan(args: Record<string, string | boolean>) {
     }
   }
 
-  // Sort by count descending
+  // Sort by count descending, limit to maxSenders
   const senders = Array.from(senderMap.entries())
     .map(([email, data]) => ({ email, ...data }))
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxSenders);
 
   ok({
     senders,

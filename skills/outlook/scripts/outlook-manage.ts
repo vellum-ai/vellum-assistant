@@ -189,14 +189,31 @@ async function handleFollowUp(
         {
           $filter: "flag/flagStatus eq 'flagged'",
           $top: "50",
-          $select: "subject,from,receivedDateTime,flag",
+          $select:
+            "id,conversationId,subject,bodyPreview,from,toRecipients,receivedDateTime,isRead,hasAttachments,parentFolderId,categories,flag",
+          $orderby: "receivedDateTime desc",
         },
         account,
       );
       if (!res.ok) {
         printError(`Failed to list flagged messages (HTTP ${res.status})`);
       }
-      ok(res.data);
+      // Map to a compact format with the essential fields
+      const messages = (res.data.value ?? []).map(
+        (m: Record<string, unknown>) => ({
+          id: m.id,
+          conversationId: m.conversationId,
+          subject: m.subject,
+          from:
+            (
+              m.from as {
+                emailAddress?: { address?: string };
+              }
+            )?.emailAddress?.address ?? "",
+          date: m.receivedDateTime,
+        }),
+      );
+      ok({ messages });
       break;
     }
     default:
@@ -223,7 +240,9 @@ interface AttachmentsListResponse {
 }
 
 function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\]/g, "_");
+  // Strip directory components (like basename) and replace traversal patterns
+  const base = name.split(/[/\\]/).pop() ?? "attachment";
+  return base.replace(/\.\./g, "_");
 }
 
 async function handleAttachments(
@@ -237,13 +256,20 @@ async function handleAttachments(
     case "list": {
       const res = await graphGet<AttachmentsListResponse>(
         `/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments`,
-        undefined,
+        { $select: "id,name,contentType,size,isInline" },
         account,
       );
       if (!res.ok) {
         printError(`Failed to list attachments (HTTP ${res.status})`);
       }
-      ok(res.data);
+      // Map to compact format matching old behavior
+      const attachments = (res.data.value ?? []).map((a) => ({
+        attachmentId: a.id,
+        name: a.name,
+        contentType: a.contentType,
+        size: a.size,
+      }));
+      ok({ attachments });
       break;
     }
     case "download": {
@@ -263,9 +289,16 @@ async function handleAttachments(
       }
 
       const filename = sanitizeFilename(attachment.name || "attachment");
+      const outputDir = process.cwd();
+      const { resolve: resolvePath } = await import("node:path");
+      const outputPath = resolvePath(outputDir, filename);
+      if (!outputPath.startsWith(outputDir)) {
+        printError("Invalid filename: path traversal detected.");
+        throw new Error("unreachable");
+      }
       const bytes = Buffer.from(attachment.contentBytes!, "base64");
-      await Bun.write(filename, bytes);
-      ok({ filename, size: bytes.length });
+      await Bun.write(outputPath, bytes);
+      ok({ path: outputPath, name: filename, size: bytes.length });
       break;
     }
     default:
@@ -330,6 +363,7 @@ async function handleRules(
 
       const ruleBody = {
         displayName: name,
+        sequence: 1,
         isEnabled: true,
         conditions,
         actions,
@@ -406,14 +440,19 @@ async function handleVacation(
         optionalArg(args, "external-audience") ?? "none";
       const start = optionalArg(args, "start");
       const end = optionalArg(args, "end");
-      const timezone = optionalArg(args, "timezone") ?? "UTC";
+      const timezone =
+        optionalArg(args, "timezone") ??
+        Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       const setting: Record<string, unknown> = {
         status: start && end ? "scheduled" : "alwaysEnabled",
         internalReplyMessage: internalMessage,
-        externalReplyMessage: externalMessage ?? internalMessage,
         externalAudience,
       };
+      // Only set external reply message if explicitly provided
+      if (externalMessage) {
+        setting.externalReplyMessage = externalMessage;
+      }
 
       if (start && end) {
         setting.scheduledStartDateTime = {
@@ -442,7 +481,12 @@ async function handleVacation(
     case "disable": {
       const res = await graphPatch(
         "/v1.0/me/mailboxSettings",
-        { automaticRepliesSetting: { status: "disabled" } },
+        {
+          automaticRepliesSetting: {
+            status: "disabled",
+            externalAudience: "none",
+          },
+        },
         account,
       );
       if (!res.ok) {
@@ -576,7 +620,8 @@ function pinnedHttpsRequest(
         // Consume the response body to free resources
         res.resume();
         const status = res.statusCode ?? 0;
-        resolve({ ok: status >= 200 && status < 300, status });
+        // Accept 2xx and 3xx (redirects are common for unsubscribe endpoints)
+        resolve({ ok: status >= 200 && status < 400, status });
       },
     );
     req.on("error", reject);
