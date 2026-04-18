@@ -442,22 +442,23 @@ extension AppDelegate {
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
 
-        if currentAssistantStatus == .authFailed {
-            let item = NSMenuItem(
-                title: "Re-pair Assistant",
-                action: #selector(rePairAssistant),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.image = VIcon.refreshCw.nsImage(size: 16)
-            menu.addItem(item)
-            menu.addItem(.separator())
-        }
-
         // During onboarding, only show the status line and Quit to prevent
         // users from bypassing the onboarding flow via Settings or conversations.
+        // The Re-pair item must respect this policy too: calling forceReBootstrap()
+        // while onboarding's credential flow is in progress would race it.
         if onboardingWindow == nil {
             menu.addItem(NSMenuItem.separator())
+
+            if currentAssistantStatus == .authFailed {
+                let item = NSMenuItem(
+                    title: "Re-pair Assistant",
+                    action: #selector(rePairAssistant),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.image = VIcon.refreshCw.nsImage(size: 16)
+                menu.addItem(item)
+            }
 
             let currentConversationItem: NSMenuItem = {
                 let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
