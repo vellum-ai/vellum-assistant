@@ -135,6 +135,14 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // conversation switch destroys + recreates the ScrollView) does
             // not treat the new content height as a delta over the old.
             self.lastContentHeight = 0
+            // Reset live-scroll tracking: if the old scroll view emitted
+            // `willStartLiveScrollNotification` but was replaced before
+            // `didEndLiveScrollNotification` fired, the flag would stay
+            // stuck `true` on the coordinator and suppress anchor
+            // compensation in the new view until the user performed a
+            // fresh full scroll cycle.
+            self.isLiveScrolling = false
+            self.lastSnapshot = nil
             installObservers()
         }
 
