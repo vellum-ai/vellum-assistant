@@ -5,14 +5,14 @@
  * for reading gateway-owned data. Protocol: newline-delimited JSON
  * (same as gateway/src/ipc/server.ts).
  *
- * The socket lives at `{workspaceDir}/gateway.sock` on the shared volume.
+ * The preferred socket path is `{workspaceDir}/gateway.sock`, with a
+ * deterministic fallback for long AF_UNIX paths.
  */
 
 import { connect, type Socket } from "node:net";
-import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
 
@@ -176,5 +176,5 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
 // ---------------------------------------------------------------------------
 
 function getGatewaySocketPath(): string {
-  return join(getWorkspaceDir(), "gateway.sock");
+  return resolveIpcSocketPath("gateway.sock").path;
 }

@@ -7,18 +7,19 @@
  * - Response: { "id": string, "result"?: unknown, "error"?: string }
  * - Event:    { "event": string, "data"?: unknown }  (server → client push, no id)
  *
- * The socket lives at `{workspaceDir}/gateway.sock` on the shared volume so
- * the assistant container can connect to it.
+ * The preferred socket path is `{workspaceDir}/gateway.sock` on the shared
+ * volume. On platforms with strict AF_UNIX path limits, the server falls back
+ * to a shorter deterministic path.
  */
 
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import type { z } from "zod";
 
-import { getWorkspaceDir } from "../credential-reader.js";
 import { getLogger } from "../logger.js";
+import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("ipc-server");
 
@@ -66,7 +67,19 @@ export class GatewayIpcServer {
   private socketPath: string;
 
   constructor(routes?: IpcRoute[]) {
-    this.socketPath = getDefaultSocketPath();
+    const socketResolution = resolveIpcSocketPath("gateway.sock");
+    this.socketPath = socketResolution.path;
+    if (socketResolution.source !== "workspace") {
+      log.warn(
+        {
+          source: socketResolution.source,
+          workspacePath: socketResolution.workspacePath,
+          resolvedPath: socketResolution.path,
+          maxPathBytes: socketResolution.maxPathBytes,
+        },
+        "Gateway IPC socket path exceeded platform limit; using fallback path",
+      );
+    }
     if (routes) {
       for (const route of routes) {
         this.methods.set(route.method, route.handler);
@@ -275,5 +288,5 @@ export class GatewayIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getDefaultSocketPath(): string {
-  return join(getWorkspaceDir(), "gateway.sock");
+  return resolveIpcSocketPath("gateway.sock").path;
 }
