@@ -781,6 +781,30 @@ export async function runDaemon(): Promise<void> {
             "Qdrant client initialization failed — memory features will be degraded",
           );
         }
+
+        // Reconcile the PKB Qdrant index against the on-disk tree. Kept
+        // inside the `qdrantStarted` guard so we don't call
+        // `getQdrantClient()` (which throws "not initialized") on every
+        // startup when Qdrant is unavailable. Fire-and-forget so enqueued
+        // re-index jobs drain in the background and first-turn latency
+        // stays unaffected.
+        void (async () => {
+          try {
+            const { reconcilePkbIndex } = await import(
+              "../memory/pkb/pkb-reconcile.js"
+            );
+            const { PKB_WORKSPACE_SCOPE } = await import(
+              "../memory/pkb/types.js"
+            );
+            const pkbRoot = join(getWorkspaceDir(), "pkb");
+            await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
+          } catch (err) {
+            log.warn(
+              { err },
+              "PKB index reconciliation failed — continuing startup",
+            );
+          }
+        })();
       }
 
       log.info("Daemon startup: starting memory worker");
@@ -830,27 +854,6 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Graph bootstrap check failed — continuing");
       }
 
-      // Reconcile the PKB Qdrant index against the on-disk tree. Runs after
-      // Qdrant is ready so the scroll query can succeed; fire-and-forget so
-      // enqueued re-index jobs drain in the background and first-turn latency
-      // stays unaffected.
-      void (async () => {
-        try {
-          const { reconcilePkbIndex } = await import(
-            "../memory/pkb/pkb-reconcile.js"
-          );
-          const { PKB_WORKSPACE_SCOPE } = await import(
-            "../memory/pkb/types.js"
-          );
-          const pkbRoot = join(getWorkspaceDir(), "pkb");
-          await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
-        } catch (err) {
-          log.warn(
-            { err },
-            "PKB index reconciliation failed — continuing startup",
-          );
-        }
-      })();
     }
 
     registerWatcherProviders();

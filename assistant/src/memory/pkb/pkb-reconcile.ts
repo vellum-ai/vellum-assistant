@@ -65,13 +65,20 @@ export async function reconcilePkbIndex(
   }
 
   // Build the indexed view keyed by relative path. Qdrant stores one point
-  // per (path, chunk_index), so multiple scroll results can share the same
-  // path; we only need the content_hash, which is identical across chunks.
+  // per (path, chunk_index); every chunk for a given file SHOULD share a
+  // single content_hash, but an interrupted/partial index run can leave
+  // chunks of the same file with differing hashes. Track whether any two
+  // chunks disagree (`mixed`) so we can force a re-index — otherwise stale
+  // chunks remain searchable as long as the first chunk's hash happened to
+  // match the current disk content.
   const qdrant = getQdrantClient();
   const points = await qdrant.scrollByTargetType(PKB_TARGET_TYPE, {
     memoryScopeId,
   });
-  const indexedByPath = new Map<string, { contentHash: string }>();
+  const indexedByPath = new Map<
+    string,
+    { contentHash: string; mixed: boolean }
+  >();
   for (const { payload } of points) {
     const path = typeof payload.path === "string" ? payload.path : undefined;
     const contentHash =
@@ -79,18 +86,26 @@ export async function reconcilePkbIndex(
         ? payload.content_hash
         : undefined;
     if (!path || !contentHash) continue;
-    if (!indexedByPath.has(path)) {
-      indexedByPath.set(path, { contentHash });
+    const existing = indexedByPath.get(path);
+    if (!existing) {
+      indexedByPath.set(path, { contentHash, mixed: false });
+    } else if (existing.contentHash !== contentHash) {
+      existing.mixed = true;
     }
   }
 
   let enqueued = 0;
   let deleted = 0;
 
-  // Re-index files that are new or have changed on disk.
+  // Re-index files that are new, have changed on disk, or have mixed
+  // per-chunk hashes in the index (partial/interrupted prior indexing).
   for (const [relPath, disk] of diskByPath) {
     const indexed = indexedByPath.get(relPath);
-    if (!indexed || indexed.contentHash !== disk.contentHash) {
+    if (
+      !indexed ||
+      indexed.mixed ||
+      indexed.contentHash !== disk.contentHash
+    ) {
       enqueuePkbIndexJob({
         pkbRoot,
         absPath: join(pkbRoot, relPath),
