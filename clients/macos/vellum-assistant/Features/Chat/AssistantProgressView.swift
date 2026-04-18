@@ -106,8 +106,11 @@ struct AssistantProgressView: View {
             initialThinkingStart = latestEnd
             initialThinkingEnd = latestEnd.addingTimeInterval(duration)
         } else if model.allComplete && model.hasTools {
-            let phase = model.phase
-            if phase == .toolsCompleteThinking || phase == .processing {
+            // Only seed the thinking anchor when the daemon has explicitly
+            // signaled thinking-after-tools (.processing). .toolsCompleteThinking
+            // is pure phase inference and would mislabel post-tool latency as
+            // "Thinking" — see the synthetic ThinkingStepRow below.
+            if model.phase == .processing {
                 initialThinkingStart = model.latestCompletedAt ?? Date()
                 initialThinkingEnd = nil
             } else {
@@ -299,8 +302,15 @@ struct AssistantProgressView: View {
                 thinkingAfterToolsStartDate = nil
                 thinkingAfterToolsEndDate = nil
             }
-            // Track thinking phase start: all tools complete, card still active.
-            if (newPhase == .toolsCompleteThinking || newPhase == .processing)
+            // Track thinking phase start only when the daemon explicitly
+            // signaled thinking-after-tools. .processing fires only when
+            // isProcessing is true, which the daemon emits on the first
+            // thinking_delta following a tool completion (see
+            // handleThinkingDelta in conversation-agent-loop-handlers.ts).
+            // .toolsCompleteThinking is pure phase inference and does not
+            // imply real thinking happened — gating on it would mislabel
+            // post-tool network/first-token latency as "Thinking".
+            if newPhase == .processing
                 && model.allComplete && model.hasTools
                 && thinkingAfterToolsStartDate == nil {
                 thinkingAfterToolsStartDate = model.latestCompletedAt ?? Date()
