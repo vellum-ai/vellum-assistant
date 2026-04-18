@@ -901,6 +901,7 @@ export async function runAgentLoopImpl(
       pkbConversation,
       pkbAutoInjectList,
       pkbRoot,
+      pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,

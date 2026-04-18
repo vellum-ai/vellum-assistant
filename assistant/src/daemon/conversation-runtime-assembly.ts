@@ -1270,6 +1270,12 @@ export async function applyRuntimeInjections(
     pkbAutoInjectList?: string[];
     /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
     pkbRoot?: string;
+    /**
+     * Working directory against which relative `file_read` tool paths
+     * resolve. Required alongside `pkbConversation` + `pkbRoot` to detect
+     * workspace-relative reads like `pkb/threads.md`.
+     */
+    pkbWorkingDir?: string;
     nowScratchpad?: string | null;
     subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
@@ -1336,7 +1342,8 @@ export async function applyRuntimeInjections(
         queryVector.length > 0 &&
         options.pkbScopeId &&
         options.pkbConversation &&
-        options.pkbRoot
+        options.pkbRoot &&
+        options.pkbWorkingDir
       ) {
         try {
           const results = await searchPkbFiles(
@@ -1349,6 +1356,7 @@ export async function applyRuntimeInjections(
             options.pkbConversation,
             options.pkbAutoInjectList ?? [],
             options.pkbRoot,
+            options.pkbWorkingDir,
           );
           const pkbRoot = options.pkbRoot;
           hints = results

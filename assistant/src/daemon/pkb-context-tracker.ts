@@ -7,7 +7,9 @@
  *   1. It was explicitly auto-injected (caller supplies `autoInjectPaths`),
  *      typically via a system-reminder that embeds the file contents.
  *   2. The conversation history contains a structured `file_read` tool_use
- *      block whose `input.path` resolves to a path inside `pkbRoot`.
+ *      block whose `input.path` — resolved the same way `file_read` itself
+ *      resolves it (absolute as-is, relative against `workingDir`) — lands
+ *      inside `pkbRoot`.
  *
  * Used by the PKB system reminder so we don't suggest files the model has
  * already loaded.
@@ -72,6 +74,11 @@ function resolveInsidePkbRoot(
  * `pkbRoot`) and any `file_read` tool_use block inputs found in
  * `conversation.messages` that resolve inside `pkbRoot`.
  *
+ * `file_read` resolves its `path` argument against `workingDir` (the tool's
+ * working directory), so this helper mirrors that rule: relative tool paths
+ * are resolved against `workingDir`, absolute paths are taken as-is, and the
+ * resulting absolute path is then accepted only if it falls inside `pkbRoot`.
+ *
  * Paths outside `pkbRoot` (including `..`-traversal attempts) are excluded.
  * Tool uses whose `name` is not `file_read` are ignored.
  */
@@ -79,8 +86,10 @@ export function getInContextPkbPaths(
   conversation: PkbContextConversation,
   autoInjectPaths: string[],
   pkbRoot: string,
+  workingDir: string,
 ): Set<string> {
   const normalizedRoot = path.resolve(pkbRoot);
+  const normalizedWorkingDir = path.resolve(workingDir);
   const inContext = new Set<string>();
 
   for (const candidate of autoInjectPaths) {
@@ -96,14 +105,16 @@ export function getInContextPkbPaths(
       if (block.type !== "tool_use") continue;
       if (block.name !== FILE_READ_TOOL_NAME) continue;
       const rawPath = block.input?.path;
-      if (typeof rawPath !== "string") continue;
-      // `file_read` accepts both absolute paths and paths relative to the
-      // tool's working directory — NOT to `pkbRoot`. Resolving a relative
-      // `rawPath` against `pkbRoot` would treat e.g. `"notes.md"` as inside
-      // the PKB even if the actual read was against `workingDir/notes.md`.
-      // Only absolute paths are unambiguous here.
-      if (!path.isAbsolute(rawPath)) continue;
-      const resolved = resolveInsidePkbRoot(rawPath, normalizedRoot);
+      if (typeof rawPath !== "string" || rawPath.length === 0) continue;
+      // Mirror `file_read`'s own path resolution: absolute paths are taken
+      // as-is; relative paths resolve against the tool's working directory
+      // (NOT `pkbRoot`). Resolving relative paths against `pkbRoot` would
+      // double-prefix workspace-relative inputs like `pkb/threads.md` into
+      // `<pkbRoot>/pkb/threads.md` and miss the actually-loaded file.
+      const absolute = path.isAbsolute(rawPath)
+        ? path.resolve(rawPath)
+        : path.resolve(normalizedWorkingDir, rawPath);
+      const resolved = resolveInsidePkbRoot(absolute, normalizedRoot);
       if (resolved !== undefined) {
         inContext.add(resolved);
       }
