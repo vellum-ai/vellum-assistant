@@ -467,11 +467,11 @@ describe("Meet pipeline end-to-end", () => {
         { id: "p-alice", name: "Alice" },
       ]);
 
-      // Conversation has the "Alice joined" system line from the bridge.
+      // Conversation has the "[Meeting] Alice joined" system line from the bridge.
       const joinLine = insert.calls.find((c) => {
         try {
           const parts = JSON.parse(c.content) as Array<{ text: string }>;
-          return parts.some((p) => p.text === "Alice joined");
+          return parts.some((p) => p.text === "[Meeting] Alice joined");
         } catch {
           return false;
         }
