@@ -1,3 +1,4 @@
+import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
@@ -65,7 +66,7 @@ export function migrateStripPlaceholderSentinelsFromMessages(
           const stripped = blocks.filter((b) => {
             if (b.type !== "text") return true;
             const text = typeof b.text === "string" ? b.text : "";
-            return !isSentinelText(text);
+            return !isPlaceholderSentinelText(text);
           });
 
           if (stripped.length === blocks.length) continue;
@@ -76,13 +77,5 @@ export function migrateStripPlaceholderSentinelsFromMessages(
         }
       }
     },
-  );
-}
-
-function isSentinelText(text: string): boolean {
-  const normalized = text.startsWith("\x00") ? text.slice(1) : text;
-  return (
-    normalized === "__PLACEHOLDER__[empty assistant turn]" ||
-    normalized === "__PLACEHOLDER__[internal blocks omitted]"
   );
 }

@@ -77,6 +77,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 import {
   AnthropicProvider,
+  isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../providers/anthropic/client.js";
@@ -1252,6 +1253,29 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     for (let i = 1; i < sent.length; i++) {
       expect(sent[i].role).not.toBe(sent[i - 1].role);
     }
+  });
+
+  test("isPlaceholderSentinelText matches sentinel with and without the null-byte prefix", () => {
+    // The runtime filter must be lenient enough to catch sentinel text that
+    // lost its `\x00` prefix in transit (e.g. a model echoing it back from
+    // input history without reproducing the control character). Migration 222
+    // handles the same two variants.
+    expect(isPlaceholderSentinelText(PLACEHOLDER_EMPTY_TURN)).toBe(true);
+    expect(isPlaceholderSentinelText(PLACEHOLDER_BLOCKS_OMITTED)).toBe(true);
+    expect(
+      isPlaceholderSentinelText("__PLACEHOLDER__[empty assistant turn]"),
+    ).toBe(true);
+    expect(
+      isPlaceholderSentinelText("__PLACEHOLDER__[internal blocks omitted]"),
+    ).toBe(true);
+    // Nearby strings must NOT match — guard against over-broad matching.
+    expect(isPlaceholderSentinelText("")).toBe(false);
+    expect(isPlaceholderSentinelText("__PLACEHOLDER__")).toBe(false);
+    expect(
+      isPlaceholderSentinelText(
+        "prefix __PLACEHOLDER__[empty assistant turn]",
+      ),
+    ).toBe(false);
   });
 
   // -----------------------------------------------------------------------
