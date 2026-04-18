@@ -1076,6 +1076,7 @@ export async function startGateway(
     // (mirrors the daemon env setup).
     ...(resources
       ? {
+          BASE_DATA_DIR: resources.instanceDir,
           VELLUM_WORKSPACE_DIR: join(
             resources.instanceDir,
             ".vellum",
