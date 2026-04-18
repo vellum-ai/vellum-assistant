@@ -635,7 +635,8 @@ jobs:
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: gateway
+          context: .
+          file: gateway/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
@@ -1031,7 +1032,7 @@ jobs:
           - service: gateway
             runs_on: ubuntu-latest
             dockerhub_image_name: vellum-gateway
-            context: gateway
+            context: .
             dockerfile: gateway/Dockerfile
             feature_flag_path: gateway/src/feature-flag-registry.json
           - service: credential-executor
