@@ -99,7 +99,7 @@ These indicate infrastructure or configuration problems, not user decisions:
 - **IPC unavailable**: The daemon is not running or the socket is unreachable. The CLI exits non-zero with an error message.
 - **No conversation context**: Neither `--conversation-id` nor `__SKILL_CONTEXT_JSON` provided a valid conversation ID.
 - **Invalid payload**: Malformed JSON in `--payload` or stdin.
-- **No interactive surface**: The active channel does not support interactive UI (headless/API mode).
+- **No interactive surface**: The active channel does not support interactive UI (headless/API mode). Note: the runtime fails closed to `{ status: "cancelled" }` (a normal result with `ok: true`), not an IPC error. Scripts should check `status` to detect this case.
 
 In `--json` mode, operational errors return `{ "ok": false, "error": "<message>" }`. Without `--json`, they print to stderr and exit non-zero.
 
