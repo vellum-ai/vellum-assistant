@@ -8,7 +8,7 @@
  *
  * The `CloudAuthConfig.webBaseUrl` field points to the Next.js web app
  * that serves the browser-facing OAuth start page
- * (`/oauth/chrome-extension/start`). Always `https://www.vellum.ai` in
+ * (`/accounts/chrome-extension/start`). Always `https://www.vellum.ai` in
  * production. The gateway / relay URL is managed separately by the
  * caller (worker.ts) and is not part of the auth config.
  *
@@ -222,12 +222,13 @@ function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
   };
 }
 
-function buildAuthUrl(config: CloudAuthConfig): string {
+function buildAuthUrl(config: CloudAuthConfig, assistantId: string): string {
   const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
   return (
-    `${config.webBaseUrl.replace(/\/$/, '')}/oauth/chrome-extension/start` +
+    `${config.webBaseUrl.replace(/\/$/, '')}/accounts/chrome-extension/start` +
     `?client_id=${encodeURIComponent(config.clientId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}`
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&assistant_id=${encodeURIComponent(assistantId)}`
   );
 }
 
@@ -236,7 +237,7 @@ function buildAuthUrl(config: CloudAuthConfig): string {
  * The extension receives the token via the redirect URI fragment.
  */
 export async function signInCloud(assistantId: string, config: CloudAuthConfig): Promise<StoredCloudToken> {
-  const authUrl = buildAuthUrl(config);
+  const authUrl = buildAuthUrl(config, assistantId);
 
   const responseUrl = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
   if (!responseUrl) throw new Error('cloud sign-in cancelled');
@@ -265,7 +266,7 @@ export async function refreshCloudToken(
   assistantId: string,
   config: CloudAuthConfig,
 ): Promise<StoredCloudToken | null> {
-  const authUrl = buildAuthUrl(config);
+  const authUrl = buildAuthUrl(config, assistantId);
 
   let responseUrl: string | undefined;
   try {
