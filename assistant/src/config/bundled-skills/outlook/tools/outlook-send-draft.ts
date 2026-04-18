@@ -14,7 +14,7 @@ export async function run(
   const draftId = input.draft_id as string;
   if (!draftId) return err("draft_id is required.");
 
-  if (!context.triggeredBySurfaceAction) {
+  if (!context.triggeredBySurfaceAction && !context.approvedViaPrompt) {
     return err(
       "This tool requires user confirmation via a surface action. Present the draft details with a send button and wait for the user to click before proceeding.",
     );

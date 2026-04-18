@@ -178,7 +178,7 @@ Merge results from all passes before presenting the final table. Each pass cover
 
 The `gmail_preferences` tool persists sender preferences across cleanup sessions:
 
-- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`).
+- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`). The user will see a permission prompt for the archive — once approved, the tool proceeds.
 - **Safelist**: Sender emails the user explicitly deselected (chose to keep). Exclude these senders from future cleanup tables entirely.
 
 ### Workflow integration

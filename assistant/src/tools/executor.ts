@@ -132,6 +132,10 @@ export class ToolExecutor {
         if (!permResult.allowed) {
           return { content: permResult.content, isError: true };
         }
+
+        if (permResult.wasPrompted) {
+          context.approvedViaPrompt = true;
+        }
       }
 
       const hookResult = await getHookManager().trigger("pre-tool-execute", {

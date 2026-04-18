@@ -19,7 +19,11 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const account = input.account as string | undefined;
-  if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
+  if (
+    !context.triggeredBySurfaceAction &&
+    !context.batchAuthorizedByTask &&
+    !context.approvedViaPrompt
+  ) {
     return err(
       "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
     );
