@@ -167,8 +167,11 @@ struct ChatContentView: View {
     /// Prevents stacking concurrent pagination loads. Gates the pagination
     /// sentinel's onAppear so only one page load is in flight at a time.
     @State private var isPaginationInFlight: Bool = false
-    /// Task for the staged scroll-to-bottom retry on conversation switch.
-    @State private var scrollRestoreTask: Task<Void, Never>?
+    /// Task that drives the pending-anchor search loop in
+    /// `attemptPendingAnchorScrollIfNeeded`. Held as state so it can be
+    /// cancelled when the conversation switches, the user scrolls away,
+    /// or the view disappears.
+    @State private var pendingAnchorTask: Task<Void, Never>?
 
     /// Bounded slice of messages rendered by the ForEach. Delegates to the
     /// shared pagination state on the view model so the ForEach item count
@@ -315,16 +318,22 @@ struct ChatContentView: View {
                 if isNearBottom != newNearBottom {
                     isNearBottom = newNearBottom
                     if !newNearBottom {
-                        scrollRestoreTask?.cancel()
-                        scrollRestoreTask = nil
+                        pendingAnchorTask?.cancel()
+                        pendingAnchorTask = nil
                     }
                 }
             }
-            .onChange(of: viewModel.messages.count) { _, _ in
-                if !hasPendingAnchor && isNearBottom && !viewModel.isLoadingMoreMessages {
-                    scrollToBottom(proxy: proxy, animated: true)
-                } else if hasPendingAnchor {
+            // React to the newest visible message id — fires once on first
+            // appearance (`initial: true`) and whenever a new message is
+            // appended or the conversation is swapped and its last message
+            // id resolves. Replaces the old `.defaultScrollAnchor(.bottom)` +
+            // fixed-delay retry approach, which raced against async history
+            // load.
+            .onChange(of: visibleMessages.last?.id, initial: true) { _, _ in
+                if hasPendingAnchor {
                     attemptPendingAnchorScrollIfNeeded(proxy: proxy)
+                } else if isNearBottom && !viewModel.isLoadingMoreMessages {
+                    scrollToBottom(proxy: proxy, animated: false)
                 }
             }
             .onChange(of: viewModel.hasMoreHistory) { _, _ in
@@ -355,26 +364,14 @@ struct ChatContentView: View {
             }
             .onChange(of: viewModel.conversationId) { _, _ in
                 // Reset scroll state when the conversation changes so the
-                // new conversation starts bottom-following correctly.
+                // new conversation starts bottom-following correctly. The
+                // `.onChange(of: visibleMessages.last?.id)` handler above
+                // performs the actual scroll once the newest message id
+                // resolves (including after async history hydration).
                 isNearBottom = true
                 isPaginationInFlight = false
-                scrollRestoreTask?.cancel()
-                guard !hasPendingAnchor else { return }
-                scrollRestoreTask = Task { @MainActor in
-                    // Stage 0: immediate — covers the happy path where
-                    // layout is already ready.
-                    scrollToBottom(proxy: proxy, animated: false)
-
-                    // Stage 1: ~3 frames — handles most conversation switches.
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    guard !Task.isCancelled else { return }
-                    scrollToBottom(proxy: proxy, animated: false)
-
-                    // Stage 2: catches slower async-loaded conversations.
-                    try? await Task.sleep(nanoseconds: 150_000_000)
-                    guard !Task.isCancelled else { return }
-                    scrollToBottom(proxy: proxy, animated: false)
-                }
+                pendingAnchorTask?.cancel()
+                pendingAnchorTask = nil
             }
             .onAppear {
                 attemptPendingAnchorScrollIfNeeded(proxy: proxy)
@@ -387,8 +384,8 @@ struct ChatContentView: View {
                 attemptPendingAnchorScrollIfNeeded(proxy: proxy)
             }
             .onDisappear {
-                scrollRestoreTask?.cancel()
-                scrollRestoreTask = nil
+                pendingAnchorTask?.cancel()
+                pendingAnchorTask = nil
             }
             .overlay(alignment: .bottom) {
                 // Only show the button when the user has scrolled up AND
@@ -857,8 +854,8 @@ struct ChatContentView: View {
     }
 
     private func attemptPendingAnchorScrollIfNeeded(proxy: ScrollViewProxy) {
-        scrollRestoreTask?.cancel()
-        scrollRestoreTask = Task { @MainActor in
+        pendingAnchorTask?.cancel()
+        pendingAnchorTask = Task { @MainActor in
             while !Task.isCancelled {
                 guard let pendingAnchorRequestId,
                       let pendingAnchorDaemonMessageId,
