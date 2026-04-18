@@ -716,29 +716,42 @@ export class VellumQdrantClient {
       must_not: [{ key: "_meta", match: { value: true } }],
     };
 
-    const out: Array<{ id: string; payload: Record<string, unknown> }> = [];
-    let offset: string | number | undefined = undefined;
     // Guard against a pathological pagination loop.
     const maxIterations = 10_000;
-    for (let i = 0; i < maxIterations; i++) {
-      const result = await this.client.scroll(this.collection, {
-        filter,
-        limit: batchSize,
-        with_payload: true,
-        with_vector: false,
-        ...(offset !== undefined ? { offset } : {}),
-      });
-      for (const point of result.points) {
-        const id =
-          typeof point.id === "string" ? point.id : String(point.id);
-        const payload = (point.payload ?? {}) as Record<string, unknown>;
-        out.push({ id, payload });
+    const doScroll = async () => {
+      const out: Array<{ id: string; payload: Record<string, unknown> }> = [];
+      let offset: string | number | undefined = undefined;
+      for (let i = 0; i < maxIterations; i++) {
+        const result = await this.client.scroll(this.collection, {
+          filter,
+          limit: batchSize,
+          with_payload: true,
+          with_vector: false,
+          ...(offset !== undefined ? { offset } : {}),
+        });
+        for (const point of result.points) {
+          const id =
+            typeof point.id === "string" ? point.id : String(point.id);
+          const payload = (point.payload ?? {}) as Record<string, unknown>;
+          out.push({ id, payload });
+        }
+        const next = result.next_page_offset;
+        if (next == null) break;
+        offset = typeof next === "string" ? next : (next as number);
       }
-      const next = result.next_page_offset;
-      if (next == null) break;
-      offset = typeof next === "string" ? next : (next as number);
+      return out;
+    };
+
+    try {
+      return await doScroll();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        return await doScroll();
+      }
+      throw err;
     }
-    return out;
   }
 
   private async findByTarget(
