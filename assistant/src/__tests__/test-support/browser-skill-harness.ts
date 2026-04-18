@@ -1,9 +1,4 @@
-import { BROWSER_TOOL_NAMES } from "../../browser/identifiers.js";
 import type { Message } from "../../providers/types.js";
-
-// Re-export BROWSER_TOOL_NAMES from the shared browser operations contract
-// so existing test imports continue to work.
-export { BROWSER_TOOL_NAMES };
 
 /** Skill ID for the bundled browser skill. */
 export const BROWSER_SKILL_ID = "browser";
@@ -43,30 +38,4 @@ export function buildSkillLoadHistory(
       ],
     },
   ];
-}
-
-/**
- * Assert that all browser tool names are present in a given set.
- */
-export function assertBrowserToolsPresent(toolNames: string[]): void {
-  for (const name of BROWSER_TOOL_NAMES) {
-    if (!toolNames.includes(name)) {
-      throw new Error(
-        `Expected browser tool "${name}" to be present in tool names`,
-      );
-    }
-  }
-}
-
-/**
- * Assert that no browser tool names are present in a given set.
- */
-export function assertBrowserToolsAbsent(toolNames: string[]): void {
-  for (const name of BROWSER_TOOL_NAMES) {
-    if (toolNames.includes(name)) {
-      throw new Error(
-        `Expected browser tool "${name}" to be absent from tool names`,
-      );
-    }
-  }
 }

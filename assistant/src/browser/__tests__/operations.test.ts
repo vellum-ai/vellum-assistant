@@ -3,9 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   BROWSER_OPERATION_META,
   BROWSER_OPERATION_NAMES,
-  BROWSER_TOOL_NAMES,
-  browserOperationToToolName,
-  browserToolNameToOperation,
   executeBrowserOperation,
   getBrowserOperationMeta,
 } from "../operations.js";
@@ -16,38 +13,20 @@ describe("browser operations contract", () => {
 
   test("defines exactly 17 operations", () => {
     expect(BROWSER_OPERATION_NAMES).toHaveLength(17);
-    expect(BROWSER_TOOL_NAMES).toHaveLength(17);
   });
 
-  // ── Bijective tool-name mapping ────────────────────────────────────
+  // ── CLI subcommand / operation 1:1 parity ──────────────────────────
 
-  test("tool name -> operation is bijective", () => {
-    for (const op of BROWSER_OPERATIONS) {
-      const toolName = browserOperationToToolName(op);
-      expect(toolName).toBe(`browser_${op}`);
-      const roundTripped = browserToolNameToOperation(toolName!);
-      expect(roundTripped).toBe(op);
-    }
+  test("CLI subcommand metadata is in 1:1 parity with BROWSER_OPERATIONS", () => {
+    const metaOps = BROWSER_OPERATION_META.map((m) => m.operation).sort();
+    const declaredOps = [...BROWSER_OPERATIONS].sort();
+    expect(metaOps).toEqual(declaredOps);
   });
 
-  test("operation -> tool name is bijective", () => {
-    for (const toolName of BROWSER_TOOL_NAMES) {
-      const op = browserToolNameToOperation(toolName);
-      expect(op).toBeDefined();
-      const roundTripped = browserOperationToToolName(op!);
-      expect(roundTripped).toBe(toolName);
-    }
-  });
-
-  test("unknown tool name returns undefined", () => {
-    expect(browserToolNameToOperation("browser_unknown")).toBeUndefined();
-    expect(browserToolNameToOperation("not_browser")).toBeUndefined();
-    expect(browserToolNameToOperation("")).toBeUndefined();
-  });
-
-  test("unknown operation returns undefined", () => {
-    expect(browserOperationToToolName("unknown")).toBeUndefined();
-    expect(browserOperationToToolName("")).toBeUndefined();
+  test("BROWSER_OPERATION_NAMES matches BROWSER_OPERATIONS", () => {
+    expect([...BROWSER_OPERATION_NAMES].sort()).toEqual(
+      [...BROWSER_OPERATIONS].sort(),
+    );
   });
 
   // ── Every operation has metadata ───────────────────────────────────
@@ -64,12 +43,6 @@ describe("browser operations contract", () => {
 
   test("metadata count matches operation count", () => {
     expect(BROWSER_OPERATION_META).toHaveLength(BROWSER_OPERATIONS.length);
-  });
-
-  test("metadata operations match BROWSER_OPERATIONS", () => {
-    const metaOps = BROWSER_OPERATION_META.map((m) => m.operation).sort();
-    const declaredOps = [...BROWSER_OPERATIONS].sort();
-    expect(metaOps).toEqual(declaredOps);
   });
 
   // ── Every operation has a dispatch handler ─────────────────────────
@@ -160,6 +133,17 @@ describe("browser operations contract", () => {
           );
         }
       }
+    }
+  });
+
+  // ── Every metadata entry has CLI help text ─────────────────────────
+
+  test("every operation metadata includes non-empty helpText for CLI", () => {
+    for (const meta of BROWSER_OPERATION_META) {
+      expect(typeof meta.helpText).toBe("string");
+      expect(meta.helpText!.length).toBeGreaterThan(0);
+      // Help text should reference the `assistant browser` CLI pattern
+      expect(meta.helpText).toContain("assistant browser");
     }
   });
 
