@@ -1064,7 +1064,7 @@ export class RuntimeHttpServer {
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before
     // JWT auth because skills may use their own auth (e.g. per-meeting bearer
     // tokens minted by a session manager).
-    const skillMatch = matchSkillRoute(path, req.method);
+    const skillMatch = matchSkillRoute(path);
     if (skillMatch) {
       return await skillMatch.route.handler(req, skillMatch.match);
     }

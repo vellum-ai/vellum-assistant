@@ -33,15 +33,18 @@ export function registerSkillRoute(route: SkillRoute): void {
 }
 
 /**
- * Try to match an inbound request against registered skill routes.
+ * Try to match an inbound request path against registered skill routes.
  * Returns `null` if no route matches.
+ *
+ * Matching is path-only — handlers enforce their own method guards so
+ * non-matching methods get an accurate 405 with `Allow` rather than
+ * falling through to JWT auth / 404. `SkillRoute.methods` remains on
+ * the contract for documentation and registration-time logging.
  */
 export function matchSkillRoute(
   path: string,
-  method: string,
 ): { route: SkillRoute; match: RegExpMatchArray } | null {
   for (const route of routes) {
-    if (!route.methods.includes(method)) continue;
     const match = path.match(route.pattern);
     if (match) return { route, match };
   }
