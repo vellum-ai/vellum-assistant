@@ -210,7 +210,8 @@
       "metadata": {
         "emoji": "📹",
         "vellum": {
-          "display-name": "Meet Join"
+          "display-name": "Meet Join",
+          "feature-flag": "meet"
         }
       }
     },
