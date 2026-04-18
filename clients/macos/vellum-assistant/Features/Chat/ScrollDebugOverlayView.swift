@@ -35,11 +35,22 @@ struct ScrollDebugOverlayView: View {
     }
 
     private var hud: some View {
-        // Reading the observed version counter registers an invalidation
-        // dependency so the HUD re-renders on every debug-metric tick.
+        // `TimelineView(.animation)` drives a redraw every frame (display link
+        // cadence) while the HUD is mounted, so time-derived readings like
+        // updates/s, anchors/s, and the idle-snapped velocity stay current
+        // even when no scroll events are arriving. This is a dev-only debug
+        // panel, so the per-frame evaluation cost is deliberate.
+        TimelineView(.animation) { context in
+            hudContent(now: context.date)
+        }
+    }
+
+    private func hudContent(now: Date) -> some View {
+        // Reading the observed version counter still registers an
+        // invalidation dependency so metric writes that happen faster
+        // than the display cadence also trigger redraws.
         _ = scrollState.debugMetricsVersion
 
-        let now = Date()
         let metrics = scrollState.debugMetrics
         let pinnedEpsilon: CGFloat = 8
 
@@ -56,7 +67,7 @@ struct ScrollDebugOverlayView: View {
             row("pagInRange", bool(scrollState.wasPaginationTriggerInRange))
             row("ctaVisible", bool(scrollState.showScrollToLatest))
             row("updates/s", String(metrics.updatesPerSecond(at: now)))
-            row("velocity", "\(signed(metrics.velocityPtPerSec)) pt/s")
+            row("velocity", "\(signed(metrics.displayedVelocity(at: now))) pt/s")
             row("lastDeltaY", signed(metrics.lastDeltaY))
             row("anchors/s", String(metrics.anchorShiftsPerSecond(at: now)))
             row("anchorTotal", String(metrics.anchorShiftTotal))

@@ -326,6 +326,16 @@ struct ScrollDebugMetrics {
         return recentAnchorShiftTimes.reduce(0) { $1 > cutoff ? $0 + 1 : $0 }
     }
 
+    /// Velocity to show in the HUD. Snaps to 0 once no snapshot has arrived
+    /// for `idleThreshold` seconds — without this, the EMA stays pinned at
+    /// its last value when scrolling stops and the reading looks stuck.
+    func displayedVelocity(at now: Date, idleThreshold: TimeInterval = 0.1) -> CGFloat {
+        guard let last = lastSnapshotTime, now.timeIntervalSince(last) <= idleThreshold else {
+            return 0
+        }
+        return velocityPtPerSec
+    }
+
     /// Keep a little slack past 1s so reads near a second boundary don't flap.
     /// `static` so the inout buffer access doesn't overlap with the caller's
     /// inout access to `self` via the mutating entry point.
