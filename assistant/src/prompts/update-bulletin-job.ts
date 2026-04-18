@@ -7,6 +7,7 @@ import {
   setMemoryCheckpoint,
 } from "../memory/checkpoints.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { deleteConversation } from "../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
@@ -106,8 +107,35 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
     if (!wakeResult.invoked) {
       log.warn(
         { conversationId: conv.id },
-        "update-bulletin-job: wake not invoked (e.g. default resolver not yet registered); leaving checkpoint unchanged so next startup retries",
+        "Update bulletin wake silently no-op'd (invoked=false); cleaning up orphan background conversation and leaving checkpoint unchanged so next startup retries",
       );
+      // Belt-and-suspenders cleanup: even though `runUpdateBulletinJobIfNeeded`
+      // is now dispatched after `server.start()` (so the default wake
+      // resolver is registered before we wake), `wakeAgentForOpportunity()`
+      // can still return `{invoked: false}` for other reasons (resolver
+      // returns null because the conversation cannot be hydrated, a future
+      // regression, etc.). Without this cleanup each such occurrence leaks
+      // a conversation DB row.
+      //
+      // Wrapped in its own try/catch so a cleanup failure never propagates
+      // out of this fire-and-forget task.
+      //
+      // TODO: the `queueGenerateConversationTitle()` call that
+      // `bootstrapConversation()` fires is already in flight by the time we
+      // reach here. The title service checks `isReplaceableTitle()` before
+      // writing, but the LLM sidechain call itself still runs against the
+      // now-deleted conversation id. Adding a cancellation/existence hook
+      // in `conversation-title-service.ts` would plug this one-call waste,
+      // but this code path is rare (resolver race is fixed by the primary
+      // change in `lifecycle.ts`), so we accept the one-time cost.
+      try {
+        deleteConversation(conv.id);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: conv.id },
+          "update-bulletin-job: failed to delete orphan background conversation; continuing",
+        );
+      }
       return;
     }
 
