@@ -69,13 +69,14 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
  */
 interface PreflightDeps {
   bootstrapLocalToken: (assistantId: string | null) => Promise<StoredLocalToken>;
-  signInCloud: (assistantId: string, config: { gatewayBaseUrl: string; clientId: string }) => Promise<StoredCloudToken>;
-  refreshCloudToken: (assistantId: string, config: { gatewayBaseUrl: string; clientId: string }) => Promise<StoredCloudToken | null>;
+  signInCloud: (assistantId: string, config: { gatewayBaseUrl: string; webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken>;
+  refreshCloudToken: (assistantId: string, config: { gatewayBaseUrl: string; webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken | null>;
   getStoredCloudToken: (assistantId: string) => Promise<StoredCloudToken | null>;
   getRelayPort: () => Promise<number>;
 }
 
 const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_WEB_BASE_URL = 'https://www.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 /**
@@ -125,6 +126,7 @@ async function connectPreflight(
       const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
       const refreshed = await deps.refreshCloudToken(assistantId, {
         gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
@@ -143,6 +145,7 @@ async function connectPreflight(
     const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
     const stored = await deps.signInCloud(assistantId, {
       gatewayBaseUrl,
+      webBaseUrl: CLOUD_WEB_BASE_URL,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
     const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;

@@ -89,6 +89,7 @@ import {
 // avoids the MV3 popup teardown race where closing the popup mid-auth kills
 // the awaited promise before the token is persisted.
 const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
+const CLOUD_WEB_BASE_URL = 'https://www.vellum.ai';
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
@@ -768,6 +769,7 @@ async function cloudReconnectHook(
   const refreshed = selectedId
     ? await refreshCloudToken(selectedId, {
         gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       })
     : null;
@@ -1039,6 +1041,7 @@ async function connectPreflight(
       const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
       const refreshed = await refreshCloudToken(assistantId, {
         gatewayBaseUrl,
+        webBaseUrl: CLOUD_WEB_BASE_URL,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
@@ -1058,6 +1061,7 @@ async function connectPreflight(
     const gatewayBaseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
     const stored = await signInCloud(assistantId, {
       gatewayBaseUrl,
+      webBaseUrl: CLOUD_WEB_BASE_URL,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
     const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
@@ -1288,6 +1292,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         const config: CloudAuthConfig = {
           gatewayBaseUrl:
             typeof message.gatewayBaseUrl === 'string' ? message.gatewayBaseUrl : gatewayBaseUrl,
+          webBaseUrl: CLOUD_WEB_BASE_URL,
           clientId:
             typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
         };
