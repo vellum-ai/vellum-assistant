@@ -93,4 +93,56 @@ final class GatewayConnectionManagerAuthTests: XCTestCase {
         let invocations = await counter.read()
         XCTAssertEqual(invocations, 1, "Overlapping attemptRePair calls should coalesce to a single bootstrap invocation")
     }
+
+    // MARK: - attemptRePair bounds the bootstrap with a timeout
+
+    /// Regression test for the `attemptRePair` latch bug: if the injected
+    /// bootstrap hangs indefinitely (offline network, stuck guardian poll,
+    /// etc.) the method must still release the `isAttemptingRePair` guard
+    /// within the timeout budget so subsequent clicks aren't silently
+    /// dropped with "already in flight — skipping". We use a 100ms timeout
+    /// here to keep the test fast.
+    func testAttemptRePairTimesOutWhenBootstrapHangs() async {
+        let gcm = GatewayConnectionManager()
+
+        // A bootstrap that effectively never returns on the test's timescale.
+        let hangingBootstrap: @MainActor @Sendable () async throws -> Void = {
+            try await Task.sleep(nanoseconds: 500_000_000_000) // 500s
+        }
+
+        let start = Date()
+        await gcm.attemptRePair(bootstrap: hangingBootstrap, timeout: 0.1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 5.0, "attemptRePair must return well before the hanging bootstrap completes")
+
+        // A follow-up call must be able to run — i.e. the latch was released.
+        actor Invoked { var value = false; func mark() { value = true }; func read() -> Bool { value } }
+        let invoked = Invoked()
+        await gcm.attemptRePair(bootstrap: {
+            await invoked.mark()
+        }, timeout: 1.0)
+        let didInvoke = await invoked.read()
+        XCTAssertTrue(didInvoke, "After a timeout, a subsequent attemptRePair must not be short-circuited by the stuck latch")
+    }
+
+    // MARK: - disconnect() clears isAuthFailed
+
+    /// Regression test for the stale `isAuthFailed` bug: `disconnect()` /
+    /// `disconnectInternal()` must reset the auth-failed state so a
+    /// subsequent reconnect does not inherit a stale trip from the previous
+    /// session (e.g. the managed-404 teardown path, or an explicit
+    /// `disconnect()` call from the app).
+    func testDisconnectClearsIsAuthFailed() {
+        let gcm = GatewayConnectionManager()
+
+        for _ in 0..<4 {
+            gcm._testIngestHealthStatus(401)
+        }
+        XCTAssertTrue(gcm.isAuthFailed, "Four 401s should trip isAuthFailed before disconnect")
+
+        gcm.disconnect()
+
+        XCTAssertFalse(gcm.isAuthFailed, "disconnect() must clear isAuthFailed so reconnect starts clean")
+    }
 }
