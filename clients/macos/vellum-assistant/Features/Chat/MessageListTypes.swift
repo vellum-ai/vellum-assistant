@@ -37,6 +37,10 @@ struct ScrollGeometrySnapshot: Equatable {
     let contentHeight: CGFloat
     let containerHeight: CGFloat
     let visibleRectHeight: CGFloat
+    /// Tracks whether an AppKit live scroll gesture (trackpad/wheel + momentum)
+    /// is currently in progress. Exposed to the debug overlay; the scroll hot
+    /// path does not consume it.
+    var isLiveScrolling: Bool = false
 }
 
 // MARK: - Scroll Geometry Dispatcher

@@ -17,11 +17,17 @@ struct MessageListScrollObserver: NSViewRepresentable {
     /// mid-gesture height growth — most often `LazyVStack` lazy cell
     /// materialization — never fights the user's scroll).
     let shouldPreserveScrollAnchor: @MainActor () -> Bool
+    /// Fired whenever `ScrollAnchorPreserver.offsetDelta(...)` returns a
+    /// non-nil value (the clip view was shifted to absorb content-height
+    /// growth). Used only by the scroll-debug overlay to count anchor
+    /// activations. `nil` when no observer cares.
+    var onAnchorShift: (@MainActor () -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onGeometryChange: onGeometryChange,
-            shouldPreserveScrollAnchor: shouldPreserveScrollAnchor
+            shouldPreserveScrollAnchor: shouldPreserveScrollAnchor,
+            onAnchorShift: onAnchorShift
         )
     }
 
@@ -38,6 +44,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onGeometryChange = onGeometryChange
         context.coordinator.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
+        context.coordinator.onAnchorShift = onAnchorShift
         DispatchQueue.main.async { [weak nsView] in
             guard let nsView else { return }
             context.coordinator.attachIfNeeded(to: nsView)
@@ -57,6 +64,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
         weak var documentView: NSView?
         var onGeometryChange: @MainActor (ScrollGeometrySnapshot) -> Void
         var shouldPreserveScrollAnchor: @MainActor () -> Bool
+        var onAnchorShift: (@MainActor () -> Void)?
         private var observers: [NSObjectProtocol] = []
         private var lastSnapshot: ScrollGeometrySnapshot?
         /// Last observed `documentView.frame.height`. Used to compute the
@@ -80,10 +88,12 @@ struct MessageListScrollObserver: NSViewRepresentable {
 
         init(
             onGeometryChange: @escaping @MainActor (ScrollGeometrySnapshot) -> Void,
-            shouldPreserveScrollAnchor: @escaping @MainActor () -> Bool
+            shouldPreserveScrollAnchor: @escaping @MainActor () -> Bool,
+            onAnchorShift: (@MainActor () -> Void)? = nil
         ) {
             self.onGeometryChange = onGeometryChange
             self.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
+            self.onAnchorShift = onAnchorShift
         }
 
         func attachIfNeeded(to hostView: NSView) {
@@ -150,6 +160,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 )
                 clipView.setBoundsOrigin(newOrigin)
                 scrollView.reflectScrolledClipView(clipView)
+                onAnchorShift?()
             }
             lastContentHeight = currentContentHeight
 
@@ -157,7 +168,8 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 contentOffsetY: clipView.bounds.origin.y,
                 contentHeight: currentContentHeight,
                 containerHeight: clipView.bounds.height,
-                visibleRectHeight: scrollView.documentVisibleRect.height
+                visibleRectHeight: scrollView.documentVisibleRect.height,
+                isLiveScrolling: isLiveScrolling
             )
             guard snapshot != lastSnapshot else { return }
             lastSnapshot = snapshot
@@ -225,7 +237,13 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.isLiveScrolling = true
+                    guard let self else { return }
+                    self.isLiveScrolling = true
+                    // Emit so downstream observers (e.g. the debug overlay)
+                    // see `isLiveScrolling` flip immediately on gesture start
+                    // rather than waiting for the first scroll tick to carry
+                    // the new flag through.
+                    self.emitCurrentSnapshotIfPossible()
                 }
             })
             observers.append(center.addObserver(

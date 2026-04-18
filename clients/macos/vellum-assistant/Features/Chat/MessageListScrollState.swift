@@ -195,6 +195,8 @@ final class MessageListScrollState {
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
 
+        resetDebugMetrics()
+
         // Briefly hide scroll indicators during switch
         hideScrollIndicatorsBriefly()
     }
@@ -229,4 +231,108 @@ final class MessageListScrollState {
     @ObservationIgnored var paginationTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
 
+    // MARK: - Debug metrics (populated only when scroll-debug-overlay is on)
+
+    /// Incremented on every debug-metric write so the overlay's isolated
+    /// observation boundary re-renders as metrics update. Kept observed; the
+    /// underlying struct stays `@ObservationIgnored` so geometry ticks do not
+    /// invalidate the rest of `MessageListView`.
+    private(set) var debugMetricsVersion: Int = 0
+
+    @ObservationIgnored var debugMetrics = ScrollDebugMetrics()
+
+    /// Fold a fresh scroll snapshot into the debug metrics. Only called when
+    /// the `scroll-debug-overlay` flag is on — the hot path otherwise skips this.
+    func recordDebugSnapshot(offsetY: CGFloat, isLiveScrolling: Bool, at now: Date = Date()) {
+        debugMetrics.recordSnapshot(offsetY: offsetY, isLiveScrolling: isLiveScrolling, at: now)
+        debugMetricsVersion &+= 1
+    }
+
+    /// Record that the anchor preserver applied a non-nil offset delta. Only
+    /// called when the `scroll-debug-overlay` flag is on.
+    func recordDebugAnchorShift(at now: Date = Date()) {
+        debugMetrics.recordAnchorShift(at: now)
+        debugMetricsVersion &+= 1
+    }
+
+    /// Reset debug metrics (e.g. on conversation switch) so counters start
+    /// fresh and don't carry stale data across conversations.
+    func resetDebugMetrics() {
+        debugMetrics = ScrollDebugMetrics()
+        debugMetricsVersion &+= 1
+    }
+
+}
+
+// MARK: - ScrollDebugMetrics
+
+/// Live metrics surfaced by the scroll-debug overlay. Populated in the scroll
+/// geometry handler only when the `scroll-debug-overlay` flag is on, so the
+/// hot path pays nothing when the overlay is off.
+struct ScrollDebugMetrics {
+    var lastDeltaY: CGFloat = 0
+    /// Signed scroll velocity in points per second, smoothed across recent
+    /// samples via an EMA to damp per-tick jitter.
+    var velocityPtPerSec: CGFloat = 0
+    /// Mirrors `MessageListScrollObserver.Coordinator.isLiveScrolling`.
+    var isLiveScrolling: Bool = false
+    /// Cumulative count of non-nil `ScrollAnchorPreserver.offsetDelta(...)`
+    /// returns since the last reset.
+    var anchorShiftTotal: Int = 0
+    /// Rolling buffer of geometry-snapshot timestamps — read once per render
+    /// by the overlay to compute an updates-per-second counter.
+    var recentUpdateTimes: [Date] = []
+    /// Rolling buffer of anchor-shift timestamps — read once per render by the
+    /// overlay to compute an anchor-shifts-per-second counter.
+    var recentAnchorShiftTimes: [Date] = []
+
+    private var lastSnapshotTime: Date?
+    private var lastSnapshotOffsetY: CGFloat = 0
+    /// EMA smoothing factor for velocity. Higher = more responsive, lower =
+    /// smoother. 0.35 keeps the reading stable during momentum scroll while
+    /// still reacting to direction flips.
+    private static let velocitySmoothing: CGFloat = 0.35
+
+    mutating func recordSnapshot(offsetY: CGFloat, isLiveScrolling: Bool, at now: Date) {
+        if let prev = lastSnapshotTime {
+            let dt = now.timeIntervalSince(prev)
+            let delta = offsetY - lastSnapshotOffsetY
+            lastDeltaY = delta
+            if dt > 0.001 {
+                let instantaneous = delta / CGFloat(dt)
+                velocityPtPerSec += (instantaneous - velocityPtPerSec) * Self.velocitySmoothing
+            }
+        }
+        lastSnapshotTime = now
+        lastSnapshotOffsetY = offsetY
+        self.isLiveScrolling = isLiveScrolling
+        recentUpdateTimes.append(now)
+        Self.trim(&recentUpdateTimes, at: now)
+    }
+
+    mutating func recordAnchorShift(at now: Date) {
+        anchorShiftTotal += 1
+        recentAnchorShiftTimes.append(now)
+        Self.trim(&recentAnchorShiftTimes, at: now)
+    }
+
+    func updatesPerSecond(at now: Date = Date()) -> Int {
+        let cutoff = now.addingTimeInterval(-1)
+        return recentUpdateTimes.reduce(0) { $1 > cutoff ? $0 + 1 : $0 }
+    }
+
+    func anchorShiftsPerSecond(at now: Date = Date()) -> Int {
+        let cutoff = now.addingTimeInterval(-1)
+        return recentAnchorShiftTimes.reduce(0) { $1 > cutoff ? $0 + 1 : $0 }
+    }
+
+    /// Keep a little slack past 1s so reads near a second boundary don't flap.
+    /// `static` so the inout buffer access doesn't overlap with the caller's
+    /// inout access to `self` via the mutating entry point.
+    private static func trim(_ buffer: inout [Date], at now: Date) {
+        let cutoff = now.addingTimeInterval(-1.5)
+        while let first = buffer.first, first < cutoff {
+            buffer.removeFirst()
+        }
+    }
 }
