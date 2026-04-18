@@ -488,11 +488,7 @@ struct InferenceServiceCard: View {
     }
 
     private func performSave() {
-        // Detect mode change before persisting so downstream logic can
-        // force-persist provider/model even when IDs happen to match.
-        let modeChanged = draftMode != store.inferenceMode
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        let providerChanged = persistProvider != initialProvider || modeChanged
 
         // If the resolved provider ID is changing AND the user has any
         // per-call-site overrides pinned to the OLD provider, ask whether
