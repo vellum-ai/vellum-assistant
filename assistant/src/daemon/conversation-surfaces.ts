@@ -445,6 +445,7 @@ export function showStandaloneSurface(
     return Promise.resolve({
       status: "cancelled" as const,
       surfaceId,
+      cancellationReason: "no_interactive_surface",
     });
   }
 
@@ -455,7 +456,11 @@ export function showStandaloneSurface(
       { conversationId: ctx.conversationId, surfaceType: request.surfaceType },
       "standalone surface: pendingStandaloneSurfaces map missing; failing closed",
     );
-    return Promise.resolve({ status: "cancelled" as const, surfaceId });
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface",
+    });
   }
   const pendingMap = ctx.pendingStandaloneSurfaces;
 
@@ -981,6 +986,9 @@ export async function handleSurfaceAction(
       surfaceId,
       actionId,
       ...(data ? { submittedData: data } : {}),
+      ...(isCancellation
+        ? { cancellationReason: "user_dismissed" as const }
+        : {}),
       summary,
     };
 
