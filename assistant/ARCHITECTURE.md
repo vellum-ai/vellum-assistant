@@ -764,12 +764,14 @@ Release-driven update notification system that dispatches a background conversat
 
 **Key source files:**
 
-| File                                  | Purpose                                                              |
-| ------------------------------------- | -------------------------------------------------------------------- |
-| `src/workspace/migrations/`           | Per-release migrations that append release notes to `UPDATES.md`     |
-| `src/workspace/migrations/registry.ts`| Append-only `WORKSPACE_MIGRATIONS` registry                          |
-| `src/prompts/update-bulletin-job.ts`  | `runUpdateBulletinJobIfNeeded()` — hash check and background dispatch |
-| `src/permissions/defaults.ts`         | Auto-allow rules for file_read/write/edit + rm UPDATES.md            |
+| File                                   | Purpose                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/workspace/migrations/`            | Per-release migrations that append release notes to `UPDATES.md`                       |
+| `src/workspace/migrations/registry.ts` | Append-only `WORKSPACE_MIGRATIONS` registry                                            |
+| `src/prompts/update-bulletin-job.ts`   | `runUpdateBulletinJobIfNeeded()` — hash check, background dispatch, and checkpoint update |
+| `src/daemon/lifecycle.ts`              | Fire-and-forget dispatch of `runUpdateBulletinJobIfNeeded()` after DB init at startup  |
+| `src/config/schemas/updates.ts`        | `updates.enabled` config toggle (defaults to `true`; disables the background dispatch) |
+| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + bare-filename `rm UPDATES.md`              |
 
 ---
 
