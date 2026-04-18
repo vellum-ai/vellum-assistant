@@ -5,7 +5,7 @@
  *   - Subcommand registration (request, confirm)
  *   - Payload parsing from --payload flag and stdin
  *   - Conversation ID resolution (explicit, __SKILL_CONTEXT_JSON, missing)
- *   - IPC param mapping (surfaceType, title, timeoutMs)
+ *   - IPC param mapping (surfaceType, title, timeoutMs, actions)
  *   - IPC timeout budget (request timeout + buffer)
  *   - JSON output shape for success and error
  *   - Exit code behavior on IPC errors
@@ -694,5 +694,350 @@ describe("ui request — conversation ID discovery hint", () => {
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.error).toContain("assistant conversations list");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui request — actions parsing
+// ---------------------------------------------------------------------------
+
+describe("ui request — actions parsing", () => {
+  test("parses valid --actions and includes them in IPC params", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = JSON.stringify([
+      { id: "approve", label: "Approve", variant: "primary" },
+      { id: "reject", label: "Reject", variant: "danger" },
+    ]);
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"Choose"}',
+      "--actions",
+      actions,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toEqual([
+      { id: "approve", label: "Approve", variant: "primary" },
+      { id: "reject", label: "Reject", variant: "danger" },
+    ]);
+  });
+
+  test("parses actions without variant (optional field)", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = JSON.stringify([{ id: "ok", label: "OK" }]);
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      actions,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toEqual([{ id: "ok", label: "OK" }]);
+  });
+
+  test("does not include actions in IPC params when --actions is omitted", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    await runCommand(["ui", "request", "--payload", '{"msg":"test"}']);
+
+    expect(lastIpcCall!.params!.actions).toBeUndefined();
+  });
+
+  test("errors on malformed JSON in --actions", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "{not valid json}",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid JSON in --actions");
+  });
+
+  test("errors when --actions is not an array", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '{"id":"approve","label":"Approve"}',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions must be a JSON array");
+  });
+
+  test("errors when --actions is an empty array", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "[]",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("at least one action");
+  });
+
+  test("errors when action item is not an object", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '["not-an-object"]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions[0]");
+    expect(parsed.error).toContain("JSON object");
+  });
+
+  test("errors when action is missing 'id'", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ label: "Approve" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"id" is required');
+  });
+
+  test("errors when action 'id' is empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ id: "  ", label: "Approve" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"id" is required');
+  });
+
+  test("errors when action is missing 'label'", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ id: "approve" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"label" is required');
+  });
+
+  test("errors when action 'label' is empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ id: "approve", label: "" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"label" is required');
+  });
+
+  test("errors when action 'variant' is invalid", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ id: "approve", label: "Approve", variant: "invalid" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"variant" must be one of');
+    expect(parsed.error).toContain('"invalid"');
+  });
+
+  test("accepts all valid variant values", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = JSON.stringify([
+      { id: "a", label: "Primary", variant: "primary" },
+      { id: "b", label: "Danger", variant: "danger" },
+      { id: "c", label: "Secondary", variant: "secondary" },
+    ]);
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      actions,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toEqual([
+      { id: "a", label: "Primary", variant: "primary" },
+      { id: "b", label: "Danger", variant: "danger" },
+      { id: "c", label: "Secondary", variant: "secondary" },
+    ]);
+  });
+
+  test("errors on duplicate action ids", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([
+        { id: "approve", label: "Approve" },
+        { id: "approve", label: "Also Approve" },
+      ]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("duplicate action id");
+    expect(parsed.error).toContain('"approve"');
+  });
+
+  test("does not call IPC when --actions validation fails", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "not-json",
+    ]);
+
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("reports action error index for second item", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify([{ id: "ok", label: "OK" }, { id: "bad" }]),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions[1]");
+    expect(parsed.error).toContain('"label" is required');
   });
 });

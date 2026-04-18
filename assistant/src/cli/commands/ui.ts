@@ -17,7 +17,10 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { InteractiveUiResult } from "../../runtime/interactive-ui.js";
+import type {
+  InteractiveUiAction,
+  InteractiveUiResult,
+} from "../../runtime/interactive-ui.js";
 import { log } from "../logger.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -156,6 +159,102 @@ function parseStrictPositiveInt(value: string): number {
   return Number(value);
 }
 
+// ── Action parsing ────────────────────────────────────────────────────
+
+/** Valid variant values for action buttons. */
+const VALID_VARIANTS = new Set(["primary", "danger", "secondary"]);
+
+/**
+ * Parse and validate the `--actions` JSON flag. Expects a JSON array of
+ * action objects, each with required `id` (string) and `label` (string),
+ * and an optional `variant` (`"primary"` | `"danger"` | `"secondary"`).
+ *
+ * Throws with an actionable CLI error on any validation failure.
+ */
+function parseActions(raw: string): InteractiveUiAction[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `Invalid JSON in --actions: ${err instanceof SyntaxError ? err.message : String(err)}\n` +
+        '  Example: --actions \'[{"id":"approve","label":"Approve"},{"id":"reject","label":"Reject","variant":"danger"}]\'',
+    );
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      "--actions must be a JSON array of action objects.\n" +
+        '  Example: --actions \'[{"id":"approve","label":"Approve"}]\'',
+    );
+  }
+
+  if (parsed.length === 0) {
+    throw new Error(
+      "--actions array must contain at least one action.\n" +
+        '  Example: --actions \'[{"id":"approve","label":"Approve"}]\'',
+    );
+  }
+
+  const seenIds = new Set<string>();
+  const actions: InteractiveUiAction[] = [];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    const prefix = `--actions[${i}]`;
+
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error(
+        `${prefix}: each action must be a JSON object with "id" and "label" fields.`,
+      );
+    }
+
+    const obj = item as Record<string, unknown>;
+
+    // Validate id
+    if (typeof obj.id !== "string" || obj.id.trim() === "") {
+      throw new Error(
+        `${prefix}: "id" is required and must be a non-empty string.`,
+      );
+    }
+
+    // Validate label
+    if (typeof obj.label !== "string" || obj.label.trim() === "") {
+      throw new Error(
+        `${prefix}: "label" is required and must be a non-empty string.`,
+      );
+    }
+
+    // Validate variant (optional)
+    if (obj.variant !== undefined) {
+      if (typeof obj.variant !== "string" || !VALID_VARIANTS.has(obj.variant)) {
+        throw new Error(
+          `${prefix}: "variant" must be one of "primary", "danger", or "secondary" (got ${JSON.stringify(obj.variant)}).`,
+        );
+      }
+    }
+
+    // Duplicate id check
+    if (seenIds.has(obj.id)) {
+      throw new Error(
+        `${prefix}: duplicate action id "${obj.id}". Each action must have a unique id.`,
+      );
+    }
+    seenIds.add(obj.id);
+
+    const action: InteractiveUiAction = {
+      id: obj.id,
+      label: obj.label,
+    };
+    if (obj.variant !== undefined) {
+      action.variant = obj.variant as InteractiveUiAction["variant"];
+    }
+    actions.push(action);
+  }
+
+  return actions;
+}
+
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerUiCommand(program: Command): void {
@@ -193,6 +292,10 @@ Examples:
     )
     .option("--title <title>", "Title displayed on the surface")
     .option(
+      "--actions <json>",
+      'JSON array of custom actions: [{"id":"approve","label":"Approve","variant":"primary"}]',
+    )
+    .option(
       "--conversation-id <id>",
       "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill context if omitted)",
     )
@@ -212,6 +315,10 @@ surface content and can be provided via --payload or piped through stdin.
 The response includes the user's action (submitted, cancelled, timed_out)
 and any submitted data.
 
+Custom actions let you define buttons beyond the default confirm/deny pair.
+Each action must have a unique "id" and a "label". An optional "variant"
+controls button styling: "primary", "danger", or "secondary".
+
 Arguments:
   (none — payload via --payload flag or stdin)
 
@@ -219,6 +326,7 @@ Options:
   --payload <json>         JSON object with surface data
   --surface-type <type>    "confirmation" (default) or "form"
   --title <title>          Surface title
+  --actions <json>         JSON array of custom action buttons
   --conversation-id <id>   Explicit conversation ID
   --timeout <ms>           Request timeout in milliseconds (default: 300000)
   --json                   Output as JSON
@@ -226,13 +334,15 @@ Options:
 Examples:
   $ echo '{"message":"Proceed?"}' | assistant ui request
   $ assistant ui request --payload '{"message":"Proceed?"}' --json
-  $ assistant ui request --payload '{"fields":[]}' --surface-type form --json`,
+  $ assistant ui request --payload '{"fields":[]}' --surface-type form --json
+  $ assistant ui request --payload '{"message":"Choose"}' --actions '[{"id":"approve","label":"Approve","variant":"primary"},{"id":"reject","label":"Reject","variant":"danger"}]' --json`,
     )
     .action(
       async (opts: {
         payload?: string;
         surfaceType?: string;
         title?: string;
+        actions?: string;
         conversationId?: string;
         timeout?: string;
         json?: boolean;
@@ -271,6 +381,25 @@ Examples:
           return;
         }
 
+        // Parse actions (optional)
+        let actions: InteractiveUiAction[] | undefined;
+        if (opts.actions) {
+          try {
+            actions = parseActions(opts.actions);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({ ok: false, error: msg }) + "\n",
+              );
+            } else {
+              log.error(msg);
+            }
+            process.exitCode = 1;
+            return;
+          }
+        }
+
         // Parse timeout
         const rawTimeout = opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
         const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
@@ -296,6 +425,9 @@ Examples:
         };
         if (opts.title) {
           ipcParams.title = opts.title;
+        }
+        if (actions) {
+          ipcParams.actions = actions;
         }
 
         // Call IPC with timeout budget = request timeout + buffer
