@@ -108,18 +108,13 @@ describe("browser skill migration end-state", () => {
     expect(rule!.decision).toBe("allow");
   });
 
-  test("all browser tools have default allow rules", () => {
+  test("browser tools do not have default allow rules", () => {
     const templates = getDefaultRuleTemplates();
     for (const tool of BROWSER_TOOL_NAMES) {
       const rule = templates.find(
         (t) => t.id === `default:allow-${tool}-global`,
       );
-      expect(rule).toBeDefined();
-      expect(rule!.decision).toBe("allow");
-      // browser_navigate uses standalone "**" globstar because navigate
-      // candidates contain URLs with "/" (e.g. "browser_navigate:https://example.com/path").
-      const expectedPattern = tool === "browser_navigate" ? "**" : `${tool}:*`;
-      expect(rule!.pattern).toBe(expectedPattern);
+      expect(rule).toBeUndefined();
     }
   });
 

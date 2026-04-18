@@ -1,6 +1,5 @@
 import { join } from "node:path";
 
-import { BROWSER_TOOL_NAMES } from "../browser/identifiers.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
@@ -273,29 +272,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
-  // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
-  // After migration to skill-provided tools, default allow rules preserve the
-  // same frictionless UX so they don't trigger permission prompts.
-  //
-  // browser_navigate candidates contain URLs with "/" (e.g.
-  // "browser_navigate:https://example.com/path"), so it needs standalone
-  // "**" globstar (same as host_bash / computer_use_*).  The tool field
-  // already filters by tool name, so a prefix is unnecessary.
-  // All other browser tools use the standard "tool:*" pattern.
-  //
-  // The canonical set of browser tool names is sourced from BROWSER_TOOL_NAMES
-  // (browser/operations.ts) — the single source of truth for browser identifiers.
-  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOL_NAMES.map(
-    (tool) => ({
-      id: `default:allow-${tool}-global`,
-      tool,
-      pattern: tool === "browser_navigate" ? "**" : `${tool}:*`,
-      scope: "everywhere",
-      decision: "allow" as const,
-      priority: 100,
-    }),
-  );
-
   // All three UI surface tools are passive, user-visible operations. ui_show
   // creates surfaces (cards, forms, tables) but user input is voluntary and
   // user-controlled — safe to auto-approve like ui_update and ui_dismiss.
@@ -335,7 +311,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     skillLoadDynamicRule,
     skillLoadRule,
     skillExecuteRule,
-    ...browserToolRules,
     ...uiSurfaceRules,
     memoryRecallRule,
   ];

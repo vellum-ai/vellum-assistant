@@ -740,23 +740,6 @@ describe("Trust Store", () => {
       ].sort();
       expect(defaultTools).toEqual([
         "bash",
-        "browser_attach",
-        "browser_click",
-        "browser_close",
-        "browser_detach",
-        "browser_extract",
-        "browser_fill_credential",
-        "browser_hover",
-        "browser_navigate",
-        "browser_press_key",
-        "browser_screenshot",
-        "browser_scroll",
-        "browser_select_option",
-        "browser_snapshot",
-        "browser_status",
-        "browser_type",
-        "browser_wait_for",
-        "browser_wait_for_download",
         "computer_use_click",
         "computer_use_drag",
         "computer_use_key",
@@ -1077,58 +1060,6 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:allow-skill_load-global");
       expect(match!.decision).toBe("allow");
-    });
-
-    // ── default allow: browser tools ────────────────────────────
-
-    test("all browser tools have default allow rules", () => {
-      const templates = getDefaultRuleTemplates();
-      const browserTools = [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_screenshot",
-        "browser_close",
-        "browser_attach",
-        "browser_detach",
-        "browser_click",
-        "browser_type",
-        "browser_press_key",
-        "browser_scroll",
-        "browser_select_option",
-        "browser_hover",
-        "browser_wait_for",
-        "browser_extract",
-        "browser_wait_for_download",
-        "browser_fill_credential",
-        "browser_status",
-      ];
-
-      for (const tool of browserTools) {
-        const rule = templates.find(
-          (t) => t.id === `default:allow-${tool}-global`,
-        );
-        expect(rule).toBeDefined();
-        expect(rule!.tool).toBe(tool);
-        // browser_navigate uses standalone "**" because its candidates
-        // contain URLs with "/" that single "*" cannot match.
-        const expectedPattern =
-          tool === "browser_navigate" ? "**" : `${tool}:*`;
-        expect(rule!.pattern).toBe(expectedPattern);
-        expect(rule!.decision).toBe("allow");
-        expect(rule!.scope).toBe("everywhere");
-      }
-    });
-
-    test("browser tool default rules match via findHighestPriorityRule", () => {
-      // Use a candidate without slashes so the `browser_snapshot:*` pattern
-      // matches (minimatch `*` does not cross `/` boundaries).
-      const result = findHighestPriorityRule(
-        "browser_snapshot",
-        ["browser_snapshot:"],
-        "/tmp",
-      );
-      expect(result).toBeDefined();
-      expect(result!.decision).toBe("allow");
     });
 
     test("no default ask rules exist for file_read on skill source paths", () => {
@@ -1528,7 +1459,7 @@ describe("Trust Store", () => {
 
     test("single-star wildcard matches flat candidates only", () => {
       // "network_request:*" won't match URLs with slashes — consistent
-      // with the behavior of web_fetch:* and browser_navigate:* patterns.
+      // with the behavior of web_fetch:* patterns.
       addRule("network_request", "network_request:*", "everywhere");
       const noSlashMatch = findHighestPriorityRule(
         "network_request",
@@ -1738,7 +1669,7 @@ describe("canonical parser normalization-on-load", () => {
         rules: [
           {
             id: "url-rule-with-ahr",
-            tool: "browser_navigate",
+            tool: "web_fetch",
             pattern: "**",
             scope: "everywhere",
             decision: "allow",
