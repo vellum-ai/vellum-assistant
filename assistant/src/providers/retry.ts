@@ -73,13 +73,17 @@ function isRetryableError(error: unknown): boolean {
 /**
  * Normalize per-call options before handing them to the wrapped provider.
  *
- * When `config.callSite` is set, resolves provider/model/maxTokens/effort/
- * speed/temperature/thinking/contextWindow via `resolveCallSiteConfig` and
- * writes them into `nextConfig` using the wire-format names that downstream
- * provider clients consume (`max_tokens` snake-case for the token cap;
- * camelCase for the rest, which matches the resolver's shape). Per-call
- * explicit overrides on the original `config` object win over the resolved
- * values, so callers can pin a model or other parameter for a single request.
+ * When `config.callSite` is set, resolves model/maxTokens/effort/speed/
+ * temperature/thinking via `resolveCallSiteConfig` and writes them into
+ * `nextConfig` using the wire-format names that downstream provider clients
+ * consume (`max_tokens` snake-case for the token cap; camelCase for the rest,
+ * which matches the resolver's shape). Per-call explicit overrides on the
+ * original `config` object win over the resolved values, so callers can pin
+ * a model or other parameter for a single request. `contextWindow` and
+ * `provider` are intentionally excluded from the written fields — they are
+ * server-side routing/overflow concerns, not provider request parameters,
+ * and forwarding them would leak unknown fields into provider request bodies
+ * (strict-schema clients like Anthropic reject the request).
  *
  * Whether or not `callSite` is set, this function applies per-provider
  * stripping (`thinking`/`effort`/`speed`) based on the wrapped provider's
