@@ -306,15 +306,14 @@ final class ScrollDebugRecorder {
         let anchorsPerSecond: Int
         let anchorTotal: Int
         /// Outcome string of the most recent anchor decision: `"applied"` or
-        /// the skip reason (`"notGrowth"`, `"pinnedToLatest"`, etc.). Empty
-        /// before the first decision fires.
+        /// the skip reason (`"contentHUnchanged"`, `"pinnedToLatest"`, etc.).
+        /// Empty before the first decision fires.
         let anchorOutcome: String
         /// Delta applied by the anchor preserver on the most recent decision.
-        /// `0` for skips.
+        /// `0` for skips. Signed: positive for growth, negative for shrink.
         let anchorDelta: CGFloat
         /// Content-height delta the preserver saw on the most recent decision.
-        /// Negative values mean content shrunk — the preserver currently does
-        /// not compensate for shrinks.
+        /// Signed: negative means content shrunk.
         let anchorContentHDelta: CGFloat
         let anchorPreOffsetY: CGFloat
         let anchorPostOffsetY: CGFloat

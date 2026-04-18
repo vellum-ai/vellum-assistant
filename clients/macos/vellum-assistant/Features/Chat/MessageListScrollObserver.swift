@@ -210,13 +210,21 @@ struct MessageListScrollObserver: NSViewRepresentable {
             scrollView.postsFrameChangedNotifications = true
             documentView?.postsFrameChangedNotifications = true
 
+            // `queue: .main` runs the block synchronously on the main thread
+            // for the notification that's currently being delivered. We
+            // `MainActor.assumeIsolated` to call the main-actor-isolated
+            // Coordinator methods without deferring to a `Task`. Deferring
+            // opens a 1-frame race where the display can draw the new
+            // layout (post-growth/shrink contentH) before the anchor shift
+            // has been applied to `clipView.bounds.origin.y`, which the user
+            // perceives as a flicker at the streaming cadence.
             let center = NotificationCenter.default
             observers.append(center.addObserver(
                 forName: NSView.boundsDidChangeNotification,
                 object: clipView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.emitCurrentSnapshotIfPossible()
                 }
             })
@@ -225,7 +233,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 object: clipView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.emitCurrentSnapshotIfPossible()
                 }
             })
@@ -234,7 +242,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.emitCurrentSnapshotIfPossible()
                 }
             })
@@ -244,7 +252,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     object: documentView,
                     queue: .main
                 ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
+                    MainActor.assumeIsolated {
                         self?.emitCurrentSnapshotIfPossible()
                     }
                 })
@@ -262,7 +270,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isLiveScrolling = true
                     // Emit so downstream observers (e.g. the debug overlay)
@@ -277,7 +285,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isLiveScrolling = false
                     // Re-baseline without applying a delta: any growth
@@ -314,7 +322,7 @@ enum ScrollAnchorPreserver {
         case anchorPreservationDisabled
         case userLiveScrolling
         case firstLayout
-        case notGrowth
+        case contentHUnchanged
         case pinnedToLatest
     }
 
@@ -331,10 +339,12 @@ enum ScrollAnchorPreserver {
     /// In the inverted scroll, `contentOffsetY = 0` is the visual bottom
     /// (latest messages). The streaming assistant response lives at the
     /// low end of the document (doc Y near 0), so its growth pushes every
-    /// higher-Y item further from the visual bottom. A user reading older
-    /// content (positive `contentOffsetY`) sees that content scroll upward
-    /// off the top of the viewport unless the offset is shifted by the
-    /// growth amount.
+    /// higher-Y item further from the visual bottom — and symmetrically,
+    /// when the streaming edge shrinks (pin spacer release, thinking-block
+    /// collapse during streaming, height-estimate correction) every
+    /// higher-Y item is pulled back toward the visual bottom. Either
+    /// direction moves the user's visible region off the current doc-Y
+    /// window unless the offset is shifted by the same signed delta.
     static func decide(
         currentContentHeight: CGFloat,
         lastContentHeight: CGFloat,
@@ -346,15 +356,15 @@ enum ScrollAnchorPreserver {
         if !shouldPreserveAnchor { return .skipped(.anchorPreservationDisabled) }
         if isUserLiveScrolling { return .skipped(.userLiveScrolling) }
         if lastContentHeight <= 0 { return .skipped(.firstLayout) }
-        if currentContentHeight <= lastContentHeight { return .skipped(.notGrowth) }
+        if currentContentHeight == lastContentHeight { return .skipped(.contentHUnchanged) }
         if contentOffsetY <= pinnedToLatestEpsilon { return .skipped(.pinnedToLatest) }
         return .applied(delta: currentContentHeight - lastContentHeight)
     }
 
     /// Returns the offset delta to add to `contentOffsetY` so the visible
-    /// content stays anchored when the document grows, or `nil` if no
-    /// adjustment is needed. Kept for tests and simple callers — see
-    /// `decide(...)` for the richer outcome.
+    /// content stays anchored when the document height changes (either
+    /// direction), or `nil` if no adjustment is needed. Kept for tests and
+    /// simple callers — see `decide(...)` for the richer outcome.
     static func offsetDelta(
         currentContentHeight: CGFloat,
         lastContentHeight: CGFloat,
