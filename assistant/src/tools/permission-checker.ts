@@ -29,7 +29,12 @@ import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
 const log = getLogger("permission-checker");
 
 export type PermissionDecision =
-  | { allowed: true; decision: string; riskLevel: string }
+  | {
+      allowed: true;
+      decision: string;
+      riskLevel: string;
+      wasPrompted?: boolean;
+    }
   | { allowed: false; decision: string; riskLevel: string; content: string };
 
 export class PermissionChecker {
@@ -502,7 +507,7 @@ export class PermissionChecker {
           );
         }
 
-        return { allowed: true, decision, riskLevel };
+        return { allowed: true, decision, riskLevel, wasPrompted: true };
       }
 
       // result.decision === 'allow'

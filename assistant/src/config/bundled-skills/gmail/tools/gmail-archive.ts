@@ -61,11 +61,18 @@ export async function run(
   const senderIds = input.sender_ids as string[] | undefined;
   let messageIds = input.message_ids as string[] | undefined;
   const messageId = input.message_id as string | undefined;
+  const userApproved =
+    input.user_approved === true && context.trustClass === "guardian";
 
   // Resolve message IDs via priority: query → scan_id+sender_ids → message_ids → message_id
   if (query) {
     // Query path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
+    if (
+      !context.triggeredBySurfaceAction &&
+      !context.batchAuthorizedByTask &&
+      !context.approvedViaPrompt &&
+      !userApproved
+    ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );
@@ -120,7 +127,12 @@ export async function run(
     }
   } else if (scanId && senderIds?.length) {
     // Scan path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
+    if (
+      !context.triggeredBySurfaceAction &&
+      !context.batchAuthorizedByTask &&
+      !context.approvedViaPrompt &&
+      !userApproved
+    ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );
@@ -203,7 +215,12 @@ export async function run(
     }
   } else if (messageIds?.length) {
     // Batch message_ids path requires surface action confirmation
-    if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
+    if (
+      !context.triggeredBySurfaceAction &&
+      !context.batchAuthorizedByTask &&
+      !context.approvedViaPrompt &&
+      !userApproved
+    ) {
       return err(
         "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
       );

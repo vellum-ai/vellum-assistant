@@ -223,6 +223,11 @@ export class AgentLoop {
     while (true) {
       if (signal?.aborted) break;
 
+      rlog.info(
+        { turn: toolUseTurns, messageCount: history.length },
+        "Agent loop iteration start",
+      );
+
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
       try {
@@ -326,6 +331,8 @@ export class AgentLoop {
 
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
+
+        rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
@@ -442,6 +449,17 @@ export class AgentLoop {
             block.type === "tool_use",
         );
 
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            stopReason: response.stopReason,
+            contentBlocks: response.content.length,
+            toolUseCount: toolUseBlocks.length,
+            durationMs: providerDurationMs,
+          },
+          "LLM call complete",
+        );
+
         // Detect empty responses: no user-visible text and no tool calls.
         // This can happen when the model fails to produce output after
         // receiving a large tool result. Retry once with a nudge before
@@ -541,6 +559,15 @@ export class AgentLoop {
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
+        const toolExecStart = Date.now();
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolNames: toolUseBlocks.map((t) => t.name),
+          },
+          "Tool execution start",
+        );
+
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
             const result = await this.toolExecutor!(
@@ -583,6 +610,15 @@ export class AgentLoop {
         } else {
           toolResults = await toolExecutionPromise;
         }
+
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolCount: toolResults.length,
+            durationMs: Date.now() - toolExecStart,
+          },
+          "Tool execution complete",
+        );
 
         // Merge sensitive output bindings from tool results into the
         // per-run substitution map. Bindings carry placeholder->value pairs
@@ -720,6 +756,15 @@ export class AgentLoop {
         break;
       }
     }
+
+    rlog.info(
+      {
+        turns: toolUseTurns,
+        finalMessageCount: history.length,
+        aborted: signal?.aborted ?? false,
+      },
+      "Agent loop exited",
+    );
 
     return history;
   }

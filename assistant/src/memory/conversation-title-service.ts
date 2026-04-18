@@ -37,6 +37,7 @@ export type TitleOrigin =
   | "filing"
   | "local"
   | "task_submit"
+  | "updates_bulletin"
   | "misc";
 
 export interface TitleContext {

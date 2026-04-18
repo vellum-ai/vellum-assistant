@@ -750,32 +750,26 @@ These differences are intentional — the adapters were designed for their respe
 
 ### Update Bulletin System
 
-Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
+Release-driven update notification system that dispatches a background conversation to process release notes when a release lands.
 
 **Data flow:**
 
-1. **Bundled template** (`src/prompts/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
-2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
-3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
-4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
-5. **Cross-release merge** — if pending updates from a prior release exist when a new release lands, both release blocks coexist in the same file.
+1. **Storage** — Release notes live at `~/.vellum/workspace/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends a release-notes block to the file. The workspace-migration runner is the authoritative idempotency mechanism: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set.
+2. **Dispatch** — At daemon startup (after `runWorkspaceMigrations()`), `runUpdateBulletinJobIfNeeded()` is invoked fire-and-forget. It hashes the current `UPDATES.md` content and compares against the `updates:last_processed_hash` checkpoint. When the hashes differ, it bootstraps a `conversationType: "background"` conversation and calls `wakeAgentForOpportunity()` so the agent processes the bulletin without any interactive session.
+3. **Completion** — The agent acts on the contents and deletes `UPDATES.md` when done. The job persists the new hash to `updates:last_processed_hash` post-wake, so subsequent startups short-circuit until the file is repopulated by a future migration.
 
 **Checkpoint keys** (in `memory_checkpoints` table):
 
-- `updates:active_releases` — JSON array of version strings currently active.
-- `updates:completed_releases` — JSON array of version strings already completed.
+- `updates:last_processed_hash` — content hash of the `UPDATES.md` payload most recently dispatched to the background job.
 
 **Key source files:**
 
-| File                                   | Purpose                                                   |
-| -------------------------------------- | --------------------------------------------------------- |
-| `src/prompts/templates/UPDATES.md`     | Bundled release-note template                             |
-| `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
-| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
-| `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
-| `src/prompts/system-prompt.ts`         | Prompt injection of updates section                       |
-| `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
-| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
+| File                                  | Purpose                                                              |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `src/workspace/migrations/`           | Per-release migrations that append release notes to `UPDATES.md`     |
+| `src/workspace/migrations/registry.ts`| Append-only `WORKSPACE_MIGRATIONS` registry                          |
+| `src/prompts/update-bulletin-job.ts`  | `runUpdateBulletinJobIfNeeded()` — hash check and background dispatch |
+| `src/permissions/defaults.ts`         | Auto-allow rules for file_read/write/edit + rm UPDATES.md            |
 
 ---
 

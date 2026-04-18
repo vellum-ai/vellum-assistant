@@ -34,7 +34,24 @@ For details on how to use this command, run:
 assistant oauth request --help
 ```
 
-You should err towards asking your user for permission to make the request, especially if it performs side-effects (e.g. updates data, sends an email, etc.)
+**Side-effect requests require explicit user confirmation.** If the request performs a side-effect (updates data, sends an email, deletes a record, etc.), gate it with `assistant ui confirm` so the user has a hard runtime veto — do not rely solely on SKILL.md prose instructions.
+
+```bash
+# Example: gate a destructive OAuth request on user confirmation
+if assistant ui confirm \
+  --title "Send email" \
+  --message "Send draft to jane@example.com — Subject: Q2 Report" \
+  --confirm-label "Send" \
+  --deny-label "Cancel"; then
+  assistant oauth request POST "/v1.0/me/messages/${DRAFT_ID}/send" \
+    --provider microsoft-graph
+else
+  echo "Cancelled — email not sent."
+  exit 0
+fi
+```
+
+For read-only requests (fetching data, listing resources), no confirmation gate is needed.
 
 ### OAuth Token Escape Hatch
 

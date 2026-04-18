@@ -163,6 +163,8 @@ export interface ToolContext {
   callSessionId?: string;
   /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
   triggeredBySurfaceAction?: boolean;
+  /** True when the user explicitly approved this tool invocation via the interactive permission prompt (not auto-approved by trust rules or temporary overrides). */
+  approvedViaPrompt?: boolean;
   /**
    * True when the invocation is inside a scheduled task run whose
    * `required_tools` array pre-authorized this tool at task-creation time.
@@ -228,9 +230,12 @@ export interface ToolExecutionResult {
   sensitiveBindings?: SensitiveOutputBinding[];
   /**
    * When true, the agent loop should yield control back to the user after
-   * returning this result. Used by interactive surfaces (tables with action
-   * buttons, file uploads) to force-stop the loop so the LLM cannot bypass
-   * the "wait for user action" instruction.
+   * returning this result — tool results are pushed to history and the loop
+   * breaks without another LLM call. Two callers set this: interactive
+   * surfaces (tables with action buttons, file uploads) that force-stop the
+   * loop so the LLM cannot bypass the "wait for user action" instruction,
+   * and tools like `remember` that expose a `finish_turn` parameter letting
+   * the LLM voluntarily end its turn.
    */
   yieldToUser?: boolean;
   /**

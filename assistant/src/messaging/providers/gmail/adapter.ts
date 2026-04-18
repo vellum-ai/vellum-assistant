@@ -65,6 +65,7 @@ function extractPlainTextBody(msg: GmailMessage): string {
 function mapGmailMessage(msg: GmailMessage): Message {
   const from = extractHeader(msg, "From");
   const subject = extractHeader(msg, "Subject");
+  const rfc822MessageId = extractHeader(msg, "Message-ID");
 
   // Parse sender name/email from "Name <email>" format
   const emailMatch = from.match(/<([^>]+)>/);
@@ -90,6 +91,7 @@ function mapGmailMessage(msg: GmailMessage): Message {
       subject,
       labelIds: msg.labelIds,
       snippet: msg.snippet,
+      ...(rfc822MessageId ? { rfc822MessageId } : {}),
     },
   };
 }
@@ -251,23 +253,11 @@ export const gmailMessagingProvider: MessagingProvider = {
     options?: HistoryOptions,
   ): Promise<Message[]> {
     const conn = requireConnection(connection);
-    // Get all messages in a Gmail thread
+    const thread = await gmail.getThread(conn, threadId, "full");
+    const messages = thread.messages ?? [];
+    if (!messages.length) return [];
     const limit = options?.limit ?? 50;
-    const listResult = await gmail.listMessages(
-      conn,
-      `thread:${threadId}`,
-      limit,
-    );
-
-    if (!listResult.messages?.length) return [];
-
-    const messages = await gmail.batchGetMessages(
-      conn,
-      listResult.messages.map((m) => m.id),
-      "full",
-    );
-
-    return messages.map(mapGmailMessage);
+    return messages.slice(0, limit).map(mapGmailMessage);
   },
 
   async markRead(

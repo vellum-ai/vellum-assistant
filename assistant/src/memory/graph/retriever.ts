@@ -16,6 +16,7 @@ import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
+import type { QdrantSparseVector } from "../qdrant-client.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {
@@ -355,6 +356,19 @@ export interface ContextLoadResult {
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
   metrics: RetrievalMetrics;
+  /**
+   * Dense query vector computed from `recentSummaries`. Surfaced so downstream
+   * callers (e.g. the PKB hint retriever) can reuse the same embedding for a
+   * second Qdrant query without paying for another embedding call. `undefined`
+   * when no summaries were provided or embedding failed (circuit breaker).
+   */
+  queryVector?: number[];
+  /**
+   * Optional sparse vector passed into `searchGraphNodes` alongside the dense
+   * query vector. Currently always `undefined` — reserved for future hybrid
+   * retrieval that produces a sparse vector at the call site.
+   */
+  sparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -380,6 +394,7 @@ export async function loadContextMemory(
 
   // 1. Embed recent conversation summaries as retrieval queries
   let queryVector: number[] | null = null;
+  const sparseVector: QdrantSparseVector | undefined = undefined;
   let embeddingProvider: string | null = null;
   let embeddingModel: string | null = null;
   let contextQueryText: string | null = null;
@@ -406,9 +421,12 @@ export async function loadContextMemory(
   if (queryVector) {
     const searchStart = Date.now();
     try {
-      const results = await searchGraphNodes(queryVector, maxNodes * 3, [
-        opts.scopeId,
-      ]);
+      const results = await searchGraphNodes(
+        queryVector,
+        maxNodes * 3,
+        [opts.scopeId],
+        sparseVector,
+      );
       for (const r of results) {
         semanticCandidateIds.set(r.nodeId, r.score);
       }
@@ -697,6 +715,8 @@ export async function loadContextMemory(
       queryContext: contextQueryText,
       topCandidates,
     },
+    queryVector: queryVector ?? undefined,
+    sparseVector,
   };
 }
 
@@ -726,6 +746,21 @@ export interface TurnRetrievalResult {
   triggeredNodes: TriggeredResult[];
   latencyMs: number;
   metrics: RetrievalMetrics;
+  /**
+   * Dense query vector computed from the last-exchange text (assistant +
+   * user message). Surfaced so downstream callers (e.g. the PKB hint
+   * retriever in `applyRuntimeInjections`) can reuse the same embedding
+   * for a second Qdrant query without paying for another embedding call.
+   * `undefined` when no text was embedded (image-only turn) or embedding
+   * failed (circuit breaker).
+   */
+  queryVector?: number[];
+  /**
+   * Optional sparse vector passed alongside `queryVector`. Currently always
+   * `undefined` — reserved for future hybrid retrieval that produces a
+   * sparse vector at the call site.
+   */
+  sparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -828,6 +863,8 @@ export async function retrieveForTurn(
         embeddingModel,
         queryContext: queryText || null,
       },
+      queryVector: undefined,
+      sparseVector: undefined,
     };
   }
 
@@ -900,6 +937,8 @@ export async function retrieveForTurn(
             embeddingModel,
             queryContext: queryText || null,
           },
+          queryVector: undefined,
+          sparseVector: undefined,
         };
       }
     }
@@ -952,6 +991,8 @@ export async function retrieveForTurn(
         embeddingModel,
         queryContext: queryText || null,
       },
+      queryVector: queryEmbeddings[0],
+      sparseVector: undefined,
     };
   }
 
@@ -1134,5 +1175,7 @@ export async function retrieveForTurn(
       queryContext: queryText || null,
       topCandidates,
     },
+    queryVector: queryEmbeddings[0],
+    sparseVector: undefined,
   };
 }

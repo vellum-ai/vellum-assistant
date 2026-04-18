@@ -155,7 +155,7 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig(),
       callDetectorLLM: llm,
       onOpportunity,
@@ -200,7 +200,7 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig(),
       callDetectorLLM: llm,
       onOpportunity,
@@ -245,7 +245,7 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig(),
       callDetectorLLM: llm,
       onOpportunity,
@@ -295,7 +295,7 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig(),
       callDetectorLLM: llm,
       onOpportunity,
@@ -309,7 +309,7 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
       transcriptChunk(
         "m1",
         "2024-01-01T00:00:00.000Z",
-        "I was chatting with Velissa earlier.",
+        "I was chatting with Aria earlier.",
       ),
     );
 
@@ -335,7 +335,7 @@ describe("MeetChatOpportunityDetector — debounce + cooldown", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig({ tier2DebounceMs: 5_000 }),
       callDetectorLLM: llm,
       onOpportunity,
@@ -399,7 +399,7 @@ describe("MeetChatOpportunityDetector — debounce + cooldown", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       // Use a short debounce so the second hit actually reaches Tier 2,
       // letting us exercise the escalation cooldown rather than the
       // debounce guard above it.
@@ -474,7 +474,7 @@ describe("MeetChatOpportunityDetector — enabled=false", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig({ enabled: false }),
       callDetectorLLM: llm,
       onOpportunity,
@@ -488,7 +488,7 @@ describe("MeetChatOpportunityDetector — enabled=false", () => {
       transcriptChunk(
         "m1",
         "2024-01-01T00:00:00.000Z",
-        "Hey Velissa, can you send the deck?",
+        "Hey Aria, can you send the deck?",
       ),
     );
     dispatcher.dispatch(
@@ -528,7 +528,7 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
-      assistantDisplayName: "Velissa",
+      assistantDisplayName: "Aria",
       config: defaultConfig({
         // Only this custom pattern — none of the defaults are present.
         detectorKeywords: ["\\bblue\\s+monkey\\b"],
@@ -551,8 +551,8 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
       ),
     );
     await flushPromises();
-    // Still matches the assistant-name pattern if name is "Velissa"?
-    // This phrase doesn't mention Velissa, so Tier 1 should not hit.
+    // Still matches the assistant-name pattern if name is "Aria"?
+    // This phrase doesn't mention Aria, so Tier 1 should not hit.
     expect(detector.getStats().tier1Hits).toBe(0);
     expect(llm).toHaveBeenCalledTimes(0);
 

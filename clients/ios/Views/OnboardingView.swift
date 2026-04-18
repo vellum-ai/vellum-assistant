@@ -3,11 +3,13 @@ import SwiftUI
 import VellumAssistantShared
 
 // Onboarding step identifiers for the cloud-login flow:
-//   Welcome → Login → Permissions → Ready
+//   Welcome → Login → Ready
+// Microphone and speech recognition permissions are requested at point-of-use
+// (first voice-button tap in InputBarView) per Apple HIG guidance:
+// https://developer.apple.com/design/human-interface-guidelines/privacy#Requesting-permission
 private enum OnboardingStep: Hashable {
     case welcome
     case login
-    case permissions
     case ready
 }
 
@@ -38,9 +40,6 @@ struct OnboardingView: View {
                         onCancel: { currentStep = .welcome }
                     )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                case .permissions:
-                    PermissionsStep(onContinue: { currentStep = .ready })
-                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 case .ready:
                     ReadyStep(isCompleted: $isCompleted)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
@@ -99,7 +98,7 @@ struct OnboardingView: View {
     }
 
     /// Persist the selected assistant's config, rebuild the daemon client,
-    /// and advance to the permissions step.
+    /// and advance to the ready step.
     private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
         let platformBaseURL = VellumEnvironment.resolvedPlatformURL
 
@@ -114,7 +113,7 @@ struct OnboardingView: View {
         clientProvider.rebuildClient()
 
         isBootstrappingManaged = false
-        currentStep = .permissions
+        currentStep = .ready
     }
 
     private func performManagedBootstrap() async {
@@ -171,45 +170,6 @@ struct WelcomeStep: View {
             Spacer()
 
             Button("Get Started", action: onContinue)
-                .buttonStyle(.borderedProminent)
-                .padding(.bottom, VSpacing.xxl)
-        }
-        .padding(VSpacing.xl)
-    }
-}
-
-// MARK: - PermissionsStep
-
-struct PermissionsStep: View {
-    var onContinue: (() -> Void)?
-
-    var body: some View {
-        VStack(spacing: VSpacing.xl) {
-            Spacer()
-
-            Text("Permissions")
-                .font(VFont.titleMedium)
-                .foregroundStyle(VColor.contentDefault)
-
-            Text("Grant permissions for voice input")
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentSecondary)
-                .multilineTextAlignment(.center)
-
-            VStack(spacing: VSpacing.lg) {
-                PermissionRowView(permission: .microphone)
-                PermissionRowView(
-                    permission: .speechRecognition,
-                    subtitle: STTProviderRegistry.isServiceConfigured ? "(Optional)" : nil
-                )
-            }
-            .padding(VSpacing.xl)
-            .background(VColor.surfaceBase)
-            .cornerRadius(VRadius.md)
-
-            Spacer()
-
-            Button("Continue", action: { onContinue?() })
                 .buttonStyle(.borderedProminent)
                 .padding(.bottom, VSpacing.xxl)
         }

@@ -16,8 +16,8 @@ function isRateLimitError(e: unknown): boolean {
   return /\b429\b/.test(e.message);
 }
 
-const MAX_MESSAGES_CAP = 5000;
-const MAX_IDS_PER_SENDER = 5000;
+const MAX_MESSAGES_CAP = 2000;
+const MAX_IDS_PER_SENDER = 2000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface OutreachSenderAggregation {
@@ -51,7 +51,7 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const account = input.account as string | undefined;
   const maxMessages = Math.min(
-    (input.max_messages as number) ?? 2000,
+    (input.max_messages as number) ?? 1000,
     MAX_MESSAGES_CAP,
   );
   const maxSenders = (input.max_senders as number) ?? 30;
@@ -236,6 +236,14 @@ export async function run(
     // Enrich with prior-reply signal: check if user has ever sent to each sender.
     // Uses bounded concurrency (batches of 10) and AbortController to cancel
     // in-flight requests when the time budget expires.
+    //
+    // Three-valued enrichment map:
+    //   true  = confirmed prior reply (enrichment succeeded, found replies)
+    //   false = confirmed no prior reply (enrichment succeeded, no replies)
+    //   undefined (absent) = unknown (enrichment skipped — rate-limited or timed out)
+    //
+    // Only senders with confirmed `true` are filtered out. Senders with unknown
+    // status are kept and returned with `has_prior_reply: null`.
     const ENRICHMENT_CONCURRENCY = 10;
     const priorReplyMap = new Map<string, boolean>();
     if (!rateLimited) {
@@ -264,11 +272,16 @@ export async function run(
                 connection,
                 `from:me to:${s.email}`,
                 1,
+                undefined,
+                undefined,
+                abortController.signal,
               );
               priorReplyMap.set(s.email, (resp.messages?.length ?? 0) > 0);
             } catch {
-              // Non-fatal — default to safe direction (assume prior reply exists)
-              priorReplyMap.set(s.email, true);
+              // Non-fatal — leave absent in map (unknown status).
+              // Abort errors from the signal are also caught here, which is
+              // intentional: the sender keeps unknown status rather than being
+              // dropped.
             }
           });
           await Promise.race([
@@ -287,32 +300,25 @@ export async function run(
       } finally {
         clearTimeout(budgetTimer);
       }
-
-      // Default any un-enriched senders to safe direction
-      for (const s of sorted) {
-        if (!priorReplyMap.has(s.email)) {
-          priorReplyMap.set(s.email, true);
-        }
-      }
-    } else {
-      // Rate limited — default all to safe direction
-      for (const s of sorted) {
-        priorReplyMap.set(s.email, true);
-      }
     }
+    // When rate-limited or timed-out, senders simply have no entry in
+    // priorReplyMap — they are kept with unknown reply status.
 
-    // Filter out senders with prior replies, then cap to maxSenders.
+    // Filter out senders with confirmed prior replies, then cap to maxSenders.
     // This is the purpose of over-fetching (maxSenders * 3): enrich more
     // candidates, discard those with existing replies, then take the top N.
+    // Senders with unknown enrichment status (absent from priorReplyMap) are kept.
     const capped = sorted
-      .filter((s) => !priorReplyMap.get(s.email))
+      .filter((s) => priorReplyMap.get(s.email) !== true)
       .slice(0, maxSenders);
     const senders = capped.map((s) => ({
       id: Buffer.from(s.email).toString("base64url"),
       display_name: s.displayName || s.email.split("@")[0],
       email: s.email,
       message_count: s.messageCount,
-      has_prior_reply: priorReplyMap.get(s.email) ?? true,
+      has_prior_reply: priorReplyMap.has(s.email)
+        ? priorReplyMap.get(s.email)!
+        : null,
       newest_message_id: s.newestMessageId,
       oldest_date: s.oldestDate,
       newest_date: s.newestDate,

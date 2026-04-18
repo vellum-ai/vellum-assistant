@@ -276,17 +276,19 @@ struct MessageListContentView: View, Equatable {
         thinkingLabel: String,
         isFlipped: Bool = true
     ) -> some View {
-        switch item {
-        case .queuedMarker(let count):
-            queuedMarkerRow(count: count, isFlipped: isFlipped)
-        case .message(let message):
-            if let row = rowsByMessageId[message.id] {
-                transcriptRow(
-                    row: row,
-                    isUnanchoredThinking: isUnanchoredThinking,
-                    thinkingLabel: thinkingLabel,
-                    isFlipped: isFlipped
-                )
+        CachedHeightRow(itemId: item.id) {
+            switch item {
+            case .queuedMarker(let count):
+                queuedMarkerRow(count: count, isFlipped: isFlipped)
+            case .message(let message):
+                if let row = rowsByMessageId[message.id] {
+                    transcriptRow(
+                        row: row,
+                        isUnanchoredThinking: isUnanchoredThinking,
+                        thinkingLabel: thinkingLabel,
+                        isFlipped: isFlipped
+                    )
+                }
             }
         }
     }
@@ -322,7 +324,12 @@ struct MessageListContentView: View, Equatable {
         // during any item insertion, which measures ALL children via sizeThatFits —
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content changes in withAnimation.
-        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+        //
+        // `MessageTranscriptStack` is `LazyVStack` by default, and swaps to a
+        // plain `VStack` when the `message-height-cache` flag is on — that's
+        // the experimental path for fixing contentH drift at the cost of
+        // eager layout. Same `.transaction` guard covers both.
+        MessageTranscriptStack(spacing: VSpacing.md) {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage

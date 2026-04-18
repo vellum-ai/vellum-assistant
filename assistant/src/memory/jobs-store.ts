@@ -27,6 +27,7 @@ export type MemoryJobType =
   | "embed_attachment"
   | "generate_conversation_starters"
   | "embed_graph_node"
+  | "embed_pkb_file"
   | "graph_extract"
   | "graph_decay"
   | "graph_consolidate"
@@ -41,6 +42,7 @@ const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_media",
   "embed_attachment",
   "embed_graph_node",
+  "embed_pkb_file",
   "graph_trigger_embed",
 ];
 

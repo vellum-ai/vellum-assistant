@@ -137,7 +137,7 @@ jobs:
       - name: Test
         run: bun run test:stable
         env:
-          TEST_WORKERS: '8'
+          TEST_WORKERS: '16'
           TEST_DURATIONS_FILE: .test-durations
           TEST_DURATIONS_OUTPUT: .test-durations
 

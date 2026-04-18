@@ -18,6 +18,7 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
+import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
 import {
@@ -291,6 +292,18 @@ export class ConversationGraphMemory {
     injectedBlockText: string | null;
     /** Retrieval pipeline metrics (null for noop/error paths). */
     metrics: RetrievalMetrics | null;
+    /**
+     * Dense query vector computed from the retrieval query — recent summaries
+     * for context-load, the last-exchange text for per-turn. Surfaced so
+     * downstream callers (e.g. the PKB hint retriever in
+     * `applyRuntimeInjections`) can reuse the same embedding for a second
+     * Qdrant query without paying for another embedding call. `undefined`
+     * when no text was embedded (image-only turn, empty queries) or the
+     * embedding call failed (circuit breaker).
+     */
+    queryVector?: number[];
+    /** Optional sparse vector accompanying `queryVector`. */
+    sparseVector?: QdrantSparseVector;
   }> {
     this.tracker.advanceTurn();
 
@@ -376,6 +389,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -395,6 +410,8 @@ export class ConversationGraphMemory {
         mode: "context-load" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -427,6 +444,8 @@ export class ConversationGraphMemory {
       mode: "context-load" as const,
       injectedBlockText: contextBlock,
       metrics: result.metrics,
+      queryVector: result.queryVector,
+      sparseVector: result.sparseVector,
     };
   }
 
@@ -481,6 +500,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -496,6 +517,8 @@ export class ConversationGraphMemory {
         mode: "per-turn" as const,
         injectedBlockText: null,
         metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
       };
     }
 
@@ -518,6 +541,8 @@ export class ConversationGraphMemory {
       mode: "per-turn" as const,
       injectedBlockText: injectionBlock,
       metrics: result.metrics,
+      queryVector: result.queryVector,
+      sparseVector: result.sparseVector,
     };
   }
 }

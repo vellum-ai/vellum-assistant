@@ -352,16 +352,17 @@ describe("startChatReader", () => {
     // Drop the fixture's pre-existing message from the comparison.
     events.length = 0;
 
-    // Two appended messages with the same sender, text, and timestamp but
-    // different DOM IDs — bot-side dedupe should collapse them.
+    // Two appended messages with the same DOM ID (e.g. panel close/reopen
+    // re-observes the same node) — bot-side dedupe keyed on domId should
+    // collapse them to a single event.
     fake.appendMessage({
-      id: "msg-dup-a",
+      id: "msg-dup",
       sender: "Bob",
       text: "ping",
       datetime: "2026-04-15T12:36:00Z",
     });
     fake.appendMessage({
-      id: "msg-dup-b",
+      id: "msg-dup",
       sender: "Bob",
       text: "ping",
       datetime: "2026-04-15T12:36:00Z",

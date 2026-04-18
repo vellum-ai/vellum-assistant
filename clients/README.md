@@ -35,7 +35,7 @@ clients/
 │   └── AGENTS.md              # Agent development guidance (macOS-specific)
 ├── ios/                       # iOS-specific code
 │   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, etc.)
-│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ConversationListView, etc.)
+│   ├── Views/                 # iOS-specific SwiftUI views (ConversationListView, ChatContentView, etc.)
 │   │   └── Settings/          # Settings sections (Connection + Developer diagnostics)
 │   ├── Tests/                 # iOS integration tests
 │   └── Resources/             # Assets, Info.plist
@@ -134,7 +134,6 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Voice input
 - ✅ Attachment support (photos, files)
 - ✅ Push notifications (APNS + rich inline reply)
-- ✅ Export conversation (copy as markdown or share sheet)
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
 - ✅ Integration tests (ChatViewModel, threads, attachments, formatting)

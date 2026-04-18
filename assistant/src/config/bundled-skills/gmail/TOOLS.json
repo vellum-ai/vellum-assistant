@@ -46,6 +46,10 @@
           "account": {
             "type": "string",
             "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
+          },
+          "user_approved": {
+            "type": "boolean",
+            "description": "Set to true ONLY when the user's most recent message contains explicit approval language for this specific action (e.g. 'archive these', 'yes do it', 'go ahead'). Do NOT set this when the user merely described what they want without confirming, or when acting on prior instructions without fresh confirmation in this turn."
           }
         },
         "required": ["confidence"]
@@ -157,6 +161,10 @@
           "account": {
             "type": "string",
             "description": "Email address of the Gmail account to use. Required when multiple Gmail accounts are connected. If omitted, uses the most recently connected account."
+          },
+          "user_approved": {
+            "type": "boolean",
+            "description": "Set to true ONLY when the user's most recent message contains explicit approval language for this specific action (e.g. 'unsubscribe from these', 'yes do it', 'go ahead'). Do NOT set this when the user merely described what they want without confirming, or when acting on prior instructions without fresh confirmation in this turn."
           }
         },
         "required": ["message_id", "confidence"]
@@ -186,7 +194,11 @@
           },
           "in_reply_to": {
             "type": "string",
-            "description": "RFC 822 Message-ID header value (e.g. `<CABx...@mail.gmail.com>`), NOT the Gmail message ID. Look up the original message's Message-ID header."
+            "description": "RFC 822 Message-ID header (e.g. `<CABx...@mail.gmail.com>`) or a Gmail message ID. If a Gmail message ID is provided (no angle brackets), the RFC 822 Message-ID is resolved automatically."
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Gmail thread ID. Places the draft in the specified thread so it appears as a reply in Gmail's conversation view."
           },
           "cc": {
             "type": "string",
@@ -494,7 +506,7 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 5000)"
+            "description": "Maximum messages to scan (default 1000, cap 2000)"
           },
           "max_senders": {
             "type": "number",
@@ -502,7 +514,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 2,000 messages in a single call)"
           },
           "activity": {
             "type": "string",
@@ -527,7 +539,7 @@
         "properties": {
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 5000)"
+            "description": "Maximum messages to scan (default 1000, cap 2000)"
           },
           "max_senders": {
             "type": "number",
@@ -539,7 +551,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 5,000 messages in a single call)"
+            "description": "Resume token from a previous scan (rarely needed - scans now cover up to 2,000 messages in a single call)"
           },
           "activity": {
             "type": "string",
@@ -564,7 +576,13 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["list", "add_blocklist", "add_safelist", "remove_blocklist", "remove_safelist"],
+            "enum": [
+              "list",
+              "add_blocklist",
+              "add_safelist",
+              "remove_blocklist",
+              "remove_safelist"
+            ],
             "description": "Preference action: list all preferences, or add/remove emails from blocklist or safelist"
           },
           "emails": {

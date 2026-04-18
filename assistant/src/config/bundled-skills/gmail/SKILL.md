@@ -84,8 +84,9 @@ Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail 
 
 When replying to or continuing an email thread:
 
-- Use `messaging_send` with the thread's `thread_id` - it automatically handles threading, reply-all recipients, and subject lines.
-- The `in_reply_to` field on `gmail_draft` requires the **RFC 822 Message-ID header** (looks like `<CABx...@mail.gmail.com>`), NOT the Gmail message ID (which looks like `18e4a5b2c3d4e5f6`). Get it by reading the thread messages and extracting the `Message-ID` header.
+- **Preferred**: Use `messaging_send` with the thread's `thread_id` — it automatically handles threading, reply-all recipients, and subject lines.
+- **Manual drafting**: Use `gmail_draft` with both `thread_id` and `in_reply_to` for full control. The `thread_id` places the draft in the correct Gmail thread; `in_reply_to` sets the RFC 822 threading headers.
+- **Getting the Message-ID**: Search and read results include `rfc822MessageId` in message metadata (looks like `<CABx...@mail.gmail.com>`). This is the value to pass as `in_reply_to`. You can also pass a Gmail message ID directly — `gmail_draft` auto-resolves it to the RFC 822 header.
 
 ## Gmail Search Syntax
 
@@ -171,14 +172,14 @@ Merge results from all passes before presenting the final table. Each pass cover
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured. Offer to run additional date-range passes to cover the remaining messages (see Large Inbox Handling above).
+- **Truncation handling**: The scan covers up to 1,000 messages by default (cap 2,000). If `truncated` is true, the top senders are still captured. Offer to run additional date-range passes to cover the remaining messages (see Large Inbox Handling above).
 - **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Offer to run additional date-range passes for uncovered periods.
 
 ## Cleanup Preferences (Blocklist & Safelist)
 
 The `gmail_preferences` tool persists sender preferences across cleanup sessions:
 
-- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`).
+- **Blocklist**: Sender emails archived in previous sessions. On future cleanups, pre-pass archive all blocklisted senders before scanning (use `gmail_archive` with `query: "from:email1 OR from:email2 ... in:inbox"`). The user will see a permission prompt for the archive — once approved, the tool proceeds.
 - **Safelist**: Sender emails the user explicitly deselected (chose to keep). Exclude these senders from future cleanup tables entirely.
 
 ### Workflow integration

@@ -311,6 +311,23 @@ describe("cleanAssistantContent", () => {
 
     expect(result.cleanedContent).toHaveLength(0);
   });
+
+  test("drops placeholder sentinels even when the null-byte prefix is missing", () => {
+    // Models sometimes echo the sentinel from input history without reproducing
+    // the \x00 control character. The filter must catch both variants so
+    // stripped-prefix echoes don't leak into persisted messages.
+    const content = [
+      { type: "text", text: "__PLACEHOLDER__[empty assistant turn]" },
+      { type: "text", text: "__PLACEHOLDER__[internal blocks omitted]" },
+      { type: "text", text: "real text" },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.cleanedContent).toHaveLength(1);
+    expect((result.cleanedContent[0] as { text: string }).text).toBe(
+      "real text",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

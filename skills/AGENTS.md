@@ -34,5 +34,113 @@
   - The `inline-skill-commands` feature flag must be enabled for inline expansions to work. When the flag is off, skills containing expansion tokens fail closed at load time
   - Inline command expansions are only supported for `bundled`, `managed`, and `workspace` skill sources. Skills distributed as `extra` sources cannot use this syntax
 
+- **User-gated actions (interactive confirmation/input)**
+
+  Scripts that perform irreversible or high-risk operations (sending emails, deleting data, unsubscribing, making purchases) **must** gate execution on explicit user confirmation. Prose-only instructions in SKILL.md ("always ask the user first") are not sufficient — they rely on the LLM following the instruction, which is not guaranteed.
+
+  Use the `assistant ui` CLI commands to present a blocking interactive surface and branch on the result. Two commands are available:
+
+  ### `assistant ui confirm` — binary yes/no gate
+
+  Use this for irreversible actions that need a simple go/no-go decision. The command exits `0` on confirm, `1` on deny/cancel/timeout.
+
+  ```bash
+  # Gate on user confirmation before sending an email
+  if assistant ui confirm \
+    --title "Send email" \
+    --message "Send draft to jane@example.com — Subject: Q2 Report" \
+    --confirm-label "Send" \
+    --deny-label "Cancel"; then
+    # User confirmed — proceed with the action
+    assistant oauth request POST "/v1.0/me/messages/${DRAFT_ID}/send" \
+      --provider microsoft-graph
+  else
+    echo "Send cancelled by user."
+    exit 0
+  fi
+  ```
+
+  For scripts that need to inspect the result (e.g. distinguish deny from timeout):
+
+  ```bash
+  RESULT=$(assistant ui confirm \
+    --title "Delete records" \
+    --message "Permanently delete 42 records from the archive?" \
+    --confirm-label "Delete" \
+    --deny-label "Keep" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  CONFIRMED=$(echo "$RESULT" | jq -r '.confirmed')
+
+  case "$STATUS" in
+    submitted)
+      if [ "$CONFIRMED" = "true" ]; then
+        # User clicked "Delete" — proceed
+        perform_deletion
+      else
+        echo "User denied the action."
+      fi
+      ;;
+    cancelled)
+      echo "User dismissed the prompt."
+      ;;
+    timed_out)
+      echo "No response — timed out. Aborting."
+      ;;
+    *)
+      echo "Unexpected status: $STATUS" >&2
+      exit 1
+      ;;
+  esac
+  ```
+
+  ### `assistant ui request` — structured input/data collection
+
+  Use this when you need more than a yes/no — e.g. collecting form data, presenting choices, or gathering parameters before executing an operation. Returns full JSON with user-submitted data.
+
+  ```bash
+  RESULT=$(assistant ui request \
+    --payload '{"message":"Select accounts to archive","fields":[{"name":"accounts","type":"multi-select"}]}' \
+    --surface-type form \
+    --title "Archive accounts" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+
+  if [ "$STATUS" = "submitted" ]; then
+    # Extract user-submitted data and proceed
+    ACCOUNTS=$(echo "$RESULT" | jq -r '.submittedData.accounts')
+    archive_accounts "$ACCOUNTS"
+  elif [ "$STATUS" = "cancelled" ]; then
+    echo "User cancelled."
+  else
+    echo "Request failed or timed out: $STATUS"
+    exit 1
+  fi
+  ```
+
+  ### Status branching reference
+
+  Every `assistant ui` response includes a `status` field. Handle all three terminal states:
+
+  | Status | Meaning | Typical action |
+  |--------|---------|----------------|
+  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | Check `actionId` to determine the action taken — e.g. `"confirm"` or `"deny"` for confirmations. For `ui confirm`, exit code 0 = confirmed, 1 = denied. |
+  | `cancelled` | User dismissed the surface without choosing an action (e.g. closed the dialog) | Abort gracefully. Inform the user the action was skipped. |
+  | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
+
+  **Cancellation vs. failure**: A `cancelled` status means the user made a deliberate choice not to proceed — this is a normal outcome, not an error. Operational failures (IPC unavailable, invalid payload, no conversation context) surface as `ok: false` in JSON mode or a non-zero exit with an error message. Scripts should distinguish the two: cancellation is graceful, failure is exceptional.
+
+  **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
+
+  ### Conversation ID resolution
+
+  Inside a skill context, the conversation ID is auto-resolved from `__SKILL_CONTEXT_JSON` (set by the skill sandbox runner). Override with `--conversation-id <id>` if needed — run `assistant conversations list` to find available IDs.
+
+  ### Timeouts
+
+  Both commands accept `--timeout <ms>` (default: 300000ms / 5 minutes). Choose a timeout appropriate to the operation — shorter for simple confirmations, longer for complex forms. On timeout, the surface auto-cancels and the CLI exits with `status: "timed_out"`.
+
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way

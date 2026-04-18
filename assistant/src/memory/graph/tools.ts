@@ -91,6 +91,11 @@ export const graphRememberDefinition: ToolDefinition = {
         description:
           "The fact to remember. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.",
       },
+      finish_turn: {
+        type: "boolean",
+        description:
+          "Set to true ONLY on the final `remember` call when you have nothing else to say and want to hand control back to the user. When true, the assistant turn ends after this tool call and no further LLM call is made. Do NOT set true on intermediate `remember` calls. Default: false.",
+      },
     },
     required: ["content"],
   },

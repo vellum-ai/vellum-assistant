@@ -61,6 +61,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -94,7 +95,10 @@ import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
+import {
+  refreshSurfacesForApp,
+  showStandaloneSurface,
+} from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -828,6 +832,35 @@ export class DaemonServer {
         );
         return null;
       }
+    });
+
+    // Install the interactive UI resolver so skills and IPC handlers can
+    // present ad-hoc UI surfaces (confirmations, forms) to the user via
+    // `requestInteractiveUi()`. The resolver verifies the target
+    // conversation exists and is live, then delegates to the
+    // conversation-level standalone surface lifecycle which blocks until
+    // the user responds or the timeout elapses.
+    registerInteractiveUiResolver(async (request) => {
+      const conversation = this.conversations.get(request.conversationId);
+      if (!conversation) {
+        log.warn(
+          {
+            conversationId: request.conversationId,
+            surfaceType: request.surfaceType,
+          },
+          "interactive-ui resolver: conversation not found; failing closed",
+        );
+        return {
+          status: "cancelled" as const,
+          surfaceId: `ui-resolver-${Date.now()}`,
+        };
+      }
+
+      // Generate a unique surface ID and delegate to the conversation's
+      // standalone surface lifecycle. The returned Promise blocks until
+      // the user submits, cancels, or the timeout elapses.
+      const surfaceId = `ui-standalone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return showStandaloneSurface(conversation, request, surfaceId);
     });
 
     // Start the CLI IPC server. Built-in methods (wake_conversation) are

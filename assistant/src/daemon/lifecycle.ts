@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { config as dotenvConfig } from "dotenv";
 
 import type { BackupWorkerHandle } from "../backup/backup-worker.js";
@@ -72,7 +74,6 @@ import {
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
-import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -543,18 +544,6 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 
-    // Run bulletin sync AFTER the config merge + load so that getConfig()
-    // inside syncUpdateBulletinOnStartup() observes the fully merged config.
-    // Running it earlier would populate the config cache with pre-merge
-    // values, poisoning every downstream getConfig() consumer.
-    if (dbReady) {
-      try {
-        syncUpdateBulletinOnStartup();
-      } catch (err) {
-        log.warn({ err }, "Bulletin sync failed — continuing startup");
-      }
-    }
-
     // Seed module-level ingress state from the workspace config so that
     // getIngressPublicBaseUrl() returns the correct value immediately after
     // startup (before any handleIngressConfig("set") call). Without this,
@@ -690,6 +679,24 @@ export async function runDaemon(): Promise<void> {
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 
+    // Kick off the update bulletin background job AFTER `server.start()`
+    // resolves. `server.start()` installs the default wake resolver (via
+    // `registerDefaultWakeResolver()`), which the job depends on to actually
+    // invoke the agent. Dispatching before that point races the resolver
+    // registration and causes `wakeAgentForOpportunity()` to silently return
+    // `{invoked: false}`, leaving an orphan background conversation and a
+    // wasted LLM title-generation call every startup.
+    //
+    // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
+    // daemon never blocks startup on it.
+    if (dbReady) {
+      void import("../prompts/update-bulletin-job.js")
+        .then((m) => m.runUpdateBulletinJobIfNeeded())
+        .catch((err) =>
+          log.warn({ err }, "Update bulletin job failed — continuing startup"),
+        );
+    }
+
     // Mutable refs for Qdrant, memory worker, and backup worker so background
     // init can assign them and the shutdown handler always sees the latest value.
     const bgRefs: {
@@ -822,6 +829,25 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Graph bootstrap check failed — continuing");
       }
+
+      // Reconcile the PKB Qdrant index against the on-disk tree. Runs after
+      // Qdrant is ready so the scroll query can succeed; fire-and-forget so
+      // enqueued re-index jobs drain in the background and first-turn latency
+      // stays unaffected.
+      void (async () => {
+        try {
+          const { reconcilePkbIndex } = await import(
+            "../memory/pkb/pkb-reconcile.js"
+          );
+          const pkbRoot = join(getWorkspaceDir(), "pkb");
+          await reconcilePkbIndex(pkbRoot, "default");
+        } catch (err) {
+          log.warn(
+            { err },
+            "PKB index reconciliation failed — continuing startup",
+          );
+        }
+      })();
     }
 
     registerWatcherProviders();

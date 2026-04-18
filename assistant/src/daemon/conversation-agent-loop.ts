@@ -7,6 +7,8 @@
  * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
+import { join } from "node:path";
+
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -72,6 +74,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -116,6 +119,7 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
+  getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   readNowScratchpad,
@@ -230,6 +234,7 @@ export interface AgentLoopConversationContext {
   >;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
+  approvedViaPromptThisTurn?: boolean;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -640,7 +645,12 @@ export async function runAgentLoopImpl(
     let runMessages = ctx.messages;
 
     // Memory graph retrieval — dispatches to context-load / per-turn based on
-    // conversation state.
+    // conversation state. Keep the query vector around so the PKB reminder
+    // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
+    let pkbQueryVector: number[] | undefined;
+    let pkbSparseVector:
+      | import("../memory/qdrant-client.js").QdrantSparseVector
+      | undefined;
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     if (isTrustedActor) {
       const graphResult = await ctx.graphMemory.prepareMemory(
@@ -650,6 +660,8 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
+      pkbQueryVector = graphResult.queryVector;
+      pkbSparseVector = graphResult.sparseVector;
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -848,6 +860,19 @@ export async function runAgentLoopImpl(
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
+    // PKB relevance-hint inputs. Resolved once per turn and reused across
+    // re-injections so post-compaction rebuilds pick up fresh hints against
+    // the updated conversation history.
+    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
+    const pkbAutoInjectList = pkbRoot
+      ? getPkbAutoInjectList(pkbRoot)
+      : undefined;
+    // Pass `ctx` directly — `PkbContextConversation` is structural and
+    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
+    // so post-compaction re-injects see the updated history.
+    const pkbConversation = pkbActive ? ctx : undefined;
+    const pkbScopeId = pkbActive ? ctx.memoryPolicy.scopeId : undefined;
+
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
     const subagentStatusBlock = ctx.isSubagent
@@ -867,6 +892,12 @@ export async function runAgentLoopImpl(
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
       pkbActive,
+      pkbQueryVector,
+      pkbSparseVector,
+      pkbScopeId,
+      pkbConversation,
+      pkbAutoInjectList,
+      pkbRoot,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -876,7 +907,7 @@ export async function runAgentLoopImpl(
 
     let currentInjectionMode: InjectionMode = "full";
 
-    runMessages = applyRuntimeInjections(runMessages, {
+    runMessages = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
       mode: currentInjectionMode,
     });
@@ -996,7 +1027,7 @@ export async function runAgentLoopImpl(
         // When compaction ran it strips existing NOW.md / PKB blocks, so we
         // must re-inject the current content. Otherwise rely on the deduplicated
         // value from injectionOpts to avoid duplicate injection.
-        runMessages = applyRuntimeInjections(ctx.messages, {
+        runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           ...(step.compactionResult?.compacted && {
             pkbContext: currentPkbContent,
@@ -1099,6 +1130,8 @@ export async function runAgentLoopImpl(
 
     let denyCompressionMessage: Message | null = null;
 
+    rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -1106,6 +1139,11 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
       turnCallSite,
+    );
+
+    rlog.info(
+      { resultMessageCount: updatedHistory.length },
+      "Agent loop run completed",
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1198,7 +1236,7 @@ export async function runAgentLoopImpl(
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
       // the current content regardless of whether compaction actually ran.
-      runMessages = applyRuntimeInjections(ctx.messages, {
+      runMessages = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
@@ -1423,7 +1461,7 @@ export async function runAgentLoopImpl(
         // Only re-inject NOW.md when ctx.messages was actually stripped;
         // otherwise the existing NOW.md block is still present and
         // re-injecting would duplicate it.
-        runMessages = applyRuntimeInjections(ctx.messages, {
+        runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -1551,7 +1589,7 @@ export async function runAgentLoopImpl(
 
             // Only re-inject NOW.md when ctx.messages was actually stripped;
             // otherwise the existing block is still present.
-            runMessages = applyRuntimeInjections(ctx.messages, {
+            runMessages = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
               nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -1675,7 +1713,7 @@ export async function runAgentLoopImpl(
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
           // otherwise the existing block is still present.
-          runMessages = applyRuntimeInjections(ctx.messages, {
+          runMessages = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -2104,6 +2142,7 @@ export async function runAgentLoopImpl(
     ctx.processing = false;
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+    ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;

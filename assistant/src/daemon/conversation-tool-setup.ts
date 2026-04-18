@@ -121,6 +121,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
+  approvedViaPromptThisTurn?: boolean;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -195,6 +197,7 @@ export function createToolExecutor(
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
+      approvedViaPrompt: ctx.approvedViaPromptThisTurn || undefined,
       // A task without required_tools entries (e.g. ad-hoc tasks created with
       // omitted/empty required_tools, or legacy rows where it was never
       // populated) correctly gets no batch authorization — that's the
@@ -304,6 +307,9 @@ export function createToolExecutor(
       }
 
       const result = await executor.execute(toolName, toolInput, toolContext);
+      if (toolContext.approvedViaPrompt) {
+        ctx.approvedViaPromptThisTurn = true;
+      }
 
       runPostExecutionSideEffects(toolName, toolInput, result, {
         ctx,
@@ -314,6 +320,9 @@ export function createToolExecutor(
     }
 
     const result = await executor.execute(name, input, toolContext);
+    if (toolContext.approvedViaPrompt) {
+      ctx.approvedViaPromptThisTurn = true;
+    }
 
     runPostExecutionSideEffects(name, input, result, {
       ctx,

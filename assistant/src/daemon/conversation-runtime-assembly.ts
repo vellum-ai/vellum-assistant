@@ -10,14 +10,24 @@ import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import {
+  getInContextPkbPaths,
+  type PkbContextConversation,
+} from "./pkb-context-tracker.js";
+import { buildPkbReminder } from "./pkb-reminder-builder.js";
+
+const pkbReminderLog = getLogger("pkb-reminder");
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -607,12 +617,6 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
 
-const PKB_SYSTEM_REMINDER =
-  "<system_reminder>" +
-  "\nRead any unread PKB files that might be even partially relevant to this conversation" +
-  "\nUse `remember` for anything you learn immediately" +
-  "\n</system_reminder>";
-
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
  * filenames to inject.
@@ -638,6 +642,21 @@ export function readAutoinjectList(pkbDir: string): string[] | null {
 }
 
 /**
+ * Resolve the effective list of auto-inject filenames for a PKB directory.
+ *
+ * This is the single source of truth used both by `readPkbContext` (which
+ * actually injects the files) and by the PKB reminder-hint tracker in
+ * `conversation-agent-loop.ts` (which needs to know what's already in
+ * context so it doesn't redundantly recommend those files).
+ *
+ * Returns `PKB_DEFAULT_FILES` when `_autoinject.md` is missing/unreadable,
+ * or the parsed list (possibly empty) when it is present.
+ */
+export function getPkbAutoInjectList(pkbRoot: string): string[] {
+  return readAutoinjectList(pkbRoot) ?? PKB_DEFAULT_FILES;
+}
+
+/**
  * Read the always-loaded PKB files and append a nudge encouraging the
  * assistant to proactively read topic files and use `remember` aggressively.
  *
@@ -651,7 +670,7 @@ export function readPkbContext(): string | null {
   const pkbDir = join(getWorkspaceDir(), "pkb");
   if (!existsSync(pkbDir)) return null;
 
-  const filesToInject = readAutoinjectList(pkbDir) ?? PKB_DEFAULT_FILES;
+  const filesToInject = getPkbAutoInjectList(pkbDir);
 
   const parts: string[] = [];
   for (const file of filesToInject) {
@@ -1219,7 +1238,7 @@ export type InjectionMode = "full" | "minimal";
  * Each injection is optional — pass `null`/`undefined` to skip it.
  * Returns the final message array ready for the provider.
  */
-export function applyRuntimeInjections(
+export async function applyRuntimeInjections(
   runMessages: Message[],
   options: {
     activeSurface?: ActiveSurfaceContext | null;
@@ -1230,13 +1249,34 @@ export function applyRuntimeInjections(
     voiceCallControlPrompt?: string | null;
     pkbContext?: string | null;
     pkbActive?: boolean;
+    /**
+     * Dense query vector surfaced from the graph memory retriever (PR 3).
+     * When present together with `pkbActive`, used to run `searchPkbFiles`
+     * to surface relevance hints in the PKB system reminder. When missing,
+     * the reminder falls back to the flat static text.
+     */
+    pkbQueryVector?: number[];
+    /** Optional sparse vector accompanying `pkbQueryVector`. */
+    pkbSparseVector?: QdrantSparseVector;
+    /** Memory scope id used to filter PKB search results. */
+    pkbScopeId?: string;
+    /**
+     * The live conversation (or a minimal shape containing `messages`) used
+     * to compute which PKB paths are already "in context" and therefore
+     * suppressed from hint suggestions.
+     */
+    pkbConversation?: PkbContextConversation;
+    /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
+    pkbAutoInjectList?: string[];
+    /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
+    pkbRoot?: string;
     nowScratchpad?: string | null;
     subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
     mode?: InjectionMode;
   },
-): Message[] {
+): Promise<Message[]> {
   const mode = options.mode ?? "full";
   let result = runMessages;
 
@@ -1282,17 +1322,59 @@ export function applyRuntimeInjections(
   }
 
   // PKB behavioral nudge — injected on every turn when PKB is active so
-  // the model keeps reading topic files and calling `remember`.
+  // the model keeps reading topic files and calling `remember`. When a
+  // query vector is available from the graph memory retriever, run a
+  // hybrid PKB search to surface up to three relevance hints; fall back
+  // to the flat static reminder on empty results or any error.
   if (mode === "full" && options.pkbActive) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      let hints: string[] = [];
+      const queryVector = options.pkbQueryVector;
+      if (
+        queryVector &&
+        queryVector.length > 0 &&
+        options.pkbScopeId &&
+        options.pkbConversation &&
+        options.pkbRoot
+      ) {
+        try {
+          const results = await searchPkbFiles(
+            queryVector,
+            options.pkbSparseVector,
+            8,
+            [options.pkbScopeId],
+          );
+          const inContext = getInContextPkbPaths(
+            options.pkbConversation,
+            options.pkbAutoInjectList ?? [],
+            options.pkbRoot,
+          );
+          const pkbRoot = options.pkbRoot;
+          hints = results
+            .filter((r) => {
+              const abs = resolve(pkbRoot, r.path);
+              return !inContext.has(abs);
+            })
+            .slice(0, 3)
+            .map((r) => r.path);
+        } catch (err) {
+          pkbReminderLog.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "PKB hint search failed — falling back to flat reminder",
+          );
+          hints = [];
+        }
+      }
+
+      const reminder = buildPkbReminder(hints);
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
             ...userTail.content,
-            { type: "text" as const, text: PKB_SYSTEM_REMINDER },
+            { type: "text" as const, text: reminder },
           ],
         },
       ];

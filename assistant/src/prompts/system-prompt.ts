@@ -271,12 +271,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-  const updatesPath = getWorkspacePromptPath("UPDATES.md");
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const bootstrap = readPromptFile(bootstrapPath);
-  const updates = readPromptFile(updatesPath);
 
   const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
 
@@ -325,23 +323,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
           "Use this to personalize your opener and skip redundant discovery.",
       );
     }
-  }
-  if (updates) {
-    dynamicParts.push(
-      [
-        "## Recent Updates",
-        "",
-        updates,
-        "",
-        "### Update Handling",
-        "",
-        "Use your judgment to decide when and how to surface updates to the user:",
-        "- Inform the user about updates that are relevant to what they are doing or asking about.",
-        "- Apply assistant-relevant changes (e.g., new tools, behavior adjustments) without forced announcement.",
-        "- Do not interrupt the user with updates unprompted — weave them naturally into conversation when relevant.",
-        "- When you are satisfied all updates have been actioned or communicated, delete `UPDATES.md` to signal completion.",
-      ].join("\n"),
-    );
   }
   // Configuration section removed — workspace files are self-describing,
   // tool routing lives in tool descriptions.

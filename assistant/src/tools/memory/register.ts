@@ -29,14 +29,16 @@ class RememberTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    const typedInput = input as unknown as RememberInput;
     const result = handleRemember(
-      input as unknown as RememberInput,
+      typedInput,
       context.conversationId,
       context.memoryScopeId ?? "default",
     );
     return {
       content: result.message,
       isError: !result.success,
+      ...(typedInput.finish_turn ? { yieldToUser: true } : {}),
     };
   }
 }

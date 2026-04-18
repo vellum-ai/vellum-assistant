@@ -230,10 +230,10 @@ describe("MeetSessionManager.join", () => {
     // back to the assistant display name, then to MEET_JOIN_NAME_FALLBACK.
     // The test wires `resolveAssistantDisplayName: () => null` above, so
     // we land on the hard fallback regardless of what `IDENTITY.md` says.
-    expect(runOpts.env.JOIN_NAME).toBe("AI Assistant");
+    expect(runOpts.env.JOIN_NAME).toBe("Vellum");
     // `{assistantName}` is substituted in the session manager using the
     // same effective name that `JOIN_NAME` resolves to.
-    expect(runOpts.env.CONSENT_MESSAGE).toContain("AI Assistant");
+    expect(runOpts.env.CONSENT_MESSAGE).toContain("Vellum");
     expect(runOpts.env.CONSENT_MESSAGE).not.toContain("{assistantName}");
     expect(runOpts.env.DAEMON_URL).toBe("http://host.docker.internal:7821");
     expect(runOpts.env.BOT_API_TOKEN).toBe(session.botApiToken);
