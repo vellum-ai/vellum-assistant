@@ -9,15 +9,11 @@ export const PKB_TARGET_TYPE = "pkb_file" as const;
 
 /**
  * Sentinel `memory_scope_id` under which ALL PKB points are indexed and
- * searched. PKB files live at workspace level (one copy on disk shared by
- * every conversation in the workspace), so every writer — the `remember`
- * tool, file writes, startup reconciliation — must pin to the same scope or
- * search would return a fragmented view of the workspace's knowledge base.
- *
- * Note: `indexPkbFile` now scope-namespaces each chunk's `target_id` (see
- * `pkb-index.ts`), so a stray per-conversation scope would no longer clobber
- * another scope's vectors at the Qdrant level. The sentinel is still required
- * for the semantic reason above: PKB is workspace-shared, not per-scope.
+ * searched. PKB files are a workspace-shared resource: one copy on disk is
+ * visible to every conversation in the workspace, so every writer — the
+ * `remember` tool, file writes, startup reconciliation — pins to this scope
+ * so search returns a single coherent view of the workspace's knowledge base
+ * instead of a per-conversation fragment.
  */
 export const PKB_WORKSPACE_SCOPE = "_pkb_workspace" as const;
 

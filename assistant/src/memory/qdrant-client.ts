@@ -697,7 +697,11 @@ export class VellumQdrantClient {
    */
   async scrollByTargetType(
     targetType: string,
-    options?: { memoryScopeId?: string; batchSize?: number },
+    options?: {
+      memoryScopeId?: string;
+      path?: string;
+      batchSize?: number;
+    },
   ): Promise<Array<{ id: string; payload: Record<string, unknown> }>> {
     await this.ensureCollection();
 
@@ -710,6 +714,9 @@ export class VellumQdrantClient {
         key: "memory_scope_id",
         match: { value: options.memoryScopeId },
       });
+    }
+    if (options?.path) {
+      must.push({ key: "path", match: { value: options.path } });
     }
     const filter = {
       must,

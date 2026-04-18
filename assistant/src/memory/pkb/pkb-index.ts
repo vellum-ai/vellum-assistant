@@ -168,11 +168,13 @@ export function chunkPkbFile(content: string): string[] {
  * embedding pipeline. `relPath` in the payload is computed relative to
  * `pkbRoot`.
  *
- * Self-cleaning: deletes any previously-indexed chunks for this (scope, path)
- * before upserting the new ones. This keeps the index consistent when a file
- * shrinks — e.g. a prior run wrote chunks `#0..#3` and the new content only
- * produces `#0..#1`; without the pre-delete, `#2` and `#3` would linger as
- * orphaned stale results in search.
+ * Write-then-cleanup: enumerate the existing chunk target_ids for this
+ * (scope, path), upsert every new chunk, then delete only the stale
+ * target_ids (those the fresh content no longer produces). Upsert dedupes on
+ * (target_type, target_id), so matching chunk indexes are replaced in place
+ * and the prior index stays queryable if any embed/upsert call throws. A
+ * pre-delete would instead leave the file unsearchable on transient failure
+ * until a successful retry.
  */
 export async function indexPkbFile(
   pkbRoot: string,
@@ -188,8 +190,15 @@ export async function indexPkbFile(
 
   const config = getConfig();
 
-  await deletePkbFilePoints(relPath, memoryScopeId);
+  const qdrant = getQdrantClient();
+  const existing = await withQdrantBreaker(() =>
+    qdrant.scrollByTargetType(PKB_TARGET_TYPE, {
+      memoryScopeId,
+      path: relPath,
+    }),
+  );
 
+  const newTargetIds = new Set<string>();
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
     const chunk = chunks[chunkIndex];
     // Scope-namespace the target_id so `qdrant.upsert` — which dedupes on
@@ -197,6 +206,7 @@ export async function indexPkbFile(
     // the same relpath into a single point. Without the scope prefix, the
     // second scope to index a shared path would overwrite the first's vectors.
     const targetId = `${memoryScopeId}:${relPath}#${chunkIndex}`;
+    newTargetIds.add(targetId);
     await embedAndUpsert(
       config,
       PKB_TARGET_TYPE,
@@ -209,6 +219,17 @@ export async function indexPkbFile(
         content_hash: contentHash,
         memory_scope_id: memoryScopeId,
       },
+    );
+  }
+
+  // All upserts succeeded — safe to remove stale chunks that the new content
+  // did not regenerate (e.g. the file shrunk from 4 chunks to 2).
+  for (const point of existing) {
+    const staleTargetId = point.payload.target_id;
+    if (typeof staleTargetId !== "string") continue;
+    if (newTargetIds.has(staleTargetId)) continue;
+    await withQdrantBreaker(() =>
+      qdrant.deleteByTarget(PKB_TARGET_TYPE, staleTargetId),
     );
   }
 }
