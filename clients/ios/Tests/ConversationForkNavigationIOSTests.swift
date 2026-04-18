@@ -212,33 +212,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         message.daemonMessageId = daemonMessageId
         return message
     }
-
-    private func waitUntil(
-        timeout: TimeInterval,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        condition: @escaping () -> Bool
-    ) async {
-        let deadline = ContinuousClock.now + .seconds(timeout)
-        while !condition() && ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(condition(), file: file, line: line)
-    }
-
-    private func makeForkedConversationItem(messageId: String) -> ConversationListResponseItem {
-        ConversationListResponseItem(
-            id: "conv-forked",
-            title: "Forked thread",
-            createdAt: 1_700_000_100,
-            updatedAt: 1_700_000_120,
-            forkParent: ConversationForkParent(
-                conversationId: "conv-parent",
-                messageId: messageId,
-                title: "Parent thread"
-            )
-        )
-    }
 }
 
 @MainActor
@@ -248,22 +221,6 @@ private final class MockConversationDetailClient: ConversationDetailClientProtoc
 
     func fetchConversation(conversationId: String) async -> ConversationListResponseItem? {
         requests.append(conversationId)
-        return response
-    }
-}
-
-@MainActor
-private final class MockConversationForkClient: ConversationForkClientProtocol {
-    struct Request: Equatable {
-        let conversationId: String
-        let throughMessageId: String?
-    }
-
-    var response: ConversationListResponseItem?
-    private(set) var requests: [Request] = []
-
-    func forkConversation(conversationId: String, throughMessageId: String?) async -> ConversationListResponseItem? {
-        requests.append(Request(conversationId: conversationId, throughMessageId: throughMessageId))
         return response
     }
 }
