@@ -243,8 +243,8 @@ final class MessageListScrollState {
 
     /// Fold a fresh scroll snapshot into the debug metrics. Only called when
     /// the `scroll-debug-overlay` flag is on — the hot path otherwise skips this.
-    func recordDebugSnapshot(offsetY: CGFloat, isLiveScrolling: Bool, at now: Date = Date()) {
-        debugMetrics.recordSnapshot(offsetY: offsetY, isLiveScrolling: isLiveScrolling, at: now)
+    func recordDebugSnapshot(offsetY: CGFloat, contentH: CGFloat, isLiveScrolling: Bool, at now: Date = Date()) {
+        debugMetrics.recordSnapshot(offsetY: offsetY, contentH: contentH, isLiveScrolling: isLiveScrolling, at: now)
         debugMetricsVersion &+= 1
     }
 
@@ -271,6 +271,10 @@ final class MessageListScrollState {
 /// hot path pays nothing when the overlay is off.
 struct ScrollDebugMetrics {
     var lastDeltaY: CGFloat = 0
+    /// Per-frame delta of `scrollContentHeight`. Large single-frame changes
+    /// here — particularly drops — point at LazyVStack height-estimate
+    /// corrections that manifest as jerky scroll at the top of history.
+    var lastContentHDelta: CGFloat = 0
     /// Signed scroll velocity in points per second, smoothed across recent
     /// samples via an EMA to damp per-tick jitter.
     var velocityPtPerSec: CGFloat = 0
@@ -288,12 +292,13 @@ struct ScrollDebugMetrics {
 
     private var lastSnapshotTime: Date?
     private var lastSnapshotOffsetY: CGFloat = 0
+    private var lastSnapshotContentH: CGFloat?
     /// EMA smoothing factor for velocity. Higher = more responsive, lower =
     /// smoother. 0.35 keeps the reading stable during momentum scroll while
     /// still reacting to direction flips.
     private static let velocitySmoothing: CGFloat = 0.35
 
-    mutating func recordSnapshot(offsetY: CGFloat, isLiveScrolling: Bool, at now: Date) {
+    mutating func recordSnapshot(offsetY: CGFloat, contentH: CGFloat, isLiveScrolling: Bool, at now: Date) {
         if let prev = lastSnapshotTime {
             let dt = now.timeIntervalSince(prev)
             let delta = offsetY - lastSnapshotOffsetY
@@ -303,8 +308,12 @@ struct ScrollDebugMetrics {
                 velocityPtPerSec += (instantaneous - velocityPtPerSec) * Self.velocitySmoothing
             }
         }
+        if let prevH = lastSnapshotContentH {
+            lastContentHDelta = contentH - prevH
+        }
         lastSnapshotTime = now
         lastSnapshotOffsetY = offsetY
+        lastSnapshotContentH = contentH
         self.isLiveScrolling = isLiveScrolling
         recentUpdateTimes.append(now)
         Self.trim(&recentUpdateTimes, at: now)

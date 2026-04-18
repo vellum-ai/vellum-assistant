@@ -41,6 +41,7 @@ extension MessageListView {
         if MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay") {
             scrollState.recordDebugSnapshot(
                 offsetY: newState.contentOffsetY,
+                contentH: newState.contentHeight,
                 isLiveScrolling: newState.isLiveScrolling
             )
         }

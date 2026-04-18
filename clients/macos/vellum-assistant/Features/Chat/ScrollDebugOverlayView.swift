@@ -77,6 +77,7 @@ struct ScrollDebugOverlayView: View {
                 updatesPerSecond: updatesPerSec,
                 velocity: velocity,
                 lastDeltaY: metrics.lastDeltaY,
+                lastContentHDelta: metrics.lastContentHDelta,
                 anchorsPerSecond: anchorsPerSec,
                 anchorTotal: metrics.anchorShiftTotal,
                 conversationId: scrollState.currentConversationId
@@ -98,6 +99,14 @@ struct ScrollDebugOverlayView: View {
             row("updates/s", String(updatesPerSec))
             row("velocity", "\(signed(velocity)) pt/s")
             row("lastDeltaY", signed(metrics.lastDeltaY))
+            // Highlight large single-frame contentH swings in red — these are
+            // the LazyVStack height-estimate corrections we care about for
+            // jerky-scroll investigation.
+            row(
+                "ΔcontentH",
+                signed(metrics.lastContentHDelta),
+                valueColor: abs(metrics.lastContentHDelta) > 100 ? VColor.systemNegativeStrong : nil
+            )
             row("anchors/s", String(anchorsPerSec))
             row("anchorTotal", String(metrics.anchorShiftTotal))
             if let id = scrollState.currentConversationId {
@@ -185,13 +194,13 @@ struct ScrollDebugOverlayView: View {
         recorder.clear()
     }
 
-    private func row(_ label: String, _ value: String) -> some View {
+    private func row(_ label: String, _ value: String, valueColor: Color? = nil) -> some View {
         HStack(spacing: 6) {
             Text(label)
                 .foregroundStyle(VColor.contentSecondary)
                 .frame(width: 84, alignment: .trailing)
             Text(value)
-                .foregroundStyle(VColor.contentDefault)
+                .foregroundStyle(valueColor ?? VColor.contentDefault)
                 .frame(minWidth: 60, alignment: .leading)
         }
     }
@@ -244,6 +253,7 @@ final class ScrollDebugRecorder {
         let updatesPerSecond: Int
         let velocity: CGFloat
         let lastDeltaY: CGFloat
+        let lastContentHDelta: CGFloat
         let anchorsPerSecond: Int
         let anchorTotal: Int
         let conversationId: UUID?
@@ -292,8 +302,8 @@ final class ScrollDebugRecorder {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-        var csv = "elapsedSec,timestamp,offsetY,contentH,containerH,viewportH,distBottom,distTop,pinnedLatest,liveScrolling,paginating,paginationInRange,ctaVisible,updatesPerSecond,velocity,lastDeltaY,anchorsPerSecond,anchorTotal,conversationId\n"
-        csv.reserveCapacity(frames.count * 180)
+        var csv = "elapsedSec,timestamp,offsetY,contentH,containerH,viewportH,distBottom,distTop,pinnedLatest,liveScrolling,paginating,paginationInRange,ctaVisible,updatesPerSecond,velocity,lastDeltaY,lastContentHDelta,anchorsPerSecond,anchorTotal,conversationId\n"
+        csv.reserveCapacity(frames.count * 190)
         for frame in frames {
             let elapsed = frame.timestamp.timeIntervalSince(start)
             let cols: [String] = [
@@ -313,6 +323,7 @@ final class ScrollDebugRecorder {
                 String(frame.updatesPerSecond),
                 String(format: "%.3f", frame.velocity),
                 String(format: "%.3f", frame.lastDeltaY),
+                String(format: "%.2f", frame.lastContentHDelta),
                 String(frame.anchorsPerSecond),
                 String(frame.anchorTotal),
                 frame.conversationId?.uuidString ?? "",
