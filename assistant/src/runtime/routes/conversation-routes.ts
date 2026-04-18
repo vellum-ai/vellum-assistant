@@ -2165,18 +2165,28 @@ export async function handleSendMessage(
   );
 }
 
+function escapeXmlContent(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
   priorUserText: string | null,
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
-  const truncatedAssistant =
-    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
+  const truncatedAssistant = escapeXmlContent(
+    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText,
+  );
   const truncatedUser =
     priorUserText && priorUserText.length > 500
-      ? priorUserText.slice(-500)
-      : priorUserText;
+      ? escapeXmlContent(priorUserText.slice(-500))
+      : priorUserText
+        ? escapeXmlContent(priorUserText)
+        : priorUserText;
 
   const systemPrompt =
     "You generate short, casual reply suggestions a user might type next in a chat. Match the tone and register of the preceding conversation. Output only the reply text inside the requested tags — no preamble, no commentary.";
