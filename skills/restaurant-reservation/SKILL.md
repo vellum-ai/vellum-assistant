@@ -184,5 +184,5 @@ Only proceed after explicit user approval.
 - **Expired OTP:** Never retry an old verification code. Always prompt the user for a fresh code via `ui_show` with `await_action: true`.
 - **Login fails repeatedly:** After 3 failed attempts, inform the user and ask if they want to try the other provider or handle login manually.
 - **Reservation submit fails:** Take a fresh snapshot (`assistant browser --session reservation --json snapshot`), read the error message, and report it to the user. Common causes: credit card required, party size changed, slot no longer available. Suggest rebooking if the slot was taken.
-- **Page unresponsive or stuck:** Wait up to 10 seconds, then try refreshing (`assistant browser --session reservation navigate` to the current URL). If still stuck, report to the user.
+- **Page unresponsive or stuck:** Wait up to 10 seconds, then try refreshing (`assistant browser --session reservation navigate --url <current-url>`). If still stuck, report to the user.
 - **Provider-specific errors:** If one provider consistently errors, suggest switching to the other.

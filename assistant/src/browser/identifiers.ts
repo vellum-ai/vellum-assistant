@@ -1,14 +1,9 @@
 /**
  * Lightweight browser identifier helpers.
  *
- * This module exports browser tool-name constants and bidirectional
- * name-mapping functions without importing any runtime browser
- * dependencies (browser-execution, browser-manager, browser-mode).
- *
- * Policy and classification modules (permissions/defaults,
- * workspace-policy, side-effects) should import from here instead
- * of from `operations.ts` to avoid pulling the browser execution
- * stack into non-browser codepaths.
+ * Exports browser tool-name constants and bidirectional name-mapping
+ * functions without importing any runtime browser dependencies
+ * (browser-execution, browser-manager, browser-mode).
  */
 
 import { BROWSER_OPERATIONS, type BrowserOperation } from "./types.js";
@@ -18,16 +13,8 @@ import { BROWSER_OPERATIONS, type BrowserOperation } from "./types.js";
 /**
  * All `browser_*` tool names derived from operation identifiers.
  *
- * These names are the LLM-facing tool aliases registered by the browser
- * skill wrappers. They are compatibility adapters: the canonical
- * identifiers are the operation names in {@link BROWSER_OPERATIONS},
- * and the `browser_*` prefix is a naming convention for the tool layer.
- *
- * Consumed by:
- *   - Permission default rules (permissions/defaults.ts)
- *   - Workspace policy classification (permissions/workspace-policy.ts)
- *   - Side-effect tool classification (tools/side-effects.ts)
- *   - Test harnesses and parity guards
+ * Maps each operation in {@link BROWSER_OPERATIONS} to its `browser_`
+ * prefixed tool name for use in legacy compatibility paths.
  */
 export const BROWSER_TOOL_NAMES: readonly string[] = BROWSER_OPERATIONS.map(
   (op) => `browser_${op}`,
