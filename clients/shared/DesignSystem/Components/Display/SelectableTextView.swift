@@ -177,11 +177,19 @@ public struct VSelectableTextView: NSViewRepresentable {
         // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
-        // Confine glyph generation to the requested bounding rect so that
-        // attaching the text view to its hosting view does not force full
-        // document layout on the main thread.
-        // https://developer.apple.com/documentation/appkit/nslayoutmanager/allowsnoncontiguouslayout
-        layoutManager.allowsNonContiguousLayout = true
+        // Contiguous (default) layout: the measurement path uses
+        // `NSLayoutManager.ensureLayout(for:)` + `usedRect(for:)` on a separate
+        // TextKit stack that always lays out every glyph, so the frame we
+        // hand SwiftUI via `.frame(height:)` assumes the NSTextView will
+        // render every glyph in that same rect. Non-contiguous layout leaves
+        // glyphs pending until the view scrolls or draws them, which races
+        // with streaming updates — the NSTextView briefly paints a smaller
+        // laid-out region inside the (correctly-measured) larger frame,
+        // producing a visible gap; the next sibling then gets placed via
+        // the measured frame and the lazy glyphs later paint outside it,
+        // producing overlap. Keep this contiguous for correctness here.
+        // VCodeView / HighlightedTextView still opt in to non-contiguous
+        // layout independently for their own scroll-attachment perf fix.
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: 0,
