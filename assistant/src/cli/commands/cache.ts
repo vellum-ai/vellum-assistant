@@ -81,12 +81,13 @@ function readPayloadFromStdin(): unknown {
     );
   }
 
-  // Warn on large payloads (but do not fail)
+  // Warn on large payloads (but do not fail).
+  // Write directly to stderr so --json stdout output stays clean.
   const byteLength = Buffer.byteLength(raw, "utf-8");
   if (byteLength > MAX_PAYLOAD_BYTES) {
     const sizeMb = (byteLength / 1_000_000).toFixed(2);
-    log.warn(
-      `Payload size (${sizeMb} MB) exceeds 1 MB. Large payloads may impact cache performance.`,
+    process.stderr.write(
+      `Warning: payload size (${sizeMb} MB) exceeds 1 MB. Large payloads may impact cache performance.\n`,
     );
   }
 
