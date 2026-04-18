@@ -19,6 +19,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 200,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         )
         XCTAssertEqual(delta, 50)
@@ -32,6 +33,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 800,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         )
         XCTAssertEqual(delta, 4000)
@@ -48,6 +50,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 0,
             contentOffsetY: 200,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
     }
@@ -58,6 +61,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 200,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
     }
@@ -70,6 +74,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 200,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
     }
@@ -83,6 +88,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 5,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
     }
@@ -94,6 +100,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 8,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
     }
@@ -104,6 +111,7 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 9,
             shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         )
         XCTAssertEqual(delta, 100)
@@ -118,7 +126,43 @@ final class ScrollAnchorPreserverTests: XCTestCase {
             lastContentHeight: 1000,
             contentOffsetY: 200,
             shouldPreserveAnchor: false,
+            isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon
         ))
+    }
+
+    // MARK: - Live-scroll gate
+
+    func testSkipsWhenUserIsLiveScrolling() {
+        // The user is actively scrolling (trackpad, wheel, or momentum
+        // decay). Any content-height growth during the gesture — most
+        // often LazyVStack lazy cell materialization — must not trigger
+        // a clipView origin shift, because calling setBoundsOrigin
+        // mid-gesture cancels the user's scroll input and traps them in
+        // the current region. The original streaming-bug inputs would
+        // otherwise compensate; the live-scroll gate must override.
+        XCTAssertNil(ScrollAnchorPreserver.offsetDelta(
+            currentContentHeight: 1050,
+            lastContentHeight: 1000,
+            contentOffsetY: 200,
+            shouldPreserveAnchor: true,
+            isUserLiveScrolling: true,
+            pinnedToLatestEpsilon: Self.epsilon
+        ))
+    }
+
+    func testCompensatesOnceLiveScrollEnds() {
+        // After didEndLiveScrollNotification fires, isUserLiveScrolling
+        // flips back to false and subsequent passive growth (e.g., a
+        // streaming response continuing to arrive) compensates normally.
+        let delta = ScrollAnchorPreserver.offsetDelta(
+            currentContentHeight: 1050,
+            lastContentHeight: 1000,
+            contentOffsetY: 200,
+            shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
+            pinnedToLatestEpsilon: Self.epsilon
+        )
+        XCTAssertEqual(delta, 50)
     }
 }
