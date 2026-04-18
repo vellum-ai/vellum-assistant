@@ -577,21 +577,17 @@ function buildStandaloneSurfaceData(
 
   if (request.surfaceType === "form") {
     // Preserve the full form payload (pages, pageLabels, and any future
-    // additive keys) instead of narrowing to a fixed subset. Apply
-    // defensive normalization so that `fields` is always a valid array —
-    // callers that use `pages` instead of top-level `fields` may omit the
-    // latter entirely.
+    // additive keys) via spreading. Apply defensive normalization so that
+    // `fields` is always a valid array — callers that use `pages` instead
+    // of top-level `fields` may omit the latter entirely.
     const raw = request.data as Record<string, unknown>;
     const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
-    const hasPages = Array.isArray(raw.pages) && raw.pages.length > 0;
 
-    // At least one of fields/pages must be present; fall back to an empty
-    // fields array so the surface never renders with no inputs at all.
+    // Ensure `fields` is always a valid array — callers that supply `pages`
+    // instead of top-level `fields` may omit the latter entirely.
     const fields: FormSurfaceData["fields"] = hasFields
       ? (raw.fields as FormSurfaceData["fields"])
-      : hasPages
-        ? []
-        : [];
+      : [];
 
     return {
       ...raw,

@@ -906,10 +906,9 @@ describe("standalone multi-page form payload shapes", () => {
 
 describe("standalone form forward-compatible payload preservation", () => {
   test("additive keys not in FormSurfaceData are preserved through the pipeline", async () => {
-    // Regression test: buildStandaloneSurfaceData used to narrow form data
-    // to only { description, fields, submitLabel }, silently dropping any
-    // keys added in newer protocol versions. The spread-based implementation
-    // must pass through arbitrary additional keys so that forward-compatible
+    // Regression test: the form surface pipeline must preserve all keys from
+    // the input data — including ones not declared in FormSurfaceData (e.g.
+    // keys added in newer protocol versions) — so that forward-compatible
     // clients can consume them.
     const ctx = createMockContext();
 
