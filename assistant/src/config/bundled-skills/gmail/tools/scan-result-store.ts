@@ -1,4 +1,8 @@
-import { randomBytes } from "crypto";
+import {
+  deleteCacheEntry,
+  getCacheEntry,
+  setCacheEntry,
+} from "../../../../skills/skill-cache-store.js";
 
 interface SenderData {
   messageIds: string[];
@@ -6,15 +10,21 @@ interface SenderData {
   newestUnsubscribableMessageId: string | null;
 }
 
-interface ScanEntry {
-  senders: Map<string, SenderData>;
-  createdAt: number;
+/**
+ * Serializable payload stored in the shared cache.
+ * Uses a plain object (not a Map) so it round-trips through the cache cleanly.
+ */
+interface ScanPayload {
+  senders: Record<string, SenderData>;
 }
 
-const MAX_ENTRIES = 16;
 const TTL_MS = 30 * 60_000; // 30 minutes
 
-const _store = new Map<string, ScanEntry>();
+/**
+ * Local bookkeeping of scan IDs produced by this module so
+ * `clearScanStore()` can delete them from the shared cache.
+ */
+const _trackedScanIds = new Set<string>();
 
 /** Store scan results and return a unique scan ID. */
 export function storeScanResult(
@@ -25,24 +35,18 @@ export function storeScanResult(
     newestUnsubscribableMessageId: string | null;
   }>,
 ): string {
-  const scanId = randomBytes(8).toString("hex");
-
-  // LRU eviction: remove oldest if at capacity
-  if (_store.size >= MAX_ENTRIES) {
-    const oldest = _store.keys().next().value;
-    if (oldest !== undefined) _store.delete(oldest);
-  }
-
-  const senderMap = new Map<string, SenderData>();
+  const sendersObj: Record<string, SenderData> = {};
   for (const s of senders) {
-    senderMap.set(s.id, {
+    sendersObj[s.id] = {
       messageIds: s.messageIds,
       newestMessageId: s.newestMessageId,
       newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
-    });
+    };
   }
 
-  _store.set(scanId, { senders: senderMap, createdAt: Date.now() });
+  const payload: ScanPayload = { senders: sendersObj };
+  const { key: scanId } = setCacheEntry(payload, { ttlMs: TTL_MS });
+  _trackedScanIds.add(scanId);
   return scanId;
 }
 
@@ -51,19 +55,13 @@ export function getSenderMessageIds(
   scanId: string,
   senderIds: string[],
 ): string[] | null {
-  const entry = _store.get(scanId);
-  if (!entry) return null;
-  if (Date.now() - entry.createdAt > TTL_MS) {
-    _store.delete(scanId);
-    return null;
-  }
-  // LRU: move to end
-  _store.delete(scanId);
-  _store.set(scanId, entry);
+  const result = getCacheEntry(scanId);
+  if (!result) return null;
 
+  const payload = result.data as ScanPayload;
   const ids: string[] = [];
   for (const sid of senderIds) {
-    const data = entry.senders.get(sid);
+    const data = payload.senders[sid];
     if (data) ids.push(...data.messageIds);
   }
   return ids;
@@ -77,13 +75,11 @@ export function getSenderMetadata(
   newestMessageId: string;
   newestUnsubscribableMessageId: string | null;
 } | null {
-  const entry = _store.get(scanId);
-  if (!entry) return null;
-  if (Date.now() - entry.createdAt > TTL_MS) {
-    _store.delete(scanId);
-    return null;
-  }
-  const data = entry.senders.get(senderId);
+  const result = getCacheEntry(scanId);
+  if (!result) return null;
+
+  const payload = result.data as ScanPayload;
+  const data = payload.senders[senderId];
   if (!data) return null;
   return {
     newestMessageId: data.newestMessageId,
@@ -93,8 +89,11 @@ export function getSenderMetadata(
 
 /** Clear the store (for tests). */
 export function clearScanStore(): void {
-  _store.clear();
+  for (const scanId of _trackedScanIds) {
+    deleteCacheEntry(scanId);
+  }
+  _trackedScanIds.clear();
 }
 
-/** Visible for testing: override TTL check by returning internal store reference. */
-export const _internals = { store: _store, TTL_MS };
+/** Visible for testing. */
+export const _internals = { TTL_MS, trackedScanIds: _trackedScanIds };
