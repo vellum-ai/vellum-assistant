@@ -139,6 +139,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "gmail",
+      "name": "gmail",
+      "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📨",
+        "vellum": {
+          "display-name": "Gmail",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
