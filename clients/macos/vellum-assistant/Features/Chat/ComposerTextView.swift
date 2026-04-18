@@ -90,7 +90,27 @@ final class ComposerTextView: NSTextView {
         super.keyDown(with: event)
     }
 
-    // MARK: - Cmd+V Image Paste
+    // MARK: - Paste
+
+    /// Force text paste to read only the pasteboard's plain-text type,
+    /// bypassing NSTextView's default preference for RTF/HTML. Rich
+    /// sources (Claude, web pages) otherwise route through an attributed-
+    /// string conversion that mangles newlines, list indentation, and
+    /// bullet characters before `isRichText == false` strips attributes.
+    ///
+    /// Image content is diverted to ``onPasteImage`` so attachments still
+    /// work via the Edit → Paste menu as well as Cmd+V.
+    ///
+    /// Refs:
+    /// - https://developer.apple.com/documentation/appkit/nstext/pasteasplaintext(_:)
+    /// - https://developer.apple.com/documentation/appkit/nstext/isrichtext
+    override func paste(_ sender: Any?) {
+        if Self.pasteboardHasImageContent(), let onPasteImage {
+            onPasteImage()
+            return
+        }
+        pasteAsPlainText(sender)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder == self else {
