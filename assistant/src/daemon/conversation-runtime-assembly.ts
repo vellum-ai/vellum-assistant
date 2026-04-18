@@ -609,10 +609,8 @@ const MAX_BUFFER_LINES = 50;
 
 const PKB_SYSTEM_REMINDER =
   "<system_reminder>" +
-  "\n**CRITICAL:** you MUST read any PKB files that might be relevant to this conversation — " +
-  "INDEX.md is your table of contents. Don't wait to be asked. " +
-  "Use `remember` OFTEN for EVERY new fact you learn IMMEDIATELY, don't wait for the next turn. " +
-  "Corrections to things you had wrong are the highest-priority remembers — never skip them." +
+  "\nRead any unread PKB files that might be even partially relevant to this conversation" +
+  "\nUse `remember` for anything you learn immediately" +
   "\n</system_reminder>";
 
 /**
