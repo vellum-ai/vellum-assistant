@@ -10,8 +10,12 @@ struct MessageListScrollObserver: NSViewRepresentable {
     /// grows. Re-evaluated on every potential compensation point — return
     /// `false` during pagination (where the explicit scroll-to-anchor is
     /// the source of truth). Compensation is additionally gated on the
-    /// user being above the visual bottom; when pinned to latest, growth
-    /// auto-follows naturally in the inverted scroll.
+    /// user being above the visual bottom (when pinned to latest, growth
+    /// auto-follows naturally in the inverted scroll) and on the user
+    /// not being in an active live-scroll gesture (tracked internally
+    /// via `NSScrollView.willStart/didEndLiveScrollNotification`, so
+    /// mid-gesture height growth — most often `LazyVStack` lazy cell
+    /// materialization — never fights the user's scroll).
     let shouldPreserveScrollAnchor: @MainActor () -> Bool
 
     func makeCoordinator() -> Coordinator {
@@ -60,6 +64,14 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// so a stale baseline from a previous conversation cannot apply
         /// a phantom delta on the first emit of a new ScrollView.
         private var lastContentHeight: CGFloat = 0
+        /// Tracks whether an AppKit live scroll (trackpad/wheel gesture plus
+        /// momentum decay) is currently in progress. Bracketed by
+        /// `willStartLiveScrollNotification` / `didEndLiveScrollNotification`
+        /// on the `NSScrollView`. Anchor preservation is suppressed while
+        /// this is true so content-height growth from `LazyVStack` lazy cell
+        /// materialization — or any other concurrent source — cannot fight
+        /// the user's gesture with a mid-gesture `setBoundsOrigin` shift.
+        private var isLiveScrolling: Bool = false
         /// In inverted-scroll coords, `contentOffsetY ≈ 0` means the user is
         /// pinned to the visual bottom (latest messages). Below this small
         /// epsilon we treat the user as pinned and let streaming growth
@@ -104,6 +116,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             documentView = nil
             lastSnapshot = nil
             lastContentHeight = 0
+            isLiveScrolling = false
         }
 
         func emitCurrentSnapshotIfPossible() {
@@ -128,6 +141,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 lastContentHeight: lastContentHeight,
                 contentOffsetY: clipView.bounds.origin.y,
                 shouldPreserveAnchor: shouldPreserveScrollAnchor(),
+                isUserLiveScrolling: isLiveScrolling,
                 pinnedToLatestEpsilon: Self.pinnedToLatestEpsilon
             ) {
                 let newOrigin = NSPoint(
@@ -198,6 +212,40 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 })
             }
 
+            // Bracket the user's gesture (and its momentum decay) so anchor
+            // preservation doesn't call `setBoundsOrigin` while the user is
+            // actively scrolling. Without this, any content-height growth
+            // between scroll ticks — most often `LazyVStack` lazy cell
+            // materialization as new cells come into view — produces an
+            // upward `clipView` shift that cancels the user's input and
+            // traps them in the current region.
+            observers.append(center.addObserver(
+                forName: NSScrollView.willStartLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.isLiveScrolling = true
+                }
+            })
+            observers.append(center.addObserver(
+                forName: NSScrollView.didEndLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isLiveScrolling = false
+                    // Re-baseline without applying a delta: any growth
+                    // that accumulated during the gesture has already
+                    // been absorbed into the user's new scroll position,
+                    // so we must not retroactively compensate for it on
+                    // the next passive emit.
+                    self.lastContentHeight = self.documentView?.frame.height ?? 0
+                    self.emitCurrentSnapshotIfPossible()
+                }
+            })
+
             emitCurrentSnapshotIfPossible()
         }
 
@@ -232,9 +280,11 @@ enum ScrollAnchorPreserver {
         lastContentHeight: CGFloat,
         contentOffsetY: CGFloat,
         shouldPreserveAnchor: Bool,
+        isUserLiveScrolling: Bool,
         pinnedToLatestEpsilon: CGFloat
     ) -> CGFloat? {
         guard shouldPreserveAnchor,
+              !isUserLiveScrolling,
               lastContentHeight > 0,
               currentContentHeight > lastContentHeight,
               contentOffsetY > pinnedToLatestEpsilon
