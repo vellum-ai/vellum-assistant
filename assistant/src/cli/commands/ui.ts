@@ -61,8 +61,8 @@ function resolveConversationId(explicit?: string): string {
 
   throw new Error(
     "No conversation ID available.\n" +
-      "Provide --conversation-id explicitly, or run this command from a skill " +
-      "context where __SKILL_CONTEXT_JSON is set.",
+      "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
+      "or run this command from a skill context where __SKILL_CONTEXT_JSON is set.",
   );
 }
 
@@ -144,6 +144,18 @@ function readPayload(payloadFlag?: string): Record<string, unknown> {
   }
 }
 
+// ── Strict integer parsing ────────────────────────────────────────────
+
+/**
+ * Parse a string as a strict positive integer. Rejects inputs like
+ * `"1e3"`, `"30s"`, `"12.5"` that `parseInt` would silently truncate.
+ * Returns the parsed integer or `NaN` on any non-pure-integer input.
+ */
+function parseStrictPositiveInt(value: string): number {
+  if (!/^\d+$/.test(value)) return NaN;
+  return Number(value);
+}
+
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerUiCommand(program: Command): void {
@@ -182,7 +194,7 @@ Examples:
     .option("--title <title>", "Title displayed on the surface")
     .option(
       "--conversation-id <id>",
-      "Conversation ID (auto-resolved from skill context if omitted)",
+      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill context if omitted)",
     )
     .option(
       "--timeout <ms>",
@@ -260,10 +272,8 @@ Examples:
         }
 
         // Parse timeout
-        const requestTimeoutMs = parseInt(
-          opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS),
-          10,
-        );
+        const rawTimeout = opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
+        const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
         if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
           const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
           if (opts.json) {
@@ -352,7 +362,7 @@ Examples:
     )
     .option(
       "--conversation-id <id>",
-      "Conversation ID (auto-resolved from skill context if omitted)",
+      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill context if omitted)",
     )
     .option(
       "--timeout <ms>",
@@ -415,10 +425,8 @@ Examples:
         }
 
         // Parse timeout
-        const requestTimeoutMs = parseInt(
-          opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS),
-          10,
-        );
+        const rawTimeout = opts.timeout ?? String(DEFAULT_REQUEST_TIMEOUT_MS);
+        const requestTimeoutMs = parseStrictPositiveInt(rawTimeout);
         if (isNaN(requestTimeoutMs) || requestTimeoutMs <= 0) {
           const msg = `Invalid --timeout value "${opts.timeout}". Must be a positive integer (milliseconds).`;
           if (opts.json) {
@@ -433,8 +441,14 @@ Examples:
         }
 
         // Build confirmation surface data
+        const confirmLabel = opts.confirmLabel ?? "Confirm";
+        const denyLabel = opts.denyLabel ?? "Deny";
         const data: Record<string, unknown> = {};
         if (opts.message) data.message = opts.message;
+        // Pass custom labels via data payload so the renderer reads them
+        // from ConfirmationSurfaceData.confirmLabel / .cancelLabel.
+        data.confirmLabel = confirmLabel;
+        data.cancelLabel = denyLabel;
 
         // Build IPC params
         const ipcParams: Record<string, unknown> = {
@@ -444,12 +458,12 @@ Examples:
           actions: [
             {
               id: "confirm",
-              label: opts.confirmLabel ?? "Confirm",
+              label: confirmLabel,
               variant: "primary",
             },
             {
               id: "deny",
-              label: opts.denyLabel ?? "Deny",
+              label: denyLabel,
               variant: "secondary",
             },
           ],

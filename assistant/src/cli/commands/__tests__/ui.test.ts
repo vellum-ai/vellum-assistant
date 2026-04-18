@@ -520,6 +520,69 @@ describe("ui request — IPC param mapping", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --timeout");
   });
+
+  test("rejects --timeout with trailing non-digit characters like '30s'", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--timeout",
+      "30s",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout");
+  });
+
+  test("rejects --timeout with scientific notation like '1e3'", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--timeout",
+      "1e3",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout");
+  });
+
+  test("rejects --timeout with decimal like '12.5'", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--timeout",
+      "12.5",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -611,5 +674,25 @@ describe("ui request — output", () => {
     ]);
 
     expect(exitCode).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui request — conversation ID discovery hint
+// ---------------------------------------------------------------------------
+
+describe("ui request — conversation ID discovery hint", () => {
+  test("error message mentions 'assistant conversations list'", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.error).toContain("assistant conversations list");
   });
 });

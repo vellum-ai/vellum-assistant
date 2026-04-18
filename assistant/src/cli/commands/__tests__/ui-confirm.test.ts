@@ -198,7 +198,7 @@ describe("ui confirm — surface shape", () => {
     expect(lastIpcCall!.params!.title).toBe("Danger");
   });
 
-  test("uses custom --confirm-label and --deny-label", async () => {
+  test("uses custom --confirm-label and --deny-label in actions", async () => {
     await runCommand([
       "ui",
       "confirm",
@@ -216,10 +216,37 @@ describe("ui confirm — surface shape", () => {
     ]);
   });
 
-  test("sends empty data when --message is omitted", async () => {
+  test("passes custom labels in data.confirmLabel and data.cancelLabel", async () => {
+    await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "Continue?",
+      "--confirm-label",
+      "Yes",
+      "--deny-label",
+      "No",
+    ]);
+
+    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    expect(data.confirmLabel).toBe("Yes");
+    expect(data.cancelLabel).toBe("No");
+  });
+
+  test("passes default labels in data.confirmLabel and data.cancelLabel", async () => {
+    await runCommand(["ui", "confirm", "--message", "OK?"]);
+
+    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    expect(data.confirmLabel).toBe("Confirm");
+    expect(data.cancelLabel).toBe("Deny");
+  });
+
+  test("includes confirmLabel and cancelLabel in data even when --message is omitted", async () => {
     await runCommand(["ui", "confirm"]);
 
-    expect(lastIpcCall!.params!.data).toEqual({});
+    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    expect(data.confirmLabel).toBe("Confirm");
+    expect(data.cancelLabel).toBe("Deny");
   });
 });
 
@@ -486,5 +513,61 @@ describe("ui confirm — timeout", () => {
 
     expect(lastIpcCall!.params!.timeoutMs).toBe(300_000);
     expect(lastIpcCall!.options!.timeoutMs).toBe(310_000);
+  });
+
+  test("rejects --timeout with trailing non-digit characters like '30s'", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--timeout",
+      "30s",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout");
+  });
+
+  test("rejects --timeout with scientific notation like '1e3'", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--timeout",
+      "1e3",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conversation ID discovery hint
+// ---------------------------------------------------------------------------
+
+describe("ui confirm — conversation ID discovery hint", () => {
+  test("error message mentions 'assistant conversations list'", async () => {
+    delete process.env.__SKILL_CONTEXT_JSON;
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "confirm",
+      "--message",
+      "OK?",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.error).toContain("assistant conversations list");
   });
 });
