@@ -16,8 +16,8 @@ function isRateLimitError(e: unknown): boolean {
   return /\b429\b/.test(e.message);
 }
 
-const MAX_MESSAGES_CAP = 5000;
-const MAX_IDS_PER_SENDER = 5000;
+const MAX_MESSAGES_CAP = 2000;
+const MAX_IDS_PER_SENDER = 2000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface OutreachSenderAggregation {
@@ -51,7 +51,7 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const account = input.account as string | undefined;
   const maxMessages = Math.min(
-    (input.max_messages as number) ?? 2000,
+    (input.max_messages as number) ?? 1000,
     MAX_MESSAGES_CAP,
   );
   const maxSenders = (input.max_senders as number) ?? 30;
