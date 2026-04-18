@@ -178,6 +178,7 @@ interface MockFfmpegChild extends EventEmitter {
   stdin: {
     write: (chunk: Buffer) => boolean;
     end: () => void;
+    on: (event: string, listener: (...args: unknown[]) => void) => void;
     chunks: Buffer[];
     ended: boolean;
   };
@@ -197,6 +198,9 @@ function makeMockFfmpegChild(): MockFfmpegChild {
     },
     end(): void {
       this.ended = true;
+    },
+    on(): void {
+      // no-op — tests don't need stdin error listeners
     },
   };
   emitter.stdout = new EventEmitter();
