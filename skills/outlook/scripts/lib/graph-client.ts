@@ -22,7 +22,14 @@ export interface GraphResponse<T = unknown> {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1_000;
-const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"]);
+const IDEMPOTENT_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "PUT",
+  "DELETE",
+  "OPTIONS",
+  "PATCH",
+]);
 
 /**
  * Execute an authenticated Microsoft Graph API request via `assistant oauth request`.
@@ -62,7 +69,15 @@ export async function graphRequest<T = unknown>(
 
     let path = opts.path;
     if (opts.query && Object.keys(opts.query).length > 0) {
-      path += "?" + new URLSearchParams(opts.query).toString();
+      // Build query string manually to preserve OData $ prefixes.
+      // URLSearchParams encodes $ as %24, which breaks Graph API OData params.
+      const qs = Object.entries(opts.query)
+        .map(
+          ([k, v]) =>
+            `${encodeURIComponent(k).replace(/%24/gi, "$")}=${encodeURIComponent(v)}`,
+        )
+        .join("&");
+      path += "?" + qs;
     }
 
     args.push(path);

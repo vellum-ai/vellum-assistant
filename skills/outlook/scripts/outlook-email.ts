@@ -136,7 +136,9 @@ Options:
     );
 
     if (!replyResponse.ok) {
-      printError(`Failed to create reply draft: status ${replyResponse.status}`);
+      printError(
+        `Failed to create reply draft: status ${replyResponse.status}`,
+      );
       return;
     }
 
@@ -156,13 +158,15 @@ Options:
     );
 
     if (!patchResponse.ok) {
-      printError(`Failed to update reply draft: status ${patchResponse.status}`);
+      printError(
+        `Failed to update reply draft: status ${patchResponse.status}`,
+      );
       return;
     }
 
     ok({
       draftId,
-      subject,
+      subject: patchResponse.data.subject ?? subject,
       webLink: patchResponse.data.webLink,
     });
   } else {
@@ -232,9 +236,8 @@ Options:
   }
 
   const to =
-    draft.data.toRecipients
-      ?.map((r) => r.emailAddress.address)
-      .join(", ") ?? "(unknown)";
+    draft.data.toRecipients?.map((r) => r.emailAddress.address).join(", ") ??
+    "(unknown)";
   const subject = draft.data.subject ?? "(no subject)";
 
   // Gate on user confirmation unless explicitly skipped

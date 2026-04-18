@@ -426,9 +426,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to get vacation settings (HTTP ${res.status})`,
-        );
+        printError(`Failed to get vacation settings (HTTP ${res.status})`);
       }
       ok(res.data);
       break;
@@ -436,8 +434,7 @@ async function handleVacation(
     case "enable": {
       const internalMessage = requireArg(args, "internal-message");
       const externalMessage = optionalArg(args, "external-message");
-      const externalAudience =
-        optionalArg(args, "external-audience") ?? "none";
+      const externalAudience = optionalArg(args, "external-audience") ?? "none";
       const start = optionalArg(args, "start");
       const end = optionalArg(args, "end");
       const timezone =
@@ -471,9 +468,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to enable vacation replies (HTTP ${res.status})`,
-        );
+        printError(`Failed to enable vacation replies (HTTP ${res.status})`);
       }
       ok({ enabled: true, setting });
       break;
@@ -490,9 +485,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to disable vacation replies (HTTP ${res.status})`,
-        );
+        printError(`Failed to disable vacation replies (HTTP ${res.status})`);
       }
       ok({ enabled: false });
       break;
@@ -569,9 +562,10 @@ function isPrivateIp(ip: string): boolean {
 /**
  * Parse List-Unsubscribe header into HTTPS URLs and mailto addresses.
  */
-function parseListUnsubscribe(
-  headerValue: string,
-): { https: string[]; mailto: string[] } {
+function parseListUnsubscribe(headerValue: string): {
+  https: string[];
+  mailto: string[];
+} {
   const https: string[] = [];
   const mailto: string[] = [];
 
@@ -584,7 +578,8 @@ function parseListUnsubscribe(
     if (url.startsWith("https://")) {
       https.push(url);
     } else if (url.startsWith("mailto:")) {
-      mailto.push(url.slice(7)); // strip "mailto:"
+      // Strip "mailto:" prefix and any query parameters (?subject=..., ?body=...)
+      mailto.push(url.slice(7).split("?")[0]);
     }
   }
 
@@ -808,13 +803,17 @@ async function handleUnsubscribe(
   // Fall back to mailto: send unsubscribe email via Graph API
   if (parsed.mailto.length > 0) {
     const mailtoAddr = parsed.mailto[0];
-    const sendRes = await graphPost("/v1.0/me/sendMail", {
-      message: {
-        subject: "Unsubscribe",
-        body: { contentType: "text", content: "" },
-        toRecipients: [{ emailAddress: { address: mailtoAddr } }],
+    const sendRes = await graphPost(
+      "/v1.0/me/sendMail",
+      {
+        message: {
+          subject: "Unsubscribe",
+          body: { contentType: "text", content: "" },
+          toRecipients: [{ emailAddress: { address: mailtoAddr } }],
+        },
       },
-    }, account);
+      account,
+    );
 
     if (sendRes.ok) {
       ok({
@@ -825,7 +824,9 @@ async function handleUnsubscribe(
       return;
     }
 
-    printError(`Failed to send unsubscribe email to ${mailtoAddr} (HTTP ${sendRes.status})`);
+    printError(
+      `Failed to send unsubscribe email to ${mailtoAddr} (HTTP ${sendRes.status})`,
+    );
     throw new Error("unreachable");
   }
 

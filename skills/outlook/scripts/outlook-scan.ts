@@ -240,8 +240,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
       query: {
         $search: `"${escapedQuery}"`,
         $top: "50",
-        $select:
-          "id,from,subject,receivedDateTime,internetMessageHeaders",
+        $select: "id,from,subject,receivedDateTime,internetMessageHeaders",
       },
       // ConsistencyLevel: eventual is required when using $search
       headers: { ConsistencyLevel: "eventual" },
@@ -264,8 +263,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
       query: {
         $filter: `receivedDateTime ge ${startDate}`,
         $top: "50",
-        $select:
-          "id,from,subject,receivedDateTime,internetMessageHeaders",
+        $select: "id,from,subject,receivedDateTime,internetMessageHeaders",
       },
     });
   }

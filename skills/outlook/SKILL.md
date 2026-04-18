@@ -14,23 +14,24 @@ This skill provides Outlook-specific operations beyond the shared **messaging** 
 ## Script Reference
 
 All operations use CLI scripts that return JSON:
+
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script | Operation | Description |
-| --- | --- | --- |
-| `outlook-email.ts` | `draft` | Create email drafts in the Drafts folder (including reply drafts) |
-| `outlook-email.ts` | `send-draft` | Send an existing draft (**requires explicit user confirmation**) |
-| `outlook-email.ts` | `forward` | Create forward drafts, preserving attachments |
-| `outlook-email.ts` | `trash` | Move messages to Deleted Items |
-| `outlook-manage.ts` | `categories` | Manage message categories (add, remove, list available) |
-| `outlook-manage.ts` | `follow-up` | Track messages with Outlook's native flag system |
-| `outlook-manage.ts` | `attachments` | List and download email attachments |
-| `outlook-manage.ts` | `rules` | Create, list, and delete server-side inbox message rules |
-| `outlook-manage.ts` | `vacation` | Get, enable, or disable auto-reply (out-of-office) settings |
-| `outlook-manage.ts` | `unsubscribe` | Unsubscribe from mailing lists (**requires explicit user confirmation**) |
-| `outlook-scan.ts` | `sender-digest` | Scan inbox and group messages by sender for declutter workflows |
-| `outlook-scan.ts` | `outreach-scan` | Identify cold outreach senders (no List-Unsubscribe header) |
+| Script              | Operation       | Description                                                              |
+| ------------------- | --------------- | ------------------------------------------------------------------------ |
+| `outlook-email.ts`  | `draft`         | Create email drafts in the Drafts folder (including reply drafts)        |
+| `outlook-email.ts`  | `send-draft`    | Send an existing draft (**requires explicit user confirmation**)         |
+| `outlook-email.ts`  | `forward`       | Create forward drafts, preserving attachments                            |
+| `outlook-email.ts`  | `trash`         | Move messages to Deleted Items                                           |
+| `outlook-manage.ts` | `categories`    | Manage message categories (add, remove, list available)                  |
+| `outlook-manage.ts` | `follow-up`     | Track messages with Outlook's native flag system                         |
+| `outlook-manage.ts` | `attachments`   | List and download email attachments                                      |
+| `outlook-manage.ts` | `rules`         | Create, list, and delete server-side inbox message rules                 |
+| `outlook-manage.ts` | `vacation`      | Get, enable, or disable auto-reply (out-of-office) settings              |
+| `outlook-manage.ts` | `unsubscribe`   | Unsubscribe from mailing lists (**requires explicit user confirmation**) |
+| `outlook-scan.ts`   | `sender-digest` | Scan inbox and group messages by sender for declutter workflows          |
+| `outlook-scan.ts`   | `outreach-scan` | Identify cold outreach senders (no List-Unsubscribe header)              |
 
 ### Email Operations
 
@@ -139,13 +140,13 @@ When the user asks to "draft" or "compose" an email, use the draft script. When 
 
 Outlook and Gmail have different organizational models. Keep these distinctions in mind:
 
-| Concept | Gmail | Outlook |
-| --- | --- | --- |
-| **Organization** | Labels (multiple per message) | Folders (one per message) + Categories (multiple per message) |
-| **Categorization** | Labels serve dual purpose | Categories are color-coded tags independent of folder location |
-| **Follow-up** | Label-based tracking | Native flag system (`flagged`, `complete`, `notFlagged`) |
-| **Inbox rules** | Gmail filters | Outlook inbox rules (server-side) |
-| **Archive** | Remove INBOX label | Move to Archive folder |
+| Concept            | Gmail                         | Outlook                                                        |
+| ------------------ | ----------------------------- | -------------------------------------------------------------- |
+| **Organization**   | Labels (multiple per message) | Folders (one per message) + Categories (multiple per message)  |
+| **Categorization** | Labels serve dual purpose     | Categories are color-coded tags independent of folder location |
+| **Follow-up**      | Label-based tracking          | Native flag system (`flagged`, `complete`, `notFlagged`)       |
+| **Inbox rules**    | Gmail filters                 | Outlook inbox rules (server-side)                              |
+| **Archive**        | Remove INBOX label            | Move to Archive folder                                         |
 
 ### Categories
 
@@ -180,7 +181,7 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 1. **Scan**: Run `bun run scripts/outlook-scan.ts sender-digest`. The script returns a `cache_key` plus a lightweight sender summary (counts, unsubscribe availability, sample subjects). Message IDs are stored daemon-side — do NOT ask for them unless needed for archiving.
 2. **Present**: Show results to the user — senders, email counts, and whether unsubscribe is available for each. Pre-select all senders so users deselect what they want to keep.
 3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user explicitly confirms which senders to clean up and which action to take ("Archive & Unsubscribe" or "Archive Only").
-4. **Act on selection**: After confirmation, use `messaging_archive_by_sender` with `from:<email>` queries to archive selected senders. For unsubscribe, run the unsubscribe script for senders with `has_unsubscribe: true`. If you need specific message IDs (e.g., for targeted operations), retrieve them via `assistant cache get <cache_key> --json`.
+4. **Act on selection**: After confirmation, use `messaging_archive_by_sender` with `from:<email>` queries to archive selected senders. For unsubscribe, run the unsubscribe script for senders with `hasUnsubscribe: true`. If you need specific message IDs (e.g., for targeted operations), retrieve them via `assistant cache get <cache_key> --json`.
 5. **Accurate summary**: Report exact counts: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer**: After reporting results, offer inbox rules:
    - "Want me to set up inbox rules so future emails from these senders skip your inbox?"
@@ -191,8 +192,7 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure
-- **Truncation handling**: If `truncated` is true, the top senders are still captured - don't offer to scan more. Tell the user: "Scanned [N] messages - here are your top senders."
-- **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue - the partial results are useful as-is.
+- **Truncation handling**: If `truncated` is true (message cap reached or time budget exceeded), the top senders are still captured. Present whatever results were collected - do not retry or continue. Tell the user: "Scanned [N] messages - here are your top senders."
 
 ## Common Workflows
 
