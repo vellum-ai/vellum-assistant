@@ -99,11 +99,7 @@ interface LabelsListResponse {
 const FOLLOW_UP_LABEL_NAME = "Follow-up";
 
 async function getOrCreateFollowUpLabel(account?: string): Promise<string> {
-  const res = await gmailGet<LabelsListResponse>(
-    "/labels",
-    undefined,
-    account,
-  );
+  const res = await gmailGet<LabelsListResponse>("/labels", undefined, account);
   if (!res.ok) {
     printError(`Failed to list labels (HTTP ${res.status})`);
   }
@@ -395,10 +391,7 @@ async function handleFilters(
     }
     case "delete": {
       const filterId = requireArg(args, "filter-id");
-      const res = await gmailDelete(
-        `/settings/filters/${filterId}`,
-        account,
-      );
+      const res = await gmailDelete(`/settings/filters/${filterId}`, account);
       if (!res.ok) {
         printError(`Failed to delete filter (HTTP ${res.status})`);
       }
@@ -469,9 +462,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to enable vacation responder (HTTP ${res.status})`,
-        );
+        printError(`Failed to enable vacation responder (HTTP ${res.status})`);
       }
       ok(res.data);
       break;
@@ -483,9 +474,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to disable vacation responder (HTTP ${res.status})`,
-        );
+        printError(`Failed to disable vacation responder (HTTP ${res.status})`);
       }
       ok({ disabled: true });
       break;
@@ -661,7 +650,11 @@ async function handleUnsubscribe(
 
   // Fetch message metadata with unsubscribe headers and sender info.
   // metadataHeaders must be sent as repeated query params, not comma-separated.
-  const unsubMetadataHeaders = ["List-Unsubscribe", "List-Unsubscribe-Post", "From"];
+  const unsubMetadataHeaders = [
+    "List-Unsubscribe",
+    "List-Unsubscribe-Post",
+    "From",
+  ];
   const res = await gmailRequest<GmailMessage>({
     method: "GET",
     path: `/messages/${messageId}`,
@@ -811,11 +804,7 @@ async function handleUnsubscribe(
       .replace(/\//g, "_")
       .replace(/=+$/, "");
 
-    const sendRes = await gmailPost(
-      "/messages/send",
-      { raw },
-      account,
-    );
+    const sendRes = await gmailPost("/messages/send", { raw }, account);
 
     if (sendRes.ok) {
       ok({

@@ -96,7 +96,9 @@ export async function gmailRequest<T = unknown>(
       path += "?" + qs;
     }
     if (opts.pathSuffix) {
-      path += path.includes("?") ? opts.pathSuffix : "?" + opts.pathSuffix.replace(/^&/, "");
+      path += path.includes("?")
+        ? opts.pathSuffix
+        : "?" + opts.pathSuffix.replace(/^&/, "");
     }
 
     args.push(path);
