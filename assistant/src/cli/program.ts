@@ -8,6 +8,7 @@ import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
@@ -82,6 +83,7 @@ Examples:
   registerMemoryCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
+  registerAttachmentCommand(program);
   registerAvatarCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
