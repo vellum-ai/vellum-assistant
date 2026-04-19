@@ -22,6 +22,7 @@ import {
   gmailPost,
   gmailPut,
   gmailDelete,
+  gmailRequest,
   batchFetchMessages,
   type GmailMessage,
   type GmailMessagePart,
@@ -182,6 +183,8 @@ async function handleFollowUp(
         "metadata",
         ["From", "Subject", "Date"],
         account,
+        undefined,
+        "id,threadId,payload/headers",
       );
       const items = messages.map((m) => {
         const headers = m.payload?.headers ?? [];
@@ -656,15 +659,18 @@ async function handleUnsubscribe(
   const account = optionalArg(args, "account");
   const skipConfirm = args["skip-confirm"] === true;
 
-  // Fetch message metadata with unsubscribe headers and sender info
-  const res = await gmailGet<GmailMessage>(
-    `/messages/${messageId}`,
-    {
-      format: "metadata",
-      metadataHeaders: "List-Unsubscribe,List-Unsubscribe-Post,From",
-    },
+  // Fetch message metadata with unsubscribe headers and sender info.
+  // metadataHeaders must be sent as repeated query params, not comma-separated.
+  const unsubMetadataHeaders = ["List-Unsubscribe", "List-Unsubscribe-Post", "From"];
+  const res = await gmailRequest<GmailMessage>({
+    method: "GET",
+    path: `/messages/${messageId}`,
+    query: { format: "metadata" },
     account,
-  );
+    pathSuffix: unsubMetadataHeaders
+      .map((h) => `&metadataHeaders=${encodeURIComponent(h)}`)
+      .join(""),
+  });
   if (!res.ok) {
     printError(`Failed to get message headers (HTTP ${res.status})`);
   }

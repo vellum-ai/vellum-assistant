@@ -236,6 +236,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
           metadataHeaders,
           account,
           fetchAbort.signal,
+          "id,internalDate,payload/headers",
         ),
       );
 
@@ -493,6 +494,7 @@ async function outreachScan(args: Record<string, string | boolean>) {
           metadataHeaders,
           account,
           fetchAbort.signal,
+          "id,internalDate,payload/headers",
         ),
       );
 
