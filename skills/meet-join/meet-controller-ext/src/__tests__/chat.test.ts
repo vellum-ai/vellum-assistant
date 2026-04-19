@@ -478,6 +478,94 @@ describe("sendChat", () => {
 
     await expect(sendChat("hi")).rejects.toThrow(/send button not found/);
   });
+
+  test("emits a trusted_click with computed screen coords for the send button", async () => {
+    // Stub both INPUT and SEND_BUTTON geometry so the coordinate math is
+    // deterministic — jsdom returns a zero rect by default. We only care
+    // about the send button's coords (the input doesn't emit), but stubbing
+    // both keeps the fixture setup explicit. Math mirrors the admission-button
+    // and panel-toggle blocks: x = screenX + rect.left + width/2,
+    // y = screenY + (outerHeight - innerHeight) + rect.top + height/2.
+    const doc = installed!.dom.window.document;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
+    input.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        right: 0,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const sendButton = doc.querySelector<HTMLButtonElement>(
+      chatSelectors.SEND_BUTTON,
+    )!;
+    sendButton.getBoundingClientRect = () =>
+      ({
+        left: 1300,
+        top: 700,
+        width: 60,
+        height: 40,
+        right: 1360,
+        bottom: 740,
+        x: 1300,
+        y: 700,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    let inputEvents = 0;
+    input.addEventListener("input", () => {
+      inputEvents += 1;
+    });
+    let sendClicks = 0;
+    // Record when `.click()` fires relative to the trusted_click emit so the
+    // ordering assertion below has something to compare against.
+    const callOrder: string[] = [];
+    sendButton.addEventListener("click", () => {
+      sendClicks += 1;
+      callOrder.push("js-click");
+    });
+
+    const events: ExtensionToBotMessage[] = [];
+    await sendChat("hello", {
+      onEvent: (ev) => {
+        events.push(ev);
+        if (ev.type === "trusted_click") callOrder.push("trusted-click");
+      },
+      // chrome = outerHeight - innerHeight = 100; screen origin = (0, 0).
+      // Expected send button: x = 1300 + 30 = 1330, y = 100 + 700 + 20 = 820.
+      window: {
+        screenX: 0,
+        screenY: 0,
+        outerHeight: 820,
+        innerHeight: 720,
+      },
+    });
+
+    const trustedClicks = events.filter(
+      (e) => e.type === "trusted_click",
+    ) as Array<Extract<ExtensionToBotMessage, { type: "trusted_click" }>>;
+    expect(trustedClicks.length).toBe(1);
+    expect(trustedClicks[0]!.x).toBe(1330);
+    expect(trustedClicks[0]!.y).toBe(820);
+
+    // Text populated + input event dispatched before the trusted_click emits.
+    expect(input.value).toBe("hello");
+    expect(inputEvents).toBeGreaterThanOrEqual(1);
+
+    // JS click fallback still fires AFTER the trusted_click — the bot will
+    // already have dispatched the real xdotool click by the time the JS
+    // `.click()` runs, so ordering matters for any isTrusted-relaxed build.
+    expect(sendClicks).toBe(1);
+    expect(callOrder).toEqual(["trusted-click", "js-click"]);
+  });
 });
 
 describe("postConsentMessage", () => {
@@ -522,13 +610,14 @@ describe("postConsentMessage", () => {
     expect(installed!.panelToggleClicks()).toBe(0);
   });
 
-  test("emits a trusted_click with computed screen coords when the panel is closed", async () => {
+  test("emits two trusted_clicks with computed screen coords when the panel is closed (toggle + send)", async () => {
     installed!.closePanel();
 
-    // Stub the toggle's geometry so the coordinate math is deterministic —
-    // jsdom returns a zero rect by default. Math mirrors the admission-button
-    // block in `features/join.ts`: x = screenX + rect.left + width/2,
-    // y = screenY + (outerHeight - innerHeight) + rect.top + height/2.
+    // Stub both the toggle's and send button's geometry so the coordinate
+    // math is deterministic — jsdom returns a zero rect by default. Math
+    // mirrors the admission-button block in `features/join.ts`:
+    //   x = screenX + rect.left + width/2,
+    //   y = screenY + (outerHeight - innerHeight) + rect.top + height/2.
     const doc = installed!.dom.window.document;
     const toggle = doc.querySelector(chatSelectors.PANEL_BUTTON) as HTMLElement;
     toggle.getBoundingClientRect = () =>
@@ -546,11 +635,87 @@ describe("postConsentMessage", () => {
         },
       }) as DOMRect;
 
+    // Pre-stub the send button geometry too. The send button lives on the
+    // chat fixture (mounted since fixture load), even though the MESSAGE_LIST
+    // was removed by `closePanel()` — only the list node is gone, not the
+    // composer.
+    const sendButton = doc.querySelector<HTMLButtonElement>(
+      chatSelectors.SEND_BUTTON,
+    )!;
+    sendButton.getBoundingClientRect = () =>
+      ({
+        left: 1300,
+        top: 700,
+        width: 60,
+        height: 40,
+        right: 1360,
+        bottom: 740,
+        x: 1300,
+        y: 700,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
     const events: ExtensionToBotMessage[] = [];
     await postConsentMessage("hi", {
       onEvent: (ev) => events.push(ev),
       // chrome = outerHeight - innerHeight = 100; screen origin = (0, 0).
-      // Expected: x = 1200 + 20 = 1220, y = 100 + 60 + 20 = 180.
+      // Expected toggle: x = 1200 + 20 = 1220, y = 100 + 60 + 20 = 180.
+      // Expected send:   x = 1300 + 30 = 1330, y = 100 + 700 + 20 = 820.
+      window: {
+        screenX: 0,
+        screenY: 0,
+        outerHeight: 820,
+        innerHeight: 720,
+      },
+    });
+
+    const trustedClicks = events.filter(
+      (e) => e.type === "trusted_click",
+    ) as Array<
+      Extract<ExtensionToBotMessage, { type: "trusted_click" }>
+    >;
+    // TWO trusted_clicks now: toggle (from ensurePanelOpen) then send (from
+    // sendChat). Asserting the order catches any regression where sendChat
+    // stops receiving `opts` or the order inverts.
+    expect(trustedClicks.length).toBe(2);
+    expect(trustedClicks[0]!.x).toBe(1220);
+    expect(trustedClicks[0]!.y).toBe(180);
+    expect(trustedClicks[1]!.x).toBe(1330);
+    expect(trustedClicks[1]!.y).toBe(820);
+
+    // JS click fallback still fired for the toggle (opens the panel in the
+    // jsdom harness).
+    expect(installed!.panelToggleClicks()).toBe(1);
+  });
+
+  test("emits only the send trusted_click when the panel is already open", async () => {
+    // Panel already open (MESSAGE_LIST mounted) — ensurePanelOpen must
+    // short-circuit before the toggle-lookup + emit path, but sendChat still
+    // emits its own trusted_click for the send button.
+    const doc = installed!.dom.window.document;
+    const sendButton = doc.querySelector<HTMLButtonElement>(
+      chatSelectors.SEND_BUTTON,
+    )!;
+    sendButton.getBoundingClientRect = () =>
+      ({
+        left: 1300,
+        top: 700,
+        width: 60,
+        height: 40,
+        right: 1360,
+        bottom: 740,
+        x: 1300,
+        y: 700,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: ExtensionToBotMessage[] = [];
+    await postConsentMessage("hi", {
+      onEvent: (ev) => events.push(ev),
       window: {
         screenX: 0,
         screenY: 0,
@@ -565,29 +730,9 @@ describe("postConsentMessage", () => {
       Extract<ExtensionToBotMessage, { type: "trusted_click" }>
     >;
     expect(trustedClicks.length).toBe(1);
-    expect(trustedClicks[0]!.x).toBe(1220);
-    expect(trustedClicks[0]!.y).toBe(180);
-
-    // JS click fallback still fired (opens the panel in the jsdom harness).
-    expect(installed!.panelToggleClicks()).toBe(1);
-  });
-
-  test("does not emit a trusted_click when the panel is already open", async () => {
-    // Panel already open (MESSAGE_LIST mounted) — ensurePanelOpen must
-    // short-circuit before the toggle-lookup + emit path.
-    const events: ExtensionToBotMessage[] = [];
-    await postConsentMessage("hi", {
-      onEvent: (ev) => events.push(ev),
-      window: {
-        screenX: 0,
-        screenY: 0,
-        outerHeight: 820,
-        innerHeight: 720,
-      },
-    });
-
-    const trustedClicks = events.filter((e) => e.type === "trusted_click");
-    expect(trustedClicks.length).toBe(0);
+    expect(trustedClicks[0]!.x).toBe(1330);
+    expect(trustedClicks[0]!.y).toBe(820);
+    // Toggle was never clicked because the panel was already open.
     expect(installed!.panelToggleClicks()).toBe(0);
   });
 });
