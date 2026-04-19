@@ -17,9 +17,10 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import type {
-  InteractiveUiAction,
-  InteractiveUiResult,
+import {
+  type InteractiveUiAction,
+  type InteractiveUiResult,
+  RESERVED_ACTION_IDS,
 } from "../../runtime/interactive-ui.js";
 import { log } from "../logger.js";
 
@@ -148,28 +149,6 @@ function readPayload(payloadFlag?: string): Record<string, unknown> {
 }
 
 // ── Action parsing ────────────────────────────────────────────────────
-
-/**
- * Action IDs reserved for internal surface lifecycle events. These IDs
- * have special behavior in `handleSurfaceAction` (conversation-surfaces.ts)
- * and must not be used as custom button IDs:
- *
- * - `selection_changed`, `content_changed`, `state_update` — Intercepted
- *   as non-terminal events (early return without resolving the pending
- *   `ui_request`). Using one as a button ID would silently swallow the click.
- *
- * - `cancel`, `dismiss` — Treated as cancellation signals, resolving the
- *   `ui_request` with `status: "cancelled"` instead of the expected
- *   `status: "submitted"`. A caller expecting submission semantics would
- *   get the wrong status.
- */
-export const RESERVED_ACTION_IDS = new Set([
-  "selection_changed",
-  "content_changed",
-  "state_update",
-  "cancel",
-  "dismiss",
-]);
 
 /** Valid variant values for action buttons. */
 const VALID_VARIANTS = new Set(["primary", "danger", "secondary"]);

@@ -255,6 +255,77 @@ describe("ui_request IPC route", () => {
     expect(result.error).toBeDefined();
   });
 
+  // ── Reserved action IDs ──────────────────────────────────────────
+
+  test("rejects action with reserved id 'selection_changed'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "selection_changed", label: "Select" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'content_changed'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "content_changed", label: "Change" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'state_update'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "state_update", label: "Update" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'cancel'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "cancel", label: "Cancel" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'dismiss'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "dismiss", label: "Dismiss" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects when any action in the array uses a reserved id", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [
+        { id: "approve", label: "Approve" },
+        { id: "state_update", label: "Bad Action" },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
   // ── Optional fields ───────────────────────────────────────────────
 
   test("accepts request with optional title", async () => {
