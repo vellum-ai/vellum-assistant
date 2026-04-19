@@ -559,30 +559,18 @@ export class ConversationGraphMemory {
 // ---------------------------------------------------------------------------
 
 /**
- * Remove all memory-injected blocks from the last user message.
- *
- * `injectMemoryBlock` always prepends blocks in this order:
- *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
- *   2. `<memory __injected>…</memory>` text block
- *
- * We strip all leading blocks that match this pattern so that
- * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
+ * Count the leading content blocks on a user message that were added by
+ * `injectMemoryBlock`. Memory-injected images use a 3-block pattern
+ * (opening `<memory_image>` text + image + closing `</memory_image>` text),
+ * followed by a `<memory __injected>…</memory>` text block. A legacy
+ * 2-block image pattern (no closing tag) is also accepted for backward
+ * compatibility. The injection prefix is always contiguous at the start,
+ * so we stop at the first non-memory block.
  */
-export function stripExistingMemoryInjections(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
-
-  // Walk from the front and skip all memory-injected blocks.
-  // The injection prefix is always contiguous at the start of content.
-  // Memory-injected images use a 3-block pattern: opening <memory_image> text,
-  // image block, closing </memory_image> text (see injectMemoryBlock).
-  // Legacy 2-block pattern (no closing tag) is also handled for backward compat.
-  // Only strip image blocks that follow a marker — user-attached images must be preserved.
+export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
   let firstNonMemory = 0;
   let prevWasMemoryImageMarker = false;
   let prevWasInjectedImage = false;
-  const content = last.content;
   while (firstNonMemory < content.length) {
     const block = content[firstNonMemory];
     if (
@@ -608,21 +596,53 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
       block.text === "</memory_image>" &&
       prevWasInjectedImage
     ) {
-      // Closing tag from the 3-block pattern — only strip after an injected image
       firstNonMemory++;
       prevWasInjectedImage = false;
     } else {
       break;
     }
   }
+  return firstNonMemory;
+}
 
-  // Nothing to strip
+/**
+ * Remove all memory-injected blocks from the last user message.
+ *
+ * `injectMemoryBlock` always prepends blocks in this order:
+ *   1. For each image: `<memory_image __injected>…` text + `image` + `</memory_image>` text (3-block group)
+ *   2. `<memory __injected>…</memory>` text block
+ *
+ * We strip all leading blocks that match this pattern so that
+ * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
+ */
+export function stripExistingMemoryInjections(messages: Message[]): Message[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return messages;
+
+  const firstNonMemory = countMemoryPrefixBlocks(last.content);
   if (firstNonMemory === 0) return messages;
 
   return [
     ...messages.slice(0, -1),
-    { ...last, content: content.slice(firstNonMemory) },
+    { ...last, content: last.content.slice(firstNonMemory) },
   ];
+}
+
+/**
+ * Return the memory-injected prefix blocks from the last user message, or
+ * an empty array when there is none. Used by runtime assembly to carry the
+ * memory block through transcript replacements (e.g. Slack chronological
+ * rendering) that otherwise discard the prepended content.
+ */
+export function extractMemoryPrefixBlocks(
+  messages: Message[],
+): ContentBlock[] {
+  if (messages.length === 0) return [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return [];
+  const count = countMemoryPrefixBlocks(last.content);
+  return count === 0 ? [] : last.content.slice(0, count);
 }
 
 function injectTextBlock(messages: Message[], text: string): Message[] {

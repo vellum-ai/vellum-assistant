@@ -14,6 +14,7 @@ import {
   getMessages as defaultGetMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
+import { extractMemoryPrefixBlocks } from "../memory/graph/conversation-graph-memory.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -1697,7 +1698,25 @@ export async function applyRuntimeInjections(
     options.slackChronologicalMessages &&
     options.slackChronologicalMessages.length > 0
   ) {
+    // `graphMemory.prepareMemory` prepends a `<memory __injected>` block
+    // (and any memory-image groups) to the last user message before
+    // runtime assembly runs. The Slack transcript is freshly rendered
+    // from persisted rows and has no such prefix, so swap it in and then
+    // re-prepend the captured prefix onto the new tail user message.
+    const carriedMemoryBlocks = extractMemoryPrefixBlocks(runMessages);
     result = options.slackChronologicalMessages;
+    if (carriedMemoryBlocks.length > 0) {
+      const slackTail = result[result.length - 1];
+      if (slackTail && slackTail.role === "user") {
+        result = [
+          ...result.slice(0, -1),
+          {
+            ...slackTail,
+            content: [...carriedMemoryBlocks, ...slackTail.content],
+          },
+        ];
+      }
+    }
   }
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the

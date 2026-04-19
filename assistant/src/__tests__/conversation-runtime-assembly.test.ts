@@ -2495,6 +2495,152 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("DM question");
   });
 
+  // ── Memory-injection carry-through on slack replacement ──────────────
+  // `graphMemory.prepareMemory` prepends `<memory __injected>` (and
+  // optional memory-image groups) to the last user message BEFORE the
+  // runtime assembly runs. When the Slack branch replaces `runMessages`
+  // with the chronological transcript, the prepended blocks must be
+  // carried onto the new tail so the model still sees recalled memory.
+  // The final order inside the tail user message is:
+  //   channel_capabilities → [carried memory blocks] → slack transcript tail.
+  test("slack replacement preserves prepended memory block", async () => {
+    const slackCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    };
+    const runMessagesWithMemory: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory __injected>\nrecalled fact about Sidd\n</memory>",
+          },
+          { type: "text", text: "hey kitten" },
+        ],
+      },
+    ];
+    const result = await applyRuntimeInjections(runMessagesWithMemory, {
+      channelCapabilities: slackCaps,
+      slackChronologicalMessages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "[19:55 sidd]: hey kitten" }],
+        },
+      ],
+    });
+    const tail = result[result.length - 1];
+    expect(tail.role).toBe("user");
+    const allText = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<memory __injected>");
+    expect(allText).toContain("recalled fact about Sidd");
+    expect(allText).toContain("[19:55 sidd]: hey kitten");
+    // Memory block must appear before the Slack transcript tail so the
+    // model sees recalled context ahead of the conversation view.
+    const memoryIdx = allText.indexOf("<memory __injected>");
+    const transcriptIdx = allText.indexOf("[19:55 sidd]: hey kitten");
+    expect(memoryIdx).toBeLessThan(transcriptIdx);
+    // The pre-replacement "hey kitten" text from the original runMessages
+    // must NOT leak through — only the Slack-rendered line appears.
+    expect(allText.match(/hey kitten/g)?.length).toBe(1);
+  });
+
+  test("slack replacement preserves memory-image groups + text block", async () => {
+    const slackCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    };
+    const runMessagesWithMemory: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory_image __injected>\nimage description",
+          },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "AAAA",
+            },
+          },
+          { type: "text", text: "</memory_image>" },
+          {
+            type: "text",
+            text: "<memory __injected>\nrecalled text\n</memory>",
+          },
+          { type: "text", text: "original turn text" },
+        ],
+      },
+    ];
+    const result = await applyRuntimeInjections(runMessagesWithMemory, {
+      channelCapabilities: slackCaps,
+      slackChronologicalMessages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "[19:55 sidd]: transcript line" }],
+        },
+      ],
+    });
+    const tail = result[result.length - 1];
+    expect(tail.role).toBe("user");
+    // The memory-image block is carried through as an `image` content
+    // block; the transcript-only replacement would have none.
+    const imageBlocks = tail.content.filter((b) => b.type === "image");
+    expect(imageBlocks.length).toBe(1);
+    const allText = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).toContain("<memory_image __injected>");
+    expect(allText).toContain("</memory_image>");
+    expect(allText).toContain("<memory __injected>");
+    expect(allText).toContain("[19:55 sidd]: transcript line");
+    // The original turn text (before the Slack replacement) must NOT
+    // leak through — only the memory prefix + transcript tail are kept.
+    expect(allText).not.toContain("original turn text");
+  });
+
+  test("slack replacement is a no-op when the tail has no memory prefix", async () => {
+    const slackCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    };
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
+      {
+        channelCapabilities: slackCaps,
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "[19:55 sidd]: only transcript" }],
+          },
+        ],
+      },
+    );
+    const tail = result[result.length - 1];
+    const allText = tail.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("<memory __injected>");
+    expect(allText).toContain("[19:55 sidd]: only transcript");
+  });
+
   // ── transport_hints suppression for slack channels ────────────────────
   test("slack channel conversations skip <transport_hints> injection", async () => {
     const slackChannelCaps: ChannelCapabilities = {
