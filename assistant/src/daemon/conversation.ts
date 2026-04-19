@@ -47,6 +47,7 @@ import { getHookManager } from "../hooks/manager.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
+  getConversationOriginChannel,
   updateConversationContextWindow,
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
@@ -1219,7 +1220,12 @@ export class Conversation {
     const result = await this.contextWindowManager.maybeCompact(
       this.messages,
       this.abortController?.signal ?? undefined,
-      { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
+      {
+        force: true,
+        lastCompactedAt: this.contextCompactedAt ?? undefined,
+        conversationOriginChannel:
+          getConversationOriginChannel(this.conversationId) ?? undefined,
+      },
     );
     if (result.compacted) {
       this.messages = result.messages;

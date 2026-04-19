@@ -1140,4 +1140,144 @@ describe("ContextWindowManager", () => {
     expect(result.compactedPersistedMessages).toBe(2);
     expect(manager.nonPersistedPrefixCount).toBe(0);
   });
+
+  test("Slack origin bumps default minKeepRecentUserTurns to 8", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- slack thread context" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    // Use targetInputTokensOverride so the binary search is forced even
+    // for a small history. Both managers see the same tight budget; the
+    // only knob that varies is conversationOriginChannel.
+    const config = makeConfig({ maxInputTokens: 12_000 });
+    const long = "s".repeat(220);
+    // 9 user turns: enough headroom for Slack's bumped floor of 8 to be
+    // distinguishable from the default floor of 1.
+    const history: Message[] = [];
+    for (let i = 1; i <= 9; i++) {
+      history.push(message("user", `u${i} ${long}`));
+      history.push(message("assistant", `a${i} ${long}`));
+    }
+
+    const slackManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const slackResult = await slackManager.maybeCompact(history, undefined, {
+      force: true,
+      targetInputTokensOverride: 200,
+      conversationOriginChannel: "slack",
+    });
+
+    const defaultManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const defaultResult = await defaultManager.maybeCompact(
+      history,
+      undefined,
+      { force: true, targetInputTokensOverride: 200 },
+    );
+
+    expect(slackResult.compacted).toBe(true);
+    expect(defaultResult.compacted).toBe(true);
+    // Default floor (1 user turn) compacts more of the history than the
+    // Slack floor (8 user turns), which preserves more recent context.
+    expect(defaultResult.compactedMessages).toBeGreaterThan(
+      slackResult.compactedMessages,
+    );
+    // Slack keeps 8 of 9 user turns: 16 kept messages, 2 compacted.
+    expect(slackResult.compactedMessages).toBe(2);
+  });
+
+  test("non-Slack origin keeps default minKeepRecentUserTurns of 1", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- standard summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    const config = makeConfig({ maxInputTokens: 12_000 });
+    const long = "n".repeat(220);
+    const history: Message[] = [];
+    for (let i = 1; i <= 9; i++) {
+      history.push(message("user", `u${i} ${long}`));
+      history.push(message("assistant", `a${i} ${long}`));
+    }
+
+    // Telegram origin must behave identically to no-channel-hint default.
+    const telegramManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const telegramResult = await telegramManager.maybeCompact(
+      history,
+      undefined,
+      {
+        force: true,
+        targetInputTokensOverride: 200,
+        conversationOriginChannel: "telegram",
+      },
+    );
+
+    const defaultManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const defaultResult = await defaultManager.maybeCompact(
+      history,
+      undefined,
+      { force: true, targetInputTokensOverride: 200 },
+    );
+
+    expect(telegramResult.compacted).toBe(true);
+    expect(defaultResult.compacted).toBe(true);
+    expect(telegramResult.compactedMessages).toBe(
+      defaultResult.compactedMessages,
+    );
+  });
+
+  test("explicit minKeepRecentUserTurns wins over Slack default", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- emergency override" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.28,
+      }),
+    });
+    const long = "e".repeat(220);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    // Emergency override (`minKeepRecentUserTurns: 0`) must take precedence
+    // over the Slack-bumped default of 8 — this guards the agent loop's
+    // context-too-large recovery path which always passes 0.
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      minKeepRecentUserTurns: 0,
+      conversationOriginChannel: "slack",
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(3);
+    expect(result.messages).toHaveLength(1);
+  });
 });

@@ -554,6 +554,8 @@ export async function runAgentLoopImpl(
       {
         lastCompactedAt: ctx.contextCompactedAt ?? undefined,
         precomputedEstimate: compactCheck.estimatedTokens,
+        conversationOriginChannel:
+          getConversationOriginChannel(ctx.conversationId) ?? undefined,
       },
     );
     if (compacted.compacted) {
@@ -1210,6 +1212,8 @@ export async function runAgentLoopImpl(
           lastCompactedAt: ctx.contextCompactedAt ?? undefined,
           force: true,
           targetInputTokensOverride: preflightBudget,
+          conversationOriginChannel:
+            getConversationOriginChannel(ctx.conversationId) ?? undefined,
         },
       );
       if (midLoopCompact.compacted) {
