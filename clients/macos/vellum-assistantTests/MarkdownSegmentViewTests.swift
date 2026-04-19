@@ -423,6 +423,83 @@ final class MarkdownSegmentViewTests: XCTestCase {
         )
     }
 
+    // MARK: - Block Math (`$$…$$`) Parsing
+
+    func testBlockMath_singleLine() {
+        let segments = parseMarkdownSegments("$$x^2$$")
+        XCTAssertEqual(segments, [.math(latex: "x^2", display: true)])
+    }
+
+    func testBlockMath_multiLine() {
+        let segments = parseMarkdownSegments("$$\n\\frac{a}{b}\n$$")
+        XCTAssertEqual(segments, [.math(latex: "\\frac{a}{b}", display: true)])
+    }
+
+    /// Regression test for the original report that motivated this feature —
+    /// LaTeX pasted into a single-line `$$…$$` wrapper must emit exactly one
+    /// `.math` segment whose payload is the raw inner expression.
+    func testBlockMath_screenshotRegression() {
+        let input = "$$m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}$$"
+        let expectedInner = "m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}"
+
+        let segments = parseMarkdownSegments(input)
+        XCTAssertEqual(segments.count, 1)
+        guard case .math(let latex, let display) = segments.first else {
+            return XCTFail("Expected .math segment, got \(segments)")
+        }
+        XCTAssertEqual(latex, expectedInner)
+        XCTAssertTrue(display)
+    }
+
+    func testBlockMath_insideCodeBlockIsPreserved() {
+        let segments = parseMarkdownSegments("```\n$$x^2$$\n```")
+        XCTAssertEqual(segments, [.codeBlock(language: nil, code: "$$x^2$$")])
+    }
+
+    func testBlockMath_unclosedFallsBackToText() {
+        let segments = parseMarkdownSegments("$$\nx^2")
+        XCTAssertEqual(segments.count, 1)
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected .text segment for unclosed $$, got \(segments)")
+        }
+        // Unclosed block-math reverts to plain text — the `$$` opener and any
+        // collected lines must both survive (though outer whitespace is
+        // trimmed by flushText). No `.math` segment should be emitted.
+        XCTAssertTrue(content.contains("$$"), "Unclosed `$$` opener must appear verbatim in the text; got: \(content)")
+        XCTAssertTrue(content.contains("x^2"), "Content after the unclosed opener must survive; got: \(content)")
+        for segment in segments {
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+    }
+
+    func testBlockMath_emptyDelimitersAreText() {
+        let segments = parseMarkdownSegments("$$$$")
+        XCTAssertEqual(segments, [.text("$$$$")])
+    }
+
+    func testBlockMath_twoBackToBack() {
+        let segments = parseMarkdownSegments("$$a$$\n\n$$b$$")
+        XCTAssertEqual(segments, [
+            .math(latex: "a", display: true),
+            .math(latex: "b", display: true),
+        ])
+    }
+
+    func testBlockMath_mixedWithProse() {
+        let segments = parseMarkdownSegments("Here is math:\n\n$$x^2$$\n\nEnd.")
+        XCTAssertEqual(segments, [
+            .text("Here is math:"),
+            .math(latex: "x^2", display: true),
+            .text("End."),
+        ])
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(
