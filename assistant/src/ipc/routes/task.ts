@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { broadcastToAllClients } from "../../acp/index.js";
 import { executeTaskDelete } from "../../tools/tasks/task-delete.js";
 import { executeTaskList } from "../../tools/tasks/task-list.js";
 import { executeTaskRun } from "../../tools/tasks/task-run.js";
@@ -111,6 +112,9 @@ async function handleTaskDelete(
   if (result.isError) {
     throw new Error(result.content);
   }
+  // Deletion can also remove associated work items, so broadcast to refresh
+  // the macOS Tasks window.
+  broadcastToAllClients?.({ type: "tasks_changed" });
   return { ok: true, content: result.content };
 }
 
