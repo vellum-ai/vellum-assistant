@@ -165,7 +165,10 @@
   fi
   ```
 
-  Reserved action IDs (`selection_changed`, `content_changed`, `state_update`) are used internally for surface lifecycle events and are rejected by `--actions` validation.
+  Reserved action IDs are used internally and are rejected by `--actions` validation. There are two categories:
+
+  - **Lifecycle events** (`selection_changed`, `content_changed`, `state_update`) — non-terminal events that are silently swallowed without resolving the pending request.
+  - **Cancellation triggers** (`cancel`, `dismiss`) — resolve the pending request as `cancelled` (instead of `submitted`).
 
   ### Status and cancellation reason branching reference
 
