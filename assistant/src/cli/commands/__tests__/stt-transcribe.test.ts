@@ -27,10 +27,23 @@ let mockSpawnResult = {
   stderr: "",
 };
 let mockFileSize = 1024;
+let logErrorMessages: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Mocks — must be before module-under-test import
 // ---------------------------------------------------------------------------
+
+mock.module("../../logger.js", () => ({
+  log: {
+    error: (msg: string) => {
+      logErrorMessages.push(msg);
+      process.stderr.write(msg + "\n");
+    },
+    info: () => {},
+    warn: () => {},
+    debug: () => {},
+  },
+}));
 
 mock.module("node:fs/promises", () => ({
   access: async () => {
@@ -145,6 +158,7 @@ beforeEach(() => {
   mockTranscriber = null;
   mockSpawnResult = { exitCode: 0, stdout: "120.5", stderr: "" };
   mockFileSize = 1024;
+  logErrorMessages = [];
   process.exitCode = 0;
 });
 
@@ -218,6 +232,58 @@ describe("error cases", () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Unsupported file type");
+  });
+
+  test("nonexistent file with --json outputs JSON error to stdout", async () => {
+    mockAccessResult = new Error("ENOENT");
+
+    const { exitCode, stdout } = await runCommand([
+      "stt",
+      "transcribe",
+      "--file",
+      "/nonexistent/audio.wav",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("File not found");
+  });
+
+  test("no STT provider with --json outputs JSON error to stdout", async () => {
+    mockAccessResult = "ok";
+    mockTranscriber = null;
+
+    const { exitCode, stdout } = await runCommand([
+      "stt",
+      "transcribe",
+      "--file",
+      "/path/to/audio.wav",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("No speech-to-text provider is configured");
+  });
+
+  test("unsupported file type with --json outputs JSON error to stdout", async () => {
+    mockAccessResult = "ok";
+
+    const { exitCode, stdout } = await runCommand([
+      "stt",
+      "transcribe",
+      "--file",
+      "/path/to/document.pdf",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Unsupported file type");
   });
 });
 
@@ -354,5 +420,33 @@ describe("transcription failure", () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Transcription failed");
+  });
+
+  test("ffmpeg failure with --json outputs JSON error to stdout", async () => {
+    mockAccessResult = "ok";
+    mockTranscriber = {
+      providerId: "openai-whisper",
+      boundaryId: "daemon-batch",
+      transcribe: async () => ({ text: "ok" }),
+    };
+    mockSpawnResult = {
+      exitCode: 1,
+      stdout: "",
+      stderr: "ffmpeg error: codec not found",
+    };
+    mockFileSize = 1024;
+
+    const { exitCode, stdout } = await runCommand([
+      "stt",
+      "transcribe",
+      "--file",
+      "/path/to/audio.wav",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Transcription failed");
   });
 });
