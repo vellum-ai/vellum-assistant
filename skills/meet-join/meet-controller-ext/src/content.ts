@@ -3,8 +3,9 @@
  *
  * Runs in the Google Meet page world at `document_idle`. Listens for
  * {@link BotToExtensionMessage} frames forwarded by the background
- * service worker's native-messaging bridge, and runs per-meeting
- * feature modules once the bot asks us to join.
+ * service worker's native-messaging bridge, drives the Meet prejoin UI
+ * on `join`, and runs per-meeting feature modules once the bot is in
+ * the meeting room.
  *
  * ## Meeting session lifecycle
  *
@@ -13,6 +14,14 @@
  * The returned `stop()` disposes every handle. We intentionally keep
  * this local-in-module-scope so parallel PRs can extend the factory
  * without touching the listener wiring.
+ *
+ * On `join` we emit a `lifecycle { state: "joining" }` event up-front so
+ * the daemon sees the transition even if `runJoinFlow` throws during
+ * its first DOM query, then emit `joined` after the flow resolves and
+ * the session factory has been installed. An unhandled rejection from
+ * `runJoinFlow` surfaces as `lifecycle { state: "error" }` with the
+ * error's message in `detail` — the session factory is NOT installed
+ * in that case because the scrapers require an admitted meeting.
  */
 import type {
   BotSendChatCommand,
@@ -27,6 +36,7 @@ import {
   sendChat,
   startChatReader,
 } from "./features/chat.js";
+import { runJoinFlow } from "./features/join.js";
 import {
   startSpeakerScraper,
   type SpeakerScraperHandle,
@@ -50,6 +60,30 @@ function deriveMeetingId(): string {
   return path || location.pathname;
 }
 
+/**
+ * Build a timestamped, meeting-scoped lifecycle message.
+ *
+ * Extracted to a helper so every lifecycle emit site (joining, joined,
+ * error) stays in lockstep on the timestamp/meetingId shape required by
+ * `ExtensionLifecycleMessageSchema`.
+ */
+function lifecycleMessage(
+  state: "joining" | "joined" | "left" | "error",
+  meetingId: string,
+  detail?: string,
+): ExtensionToBotMessage {
+  const msg: ExtensionToBotMessage = {
+    type: "lifecycle",
+    state,
+    meetingId,
+    timestamp: new Date().toISOString(),
+  };
+  if (detail !== undefined) {
+    (msg as { detail?: string }).detail = detail;
+  }
+  return msg;
+}
+
 interface MeetingSessionHandle {
   stop: () => void;
 }
@@ -67,10 +101,11 @@ interface MeetingSessionOptions {
 /**
  * Start all per-meeting scrapers + bridges for a freshly-joined meeting.
  *
- * Called from the bot→extension `join` handler below, after any join
- * flow completes successfully. Additional features (participants) will
- * layer into the returned handle in subsequent PRs — extend this factory
- * rather than the listener wiring so session teardown stays in one place.
+ * Called from the bot→extension `join` handler below, after `runJoinFlow`
+ * has driven the prejoin UI and confirmed admission. Additional features
+ * (participants) will layer into the returned handle in subsequent PRs —
+ * extend this factory rather than the listener wiring so session teardown
+ * stays in one place.
  */
 function startMeetingSession(
   opts: MeetingSessionOptions,
@@ -143,18 +178,7 @@ chrome.runtime.onMessage.addListener(
     const msg: BotToExtensionMessage = parsed.data;
 
     if (msg.type === "join") {
-      const meetingId = deriveMeetingId();
-      activeSession?.stop();
-      // NOTE: PR 9 will run the actual join flow (fill name, click
-      // join now, wait for leave button) before we start the session.
-      // For now we wire the scrapers directly against the current DOM
-      // so PR 11's speaker scraper is exercised end-to-end once PR 9
-      // lands. Leaving this as a single call makes the PR-9 insertion
-      // a local edit.
-      activeSession = startMeetingSession({
-        meetingId,
-        displayName: msg.displayName,
-      });
+      void handleJoin(msg.meetingUrl, msg.displayName, msg.consentMessage);
       return false;
     }
 
@@ -172,6 +196,73 @@ chrome.runtime.onMessage.addListener(
     return false;
   },
 );
+
+/**
+ * Drive the Meet prejoin UI, then start per-meeting scrapers.
+ *
+ * Lifecycle fanout:
+ *
+ *   - `joining` is emitted synchronously so the daemon sees the
+ *     transition even if `runJoinFlow` throws on its first DOM query.
+ *   - `joined` is emitted after the flow resolves and the session
+ *     factory has been installed.
+ *   - `error` is emitted if the flow rejects; the session factory is
+ *     NOT installed because the scrapers require an admitted meeting.
+ *
+ * The prior session (if any) is torn down synchronously before the
+ * new flow kicks off so overlapping joins cannot double-install
+ * scrapers against the same DOM.
+ */
+async function handleJoin(
+  meetingUrl: string,
+  displayName: string,
+  consentMessage: string,
+): Promise<void> {
+  const meetingId = deriveMeetingId();
+  activeSession?.stop();
+  activeSession = null;
+
+  // Emit "joining" up front so the daemon records the transition even
+  // if runJoinFlow throws before any event reaches onEvent.
+  try {
+    chrome.runtime.sendMessage(lifecycleMessage("joining", meetingId));
+  } catch (err) {
+    console.warn("[meet-ext] lifecycle(joining) send failed:", err);
+  }
+
+  try {
+    await runJoinFlow({
+      meetingUrl,
+      displayName,
+      consentMessage,
+      meetingId,
+      onEvent: (event) => {
+        try {
+          chrome.runtime.sendMessage(event);
+        } catch (err) {
+          console.warn("[meet-ext] runJoinFlow event send failed:", err);
+        }
+      },
+    });
+  } catch (err) {
+    const detail =
+      err instanceof Error ? err.message : String(err ?? "unknown error");
+    try {
+      chrome.runtime.sendMessage(lifecycleMessage("error", meetingId, detail));
+    } catch (sendErr) {
+      console.warn("[meet-ext] lifecycle(error) send failed:", sendErr);
+    }
+    return;
+  }
+
+  // Join succeeded — install per-meeting scrapers and emit "joined".
+  activeSession = startMeetingSession({ meetingId, displayName });
+  try {
+    chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
+  } catch (err) {
+    console.warn("[meet-ext] lifecycle(joined) send failed:", err);
+  }
+}
 
 /**
  * Execute a {@link BotSendChatCommand} and emit a matching
