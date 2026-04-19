@@ -9,17 +9,24 @@
  * ## Meeting session lifecycle
  *
  * `startMeetingSession` owns the in-page feature handles (speaker
- * scraper today; participant scraper, chat bridge, etc. in follow-up
- * PRs). The returned `stop()` disposes every handle. We intentionally
- * keep this local-in-module-scope so parallel PRs can extend the
- * factory without touching the listener wiring.
+ * scraper, chat reader today; participant scraper in a follow-up PR).
+ * The returned `stop()` disposes every handle. We intentionally keep
+ * this local-in-module-scope so parallel PRs can extend the factory
+ * without touching the listener wiring.
  */
 import type {
+  BotSendChatCommand,
   BotToExtensionMessage,
+  ExtensionSendChatResultMessage,
   ExtensionToBotMessage,
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
+import {
+  type ChatReader,
+  sendChat,
+  startChatReader,
+} from "./features/chat.js";
 import {
   startSpeakerScraper,
   type SpeakerScraperHandle,
@@ -48,15 +55,26 @@ interface MeetingSessionHandle {
 }
 
 /**
+ * Options carried through to the session factory. `displayName` comes
+ * from the bot's `join` command so the chat reader can self-filter the
+ * bot's own outbound messages.
+ */
+interface MeetingSessionOptions {
+  meetingId: string;
+  displayName: string;
+}
+
+/**
  * Start all per-meeting scrapers + bridges for a freshly-joined meeting.
  *
  * Called from the bot→extension `join` handler below, after any join
- * flow completes successfully. Additional features (participants, chat)
- * will layer into the returned handle in subsequent PRs — extend this
- * factory rather than the listener wiring so session teardown stays in
- * one place.
+ * flow completes successfully. Additional features (participants) will
+ * layer into the returned handle in subsequent PRs — extend this factory
+ * rather than the listener wiring so session teardown stays in one place.
  */
-function startMeetingSession(meetingId: string): MeetingSessionHandle {
+function startMeetingSession(
+  opts: MeetingSessionOptions,
+): MeetingSessionHandle {
   const handles: Array<{ stop: () => void }> = [];
 
   const sendToBot = (event: ExtensionToBotMessage): void => {
@@ -70,10 +88,17 @@ function startMeetingSession(meetingId: string): MeetingSessionHandle {
   };
 
   const speaker: SpeakerScraperHandle = startSpeakerScraper({
-    meetingId,
+    meetingId: opts.meetingId,
     onEvent: sendToBot,
   });
   handles.push(speaker);
+
+  const chat: ChatReader = startChatReader({
+    meetingId: opts.meetingId,
+    selfName: opts.displayName,
+    onEvent: sendToBot,
+  });
+  handles.push(chat);
 
   let stopped = false;
   return {
@@ -126,7 +151,10 @@ chrome.runtime.onMessage.addListener(
       // so PR 11's speaker scraper is exercised end-to-end once PR 9
       // lands. Leaving this as a single call makes the PR-9 insertion
       // a local edit.
-      activeSession = startMeetingSession(meetingId);
+      activeSession = startMeetingSession({
+        meetingId,
+        displayName: msg.displayName,
+      });
       return false;
     }
 
@@ -136,7 +164,42 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    // `send_chat` lands in PR 12.
+    if (msg.type === "send_chat") {
+      void handleSendChat(msg);
+      return false;
+    }
+
     return false;
   },
 );
+
+/**
+ * Execute a {@link BotSendChatCommand} and emit a matching
+ * {@link ExtensionSendChatResultMessage} back to the background. Errors
+ * are caught and surfaced via `ok: false` so the bot can correlate the
+ * failure with the originating request.
+ */
+async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
+  let reply: ExtensionSendChatResultMessage;
+  try {
+    await sendChat(cmd.text);
+    reply = {
+      type: "send_chat_result",
+      requestId: cmd.requestId,
+      ok: true,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reply = {
+      type: "send_chat_result",
+      requestId: cmd.requestId,
+      ok: false,
+      error: message,
+    };
+  }
+  try {
+    chrome.runtime.sendMessage(reply);
+  } catch (err) {
+    console.warn("[meet-ext] failed to send send_chat_result:", err);
+  }
+}
