@@ -49,6 +49,31 @@ export interface RenderOptions {
 const DEFAULT_MAX_REACTIONS = 5;
 
 /**
+ * Replayable Anthropic content-block types that we preserve verbatim from a
+ * persisted row when rendering the Slack chronological transcript.
+ *
+ * `text` is intentionally omitted — text content is subsumed into the tag
+ * line (e.g. `[14:25 @assistant]: ...`) so callers reading the rendered
+ * output see one human-readable line per row rather than a raw text block
+ * stripped of thread context.
+ *
+ * Non-replayable types (`ui_surface`, `server_tool_use`,
+ * `web_search_tool_result`, unknown types) are dropped: `ui_surface` blocks
+ * are the assistant's ephemeral local UI scaffolding and not meaningful to
+ * replay; `server_tool_use` / `web_search_tool_result` carry provider-
+ * specific `encrypted_content` that becomes stale and is rejected by the
+ * provider on re-send.
+ */
+const REPLAYABLE_BLOCK_TYPES = new Set<ContentBlock["type"]>([
+  "tool_use",
+  "tool_result",
+  "thinking",
+  "redacted_thinking",
+  "image",
+  "file",
+]);
+
+/**
  * Compute a short, stable, deterministic alias for a Slack message ts.
  *
  * Used as the "parent label" inside thread-reply tags so the model can
@@ -146,6 +171,63 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
 }
 
 /**
+ * Build the content blocks for a single non-reaction message.
+ *
+ * Emits the tag line (`[HH:MM @sender ...]: body`) inline at the position of
+ * the first `text` block in `contentBlocks`, and preserves any replayable
+ * blocks (`tool_use`, `tool_result`, `thinking`, `redacted_thinking`,
+ * `image`, `file`) in their original order. Non-replayable blocks
+ * (`ui_surface`, `server_tool_use`, `web_search_tool_result`, unknown types)
+ * are dropped.
+ *
+ * Special cases:
+ * - **Deleted rows**: always emit a single tag-line block; replayable blocks
+ *   (if any) are discarded because the delete is a logical erasure.
+ * - **Legacy rows** (no structured `contentBlocks`, or empty array): fall
+ *   back to a single tag-line block to preserve pre-plumbing behaviour.
+ * - **Pure tool-only rows** (`contentBlocks` present but no `text` block):
+ *   emit only the replayable blocks — no tag line. Anthropic accepts role-
+ *   correct messages with only tool blocks.
+ */
+function buildMessageContentBlocks(
+  msg: RenderableSlackMessage,
+  tagLine: string,
+): ContentBlock[] {
+  const isDeleted = msg.metadata?.deletedAt !== undefined;
+  const blocks = msg.contentBlocks;
+
+  // Deleted rows: single tag line, drop any replayable content.
+  if (isDeleted) {
+    return [{ type: "text", text: tagLine }];
+  }
+
+  // Legacy / unplumbed rows: fall back to single tag line.
+  if (!blocks || blocks.length === 0) {
+    return [{ type: "text", text: tagLine }];
+  }
+
+  const out: ContentBlock[] = [];
+  let tagEmitted = false;
+  for (const block of blocks) {
+    if (block.type === "text") {
+      if (!tagEmitted) {
+        out.push({ type: "text", text: tagLine });
+        tagEmitted = true;
+      }
+      // Subsequent text blocks are already subsumed into the tag line.
+      continue;
+    }
+    if (REPLAYABLE_BLOCK_TYPES.has(block.type)) {
+      out.push(block);
+      continue;
+    }
+    // Non-replayable (ui_surface, server_tool_use, web_search_tool_result,
+    // unknown) — drop silently.
+  }
+  return out;
+}
+
+/**
  * Render a chronological transcript with compact thread tags.
  *
  * Sort is stable: messages with identical sort keys preserve their input
@@ -210,9 +292,12 @@ export function renderSlackTranscript(
       }
       continue;
     }
+    const tagLine = renderMessage(m);
+    const blocks = buildMessageContentBlocks(m, tagLine);
+    if (blocks.length === 0) continue;
     out.push({
       role: m.role,
-      content: [{ type: "text" as const, text: renderMessage(m) }],
+      content: blocks,
     });
   }
 

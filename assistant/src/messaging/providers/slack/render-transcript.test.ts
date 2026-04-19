@@ -684,33 +684,234 @@ describe("extractTagLineTexts", () => {
   });
 });
 
-// ── contentBlocks passthrough (PR 2 plumbing) ────────────────────────────────
+// ── contentBlocks preservation (PR 3 behavioural change) ─────────────────────
 
-describe("renderSlackTranscript — contentBlocks field is ignored by renderer", () => {
-  // PR 2 adds an optional `contentBlocks` field on RenderableSlackMessage so
-  // downstream consumers (tool-block preservation in PR 3) can read the
-  // original structured blocks without re-parsing the row. The renderer
-  // itself is unchanged: output must be byte-identical whether or not
-  // `contentBlocks` is populated. This guards against accidental coupling
-  // — PR 3 will introduce the behavioural change in a follow-up.
-  test("renderer output is identical with and without contentBlocks populated", () => {
-    const base = userMsg(TS_14_25, "@alice", "hi there");
-    const withBlocks: RenderableSlackMessage = {
-      ...base,
+describe("renderSlackTranscript — replayable content-block preservation", () => {
+  // PR 3 flips the behaviour established in PR 2: when `contentBlocks` is
+  // populated, the renderer preserves replayable Anthropic blocks
+  // (tool_use, tool_result, thinking, redacted_thinking, image, file)
+  // verbatim alongside the tag line. Non-replayable blocks (ui_surface,
+  // server_tool_use, web_search_tool_result, unknown types) are stripped.
+  // Legacy rows (no contentBlocks field) continue to render as a single
+  // text block.
+
+  test("[text, tool_use] assistant row preserves tool_use after tag line", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "looking it up", {
+        role: "assistant",
+      }),
       contentBlocks: [
-        { type: "text", text: "hi there" },
+        { type: "text", text: "looking it up" },
         { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
       ],
     };
-    const outWithout = renderSlackTranscript([base]);
-    const outWith = renderSlackTranscript([withBlocks]);
-    expect(outWith).toEqual(outWithout);
-    // Sanity: the tool_use block from contentBlocks must not leak into output.
-    const texts = outWith.flatMap((m) =>
-      m.content.map((b) => (b.type === "text" ? b.text : "")),
-    );
-    for (const t of texts) {
-      expect(t).not.toMatch(/tool_use/);
-    }
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "[14:25 @assistant]: looking it up" },
+          { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
+        ],
+      },
+    ]);
+  });
+
+  test("[tool_result] user row emits only tool_result — no tag line", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", ""),
+      contentBlocks: [
+        { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
+        ],
+      },
+    ]);
+  });
+
+  test("[thinking, text] assistant row preserves thinking before tag line (order preserved)", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "here's the answer", {
+        role: "assistant",
+      }),
+      contentBlocks: [
+        { type: "thinking", thinking: "let me think", signature: "sig-abc" },
+        { type: "text", text: "here's the answer" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "let me think", signature: "sig-abc" },
+          { type: "text", text: "[14:25 @assistant]: here's the answer" },
+        ],
+      },
+    ]);
+  });
+
+  test("[text, tool_use, tool_result] assistant row (degenerate) preserves order", () => {
+    // Degenerate but possible via the cleanAssistantContent path — rows
+    // that carry both tool_use and tool_result in the same message. The
+    // renderer passes them through in order.
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "doing a thing", {
+        role: "assistant",
+      }),
+      contentBlocks: [
+        { type: "text", text: "doing a thing" },
+        { type: "tool_use", id: "tu_A", name: "op", input: {} },
+        { type: "tool_result", tool_use_id: "tu_A", content: "ok" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "[14:25 @assistant]: doing a thing" },
+          { type: "tool_use", id: "tu_A", name: "op", input: {} },
+          { type: "tool_result", tool_use_id: "tu_A", content: "ok" },
+        ],
+      },
+    ]);
+  });
+
+  test("[text, ui_surface] assistant row strips ui_surface — only tag line remains", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "reply body", { role: "assistant" }),
+      contentBlocks: [
+        { type: "text", text: "reply body" },
+        // ui_surface is local-only UI scaffolding and must not leak into
+        // the replayable output. Typed as a generic shape here because
+        // ui_surface is not part of the Anthropic ContentBlock union.
+        { type: "ui_surface", foo: "bar" } as unknown as never,
+      ] as never,
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[14:25 @assistant]: reply body" }],
+      },
+    ]);
+  });
+
+  test("[text, server_tool_use] assistant row strips server_tool_use (unknown to replay)", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "web search", { role: "assistant" }),
+      contentBlocks: [
+        { type: "text", text: "web search" },
+        {
+          type: "server_tool_use",
+          id: "st_1",
+          name: "web_search",
+          input: { q: "x" },
+        },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[14:25 @assistant]: web search" }],
+      },
+    ]);
+  });
+
+  test("[image, text] user row preserves image before tag line (order preserved)", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", "check this out"),
+      contentBlocks: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "base64data==",
+          },
+        },
+        { type: "text", text: "check this out" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "base64data==",
+            },
+          },
+          { type: "text", text: "[14:25 @alice]: check this out" },
+        ],
+      },
+    ]);
+  });
+
+  test("deleted row with [text, tool_use] contentBlocks emits only the deleted tag line", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", "(removed)", { deletedAt: MS_14_32 }),
+      contentBlocks: [
+        { type: "text", text: "old body" },
+        { type: "tool_use", id: "tu_zombie", name: "op", input: {} },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @alice — deleted 14:32]" }],
+      },
+    ]);
+  });
+
+  test("legacy row (contentBlocks undefined) renders as single tag line — unchanged", () => {
+    const base = userMsg(TS_14_25, "@alice", "legacy plain");
+    // No `contentBlocks` field assigned — emulates a row whose JSON content
+    // failed to parse or predates the plumbing.
+    expect(base.contentBlocks).toBeUndefined();
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      textMsg("user", "[14:25 @alice]: legacy plain"),
+    ]);
+  });
+
+  test("legacy row with empty contentBlocks array also falls back to single tag line", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", "empty blocks"),
+      contentBlocks: [],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([textMsg("user", "[14:25 @alice]: empty blocks")]);
+  });
+
+  test("reaction row ignores contentBlocks and renders the single reaction tag line", () => {
+    // Reactions go through the reaction path and never touch the
+    // replayable-block preservation. Even if contentBlocks were somehow
+    // populated on a reaction row, the tool blocks must not leak through.
+    const reactionBase = reactionMsg(TS_14_28, "@bob", "👍", TS_14_25, "added");
+    const withBlocks: RenderableSlackMessage = {
+      ...reactionBase,
+      contentBlocks: [
+        { type: "tool_use", id: "tu_stray", name: "op", input: {} },
+      ],
+    };
+    const out = renderSlackTranscript([withBlocks]);
+    const alias = parentAlias(TS_14_25);
+    expect(out).toEqual([
+      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
+    ]);
   });
 });
