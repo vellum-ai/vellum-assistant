@@ -412,7 +412,7 @@ async function handleFilters(
 interface GmailVacationSettings {
   enableAutoReply: boolean;
   responseSubject?: string;
-  responseBodyHtml?: string;
+  responseBodyPlainText?: string;
   startTime?: string;
   endTime?: string;
   restrictToContacts?: boolean;
@@ -448,7 +448,7 @@ async function handleVacation(
 
       const settings: GmailVacationSettings = {
         enableAutoReply: true,
-        responseBodyHtml: message,
+        responseBodyPlainText: message,
         restrictToContacts,
         restrictToDomain,
       };
