@@ -97,6 +97,19 @@ export async function runSlackChannelOAuthInstall(): Promise<SlackOAuthInstallRe
     };
   }
 
+  const appToken = await getSecureKeyAsync(
+    credentialKey("slack_channel", "app_token"),
+  );
+  if (!appToken) {
+    return {
+      success: false,
+      hasBotToken: false,
+      hasUserToken: false,
+      error:
+        "App Token not found in credential store. Store it first via credential_store prompt (service: slack_channel, field: app_token).",
+    };
+  }
+
   log.info("Starting Slack OAuth install flow via loopback");
 
   let result;
@@ -163,7 +176,7 @@ export async function runSlackChannelOAuthInstall(): Promise<SlackOAuthInstallRe
   // which validates tokens and persists workspace metadata.
   const configResult = await setSlackChannelConfig(
     botToken,
-    undefined, // app_token already stored via credential_store prompt
+    appToken,
     userToken,
   );
 
