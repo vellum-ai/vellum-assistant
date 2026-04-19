@@ -16,6 +16,10 @@
 # than `.dockerignore`) so it takes precedence over the existing repo-root
 # `.dockerignore` file, which targets other images.
 #
+# --platform linux/amd64 is required because google-chrome-stable ships
+# amd64 only — on arm64 Macs Docker would otherwise pick arm64 and fail to
+# install Chrome.
+#
 # Usage:
 #   ./scripts/build-meet-bot-image.sh
 
@@ -24,4 +28,4 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-docker build -t vellum-meet-bot:dev -f skills/meet-join/bot/Dockerfile .
+docker build --platform linux/amd64 -t vellum-meet-bot:dev -f skills/meet-join/bot/Dockerfile .
