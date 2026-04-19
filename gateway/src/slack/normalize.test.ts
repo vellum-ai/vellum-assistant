@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  normalizeSlackReactionRemoved,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
@@ -9,6 +10,7 @@ import {
   normalizeSlackMessageDelete,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
+  type SlackReactionRemovedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
@@ -68,6 +70,26 @@ function makeReactionAddedEvent(
 ): SlackReactionAddedEvent {
   return {
     type: "reaction_added",
+    user: overrides?.user ?? "U123",
+    reaction: overrides?.reaction ?? "thumbsup",
+    item: {
+      type: "message",
+      channel: overrides?.channelId ?? "C456",
+      ts: overrides?.messageTs ?? "1234567890.123456",
+    },
+  };
+}
+
+function makeReactionRemovedEvent(
+  overrides?: Partial<{
+    user: string;
+    reaction: string;
+    channelId: string;
+    messageTs: string;
+  }>,
+): SlackReactionRemovedEvent {
+  return {
+    type: "reaction_removed",
     user: overrides?.user ?? "U123",
     reaction: overrides?.reaction ?? "thumbsup",
     item: {
@@ -260,6 +282,205 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe(
       "reaction:white_check_mark",
+    );
+  });
+
+  it("normalizes reactions on a non-bot-thread channel message", () => {
+    // Filter expansion: PR 3 admits reactions on any subscribed channel,
+    // not just tracked bot-thread messages. The normalizer itself doesn't
+    // gate on thread tracking — that filter lives in socket-mode.ts.
+    // Verify the normalizer happily produces a valid event for an arbitrary
+    // public-channel message ts when routing matches the channel.
+    const config = makeConfig({
+      defaultAssistantId: undefined,
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
+      ],
+    });
+    const event = makeReactionAddedEvent({
+      channelId: "C500",
+      messageTs: "1700000000.999999",
+    });
+    const result = normalizeSlackReactionAdded(event, "evt-expand", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
+    expect(result!.channel).toBe("C500");
+    expect(result!.threadTs).toBe("1700000000.999999");
+    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C500:1700000000.999999:thumbsup:U123",
+    );
+  });
+});
+
+describe("normalizeSlackReactionRemoved", () => {
+  it("normalizes a reaction_removed event with reaction_removed: prefix", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    const result = normalizeSlackReactionRemoved(event, "evt-r-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:thumbsup",
+    );
+    expect(result!.event.message.content).toBe("reaction_removed:thumbsup");
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C456:1234567890.123456:thumbsup:U123:removed",
+    );
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+    expect(result!.event.source.messageId).toBe("1234567890.123456");
+    expect(result!.channel).toBe("C456");
+    expect(result!.threadTs).toBe("1234567890.123456");
+  });
+
+  it("uses the reaction name in callbackData", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ reaction: "white_check_mark" });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:white_check_mark",
+    );
+  });
+
+  it("returns null when user is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ user: "" });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-3", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when item channel is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    event.item.channel = "";
+    const result = normalizeSlackReactionRemoved(event, "evt-r-4", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when item ts is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    event.item.ts = "";
+    const result = normalizeSlackReactionRemoved(event, "evt-r-5", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("ignores reactions removed by the bot itself", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ user: "UBOT" });
+    const result = normalizeSlackReactionRemoved(
+      event,
+      "evt-r-6",
+      config,
+      "UBOT",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when routing rejects on a public channel", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeReactionRemovedEvent();
+    const result = normalizeSlackReactionRemoved(event, "evt-r-7", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to default assistant for unrouted DM channels", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const event = makeReactionRemovedEvent({
+      channelId: "D999",
+      messageTs: "111.222",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-8", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D999");
+    expect(result!.event.message.externalMessageId).toBe(
+      "D999:111.222:thumbsup:U123:removed",
+    );
+  });
+
+  it("normalizes reaction_removed in a DM channel", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({
+      channelId: "D789",
+      messageTs: "1700000000.000001",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-9", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D789");
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:thumbsup",
+    );
+    expect(result!.event.message.externalMessageId).toBe(
+      "D789:1700000000.000001:thumbsup:U123:removed",
+    );
+  });
+
+  it("normalizes reaction_removed on a non-bot-thread channel message", () => {
+    // Filter expansion: PR 3 admits reactions on any subscribed channel,
+    // not just tracked bot-thread messages. Verify the removed normalizer
+    // produces a valid event for an arbitrary public-channel message ts.
+    const config = makeConfig({
+      defaultAssistantId: undefined,
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
+      ],
+    });
+    const event = makeReactionRemovedEvent({
+      channelId: "C500",
+      messageTs: "1700000000.999999",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C500:1700000000.999999:thumbsup:U123:removed",
+    );
+  });
+
+  it("produces a different externalMessageId than reaction_added for the same emoji+user+message", () => {
+    // Critical for dedup: an add followed by a remove of the same emoji by
+    // the same user on the same message must not collide on externalMessageId.
+    const config = makeConfig();
+    const addEvent = makeReactionAddedEvent({
+      reaction: "fire",
+      messageTs: "111.222",
+    });
+    const removeEvent = makeReactionRemovedEvent({
+      reaction: "fire",
+      messageTs: "111.222",
+    });
+    const addResult = normalizeSlackReactionAdded(addEvent, "evt-add", config);
+    const removeResult = normalizeSlackReactionRemoved(
+      removeEvent,
+      "evt-remove",
+      config,
+    );
+
+    expect(addResult).not.toBeNull();
+    expect(removeResult).not.toBeNull();
+    expect(addResult!.event.message.externalMessageId).not.toBe(
+      removeResult!.event.message.externalMessageId,
     );
   });
 });
