@@ -20,7 +20,7 @@ import {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 // Anchor times: 14:25:00 UTC on 2023-11-14 = 1699971900 (Slack ts seconds).
-// We work entirely in UTC because the renderer formats UTC HH:MM.
+// We work entirely in UTC because the renderer formats UTC MM/DD/YY HH:MM.
 const TS_14_24 = "1699971840.000050"; // 14:24 UTC
 const TS_14_25 = "1699971900.000100"; // 14:25 UTC
 const TS_14_26 = "1699971960.000200"; // 14:26 UTC
@@ -110,9 +110,9 @@ describe("renderSlackTranscript — basics", () => {
     expect(renderSlackTranscript([])).toEqual([]);
   });
 
-  test("renders top-level message with HH:MM tag", () => {
+  test("renders top-level message with MM/DD/YY HH:MM tag", () => {
     const out = renderSlackTranscript([userMsg(TS_14_25, "@alice", "hi")]);
-    expect(out).toEqual([textMsg("user", "[14:25 @alice]: hi")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice]: hi")]);
   });
 
   test("renders thread reply with parent alias arrow", () => {
@@ -121,7 +121,7 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob → ${alias}]: got it`),
+      textMsg("user", `[11/14/23 14:28 @bob → ${alias}]: got it`),
     ]);
   });
 
@@ -130,7 +130,7 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, "@alice", "hi (revised)", { editedAt: MS_14_30 }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice, edited 14:30]: hi (revised)"),
+      textMsg("user", "[11/14/23 14:25 @alice, edited 11/14/23 14:30]: hi (revised)"),
     ]);
   });
 
@@ -141,7 +141,7 @@ describe("renderSlackTranscript — basics", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "v2", { editedAt: MS_14_32 }),
     ]);
-    expect(out).toEqual([textMsg("user", "[14:25 @alice, edited 14:32]: v2")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice, edited 11/14/23 14:32]: v2")]);
   });
 
   test("edited message in a thread renders both arrow and edit suffix", () => {
@@ -153,7 +153,7 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob → ${alias}, edited 14:30]: got it (edit)`),
+      textMsg("user", `[11/14/23 14:28 @bob → ${alias}, edited 11/14/23 14:30]: got it (edit)`),
     ]);
   });
 
@@ -162,7 +162,7 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, "@alice", "(removed)", { deletedAt: MS_14_32 }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice — deleted 14:32]"),
+      textMsg("user", "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
     ]);
   });
 
@@ -176,7 +176,7 @@ describe("renderSlackTranscript — basics", () => {
       }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice — deleted 14:32]"),
+      textMsg("user", "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
     ]);
     const text0 = extractTagLineTexts(out)[0];
     // No "edited" suffix should leak through.
@@ -194,9 +194,9 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_30, "@carol", "third"),
     ]);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @alice]: first",
-      "[14:28 @bob — deleted 14:30]",
-      "[14:30 @carol]: third",
+      "[11/14/23 14:25 @alice]: first",
+      "[11/14/23 14:28 @bob — deleted 11/14/23 14:30]",
+      "[11/14/23 14:30 @carol]: third",
     ]);
   });
 
@@ -206,7 +206,7 @@ describe("renderSlackTranscript — basics", () => {
       reactionMsg(TS_14_28, "@bob", "👍", TS_14_25, "added"),
     ]);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
+      textMsg("user", `[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
     ]);
   });
 
@@ -216,7 +216,7 @@ describe("renderSlackTranscript — basics", () => {
       reactionMsg(TS_14_28, "@bob", "👍", TS_14_25, "removed"),
     ]);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob removed 👍 from ${alias}]`),
+      textMsg("user", `[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
     ]);
   });
 });
@@ -235,7 +235,7 @@ describe("renderSlackTranscript — edited marker", () => {
       }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice — deleted 14:32]"),
+      textMsg("user", "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
     ]);
     expect(extractTagLineTexts(out)[0].includes("edited")).toBe(false);
   });
@@ -265,7 +265,7 @@ describe("renderSlackTranscript — edited marker", () => {
     const out = renderSlackTranscript([reaction]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
+      textMsg("user", `[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
     ]);
     expect(extractTagLineTexts(out)[0].includes("edited")).toBe(false);
   });
@@ -277,7 +277,7 @@ describe("renderSlackTranscript — edited marker", () => {
       userMsg(TS_14_25, "@alice", "v2", { editedAt: 0 }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice, edited 00:00]: v2"),
+      textMsg("user", "[11/14/23 14:25 @alice, edited 01/01/70 00:00]: v2"),
     ]);
   });
 });
@@ -391,10 +391,10 @@ describe("renderSlackTranscript — mixed message + reaction chronology", () => 
       userMsg(TS_14_26, "@bob", "yes"),
     ]);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @alice]: lunch?",
-      "[14:26 @bob]: yes",
-      `[14:28 @carol reacted 👍 to ${aliasParent}]`,
-      "[14:30 @dan]: later",
+      "[11/14/23 14:25 @alice]: lunch?",
+      "[11/14/23 14:26 @bob]: yes",
+      `[11/14/23 14:28 @carol reacted 👍 to ${aliasParent}]`,
+      "[11/14/23 14:30 @dan]: later",
     ]);
   });
 
@@ -410,10 +410,10 @@ describe("renderSlackTranscript — mixed message + reaction chronology", () => 
       reactionMsg(TS_14_30, "@carol", "👍", TS_14_25, "removed"),
     ]);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @alice]: lunch?",
-      `[14:26 @carol reacted 👍 to ${aliasParent}]`,
-      "[14:28 @bob]: yes",
-      `[14:30 @carol removed 👍 from ${aliasParent}]`,
+      "[11/14/23 14:25 @alice]: lunch?",
+      `[11/14/23 14:26 @carol reacted 👍 to ${aliasParent}]`,
+      "[11/14/23 14:28 @bob]: yes",
+      `[11/14/23 14:30 @carol removed 👍 from ${aliasParent}]`,
     ]);
   });
 });
@@ -428,9 +428,9 @@ describe("renderSlackTranscript — sort", () => {
       userMsg(TS_14_28, "@mid", "middle"),
     ]);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @early]: earlier",
-      "[14:28 @mid]: middle",
-      "[14:30 @late]: later",
+      "[11/14/23 14:25 @early]: earlier",
+      "[11/14/23 14:28 @mid]: middle",
+      "[11/14/23 14:30 @late]: later",
     ]);
   });
 
@@ -442,9 +442,9 @@ describe("renderSlackTranscript — sort", () => {
       userMsg(sameTs, "@third", "3"),
     ]);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @first]: 1",
-      "[14:25 @second]: 2",
-      "[14:25 @third]: 3",
+      "[11/14/23 14:25 @first]: 1",
+      "[11/14/23 14:25 @second]: 2",
+      "[11/14/23 14:25 @third]: 3",
     ]);
   });
 });
@@ -477,11 +477,11 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const out = renderSlackTranscript(messages);
     const aliceAlias = parentAlias(aliceTopTs);
     expect(extractTagLineTexts(out)).toEqual([
-      "[14:25 @alice]: lunch?",
-      `[14:26 @bob → ${aliceAlias}]: yes!`,
-      `[14:27 @alice → ${aliceAlias}]: 12:30 ok?`,
-      "[14:28 @carol]: standup soon",
-      `[14:28 @dan → ${aliceAlias}]: I'll join`,
+      "[11/14/23 14:25 @alice]: lunch?",
+      `[11/14/23 14:26 @bob → ${aliceAlias}]: yes!`,
+      `[11/14/23 14:27 @alice → ${aliceAlias}]: 12:30 ok?`,
+      "[11/14/23 14:28 @carol]: standup soon",
+      `[11/14/23 14:28 @dan → ${aliceAlias}]: I'll join`,
     ]);
   });
 
@@ -497,9 +497,9 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const texts = extractTagLineTexts(out);
     // The reply tag points at carol's alias; carol's top stays untagged.
     expect(texts[texts.length - 1]).toBe(
-      `[14:28 @ed → ${carolAlias}]: joining now`,
+      `[11/14/23 14:28 @ed → ${carolAlias}]: joining now`,
     );
-    expect(texts[3]).toBe("[14:28 @carol]: standup soon");
+    expect(texts[3]).toBe("[11/14/23 14:28 @carol]: standup soon");
   });
 
   test("scenario: reply to the most recent top-level message", () => {
@@ -512,7 +512,7 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const out = renderSlackTranscript(messages);
     const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    expect(texts[texts.length - 1]).toBe(`[14:28 @frank → ${carolAlias}]: +1`);
+    expect(texts[texts.length - 1]).toBe(`[11/14/23 14:28 @frank → ${carolAlias}]: +1`);
   });
 
   test("scenario: new top-level message (no threadTs)", () => {
@@ -523,7 +523,7 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const out = renderSlackTranscript(messages);
     const texts = extractTagLineTexts(out);
     // No arrow on the new top-level row.
-    expect(texts[texts.length - 1]).toBe("[14:31 @gina]: anyone in office?");
+    expect(texts[texts.length - 1]).toBe("[11/14/23 14:31 @gina]: anyone in office?");
   });
 });
 
@@ -545,9 +545,9 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
 
     const texts = extractTagLineTexts(out);
     expect(texts).toEqual([
-      "[14:25 @alice]: lunch?",
-      "[14:26 @dana]: drive-by note",
-      `[14:28 @bob → ${alias}]: yes!`,
+      "[11/14/23 14:25 @alice]: lunch?",
+      "[11/14/23 14:26 @dana]: drive-by note",
+      `[11/14/23 14:28 @bob → ${alias}]: yes!`,
     ]);
     // Ensure the legacy row has no arrow.
     expect(texts[1].includes("→")).toBe(false);
@@ -557,7 +557,7 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
     const out = renderSlackTranscript([
       legacyMsg(MS_14_25, "@bot", "ack", "assistant"),
     ]);
-    expect(out).toEqual([textMsg("assistant", "[14:25 @bot]: ack")]);
+    expect(out).toEqual([textMsg("assistant", "[11/14/23 14:25 @bot]: ack")]);
   });
 
   test("preserves message role faithfully across mixed inputs", () => {
@@ -612,7 +612,7 @@ describe("renderSlackTranscript — Message[] shape", () => {
     expect(out).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[14:25 @alice]: hi" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @alice]: hi" }],
       },
     ]);
   });
@@ -626,11 +626,11 @@ describe("renderSlackTranscript — Message[] shape", () => {
     expect(out).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[14:25 @first]: 1" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @first]: 1" }],
       },
       {
         role: "user",
-        content: [{ type: "text", text: "[14:25 @second]: 2" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @second]: 2" }],
       },
     ]);
   });
@@ -718,7 +718,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out[0]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[14:25 @assistant]: looking it up" },
+        { type: "text", text: "[11/14/23 14:25 @assistant]: looking it up" },
         { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
       ],
     });
@@ -766,7 +766,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
         role: "assistant",
         content: [
           { type: "thinking", thinking: "let me think", signature: "sig-abc" },
-          { type: "text", text: "[14:25 @assistant]: here's the answer" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: here's the answer" },
         ],
       },
     ]);
@@ -791,7 +791,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[14:25 @assistant]: doing a thing" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: doing a thing" },
           { type: "tool_use", id: "tu_A", name: "op", input: {} },
           { type: "tool_result", tool_use_id: "tu_A", content: "ok" },
         ],
@@ -814,7 +814,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[14:25 @assistant]: reply body" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @assistant]: reply body" }],
       },
     ]);
   });
@@ -836,7 +836,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[14:25 @assistant]: web search" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @assistant]: web search" }],
       },
     ]);
   });
@@ -869,7 +869,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
               data: "base64data==",
             },
           },
-          { type: "text", text: "[14:25 @alice]: check this out" },
+          { type: "text", text: "[11/14/23 14:25 @alice]: check this out" },
         ],
       },
     ]);
@@ -887,7 +887,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[14:25 @alice — deleted 14:32]" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]" }],
       },
     ]);
   });
@@ -899,7 +899,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(base.contentBlocks).toBeUndefined();
     const out = renderSlackTranscript([base]);
     expect(out).toEqual([
-      textMsg("user", "[14:25 @alice]: legacy plain"),
+      textMsg("user", "[11/14/23 14:25 @alice]: legacy plain"),
     ]);
   });
 
@@ -909,7 +909,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
       contentBlocks: [],
     };
     const out = renderSlackTranscript([base]);
-    expect(out).toEqual([textMsg("user", "[14:25 @alice]: empty blocks")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice]: empty blocks")]);
   });
 
   test("reaction row ignores contentBlocks and renders the single reaction tag line", () => {
@@ -926,7 +926,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     const out = renderSlackTranscript([withBlocks]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
+      textMsg("user", `[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
     ]);
   });
 });
@@ -962,7 +962,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[14:25 @assistant]: looking it up" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: looking it up" },
         ],
       },
     ]);
@@ -986,7 +986,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
     expect(out).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[14:25 @alice]: follow up" }],
+        content: [{ type: "text", text: "[11/14/23 14:25 @alice]: follow up" }],
       },
     ]);
   });
@@ -1014,7 +1014,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[14:25 @assistant]: running op" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
         ],
       },
@@ -1049,7 +1049,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       "hi",
     );
     const out = renderSlackTranscript([orphanResultRow, neighbour]);
-    expect(out).toEqual([textMsg("user", "[14:26 @bob]: hi")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:26 @bob]: hi")]);
     // Sanity: the output contains no {role, content: []} placeholder.
     for (const m of out) {
       expect(m.content.length).toBeGreaterThan(0);
@@ -1108,7 +1108,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[14:25 @assistant]: running op" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: {} },
         ],
       },
@@ -1120,11 +1120,11 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "[14:28 @assistant]: looking" }],
+        content: [{ type: "text", text: "[11/14/23 14:28 @assistant]: looking" }],
       },
       {
         role: "user",
-        content: [{ type: "text", text: "[14:30 @alice]: stray" }],
+        content: [{ type: "text", text: "[11/14/23 14:30 @alice]: stray" }],
       },
     ]);
   });
@@ -1177,7 +1177,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
               filename: "doc.pdf",
             },
           },
-          { type: "text", text: "[14:25 @assistant]: here you go" },
+          { type: "text", text: "[11/14/23 14:25 @assistant]: here you go" },
         ],
       },
     ]);

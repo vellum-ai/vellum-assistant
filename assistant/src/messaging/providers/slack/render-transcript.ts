@@ -53,9 +53,9 @@ const DEFAULT_MAX_REACTIONS = 5;
  * persisted row when rendering the Slack chronological transcript.
  *
  * `text` is intentionally omitted — text content is subsumed into the tag
- * line (e.g. `[14:25 @assistant]: ...`) so callers reading the rendered
- * output see one human-readable line per row rather than a raw text block
- * stripped of thread context.
+ * line (e.g. `[11/14/23 14:25 @assistant]: ...`) so callers reading the
+ * rendered output see one human-readable line per row rather than a raw
+ * text block stripped of thread context.
  *
  * Non-replayable types (`ui_surface`, `server_tool_use`,
  * `web_search_tool_result`, unknown types) are dropped: `ui_surface` blocks
@@ -86,26 +86,29 @@ export function parentAlias(channelTs: string): string {
 }
 
 /**
- * Format a Slack ts (`"1700000000.000100"`) as `HH:MM` (UTC).
+ * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch
  * second value for display purposes. Pure — derives only from the ts string.
  */
 function formatSlackTs(channelTs: string): string {
   const seconds = Number.parseFloat(channelTs);
-  if (!Number.isFinite(seconds)) return "??:??";
+  if (!Number.isFinite(seconds)) return "??/??/?? ??:??";
   return formatEpochMs(seconds * 1000);
 }
 
 /**
- * Format an epoch millisecond timestamp as `HH:MM` (UTC).
+ * Format an epoch millisecond timestamp as `MM/DD/YY HH:MM` (UTC).
  */
 function formatEpochMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "??:??";
+  if (!Number.isFinite(ms)) return "??/??/?? ??:??";
   const d = new Date(ms);
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  const yy = String(d.getUTCFullYear() % 100).padStart(2, "0");
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+  return `${mo}/${da}/${yy} ${hh}:${mm}`;
 }
 
 /**
@@ -157,8 +160,8 @@ function renderMessage(msg: RenderableSlackMessage): string {
 /**
  * Render a single reaction event as one tagged line.
  *
- * `[14:28 @bob reacted 👍 to M1a2b3c]` or
- * `[14:28 @bob removed 👍 from M1a2b3c]`.
+ * `[11/14/23 14:28 @bob reacted 👍 to M1a2b3c]` or
+ * `[11/14/23 14:28 @bob removed 👍 from M1a2b3c]`.
  */
 function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
@@ -173,7 +176,7 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
 /**
  * Build the content blocks for a single non-reaction message.
  *
- * Emits the tag line (`[HH:MM @sender ...]: body`) inline at the position of
+ * Emits the tag line (`[MM/DD/YY HH:MM @sender ...]: body`) inline at the position of
  * the first `text` block in `contentBlocks`, and preserves any replayable
  * blocks (`tool_use`, `tool_result`, `thinking`, `redacted_thinking`,
  * `image`, `file`) in their original order. Non-replayable blocks
