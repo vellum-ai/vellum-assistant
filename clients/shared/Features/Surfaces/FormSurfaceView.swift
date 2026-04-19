@@ -361,6 +361,18 @@ public struct FormSurfaceView: View {
         let errors = validate()
         if !errors.isEmpty {
             validationErrors = errors
+            isSubmitted = false
+            // Navigate to the first page that contains a failing field
+            if let pages = data.pages, !pages.isEmpty {
+                for (index, page) in pages.enumerated() {
+                    if page.fields.contains(where: { errors.contains($0.id) }) {
+                        withAnimation(VAnimation.fast) {
+                            currentPageIndex = index
+                        }
+                        break
+                    }
+                }
+            }
             return
         }
 
