@@ -261,8 +261,9 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 550,
+        maxInputTokens: 620,
         targetBudgetRatio: 0.59,
+        compactThreshold: 0.5,
       }),
     });
     const long = "f".repeat(500);
@@ -1094,6 +1095,59 @@ describe("ContextWindowManager", () => {
     // Flag clears and prefix drains (both injected messages + summary slot).
     expect(manager.summaryIsInjected).toBe(false);
     expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
+
+  test("summary system prompt instructs verbatim thread-anchor preservation", async () => {
+    const capturedSystemPrompts: (string | undefined)[] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(
+        _messages: Message[],
+        _tools,
+        systemPrompt,
+      ): Promise<ProviderResponse> {
+        capturedSystemPrompts.push(systemPrompt);
+        return {
+          content: [
+            {
+              type: "text",
+              text: "## Goals\n- preserved thread parent verbatim",
+            },
+          ],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // Simulate a Slack-style transcript where an old user "thread parent"
+    // message is about to be compacted while a later reply survives in the
+    // retained tail. The clause being asserted instructs the summarizer to
+    // preserve that parent verbatim — we cannot verify the model's behavior
+    // here (the provider is a stub), so we instead assert the clause itself
+    // reaches the summarizer.
+    const history: Message[] = [
+      message("user", `parent: kickoff plan ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `reply-in-thread ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedSystemPrompts.length).toBeGreaterThan(0);
+    const seenPrompt = capturedSystemPrompts[0];
+    expect(seenPrompt).toBeDefined();
+    expect(seenPrompt).toContain("Thread anchors");
+    expect(seenPrompt).toContain("verbatim");
   });
 
   test("does not subtract summaryOffset when summary at index 0 is child-owned from prior compaction", async () => {
