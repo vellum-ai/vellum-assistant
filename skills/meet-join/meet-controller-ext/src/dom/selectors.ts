@@ -79,19 +79,22 @@ export const prejoinSelectors = {
 
   /**
    * "Ask to join" button shown when the meeting is locked and the bot needs
-   * the host to admit it. Matches by aria-label for stability across locales
-   * (callers should be aware of localization — see TODO below).
+   * the host to admit it. Matches by aria-label prefix because Meet decorates
+   * the label with context — e.g. `aria-label="Ask to join without camera"`
+   * when the bot's camera is unavailable. The `^=` prefix match covers both
+   * the bare and decorated forms.
    */
   // TODO(meet-dom): aria-label is localized. Future versions may need to
   // match multiple locales or fall back to role=button + text content.
-  ASK_TO_JOIN_BUTTON: 'button[aria-label="Ask to join"]',
+  ASK_TO_JOIN_BUTTON: 'button[aria-label^="Ask to join"]',
 
   /**
    * "Join now" button shown when the meeting is open or the bot is already
    * trusted (e.g. same-domain policy). Distinct from Ask-to-join so the caller
-   * can branch on which flow Meet presented.
+   * can branch on which flow Meet presented. Prefix match covers the bare
+   * label plus Meet's "Join now without camera" etc. variants.
    */
-  JOIN_NOW_BUTTON: 'button[aria-label="Join now"]',
+  JOIN_NOW_BUTTON: 'button[aria-label^="Join now"]',
 } as const;
 
 /**

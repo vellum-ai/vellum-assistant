@@ -152,31 +152,74 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
 
   // Step 3 — populate the name input if present. Meet doesn't render it for
   // signed-in users, in which case the account's name is used instead.
+  //
+  // Meet's UI is React-based; React tracks input values via the native
+  // HTMLInputElement setter and ignores assignments that bypass it. Using
+  // the native setter followed by a bubbling `input` event is the canonical
+  // pattern for programmatically setting a controlled input in React —
+  // without it, Meet's internal state never registers the name change and
+  // the join button remains gated as if the field were still empty.
   const nameInput = doc.querySelector(selectors.PREJOIN_NAME_INPUT);
   if (nameInput) {
-    (nameInput as HTMLInputElement).focus();
-    (nameInput as HTMLInputElement).value = displayName;
-    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    const input = nameInput as HTMLInputElement;
+    input.focus();
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    if (setter) {
+      setter.call(input, displayName);
+    } else {
+      input.value = displayName;
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  // Step 4 — click the admission button. Prefer "Join now" because it is the
-  // happy-path branch for signed-in / same-domain sessions; fall back to
-  // "Ask to join" for locked meetings. We re-query the live DOM rather than
-  // relying on `firstVisible` because Meet may have mounted additional
-  // buttons between step 2 and here.
-  const joinNow = doc.querySelector(selectors.PREJOIN_JOIN_NOW_BUTTON);
-  if (joinNow) {
-    (joinNow as HTMLElement).click();
-  } else {
-    const askToJoin = doc.querySelector(selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
-    if (!askToJoin) {
-      fail(
-        onEvent,
-        "meet-ext: no join button present after prejoin surface mounted",
-      );
-    }
-    (askToJoin as HTMLElement).click();
+  // Step 4 — wait for the admission button, then click it. Prefer "Join now"
+  // because it is the happy-path branch for signed-in / same-domain sessions;
+  // fall back to "Ask to join" for locked meetings. Meet re-renders the
+  // join button after we populate the name input, so a synchronous query
+  // here races against that render. Poll with a short budget — the button
+  // is visible in the DOM within a few hundred ms of the input event.
+  let admissionBtn: Element | null = null;
+  const joinDeadline = Date.now() + 10_000;
+  while (Date.now() < joinDeadline) {
+    admissionBtn =
+      doc.querySelector(selectors.PREJOIN_JOIN_NOW_BUTTON) ??
+      doc.querySelector(selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
+    if (admissionBtn) break;
+    await new Promise((r) => setTimeout(r, 200));
   }
+  if (!admissionBtn) {
+    // Dump every button's aria-label / text so fixture refreshes can catch
+    // selector drift quickly — Meet's DOM changes without notice.
+    const buttons = Array.from(doc.querySelectorAll("button")).slice(0, 30);
+    const inventory = buttons.map((b) => {
+      const label = b.getAttribute("aria-label") ?? "";
+      const text = (b.textContent ?? "").trim().slice(0, 40);
+      const disabled = (b as HTMLButtonElement).disabled;
+      return `[aria="${label}" text="${text}" disabled=${disabled}]`;
+    });
+    fail(
+      onEvent,
+      `meet-ext: no join button matched selectors after 10s. buttons: ${inventory.join(" ")}`,
+    );
+  }
+  const btnLabel = admissionBtn.getAttribute("aria-label") ?? "";
+  // NOTE: Meet gates the prejoin admission button on `event.isTrusted`, so a
+  // programmatic `.click()` from a content script is silently ignored by the
+  // real Meet UI — admission requires an X-server mouse click (handled by
+  // a separate trusted-click bridge to the bot process). We still dispatch
+  // the JS click here because (a) it's free, (b) the jsdom test harness
+  // exercises this path, and (c) any Meet build that ever relaxes the
+  // `isTrusted` check would start working again automatically.
+  (admissionBtn as HTMLElement).click();
+  onEvent({
+    type: "diagnostic",
+    level: "info",
+    message: `meet-ext: clicked admission button aria-label="${btnLabel}"`,
+  });
 
   // Step 5 — wait for the in-meeting UI. The "Leave call" button only mounts
   // once the bot is in the meeting, so it is our canonical admission signal.
