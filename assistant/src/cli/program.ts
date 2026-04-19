@@ -36,6 +36,7 @@ import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
@@ -69,6 +70,7 @@ Examples:
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
+  registerTaskCommand(program);
   registerConversationsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
