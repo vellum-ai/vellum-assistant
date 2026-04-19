@@ -304,6 +304,13 @@ export class ConversationGraphMemory {
     queryVector?: number[];
     /** Optional sparse vector accompanying `queryVector`. */
     sparseVector?: QdrantSparseVector;
+    /**
+     * Dense query vector aligned to the latest user message (PR 3). Surfaced
+     * so callers (PKB hint search) can prefer it over the summary-based
+     * `queryVector`. `undefined` on the per-turn path and when no user-aligned
+     * embed was computed.
+     */
+    userQueryVector?: number[];
   }> {
     this.tracker.advanceTurn();
 
@@ -391,6 +398,7 @@ export class ConversationGraphMemory {
         metrics: result.metrics,
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
+        userQueryVector: result.userQueryVector,
       };
     }
 
@@ -412,6 +420,7 @@ export class ConversationGraphMemory {
         metrics: result.metrics,
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
+        userQueryVector: result.userQueryVector,
       };
     }
 
@@ -446,6 +455,7 @@ export class ConversationGraphMemory {
       metrics: result.metrics,
       queryVector: result.queryVector,
       sparseVector: result.sparseVector,
+      userQueryVector: result.userQueryVector,
     };
   }
 

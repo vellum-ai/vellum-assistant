@@ -661,7 +661,7 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
-      pkbQueryVector = graphResult.queryVector;
+      pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
       pkbSparseVector = graphResult.sparseVector;
 
       // Persist the injected block text in message metadata so it survives
