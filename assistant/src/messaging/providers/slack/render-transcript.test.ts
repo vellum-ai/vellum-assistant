@@ -368,6 +368,51 @@ describe("renderSlackTranscript — reaction cap", () => {
   });
 });
 
+// ── mixed message + reaction chronology ─────────────────────────────────────
+
+describe("renderSlackTranscript — mixed message + reaction chronology", () => {
+  test("reaction renders inline at correct chronological position", () => {
+    // Order of events as they happened in time:
+    //   14:25 — alice posts the parent
+    //   14:26 — bob posts a follow-up message
+    //   14:28 — carol reacts to alice's parent
+    //   14:30 — dan posts another message
+    // Inputs are intentionally shuffled so the renderer must sort.
+    const aliasParent = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      reactionMsg(TS_14_28, "@carol", "👍", TS_14_25, "added"),
+      userMsg(TS_14_30, "@dan", "later"),
+      userMsg(TS_14_25, "@alice", "lunch?"),
+      userMsg(TS_14_26, "@bob", "yes"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: lunch?",
+      "[14:26 @bob]: yes",
+      `[14:28 @carol reacted 👍 to ${aliasParent}]`,
+      "[14:30 @dan]: later",
+    ]);
+  });
+
+  test("removed reactions interleave with messages by their own ts", () => {
+    // A reaction is added at 14:26 then removed at 14:30; bob posts a message
+    // at 14:28 in between. The "removed" line must land between bob's message
+    // and dan's later message, not collapsed beside the "added" line.
+    const aliasParent = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "lunch?"),
+      reactionMsg("1699971960.000010", "@carol", "👍", TS_14_25, "added"),
+      userMsg(TS_14_28, "@bob", "yes"),
+      reactionMsg(TS_14_30, "@carol", "👍", TS_14_25, "removed"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: lunch?",
+      `[14:26 @carol reacted 👍 to ${aliasParent}]`,
+      "[14:28 @bob]: yes",
+      `[14:30 @carol removed 👍 from ${aliasParent}]`,
+    ]);
+  });
+});
+
 // ── sort stability ───────────────────────────────────────────────────────────
 
 describe("renderSlackTranscript — sort", () => {

@@ -16,27 +16,7 @@
 
 import { createHash } from "node:crypto";
 
-// TODO(slack-thread-ctx PR 1): replace this local type with an import from
-// `./message-metadata.js` once PR 1 lands. The shape is duplicated here so
-// PR 6 can compile in isolation; both files agree on the schema.
-type SlackEventKind = "message" | "reaction";
-
-interface SlackMessageMetadata {
-  readonly source: "slack";
-  readonly channelId: string;
-  readonly channelTs: string;
-  readonly threadTs?: string;
-  readonly displayName?: string;
-  readonly eventKind: SlackEventKind;
-  readonly reaction?: {
-    readonly emoji: string;
-    readonly actorDisplayName?: string;
-    readonly targetChannelTs: string;
-    readonly op: "added" | "removed";
-  };
-  readonly editedAt?: number;
-  readonly deletedAt?: number;
-}
+import type { SlackMessageMetadata } from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
   role: "user" | "assistant";
