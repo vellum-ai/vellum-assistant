@@ -12,8 +12,13 @@ import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  type RenderableSlackMessage,
+  renderSlackTranscript,
+} from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
-import type { Message } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -1153,6 +1158,126 @@ function injectTransportHints(message: Message, hints: string[]): Message {
 /** Strip `<transport_hints>` blocks injected by `injectTransportHints`. */
 export function stripTransportHints(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
+}
+
+// ---------------------------------------------------------------------------
+// Slack chronological transcript assembly
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal structural shape of a persisted message row used by the Slack
+ * chronological-transcript assembly path. Decouples the assembly logic from
+ * the DB-row type so it can be unit-tested with plain literals.
+ */
+export interface SlackTranscriptInputRow {
+  role: "user" | "assistant";
+  /** Raw persisted content column. JSON-encoded `ContentBlock[]` in production. */
+  content: string;
+  /** Epoch ms when the row was created. */
+  createdAt: number;
+  /** Raw `metadata` column value (JSON string with optional `slackMeta` sub-key). */
+  metadata: string | null;
+}
+
+/**
+ * Extract the user-facing plain text from a persisted message row's content
+ * column. The persisted shape is a JSON-encoded `ContentBlock[]`; only `text`
+ * blocks contribute to the rendered transcript line. Tool-use / tool-result /
+ * thinking blocks are intentionally elided — they would clutter the
+ * Slack-style transcript and the model can already recall them from the
+ * surrounding turn structure.
+ *
+ * Falls back to the raw column value when JSON parsing fails so legacy /
+ * non-JSON-encoded rows still surface their text content.
+ */
+function extractPlainText(rawContent: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return rawContent;
+  }
+  if (!Array.isArray(parsed)) {
+    return typeof parsed === "string" ? parsed : rawContent;
+  }
+  const parts: string[] = [];
+  for (const block of parsed as ContentBlock[]) {
+    if (block && typeof block === "object" && block.type === "text") {
+      parts.push(block.text);
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * Convert a persisted row into the {@link RenderableSlackMessage} shape
+ * consumed by `renderSlackTranscript`.
+ *
+ * Legacy pre-upgrade rows (no `slackMeta` sub-key, malformed metadata, etc.)
+ * yield `metadata: null`; the renderer then takes its flat-render fallback
+ * path and the row stays in chronological order via `createdAt`.
+ *
+ * Sender labels:
+ * - assistant rows: always `"@assistant"`.
+ * - user rows: prefer `slackMeta.displayName`, otherwise fall back to a
+ *   generic `"@user"` label so the renderer's tag template still parses.
+ */
+function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
+  let slackMeta: ReturnType<typeof readSlackMetadata> = null;
+  if (row.metadata) {
+    try {
+      const outer = JSON.parse(row.metadata) as { slackMeta?: unknown };
+      if (typeof outer.slackMeta === "string") {
+        slackMeta = readSlackMetadata(outer.slackMeta);
+      }
+    } catch {
+      // Malformed metadata — fall through to legacy/null treatment.
+    }
+  }
+
+  const senderLabel =
+    row.role === "assistant"
+      ? "@assistant"
+      : (slackMeta?.displayName ?? "@user");
+
+  return {
+    role: row.role,
+    content: extractPlainText(row.content),
+    metadata: slackMeta,
+    senderLabel,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * Build a chronological Slack transcript for Slack DM conversations and
+ * project it onto the LLM-facing `Message[]` shape.
+ *
+ * Returns `null` when the channel is not a Slack DM (caller should fall
+ * through to the default message history). Legacy pre-upgrade rows without
+ * `slackMeta` are tolerated: the renderer's flat fallback orders them by
+ * `createdAt` alongside post-upgrade rows.
+ *
+ * NOTE on transport hints: PR 21 deliberately does NOT remove DM
+ * transport-hint injection here — that cleanup happens in PR 25 once the
+ * gateway stops sending Slack hints altogether.
+ */
+export function assembleSlackChronologicalMessages(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+): Message[] | null {
+  // PR 21 handles DMs only. PR 17 adds the symmetric channel branch
+  // (`chatType !== "im"`) — keep the guard tight so the channel path never
+  // accidentally runs through the DM-only renderer wiring.
+  if (capabilities.channel !== "slack" || capabilities.chatType !== "im") {
+    return null;
+  }
+  const renderable = rows.map(rowToRenderable);
+  const rendered = renderSlackTranscript(renderable);
+  return rendered.map((r) => ({
+    role: r.role,
+    content: [{ type: "text" as const, text: r.content }],
+  }));
 }
 
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
