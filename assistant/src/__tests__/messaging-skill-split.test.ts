@@ -16,7 +16,6 @@ function loadManifest(skillDir: string) {
 }
 
 const messagingManifest = loadManifest("messaging");
-const gmailManifest = loadManifest("gmail");
 const sequencesManifest = loadManifest("sequences");
 describe("Messaging skill split", () => {
   const expectedMessagingToolNames = [
@@ -30,22 +29,6 @@ describe("Messaging skill split", () => {
     "messaging_draft",
     "messaging_sender_digest",
     "messaging_archive_by_sender",
-  ];
-
-  const expectedGmailToolNames = [
-    "gmail_archive",
-    "gmail_label",
-    "gmail_trash",
-    "gmail_unsubscribe",
-    "gmail_draft",
-    "gmail_send_draft",
-    "gmail_attachments",
-    "gmail_forward",
-    "gmail_follow_up",
-    "gmail_filters",
-    "gmail_vacation",
-    "gmail_sender_digest",
-    "gmail_outreach_scan",
   ];
 
   const expectedSequenceToolNames = [
@@ -80,15 +63,6 @@ describe("Messaging skill split", () => {
     }
   });
 
-  test("gmail/TOOLS.json contains all expected gmail_* tool names", () => {
-    const names: string[] = gmailManifest.tools.map(
-      (t: { name: string }) => t.name,
-    );
-    for (const name of expectedGmailToolNames) {
-      expect(names).toContain(name);
-    }
-  });
-
   test("sequences/TOOLS.json contains all expected sequence_* tool names", () => {
     const names: string[] = sequencesManifest.tools.map(
       (t: { name: string }) => t.name,
@@ -101,20 +75,15 @@ describe("Messaging skill split", () => {
 
   test("total tools across all manifests meets expected minimum", () => {
     const expectedMinimum =
-      expectedMessagingToolNames.length +
-      expectedGmailToolNames.length +
-      expectedSequenceToolNames.length;
+      expectedMessagingToolNames.length + expectedSequenceToolNames.length;
     const totalTools =
-      messagingManifest.tools.length +
-      gmailManifest.tools.length +
-      sequencesManifest.tools.length;
+      messagingManifest.tools.length + sequencesManifest.tools.length;
     expect(totalTools).toBeGreaterThanOrEqual(expectedMinimum);
   });
 
-  test("no tool name collisions across messaging, gmail, and sequences manifests", () => {
+  test("no tool name collisions across messaging and sequences manifests", () => {
     const allNames = [
       ...messagingManifest.tools.map((t: { name: string }) => t.name),
-      ...gmailManifest.tools.map((t: { name: string }) => t.name),
       ...sequencesManifest.tools.map((t: { name: string }) => t.name),
     ];
     const unique = new Set(allNames);
