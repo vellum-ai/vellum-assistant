@@ -30,6 +30,16 @@ function queueToolContext(): ToolContext {
 
 // ── Param schemas ─────────────────────────────────────────────────────
 
+const WORK_ITEM_STATUSES = [
+  "queued",
+  "running",
+  "awaiting_review",
+  "done",
+  "failed",
+  "cancelled",
+  "archived",
+] as const;
+
 const TaskQueueShowParams = z.object({
   status: z.union([z.string(), z.array(z.string())]).optional(),
 });
@@ -53,7 +63,7 @@ const TaskQueueUpdateParams = z.object({
   title: z.string().optional(),
   priority_tier: z.number().optional(),
   notes: z.string().optional(),
-  status: z.string().optional(),
+  status: z.enum(WORK_ITEM_STATUSES).optional(),
   sort_index: z.number().optional(),
   filter_priority_tier: z.number().optional(),
   filter_status: z.string().optional(),
@@ -81,7 +91,7 @@ const TaskQueueRunParams = z.object({
 async function handleTaskQueueShow(params?: Record<string, unknown>) {
   const { executeTaskListShow } =
     await import("../../tools/tasks/work-item-list.js");
-  const input = TaskQueueShowParams.parse(params);
+  const input = TaskQueueShowParams.parse(params ?? {});
   const result = await executeTaskListShow(
     input as Record<string, unknown>,
     queueToolContext(),
@@ -92,7 +102,7 @@ async function handleTaskQueueShow(params?: Record<string, unknown>) {
 async function handleTaskQueueAdd(params?: Record<string, unknown>) {
   const { executeTaskListAdd } =
     await import("../../tools/tasks/work-item-enqueue.js");
-  const input = TaskQueueAddParams.parse(params);
+  const input = TaskQueueAddParams.parse(params ?? {});
   const result = await executeTaskListAdd(
     input as Record<string, unknown>,
     queueToolContext(),
@@ -103,7 +113,7 @@ async function handleTaskQueueAdd(params?: Record<string, unknown>) {
 async function handleTaskQueueUpdate(params?: Record<string, unknown>) {
   const { executeTaskListUpdate } =
     await import("../../tools/tasks/work-item-update.js");
-  const input = TaskQueueUpdateParams.parse(params);
+  const input = TaskQueueUpdateParams.parse(params ?? {});
   const result = await executeTaskListUpdate(
     input as Record<string, unknown>,
     queueToolContext(),
@@ -114,7 +124,7 @@ async function handleTaskQueueUpdate(params?: Record<string, unknown>) {
 async function handleTaskQueueRemove(params?: Record<string, unknown>) {
   const { executeTaskListRemove } =
     await import("../../tools/tasks/work-item-remove.js");
-  const input = TaskQueueRemoveParams.parse(params);
+  const input = TaskQueueRemoveParams.parse(params ?? {});
   const result = await executeTaskListRemove(
     input as Record<string, unknown>,
     queueToolContext(),
@@ -125,7 +135,7 @@ async function handleTaskQueueRemove(params?: Record<string, unknown>) {
 async function handleTaskQueueRun(params?: Record<string, unknown>) {
   const { executeTaskQueueRun } =
     await import("../../tools/tasks/work-item-run.js");
-  const input = TaskQueueRunParams.parse(params);
+  const input = TaskQueueRunParams.parse(params ?? {});
   const result = await executeTaskQueueRun(
     input as Record<string, unknown>,
     queueToolContext(),
