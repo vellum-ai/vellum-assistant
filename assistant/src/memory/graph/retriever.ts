@@ -29,7 +29,12 @@ import {
   weightsForContextLoad,
 } from "./scoring.js";
 import { sampleSerendipity } from "./serendipity.js";
-import { getEdgesForNode, getNodesByIds, queryNodes } from "./store.js";
+import {
+  getEdgesForNode,
+  getNodesByIds,
+  queryCapabilityNodes,
+  queryNodes,
+} from "./store.js";
 import { getActiveTriggersByType } from "./store.js";
 import {
   evaluateEventTriggers,
@@ -635,63 +640,66 @@ export async function loadContextMemory(
   // Sort by score descending
   scored.sort((a, b) => b.score - a.score);
 
-  // 5b. Reserve slots for skill/CLI capabilities. Queried directly from
-  // SQLite — no Qdrant vectors needed — so capabilities surface even on
-  // fresh assistants whose embedding jobs haven't completed yet.
+  // 5b. Reserve slots for skill/CLI capabilities.
+  //
+  // Source candidates primarily from the semantic-search candidate set
+  // (the same strategy `retrieveForTurn` uses). A prior approach pulled
+  // top-N procedural rows ordered by significance, but organic procedural
+  // memories share `type = 'procedural'` with capability nodes and
+  // dominate the significance ordering on mature assistants, starving
+  // the capability slots entirely.
+  //
+  // For cold-start cases (capability nodes exist in SQLite but their
+  // embeddings haven't landed in Qdrant yet), fall back to a narrow
+  // SQL pull that matches only capability-shaped content so organic
+  // procedurals can't crowd the pool.
   const capabilityReserve = ctxLoadCfg.capabilityReserve;
-  const rawCapabilityNodes =
-    capabilityReserve > 0
-      ? queryNodes({
-          scopeId: opts.scopeId,
-          types: ["procedural"],
-          fidelityNot: ["gone"],
-          limit: capabilityReserve * 4,
-        })
-      : [];
+  const capabilityEntries: { node: MemoryNode; sim: number }[] = [];
+  if (capabilityReserve > 0) {
+    for (const [nodeId, node] of nodeMap) {
+      if (node.fidelity === "gone") continue;
+      if (!isCapabilityNode(node)) continue;
+      const sim =
+        userQueryCandidateIds.get(nodeId) ??
+        semanticCandidateIds.get(nodeId) ??
+        0;
+      capabilityEntries.push({ node, sim });
+    }
+
+    if (capabilityEntries.length < capabilityReserve) {
+      const alreadySeen = new Set(capabilityEntries.map((e) => e.node.id));
+      const fallback = queryCapabilityNodes(
+        opts.scopeId,
+        capabilityReserve * 4,
+      );
+      for (const node of fallback) {
+        if (alreadySeen.has(node.id)) continue;
+        const sim =
+          userQueryCandidateIds.get(node.id) ??
+          semanticCandidateIds.get(node.id) ??
+          0;
+        capabilityEntries.push({ node, sim });
+      }
+    }
+  }
+
+  capabilityEntries.sort((a, b) => b.sim - a.sim);
 
   // Dedup: both seeding systems may create nodes for the same capability.
   // Extract capability ID from content and keep only the first node per ID.
   const seenCapabilityIds = new Set<string>();
-  const capabilityNodes = rawCapabilityNodes
-    .filter(isCapabilityNode)
-    .filter((node) => {
-      const match = node.content.match(
-        /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
-      );
-      const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
-      if (capId) {
-        if (seenCapabilityIds.has(capId)) return false;
-        seenCapabilityIds.add(capId);
-      }
-      return true;
-    });
-
-  // Rank by semantic similarity when a query vector exists.
-  // (PR 3) When a dedicated user-query vector is available, prefer its
-  // scores over the summary vector's for capability-reserve ranking —
-  // capability picks should align with the user's current intent, not
-  // the conversation-summary topic.
-  let selectedCapabilities: MemoryNode[];
-  if (userQueryCandidateIds.size > 0 && capabilityNodes.length > capabilityReserve) {
-    selectedCapabilities = capabilityNodes
-      .map((node) => ({
-        node,
-        sim:
-          userQueryCandidateIds.get(node.id) ??
-          semanticCandidateIds.get(node.id) ??
-          0,
-      }))
-      .sort((a, b) => b.sim - a.sim)
-      .slice(0, capabilityReserve)
-      .map((e) => e.node);
-  } else if (queryVector && capabilityNodes.length > capabilityReserve) {
-    selectedCapabilities = capabilityNodes
-      .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
-      .sort((a, b) => b.sim - a.sim)
-      .slice(0, capabilityReserve)
-      .map((e) => e.node);
-  } else {
-    selectedCapabilities = capabilityNodes.slice(0, capabilityReserve);
+  const selectedCapabilities: MemoryNode[] = [];
+  for (const { node } of capabilityEntries) {
+    if (selectedCapabilities.length >= capabilityReserve) break;
+    const match = node.content.match(
+      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+    );
+    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+    if (capId) {
+      if (seenCapabilityIds.has(capId)) continue;
+      seenCapabilityIds.add(capId);
+    }
+    selectedCapabilities.push(node);
   }
 
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
