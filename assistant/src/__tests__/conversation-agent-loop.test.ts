@@ -218,6 +218,8 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     "threads.md",
     "buffer.md",
   ],
+  loadSlackChannelRenderableHistory: () => [],
+  applySlackChannelChronologicalRender: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../daemon/date-context.js", () => ({

@@ -10,10 +10,19 @@ import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import {
+  getMessages as defaultGetMessages,
+  type MessageRow,
+} from "../memory/conversation-crud.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  type RenderableSlackMessage,
+  renderSlackTranscript,
+} from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
-import type { Message } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -1155,6 +1164,156 @@ export function stripTransportHints(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
 }
 
+// ---------------------------------------------------------------------------
+// Slack channel chronological rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * True when the channel capabilities describe a Slack non-DM channel: a
+ * group/channel/mpim where the assistant renders context across all
+ * threads instead of relying on per-turn `<transport_hints>` from the
+ * gateway. DMs (`chatType === "im"`) are intentionally excluded so the
+ * renderer does not emit thread tags for one-on-one conversations.
+ */
+export function isSlackChannelConversation(
+  channelCapabilities?: ChannelCapabilities | null,
+): boolean {
+  return (
+    channelCapabilities?.channel === "slack" &&
+    channelCapabilities.chatType !== "im"
+  );
+}
+
+/** Pull plain text out of a stored row's JSON content array. */
+function extractTextFromStoredContent(rawContent: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    // Non-JSON content (older rows or non-array content) is treated as raw
+    // text so the renderer still receives a meaningful string.
+    return rawContent;
+  }
+  if (!Array.isArray(parsed)) {
+    return typeof parsed === "string" ? parsed : rawContent;
+  }
+  const blocks = parsed as ContentBlock[];
+  const texts: string[] = [];
+  for (const block of blocks) {
+    if (
+      block &&
+      typeof block === "object" &&
+      "type" in block &&
+      block.type === "text" &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      texts.push((block as { text: string }).text);
+    }
+  }
+  return texts.join("\n");
+}
+
+/**
+ * Convert a single stored row into a `RenderableSlackMessage`.
+ *
+ * When `slackMeta` is present and parses cleanly the result carries the
+ * full Slack metadata; otherwise the message is treated as a legacy
+ * pre-upgrade row (`metadata: null`) and the renderer's flat fallback
+ * applies.
+ */
+function rowToRenderableSlackMessage(row: MessageRow): RenderableSlackMessage {
+  const role = row.role === "assistant" ? "assistant" : "user";
+  const content = extractTextFromStoredContent(row.content);
+
+  // Parse the outer metadata envelope once and reuse the result for both
+  // `slackMeta` lookup and the legacy displayName fallback.
+  let outerMeta: Record<string, unknown> | null = null;
+  if (row.metadata) {
+    try {
+      const parsed = JSON.parse(row.metadata);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        outerMeta = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Malformed outer metadata — treat as legacy.
+    }
+  }
+
+  const slackMetaRaw =
+    outerMeta && typeof outerMeta.slackMeta === "string"
+      ? outerMeta.slackMeta
+      : null;
+  const meta = readSlackMetadata(slackMetaRaw);
+
+  let senderLabel: string;
+  if (meta?.displayName && meta.displayName.length > 0) {
+    senderLabel = meta.displayName;
+  } else if (role === "assistant") {
+    senderLabel = "assistant";
+  } else {
+    const candidate = outerMeta?.displayName ?? outerMeta?.senderName;
+    senderLabel =
+      typeof candidate === "string" && candidate.length > 0
+        ? candidate
+        : "user";
+  }
+
+  return {
+    role,
+    content,
+    metadata: meta,
+    senderLabel,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * Replace the Slack-channel history portion of `runMessages` with the
+ * chronologically-rendered transcript.
+ *
+ * The renderer's output is a `{role, content}[]` of one tagged line per
+ * stored row. We map each line back into a `Message` (single text block),
+ * then drop the original `runMessages` and rebuild the array so the model
+ * sees one user-role line per stored Slack event followed by the active
+ * inbound message.
+ *
+ * When the active inbound user message is also represented in
+ * `slackHistory` (it normally is — inbound persistence in PR 11 happens
+ * before this assembly step), the renderer emits a tagged line for it as
+ * the last entry; downstream injections (turn context, transport, etc.)
+ * still attach to that final user message exactly as they would for a
+ * non-Slack channel.
+ *
+ * Pure: no I/O, no clock reads.
+ */
+export function applySlackChannelChronologicalRender(
+  runMessages: Message[],
+  slackHistory: RenderableSlackMessage[],
+): Message[] {
+  if (slackHistory.length === 0) return runMessages;
+  const rendered = renderSlackTranscript(slackHistory);
+  if (rendered.length === 0) return runMessages;
+  return rendered.map<Message>((line) => ({
+    role: line.role,
+    content: [{ type: "text", text: line.content }],
+  }));
+}
+
+/**
+ * Load DB rows for a Slack channel conversation and convert them into
+ * `RenderableSlackMessage[]` ordered by `createdAt`.
+ *
+ * The loader is exposed as a parameter so tests can substitute a stub. In
+ * production it defaults to `getMessages` from `conversation-crud.ts`.
+ */
+export function loadSlackChannelRenderableHistory(
+  conversationId: string,
+  loader: (id: string) => MessageRow[] = defaultGetMessages,
+): RenderableSlackMessage[] {
+  const rows = loader(conversationId);
+  return rows.map(rowToRenderableSlackMessage);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
@@ -1280,11 +1439,36 @@ export async function applyRuntimeInjections(
     subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
+    /**
+     * Pre-loaded Slack-channel history for chronological rendering.
+     *
+     * When `channelCapabilities` describes a Slack non-DM channel and this
+     * array is non-empty, `runMessages` is replaced with a chronological
+     * transcript built from the stored Slack metadata. The `transportHints`
+     * pipeline is skipped in that case so the model sees one consistent
+     * channel-wide view instead of a duplicated active-thread hint.
+     *
+     * Callers load the history via `loadSlackChannelRenderableHistory`
+     * before invoking this function so the assembly path stays free of
+     * direct DB calls and remains easy to test.
+     */
+    slackChannelHistory?: RenderableSlackMessage[] | null;
     mode?: InjectionMode;
   },
 ): Promise<Message[]> {
   const mode = options.mode ?? "full";
+  const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   let result = runMessages;
+  if (
+    slackChannel &&
+    options.slackChannelHistory &&
+    options.slackChannelHistory.length > 0
+  ) {
+    result = applySlackChannelChronologicalRender(
+      result,
+      options.slackChannelHistory,
+    );
+  }
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
@@ -1455,8 +1639,15 @@ export async function applyRuntimeInjections(
     }
   }
 
+  // Slack channel conversations build their own chronological transcript
+  // (see `applySlackChannelChronologicalRender` above) and intentionally
+  // do not receive the per-turn `<transport_hints>` block — the rendered
+  // history already covers the active thread, so duplicating it would
+  // confuse the model. Other channels (DMs, telegram, email, etc.) keep
+  // the existing injection.
   if (
     mode === "full" &&
+    !slackChannel &&
     options.transportHints &&
     options.transportHints.length > 0
   ) {

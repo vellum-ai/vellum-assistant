@@ -123,6 +123,8 @@ import {
   getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
+  isSlackChannelConversation,
+  loadSlackChannelRenderableHistory,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -892,6 +894,15 @@ export async function runAgentLoopImpl(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
 
+    // For Slack non-DM channels, load the stored thread metadata once per
+    // turn so the assembly path can replace the in-memory message array
+    // with a chronological transcript that exposes sibling threads.
+    const slackChannelHistory = isSlackChannelConversation(
+      ctx.channelCapabilities,
+    )
+      ? loadSlackChannelRenderableHistory(ctx.conversationId)
+      : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -915,6 +926,7 @@ export async function runAgentLoopImpl(
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
+      slackChannelHistory,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
