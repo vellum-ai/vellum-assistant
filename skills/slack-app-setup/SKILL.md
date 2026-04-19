@@ -64,7 +64,7 @@ Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen 
 
 ```
 bash {
-  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { redirect_urls: ['http://localhost:17322/oauth/callback'], scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
   activity: "to generate the Slack app manifest link"
 }
 ```
@@ -75,11 +75,21 @@ The command outputs a ready-to-click URL. Present it to the user: "Click this li
 
 Wait for the user to confirm they've created the app before proceeding.
 
-## Step 2: Collect Credentials & Install via OAuth
+## Step 2: Add Redirect URL
 
-After the app is created, the user lands on the app's **Basic Information** page. We need three values from this page, then we'll automate the rest.
+After creating the app, tell the user to navigate to **OAuth & Permissions** in the sidebar, then scroll to **Redirect URLs** and:
 
-### Step 2a: App Token
+1. Click **Add New Redirect URL**
+2. Enter: `http://localhost:17322/oauth/callback`
+3. Click **Add**, then click **Save URLs**
+
+This enables the automated OAuth install in Step 3. Wait for the user to confirm before proceeding.
+
+## Step 3: Collect Credentials & Install via OAuth
+
+The user should navigate back to **Basic Information**. We need three values from this page, then we'll automate the rest.
+
+### Step 3a: App Token
 
 Tell the user to scroll to **App-Level Tokens** on the Basic Information page, then:
 
@@ -94,19 +104,19 @@ Collect the app token securely:
 
 If it succeeds, continue. If it returns an error, ask the user to re-enter the token.
 
-### Step 2b: Client ID
+### Step 3b: Client ID
 
 Tell the user to scroll to **App Credentials** on the same Basic Information page. The Client ID is displayed there.
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_id"`, `label: "Client ID"`, `description: "From Basic Information > App Credentials"`
 
-### Step 2c: Client Secret
+### Step 3c: Client Secret
 
 The Client Secret is right below the Client ID on the same page (the user may need to click "Show" to reveal it).
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_secret"`, `label: "Client Secret"`, `placeholder: "starts with a long alphanumeric string"`, `description: "From Basic Information > App Credentials (click Show to reveal)"`
 
-### Step 2d: Run OAuth Install
+### Step 3d: Run OAuth Install
 
 Now that all three credentials are stored, trigger the automated OAuth install. This opens the user's browser to Slack's authorization page — they just click **Allow**.
 
@@ -126,10 +136,10 @@ This endpoint reads the stored Client ID and Client Secret, opens a browser to S
 
 Parse the JSON response:
 
-- If `success: true` — bot and user tokens were captured and stored automatically. Continue to Step 3.
+- If `success: true` — bot and user tokens were captured and stored automatically. Continue to Step 4.
 - If `success: false` — show the `error` field and troubleshoot. Common issues:
-  - "Client ID not found" / "Client Secret not found" — re-collect the missing credential via Step 2b/2c.
-  - "OAuth flow failed: OAuth2 loopback callback timed out" — the user didn't complete authorization in time. Re-run Step 2d.
+  - "Client ID not found" / "Client Secret not found" — re-collect the missing credential via Step 3b/3c.
+  - "OAuth flow failed: OAuth2 loopback callback timed out" — the user didn't complete authorization in time. Re-run Step 3d.
   - "OAuth flow failed: OAuth2 authorization denied" — the user clicked Cancel or the workspace requires admin approval.
 
 After the OAuth install succeeds, show the user their setup progress:
@@ -142,7 +152,7 @@ After the OAuth install succeeds, show the user their setup progress:
 
 Almost there — let's do a quick test!"
 
-## Step 3: Test Your Connection
+## Step 4: Test Your Connection
 
 Now let's test the connection by verifying the user can receive messages from the bot. This confirms everything works and links the user's Slack identity for future message delivery.
 
@@ -150,9 +160,9 @@ Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user explicitly wants to skip this step, proceed to Step 4, but let them know they can always verify later by saying "verify me on slack".
+If the user explicitly wants to skip this step, proceed to Step 5, but let them know they can always verify later by saying "verify me on slack".
 
-## Step 4: Report Success
+## Step 5: Report Success
 
 Summarize with the completed checklist.
 
@@ -207,7 +217,7 @@ Verify that `message.channels` event subscription is enabled in your Slack app s
 
 ### OAuth install failed
 
-If the OAuth flow fails or times out, re-run Step 2d. Ensure:
+If the OAuth flow fails or times out, re-run Step 3d. Ensure:
 - The Client ID and Client Secret are correct (re-collect via credential_store if unsure)
 - The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (the manifest pre-configures this)
 - No other process is using port 17322
