@@ -6,12 +6,14 @@ import {
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
   normalizeSlackMessageEdit,
+  normalizeSlackMessageDelete,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
   type SlackMessageChangedEvent,
+  type SlackMessageDeletedEvent,
   type SlackFile,
 } from "./normalize.js";
 import type { GatewayConfig } from "../config.js";
@@ -735,5 +737,146 @@ describe("normalizeSlackMessageEdit", () => {
     const result = normalizeSlackMessageEdit(event, "Ev4", config, "UBOT");
 
     expect(result).toBeNull();
+  });
+});
+
+// --- normalizeSlackMessageDelete ---
+
+function makeMessageDeletedEvent(
+  overrides?: Partial<SlackMessageDeletedEvent>,
+): SlackMessageDeletedEvent {
+  return {
+    type: "message",
+    subtype: "message_deleted",
+    channel: "C456",
+    channel_type: "channel",
+    hidden: true,
+    ts: "1700000000.999999",
+    deleted_ts: "1700000000.000100",
+    previous_message: {
+      user: "U123",
+      text: "the original message",
+      ts: "1700000000.000100",
+    },
+    ...overrides,
+  };
+}
+
+describe("normalizeSlackMessageDelete", () => {
+  it("normalizes a DM delete with the message_deleted sentinel", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+      previous_message: {
+        user: "U123",
+        text: "hi",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-dm", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.externalMessageId).toBe("evt-del-dm");
+    expect(result!.event.message.conversationExternalId).toBe("D789");
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.source.updateId).toBe("evt-del-dm");
+    // DMs should not be tagged as channel chat
+    expect(result!.event.source.chatType).toBeUndefined();
+    // No thread_ts on the previous message means no threadTs propagated
+    expect(result!.threadTs).toBeUndefined();
+    expect(result!.channel).toBe("D789");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+  });
+
+  it("normalizes a channel delete with the message_deleted sentinel", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent();
+    const result = normalizeSlackMessageDelete(event, "evt-del-ch", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.externalMessageId).toBe("evt-del-ch");
+    // source.messageId carries the original deleted message's ts
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.source.chatType).toBe("channel");
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.channel).toBe("C456");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+  });
+
+  it("preserves threadTs from the previous_message thread root", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      previous_message: {
+        user: "U123",
+        text: "thread reply",
+        ts: "1700000000.000100",
+        thread_ts: "1700000000.000050",
+      },
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-thr", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+
+  it("returns null when deleted_ts is missing", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      deleted_ts: undefined as unknown as string,
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-bad", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to a synthetic actor when previous_message.user is missing", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      previous_message: {
+        text: "[no user]",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-no-user",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("slack-system");
+  });
+
+  it("returns null when channel routing rejects without a default", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageDeletedEvent();
+    const result = normalizeSlackMessageDelete(event, "evt-del-noroute", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to default assistant for DM deletes when channel is unrouted", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-dm-default",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
   });
 });
