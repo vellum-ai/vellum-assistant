@@ -52,7 +52,7 @@ bun run scripts/gmail-email.ts draft --to "user@example.com" --subject "Re: Hell
 bun run scripts/gmail-email.ts send-draft --draft-id "r123..."
 
 # Forward a message
-bun run scripts/gmail-email.ts forward --message-id "18f..." --to "recipient@example.com" --comment "FYI"
+bun run scripts/gmail-email.ts forward --message-id "18f..." --to "recipient@example.com" --text "FYI"
 
 # Trash a message
 bun run scripts/gmail-email.ts trash --message-id "18f..."
@@ -62,7 +62,7 @@ bun run scripts/gmail-email.ts trash --message-id "18f..."
 
 ```bash
 # Label - add a label to a message
-bun run scripts/gmail-manage.ts label --action add --message-id "18f..." --labels "Work,Important"
+bun run scripts/gmail-manage.ts label --message-id "18f..." --add-labels "Work,Important"
 
 # Follow-up - track a message for follow-up
 bun run scripts/gmail-manage.ts follow-up --action track --message-id "18f..."
@@ -74,7 +74,7 @@ bun run scripts/gmail-manage.ts attachments --action list --message-id "18f..."
 bun run scripts/gmail-manage.ts attachments --action download --message-id "18f..." --attachment-id "ANGj..." --filename "report.pdf"
 
 # Filters - create a Gmail filter
-bun run scripts/gmail-manage.ts filters --action create --from "newsletter@example.com" --remove-label-ids "INBOX"
+bun run scripts/gmail-manage.ts filters --action create --from "newsletter@example.com" --remove-labels "INBOX"
 
 # Vacation - enable auto-responder
 bun run scripts/gmail-manage.ts vacation --action enable --message "I'm out of office until Monday"
@@ -120,19 +120,19 @@ bun run scripts/gmail-archive.ts archive --query "from:newsletter@example.com in
 
 ```bash
 # List all preferences
-bun run scripts/gmail-prefs.ts list
+bun run scripts/gmail-prefs.ts --action list
 
 # Add senders to blocklist
-bun run scripts/gmail-prefs.ts add-blocklist --emails "spam@example.com,junk@example.com"
+bun run scripts/gmail-prefs.ts --action add-blocklist --emails "spam@example.com,junk@example.com"
 
 # Add senders to safelist
-bun run scripts/gmail-prefs.ts add-safelist --emails "important@example.com"
+bun run scripts/gmail-prefs.ts --action add-safelist --emails "important@example.com"
 
 # Remove from blocklist
-bun run scripts/gmail-prefs.ts remove-blocklist --emails "spam@example.com"
+bun run scripts/gmail-prefs.ts --action remove-blocklist --emails "spam@example.com"
 
 # Remove from safelist
-bun run scripts/gmail-prefs.ts remove-safelist --emails "important@example.com"
+bun run scripts/gmail-prefs.ts --action remove-safelist --emails "important@example.com"
 ```
 
 ## Email Routing Priority
@@ -211,7 +211,7 @@ When searching Gmail, the query uses Gmail's search operators:
 
 When a user asks to declutter, clean up, or organize their email - start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning - but once results are ready, always present them and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never archive, unsubscribe, or take similar bulk actions unless the user has explicitly confirmed for that specific batch. Each batch of results requires its own explicit user confirmation. If the user says "keep going" or "keep decluttering," that means scan and present new results - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup batch, run `bun run scripts/gmail-prefs.ts add-safelist` with those sender emails. Before building the next cleanup table, run `bun run scripts/gmail-prefs.ts list` and exclude safelisted senders from the table — the user already indicated they want to keep those.
+**CRITICAL**: Never archive, unsubscribe, or take similar bulk actions unless the user has explicitly confirmed for that specific batch. Each batch of results requires its own explicit user confirmation. If the user says "keep going" or "keep decluttering," that means scan and present new results - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup batch, run `bun run scripts/gmail-prefs.ts --action add-safelist` with those sender emails. Before building the next cleanup table, run `bun run scripts/gmail-prefs.ts --action list` and exclude safelisted senders from the table — the user already indicated they want to keep those.
 
 ### Workflow
 
@@ -230,12 +230,12 @@ When a user asks to declutter, clean up, or organize their email - start scannin
    - `selectedIds` are **sender IDs** (base64-encoded email addresses) — NOT Gmail message IDs. Always use them as sender emails with `cache_key`, never as `message_ids`.
    - **Show progress** with steps for each phase (e.g., "Archiving 89 senders (2,400 emails)", "Unsubscribing from 72 senders"). Update each step as each phase finishes.
 5. **Act on selection** - batch, don't loop:
-   - **Archive all at once**: Run `bun run scripts/gmail-archive.ts archive` **once** with `--cache-key` (from action data) + `--sender-emails` set to all selected sender emails. The script resolves message IDs from the cache and batches the Gmail API calls internally - never loop sender-by-sender.
+   - **Archive all at once**: Run `bun run scripts/gmail-archive.ts archive --skip-confirm` **once** with `--cache-key` (from action data) + `--sender-emails` set to all selected sender emails. The script resolves message IDs from the cache and batches the Gmail API calls internally - never loop sender-by-sender. Use `--skip-confirm` because the user already confirmed via the UI table.
    - **Unsubscribe in bulk**: If the action is "Archive & Unsubscribe", run `bun run scripts/gmail-manage.ts unsubscribe` for each sender that has `hasUnsubscribe: true` — but emit **all** unsubscribe calls in a **single assistant response** (parallel tool use) rather than one-at-a-time across separate turns.
 6. **Accurate summary**: The scan counts are exact - the `messageCount` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
 7. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
-   - If yes, run `bun run scripts/gmail-manage.ts filters --action create` for each sender with `--from` set to the sender's email and `--remove-label-ids "INBOX"`.
+   - If yes, run `bun run scripts/gmail-manage.ts filters --action create` for each sender with `--from` set to the sender's email and `--remove-labels "INBOX"`.
    - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?"
 
 ### Cold Outreach Cleanup
@@ -286,9 +286,9 @@ The `gmail-prefs.ts` script persists sender preferences across cleanup sessions:
 
 ### Workflow integration
 
-1. **Before scanning**: Run `bun run scripts/gmail-prefs.ts list`. If blocklisted senders exist, offer to auto-archive them first ("I have N previously archived senders — want me to clean those up first?"). Remove safelisted senders from scan results before presenting the table.
-2. **After archiving**: Run `bun run scripts/gmail-prefs.ts add-blocklist` with the archived sender emails to persist them for future sessions.
-3. **After user deselects**: When the user deselects senders from a cleanup table, run `bun run scripts/gmail-prefs.ts add-safelist` with the deselected sender emails.
+1. **Before scanning**: Run `bun run scripts/gmail-prefs.ts --action list`. If blocklisted senders exist, offer to auto-archive them first ("I have N previously archived senders — want me to clean those up first?"). Remove safelisted senders from scan results before presenting the table.
+2. **After archiving**: Run `bun run scripts/gmail-prefs.ts --action add-blocklist` with the archived sender emails to persist them for future sessions.
+3. **After user deselects**: When the user deselects senders from a cleanup table, run `bun run scripts/gmail-prefs.ts --action add-safelist` with the deselected sender emails.
 4. **User overrides**: If the user asks to stop blocking or stop keeping a sender, use `remove-blocklist` or `remove-safelist` accordingly.
 
 ## Scan Operations
@@ -329,7 +329,7 @@ Workflow: use `attachments --action list` to discover attachments, then `attachm
 ### Create a Gmail Filter
 
 1. User says "auto-archive emails from newsletters@example.com"
-2. Run `bun run scripts/gmail-manage.ts filters --action create --from "newsletters@example.com" --remove-label-ids "INBOX"`
+2. Run `bun run scripts/gmail-manage.ts filters --action create --from "newsletters@example.com" --remove-labels "INBOX"`
 3. Confirm the filter was created and explain what it does
 
 ### Set Vacation Auto-Reply
@@ -342,7 +342,7 @@ Workflow: use `attachments --action list` to discover attachments, then `attachm
 
 1. User says "flag this email for follow-up" — run `bun run scripts/gmail-manage.ts follow-up --action track --message-id "18f..."`
 2. User says "what emails am I tracking?" — run `bun run scripts/gmail-manage.ts follow-up --action list`
-3. User says "mark that as done" — run `bun run scripts/gmail-manage.ts follow-up --action complete --message-id "18f..."`
+3. User says "mark that as done" — run `bun run scripts/gmail-manage.ts follow-up --action untrack --message-id "18f..."`
 
 ### Identify Cold Outreach
 
