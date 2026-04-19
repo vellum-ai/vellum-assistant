@@ -19,8 +19,10 @@
  *   3. Populate the display name if the input is present.
  *   4. Click Join now (preferred — signed-in / same-domain flow) or fall back
  *      to Ask to join (locked meeting, host admits).
- *   5. Wait for the in-meeting UI. The red "Leave call" button is the
- *      canonical marker — it only mounts once the bot is in the meeting.
+ *   5. Wait for the in-meeting UI. `INGAME_READY_INDICATOR` (the bottom-bar
+ *      microphone toggle) is the canonical marker — it only mounts once the
+ *      bot is in the meeting. The red "Leave call" button is NOT suitable
+ *      because Meet renders it in both the waiting-room and in-meeting UIs.
  *   6. Post `consentMessage` in chat via {@link postConsentMessage}. Best
  *      effort — if the chat composer can't be located we surface a
  *      diagnostic error but do NOT fail the join, since the bot is already
@@ -291,11 +293,18 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
     message: `meet-ext: clicked admission button aria-label="${btnLabel}" screen=(${screenX},${screenY})`,
   });
 
-  // Step 5 — wait for the in-meeting UI. The "Leave call" button only mounts
-  // once the bot is in the meeting, so it is our canonical admission signal.
+  // Step 5 — wait for the in-meeting UI. We use `INGAME_READY_INDICATOR`
+  // (aliased to the mic toggle) rather than `INGAME_LEAVE_BUTTON` because
+  // Meet renders the red "Leave call" button in BOTH the waiting-room and
+  // the in-meeting UIs — so `waitForSelector(INGAME_LEAVE_BUTTON)` resolves
+  // immediately after the "Ask to join" click, before the host has actually
+  // admitted the bot. That caused step 6 (post-consent-in-chat) to fire in
+  // the waiting room, where the chat panel does not exist. The mic toggle
+  // is only mounted by the in-meeting bottom toolbar, so it is a reliable
+  // post-admission signal. See `INGAME_READY_INDICATOR` in `dom/selectors.ts`.
   try {
     await waitForSelector(
-      selectors.INGAME_LEAVE_BUTTON,
+      selectors.INGAME_READY_INDICATOR,
       MEETING_ROOM_TIMEOUT_MS,
       doc,
     );

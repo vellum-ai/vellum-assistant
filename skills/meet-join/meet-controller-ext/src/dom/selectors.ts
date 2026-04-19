@@ -216,6 +216,36 @@ export const controlSelectors = {
 
   /** Red "leave call" button in the center of the control bar. */
   LEAVE_BUTTON: 'button[aria-label="Leave call"]',
+
+  /**
+   * Post-admission-only "ready" indicator used as the canonical signal that
+   * the bot has actually entered the meeting.
+   *
+   * Why this exists: the `LEAVE_BUTTON` selector (`button[aria-label="Leave
+   * call"]`) is ambiguous — Meet renders the same red hang-up button in BOTH
+   * the waiting-room UI AND the in-meeting UI, so `waitForSelector(LEAVE_
+   * BUTTON)` resolves immediately after the user clicks "Ask to join",
+   * BEFORE the host has actually admitted the bot. Callers that used
+   * LEAVE_BUTTON as an admission signal (e.g. the join flow's step 5)
+   * would then race ahead and try to interact with in-meeting surfaces
+   * (chat panel, participant list) that don't exist in the waiting room,
+   * producing spurious "chat input not found"-style failures.
+   *
+   * We re-use `MIC_TOGGLE` as the signal because the microphone toggle's
+   * dual aria-label (`"Turn off microphone"` / `"Turn on microphone"`) is
+   * a post-admission-only affordance — the waiting-room mic preview
+   * controls use a different labeling scheme and are not rendered by the
+   * bottom-bar toolbar that hosts this button. Matching MIC_TOGGLE
+   * therefore guarantees the bot is inside the meeting (bottom toolbar
+   * is mounted) rather than still on the prejoin surface.
+   *
+   * This constant is an alias for {@link MIC_TOGGLE}; it exists as a
+   * separate name so the join flow reads clearly ("wait for the in-meeting
+   * UI to be ready") and so future DOM drift can move the signal to a
+   * different post-admission-only element without changing the call site.
+   */
+  INGAME_READY_INDICATOR:
+    'button[aria-label="Turn off microphone"], button[aria-label="Turn on microphone"]',
 } as const;
 
 /**
@@ -258,6 +288,7 @@ export const selectors = {
   INGAME_CAMERA_TOGGLE: controlSelectors.CAMERA_TOGGLE,
   INGAME_MIC_TOGGLE: controlSelectors.MIC_TOGGLE,
   INGAME_LEAVE_BUTTON: controlSelectors.LEAVE_BUTTON,
+  INGAME_READY_INDICATOR: controlSelectors.INGAME_READY_INDICATOR,
 } as const;
 
 export type SelectorKey = keyof typeof selectors;

@@ -30,6 +30,16 @@ const PREJOIN_FIXTURE = pathJoin(
   "meet-dom-prejoin.html",
 );
 
+/** Path to the committed ingame fixture. */
+const INGAME_FIXTURE = pathJoin(
+  import.meta.dir,
+  "..",
+  "dom",
+  "__tests__",
+  "fixtures",
+  "meet-dom-ingame.html",
+);
+
 /** Globals we borrow from the JSDOM window so JSDOM-realm checks pass. */
 const JSDOM_GLOBALS = [
   "MutationObserver",
@@ -157,20 +167,77 @@ function spyOnClick(doc: Document, sel: string): string[] {
 }
 
 /**
- * Insert a Meet "Leave call" button into the DOM to simulate admission. We
- * run this *synchronously* before calling {@link runJoinFlow} so the step-5
- * wait short-circuits on the initial `querySelector` check rather than
- * racing against the observer. The separation-of-concerns test goals here
- * are "does the flow locate the leave button?" — not "does the observer fire
+ * Insert the post-admission bottom toolbar buttons — the "Leave call" button
+ * AND the mic toggle — into the DOM to simulate admission. We run this
+ * *synchronously* before calling {@link runJoinFlow} so the step-5 wait
+ * short-circuits on the initial `querySelector` check rather than racing
+ * against the observer. The separation-of-concerns test goals here are
+ * "does the flow locate the in-meeting UI?" — not "does the observer fire
  * on a late mutation?" — so pre-insertion is the cleaner assertion target.
+ *
+ * The mic toggle is what `runJoinFlow` step 5 actually waits on
+ * (`INGAME_READY_INDICATOR`); the leave button is kept alongside it so the
+ * post-admission fixture mirrors live Meet (which renders both). Omitting
+ * the mic toggle is how {@link insertLeaveButtonOnly} below simulates the
+ * original bug: Meet's leave button mounts in the waiting room too, so the
+ * bot-side code used to short-circuit step 5 before actual admission.
  */
-function insertLeaveButton(doc: Document): HTMLButtonElement {
+function insertPostAdmissionToolbar(doc: Document): {
+  leave: HTMLButtonElement;
+  micToggle: HTMLButtonElement;
+} {
+  const leave = doc.createElement("button");
+  leave.setAttribute("type", "button");
+  leave.setAttribute("aria-label", "Leave call");
+  leave.textContent = "Leave call";
+  doc.body.appendChild(leave);
+
+  const micToggle = doc.createElement("button");
+  micToggle.setAttribute("type", "button");
+  micToggle.setAttribute("aria-label", "Turn off microphone");
+  micToggle.textContent = "Microphone";
+  doc.body.appendChild(micToggle);
+
+  return {
+    leave: leave as HTMLButtonElement,
+    micToggle: micToggle as HTMLButtonElement,
+  };
+}
+
+/**
+ * Insert ONLY a "Leave call" button — simulating the waiting-room surface
+ * that previously caused step 5 to short-circuit before actual admission.
+ * Used by the regression test below to pin that the join flow no longer
+ * treats a lone leave button as an admission signal.
+ */
+function insertLeaveButtonOnly(doc: Document): HTMLButtonElement {
   const leave = doc.createElement("button");
   leave.setAttribute("type", "button");
   leave.setAttribute("aria-label", "Leave call");
   leave.textContent = "Leave call";
   doc.body.appendChild(leave);
   return leave as HTMLButtonElement;
+}
+
+/**
+ * Splice the contents of the committed ingame fixture into `doc.body` so
+ * `runJoinFlow` step 5's `waitForSelector(INGAME_READY_INDICATOR)` resolves
+ * by observing the real fixture DOM (rather than a synthesized toolbar).
+ *
+ * This gives us one test that asserts against live, committed markup:
+ * if the ingame fixture is ever recaptured and happens to drop the mic
+ * toggle without updating `INGAME_READY_INDICATOR`, this test fails
+ * alongside the selector fixture-pin, making drift loud.
+ */
+function spliceIngameFixture(doc: Document): void {
+  const html = readFileSync(INGAME_FIXTURE, "utf8");
+  const ingameDom = new JSDOM(html);
+  // Move every node under the ingame <body> into `doc.body` so the post-
+  // admission surfaces become visible to `runJoinFlow`'s selectors.
+  const ingameBody = ingameDom.window.document.body;
+  for (const node of Array.from(ingameBody.childNodes)) {
+    doc.body.appendChild(doc.importNode(node, true));
+  }
 }
 
 /**
@@ -256,7 +323,7 @@ describe("runJoinFlow (content-script port)", () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
     const clicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -302,7 +369,7 @@ describe("runJoinFlow (content-script port)", () => {
   test("emits a trusted_click message with computed screen coords before clicking", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -370,7 +437,7 @@ describe("runJoinFlow (content-script port)", () => {
     // run (e.g. for a developer repro) could land here.
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -432,7 +499,7 @@ describe("runJoinFlow (content-script port)", () => {
     // any positive chrome offset in this case is a bug.
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -500,7 +567,7 @@ describe("runJoinFlow (content-script port)", () => {
     // in isolation — see the comment block in `join.ts`.
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -567,7 +634,7 @@ describe("runJoinFlow (content-script port)", () => {
     // branch fires.
     doc.querySelector(selectors.PREJOIN_JOIN_NOW_BUTTON)?.remove();
     const clicks = spyOnClick(doc, selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -595,7 +662,7 @@ describe("runJoinFlow (content-script port)", () => {
       selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON,
     );
     const joinClicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -625,7 +692,7 @@ describe("runJoinFlow (content-script port)", () => {
     // there.
     doc.querySelector(selectors.PREJOIN_NAME_INPUT)?.remove();
     const clicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -650,7 +717,7 @@ describe("runJoinFlow (content-script port)", () => {
   test("posts the consent message to the chat composer at step 6", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     const { input, sendButton } = insertChatSurface(doc);
     const restore = installGlobalDoc(doc);
 
@@ -692,7 +759,7 @@ describe("runJoinFlow (content-script port)", () => {
   test("surfaces a diagnostic but does not fail the join when the consent post fails", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    insertLeaveButton(doc);
+    insertPostAdmissionToolbar(doc);
     // Mount the message list (so ensurePanelOpen short-circuits) but
     // deliberately omit the chat composer so sendChat throws "chat input
     // not found". The bot is already admitted at this point, so the join
@@ -733,9 +800,10 @@ describe("runJoinFlow (content-script port)", () => {
   test("emits a diagnostic and rejects when admission times out", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
-    // Deliberately do NOT insert a leave button — the INGAME_LEAVE_BUTTON
-    // never mounts, so step 5 should reject. The beforeEach setTimeout patch
-    // collapses the 90s wait to a single tick so the test runs quickly.
+    // Deliberately do NOT insert the post-admission toolbar — the
+    // INGAME_READY_INDICATOR (mic toggle) never mounts, so step 5 should
+    // reject. The beforeEach setTimeout patch collapses the 90s wait to a
+    // single tick so the test runs quickly.
 
     const events: unknown[] = [];
     await expect(
@@ -750,6 +818,88 @@ describe("runJoinFlow (content-script port)", () => {
     ).rejects.toThrow(/in-meeting UI did not appear/i);
 
     // A diagnostic error was emitted before the throw.
+    const diag = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "diagnostic" &&
+        (e as { level?: string }).level === "error",
+    );
+    expect(diag).toBeDefined();
+  });
+
+  test("resolves step 5 against the committed ingame fixture", async () => {
+    // Load the prejoin fixture (for steps 1-4), then splice in the committed
+    // ingame fixture's body contents so `INGAME_READY_INDICATOR` (the mic
+    // toggle) is visible to step 5. This gives us an end-to-end assertion
+    // that the selector chosen in `dom/selectors.ts` actually matches the
+    // real captured post-admission markup — not just the synthesized toolbar
+    // used by the other happy-path tests.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    spliceIngameFixture(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-ingame-fixture",
+        onEvent: (e) => events.push(e),
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    // Sanity-check: the mic toggle came in via the ingame fixture.
+    expect(
+      doc.querySelector(selectors.INGAME_READY_INDICATOR),
+    ).not.toBeNull();
+
+    // And no error diagnostics fired — step 5 resolved cleanly.
+    const errorDiagnostics = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "diagnostic" &&
+        (e as { level?: string }).level === "error",
+    );
+    expect(errorDiagnostics.length).toBe(0);
+  });
+
+  test("regression: a lone Leave button is NOT accepted as the in-meeting signal", async () => {
+    // This is the whole-point regression: before PR 4, step 5 waited on
+    // `INGAME_LEAVE_BUTTON`, which Meet renders in BOTH the waiting-room and
+    // in-meeting UIs — so `waitForSelector` resolved immediately after the
+    // "Ask to join" click, BEFORE the host actually admitted the bot, and
+    // step 6 (post consent in chat) fired in the waiting room where no chat
+    // surface exists.
+    //
+    // We simulate the waiting-room surface by inserting ONLY the "Leave
+    // call" button (no mic toggle) and assert the join flow now times out
+    // at step 5 instead of racing ahead. The `beforeEach` setTimeout patch
+    // collapses the 90s wait to a single tick so the test runs quickly.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButtonOnly(doc);
+
+    const events: unknown[] = [];
+    await expect(
+      runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-leave-button-alone",
+        onEvent: (e) => events.push(e),
+        doc,
+      }),
+    ).rejects.toThrow(/in-meeting UI did not appear/i);
+
+    // Diagnostic was emitted before the throw.
     const diag = events.find(
       (e) =>
         typeof e === "object" &&

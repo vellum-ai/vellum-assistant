@@ -96,6 +96,33 @@ describe("in-meeting selectors", () => {
     expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Leave call");
   });
 
+  test("INGAME_READY_INDICATOR resolves in the ingame fixture", () => {
+    // Fixture pin: the post-admission-only signal MUST be present in the
+    // ingame fixture. If the ingame fixture is recaptured and this
+    // selector ever stops matching, the join flow's step-5 wait will
+    // time out after 90s on every real-world join — fail loud here so
+    // the drift is caught during fixture refresh rather than in prod.
+    const nodes = doc.querySelectorAll(controlSelectors.INGAME_READY_INDICATOR);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
+      "Turn off microphone",
+    );
+  });
+
+  test("INGAME_READY_INDICATOR does NOT resolve in the prejoin fixture", () => {
+    // Fixture pin: the whole point of this selector is to be absent from
+    // the waiting-room UI. If this ever matches the prejoin fixture, the
+    // post-admission signal has been broken — the join flow would
+    // short-circuit through step 5 before the host admits the bot,
+    // re-introducing the original bug that INGAME_READY_INDICATOR exists
+    // to fix.
+    const prejoin = loadFixture("meet-dom-prejoin.html");
+    const nodes = prejoin.querySelectorAll(
+      controlSelectors.INGAME_READY_INDICATOR,
+    );
+    expect(nodes.length).toBe(0);
+  });
+
   test("participant panel toggle resolves", () => {
     const nodes = doc.querySelectorAll(participantSelectors.PANEL_BUTTON);
     expect(nodes.length).toBe(1);
@@ -291,6 +318,7 @@ describe("flat selectors aggregate", () => {
       ["INGAME_CAMERA_TOGGLE", controlSelectors.CAMERA_TOGGLE],
       ["INGAME_MIC_TOGGLE", controlSelectors.MIC_TOGGLE],
       ["INGAME_LEAVE_BUTTON", controlSelectors.LEAVE_BUTTON],
+      ["INGAME_READY_INDICATOR", controlSelectors.INGAME_READY_INDICATOR],
     ];
 
     for (const [key, expected] of cases) {
