@@ -52,6 +52,7 @@ mock.module("../util/retry.js", () => {
   const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
     /socket.*closed unexpectedly/i,
     /socket hang up/i,
+    /request was aborted/i,
   ];
 
   function isRetryableNetworkError(error: unknown): boolean {
@@ -444,6 +445,57 @@ describe("RetryProvider — network error retries", () => {
 
     await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
       "model not found",
+    );
+    expect(inner.calls).toBe(1);
+  });
+
+  test("retries on 'Request was aborted' (transport-level abort, no abortReason)", async () => {
+    // Exactly the wire-format the Anthropic SDK emits when its underlying
+    // fetch AbortSignal fires without a daemon-tagged reason (bun fetch
+    // deadline, edge LB, NAT idle).
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.stopReason).toBe("end_turn");
+  });
+
+  test("does NOT retry 'Request was aborted' when abortReason is set (caller/daemon cancel)", async () => {
+    const inner = makeFailing(
+      new ProviderError(
+        "Anthropic API error (undefined): Request was aborted.",
+        "anthropic",
+        undefined,
+        { abortReason: { kind: "user_cancel", source: "test" } },
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "Request was aborted",
+    );
+    // Only the initial call — no retries.
+    expect(inner.calls).toBe(1);
+  });
+
+  test("does NOT retry 'Anthropic stream timed out' (inner streamTimeoutMs fired)", async () => {
+    const inner = makeFailing(
+      new ProviderError(
+        "Anthropic API error (undefined): Anthropic stream timed out after 1800s (inner streamTimeoutMs)",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "stream timed out",
     );
     expect(inner.calls).toBe(1);
   });

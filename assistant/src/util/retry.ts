@@ -77,10 +77,19 @@ export function isRetryableStatus(status: number): boolean {
 /**
  * Message patterns that indicate a retryable network/transport error even
  * when no errno code is present (e.g. Bun's native fetch socket errors).
+ *
+ * `/request was aborted/i` catches Anthropic SDK's `APIUserAbortError`,
+ * which the SDK throws whenever the underlying fetch's AbortSignal fires.
+ * When the daemon initiated the abort, the ProviderError carries an
+ * `abortReason` tag and the provider-retry layer short-circuits before
+ * reaching this pattern; when the abort came from a transport-level cutoff
+ * (bun fetch's internal deadline, an edge LB, a NAT idle timeout) the tag
+ * is absent and we retry.
  */
 const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
   /socket.*closed unexpectedly/i,
   /socket hang up/i,
+  /request was aborted/i,
 ];
 
 /**

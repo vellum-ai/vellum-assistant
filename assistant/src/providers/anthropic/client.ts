@@ -651,6 +651,11 @@ export class AnthropicProvider implements Provider {
         | "5m"
         | "1h") ?? "1h";
     let sentMessages: Anthropic.MessageParam[] | undefined;
+    const startedAt = Date.now();
+    // Hoisted so the catch block can distinguish our inner stream timeout
+    // (30 min default) from an external transport abort (bun fetch deadline,
+    // edge LB, NAT idle) — only the latter should be retried.
+    let innerTimeoutSignal: AbortSignal | undefined;
     try {
       const formatted = messages
         .map((m) => {
@@ -971,6 +976,7 @@ export class AnthropicProvider implements Provider {
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
+      innerTimeoutSignal = timeoutSignal;
 
       /** Minimal stream interface shared by MessageStream and BetaMessageStream. */
       interface UnifiedStream {
@@ -1200,10 +1206,18 @@ export class AnthropicProvider implements Provider {
     } catch (error) {
       // Propagate a tagged AbortReason (set by the daemon at controller.abort())
       // so wrapped errors can be classified as user cancellation downstream.
+      const callerAborted = signal?.aborted === true;
       const abortReason =
-        signal?.aborted && isAbortReason(signal.reason)
-          ? signal.reason
+        callerAborted && isAbortReason(signal!.reason)
+          ? signal!.reason
           : undefined;
+      const elapsedMs = Date.now() - startedAt;
+      // Inner-timeout means OUR 30-min stream deadline fired, not the caller
+      // and not an external transport cutoff. We rewrite the message so the
+      // retry layer can distinguish it from a transport abort (which should
+      // retry) — a timed-out stream would almost certainly time out again.
+      const innerTimeoutFired =
+        innerTimeoutSignal?.aborted === true && !callerAborted;
       if (error instanceof Anthropic.APIError) {
         // Log detailed message structure for tool_use/tool_result ordering errors
         if (
@@ -1219,15 +1233,32 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
+        const isAbortMessage =
+          error.status === undefined &&
+          /request was aborted/i.test(error.message);
         if (abortReason) {
           log.info(
-            { abortReason, message: error.message },
+            { abortReason, elapsedMs, message: error.message },
             "Anthropic request aborted by daemon",
+          );
+        } else if (isAbortMessage) {
+          log.error(
+            {
+              elapsedMs,
+              cause: error.cause,
+              callerSignalAborted: callerAborted,
+              innerTimeoutFired,
+              message: error.message,
+            },
+            innerTimeoutFired
+              ? "Anthropic stream timed out (inner streamTimeoutMs fired)"
+              : "Anthropic stream aborted by transport — no daemon or inner-timeout abort; likely bun fetch deadline, edge LB, or network idle cutoff",
           );
         } else {
           log.error(
             {
               status: error.status,
+              elapsedMs,
               message: error.message,
               headers: Object.fromEntries(error.headers?.entries() ?? []),
             },
@@ -1238,11 +1269,23 @@ export class AnthropicProvider implements Provider {
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
+          cause?: unknown;
         } = {};
         if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        // Only preserve the original error as `cause` for transport aborts
+        // without a daemon-tagged reason — it's the diagnostic signal the
+        // retry layer and log reader rely on. Don't leak it through the
+        // caller-aborted path, which already carries `abortReason`.
+        if (!abortReason && isAbortMessage) errorOptions.cause = error;
+        // Rewrite the message only for inner-timeout, so the retry layer
+        // won't retry a request that already hit its 30-min deadline.
+        const rewrittenMessage =
+          isAbortMessage && innerTimeoutFired
+            ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
+            : error.message;
         throw new ProviderError(
-          `Anthropic API error (${error.status}): ${error.message}`,
+          `Anthropic API error (${error.status}): ${rewrittenMessage}`,
           "anthropic",
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,

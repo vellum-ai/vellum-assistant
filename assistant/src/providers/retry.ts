@@ -62,6 +62,14 @@ function isRetryableProviderMessage(error: unknown): boolean {
 }
 
 function isRetryableError(error: unknown): boolean {
+  // Daemon/user-initiated aborts are never retryable. The catch-site tags
+  // these with `abortReason` exactly when `signal.aborted` was true at the
+  // time of failure, so this short-circuits before any message-based pattern
+  // matches — which matters because transport-level aborts (retryable) and
+  // caller-cancels both surface as "Request was aborted" from the SDK.
+  if (error instanceof ProviderError && error.abortReason !== undefined) {
+    return false;
+  }
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
