@@ -16,13 +16,13 @@ All operations use a single CLI script that returns JSON:
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script           | Subcommand     | Description                                                          |
-| ---------------- | -------------- | -------------------------------------------------------------------- |
-| `scripts/gcal.ts` | `list`         | List events within a date range                                      |
-| `scripts/gcal.ts` | `get`          | Get full details of a specific event                                 |
-| `scripts/gcal.ts` | `create`       | Create a new event (**requires user confirmation**)                  |
-| `scripts/gcal.ts` | `availability` | Check free/busy times across calendars                               |
-| `scripts/gcal.ts` | `rsvp`         | Respond to an event invitation (accepted, declined, tentative)       |
+| Script            | Subcommand     | Description                                                    |
+| ----------------- | -------------- | -------------------------------------------------------------- |
+| `scripts/gcal.ts` | `list`         | List events within a date range                                |
+| `scripts/gcal.ts` | `get`          | Get full details of a specific event                           |
+| `scripts/gcal.ts` | `create`       | Create a new event (**requires user confirmation**)            |
+| `scripts/gcal.ts` | `availability` | Check free/busy times across calendars                         |
+| `scripts/gcal.ts` | `rsvp`         | Respond to an event invitation (accepted, declined, tentative) |
 
 ## Usage Examples
 

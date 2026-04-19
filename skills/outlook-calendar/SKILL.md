@@ -16,13 +16,13 @@ All operations use a single CLI script that returns JSON:
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script                  | Subcommand     | Description                                                          |
-| ----------------------- | -------------- | -------------------------------------------------------------------- |
-| `scripts/outlook-cal.ts` | `list`         | List events within a date range (supports OData `$filter`)           |
-| `scripts/outlook-cal.ts` | `get`          | Get full details of a specific event                                 |
-| `scripts/outlook-cal.ts` | `create`       | Create a new event (**requires user confirmation**)                  |
-| `scripts/outlook-cal.ts` | `availability` | Check free/busy times across calendars                               |
-| `scripts/outlook-cal.ts` | `rsvp`         | Respond to an event invitation (accepted, declined, tentative)       |
+| Script                   | Subcommand     | Description                                                    |
+| ------------------------ | -------------- | -------------------------------------------------------------- |
+| `scripts/outlook-cal.ts` | `list`         | List events within a date range (supports OData `$filter`)     |
+| `scripts/outlook-cal.ts` | `get`          | Get full details of a specific event                           |
+| `scripts/outlook-cal.ts` | `create`       | Create a new event (**requires user confirmation**)            |
+| `scripts/outlook-cal.ts` | `availability` | Check free/busy times across calendars                         |
+| `scripts/outlook-cal.ts` | `rsvp`         | Respond to an event invitation (accepted, declined, tentative) |
 
 ## Usage Examples
 
