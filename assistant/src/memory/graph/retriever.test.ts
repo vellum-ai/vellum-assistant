@@ -109,6 +109,17 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
     expect(result.queryVector).toBeUndefined();
     expect(result.sparseVector).toBeUndefined();
   });
+
+  test("ignores userQuery when dual-query logic is not yet implemented (PR 2 baseline)", async () => {
+    const result = await loadContextMemory({
+      scopeId: "test-scope",
+      recentSummaries: ["summary"],
+      userQuery: "ignore me for now",
+      config: TEST_CONFIG,
+    });
+    expect(result.userQueryVector).toBeUndefined();
+    expect(result.queryVector).toBeDefined();
+  });
 });
 
 describe("retrieveForTurn — query/sparse vector surfacing", () => {

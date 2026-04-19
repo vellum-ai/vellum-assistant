@@ -348,6 +348,13 @@ export interface ContextLoadOpts {
   serendipitySlots?: number;
   /** Maximum nodes to return (default 40). */
   maxNodes?: number;
+  /**
+   * Optional dedicated user-message query text. When present and non-empty,
+   * `loadContextMemory` (PR 3) embeds this text independently of
+   * `recentSummaries` and uses the resulting vector to rank capability
+   * reserve slots. Leave `undefined` to preserve pre-PR-3 behavior.
+   */
+  userQuery?: string;
 }
 
 export interface ContextLoadResult {
@@ -369,6 +376,14 @@ export interface ContextLoadResult {
    * retrieval that produces a sparse vector at the call site.
    */
   sparseVector?: QdrantSparseVector;
+  /**
+   * Dense query vector computed from `opts.userQuery` (PR 3). Surfaced so
+   * downstream callers (PKB hint search) can prefer it over the
+   * summary-based `queryVector` for user-intent-aligned retrieval.
+   * `undefined` when `userQuery` was not provided, was effectively empty,
+   * or the dedicated embed call was skipped/failed.
+   */
+  userQueryVector?: number[];
 }
 
 /**
