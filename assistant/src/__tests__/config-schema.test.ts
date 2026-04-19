@@ -186,6 +186,7 @@ describe("AssistantConfigSchema", () => {
           nonInteractiveLatestTurnCompression: "truncate",
         },
       },
+      openrouter: { only: [] },
     });
     expect(result.llm.profiles).toEqual({});
     expect(result.llm.callSites).toEqual({});
