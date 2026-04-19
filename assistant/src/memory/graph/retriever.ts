@@ -413,14 +413,12 @@ export async function loadContextMemory(
   let embeddingProvider: string | null = null;
   let embeddingModel: string | null = null;
   let contextQueryText: string | null = null;
-  let truncatedSummaryLength = 0;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
         queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
       contextQueryText = truncated;
-      truncatedSummaryLength = truncated.length;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,
       });
@@ -432,22 +430,18 @@ export async function loadContextMemory(
     }
   }
 
-  // 1b. (PR 3) Dedicated user-query embedding. When `opts.userQuery` is
-  //     provided and materially shorter than the summary query, embed it
-  //     independently and use the resulting vector for capability-reserve
-  //     ranking + as a merged candidate pool. Skipped when the user query
-  //     already dominates the summary text to avoid paying for a redundant
-  //     embed call.
+  // 1b. (PR 3) Dedicated user-query embedding. Always run the dedicated
+  //     user-query embed when a user query is present. Summaries and the
+  //     user query are now disjoint signals (the unshift was removed in
+  //     PR 6), so there is no redundancy between the two vectors — the
+  //     length-ratio short-circuit that previously lived here was written
+  //     against pre-PR-6 semantics and would drop the embed precisely in
+  //     the workloads that benefit most (short summaries + substantive
+  //     user question).
   let userQueryVector: number[] | null = null;
   const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
   const trimmedUserQuery = opts.userQuery?.trim() ?? "";
-  const shouldEmbedUserQuery =
-    trimmedUserQuery.length > 0 &&
-    // Short-circuit: when there is a summary query, only embed user query if
-    // it's less than half the summary length (otherwise it already dominates).
-    // If there's no summary query, always embed the user query on its own.
-    (truncatedSummaryLength === 0 ||
-      trimmedUserQuery.length < truncatedSummaryLength / 2);
+  const shouldEmbedUserQuery = trimmedUserQuery.length > 0;
   if (shouldEmbedUserQuery) {
     try {
       const result = await embedWithRetry(opts.config, [trimmedUserQuery], {
@@ -519,7 +513,7 @@ export async function loadContextMemory(
   });
   for (const node of topSignificance) {
     if (!semanticCandidateIds.has(node.id)) {
-      semanticCandidateIds.set(node.id, 0); // no semantic score, ranked by significance
+      semanticCandidateIds.set(node.id, 0); // no score from either Qdrant query, ranked by significance only
     }
   }
 

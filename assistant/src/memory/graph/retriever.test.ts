@@ -368,12 +368,15 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
     expect(reservedIds.has(heartbeatNodeId)).toBe(true);
   });
 
-  test("short-circuits the dedicated embed when userQuery dominates summary length", async () => {
+  test("always embeds userQuery when provided (no length-based short-circuit)", async () => {
     embedRouter = keywordEmbedRouter;
     searchRouter = vectorSearchRouter;
 
-    // Summary is short, user query is much longer (>= half summary length)
-    // so the short-circuit kicks in and we only pay for the summary embed.
+    // Summary is short and the user query is much longer — in the pre-PR-6
+    // world the length-ratio guard would have skipped the dedicated embed
+    // here. After PR 6 removed the firstUserText unshift, summaries and the
+    // user query are disjoint signals, so we always pay for both embeds
+    // when a userQuery is present.
     const result = await loadContextMemory({
       scopeId: "default",
       recentSummaries: ["hi"],
@@ -382,7 +385,35 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
       config: DUAL_QUERY_CONFIG,
     });
 
-    expect(result.userQueryVector).toBeUndefined();
+    expect(result.userQueryVector).toBeDefined();
+    expect(embedCallCount).toBe(2);
+  });
+
+  test("skips the dedicated embed when userQuery is missing or empty", async () => {
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+
+    // No userQuery → only the summary embed runs.
+    const missing = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      config: DUAL_QUERY_CONFIG,
+    });
+
+    expect(missing.userQueryVector).toBeUndefined();
+    expect(embedCallCount).toBe(1);
+
+    // Reset and verify the same holds for a whitespace-only userQuery.
+    embedCallCount = 0;
+
+    const blank = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      userQuery: "   ",
+      config: DUAL_QUERY_CONFIG,
+    });
+
+    expect(blank.userQueryVector).toBeUndefined();
     expect(embedCallCount).toBe(1);
   });
 });

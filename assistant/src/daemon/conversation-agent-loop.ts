@@ -662,7 +662,12 @@ export async function runAgentLoopImpl(
       );
       runMessages = graphResult.runMessages;
       pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
-      pkbSparseVector = graphResult.sparseVector;
+      // Reset sparse vector when the dense vector came from `userQueryVector` —
+      // there is no matching user-query sparse vector today, and pairing a
+      // user-query dense with a summary-aligned sparse is incorrect.
+      pkbSparseVector = graphResult.userQueryVector
+        ? undefined
+        : graphResult.sparseVector;
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
