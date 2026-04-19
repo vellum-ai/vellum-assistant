@@ -19,10 +19,15 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
+import {
+  getMessageById,
+  updateMessageMetadata,
+} from "../../memory/conversation-crud.js";
 import * as deliveryChannels from "../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../memory/delivery-status.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { mergeSlackMetadata } from "../../messaging/providers/slack/message-metadata.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -167,6 +172,131 @@ export async function handleChannelInbound(
       "content or attachmentIds is required",
       400,
     );
+  }
+
+  // ── Slack delete propagation ──
+  // Slack message_deleted events are forwarded by the gateway with the
+  // sentinel `callbackData = "message_deleted"` and `sourceMetadata.messageId`
+  // set to the original (deleted) message's ts. Short-circuit the rest of
+  // the pipeline: the agent loop should not run for delete notifications,
+  // and routing the event through guardian/ACL/approval paths would be
+  // incorrect. We mark the stored row as deleted in slackMeta but leave
+  // `content` untouched for audit purposes — rendering elides based on
+  // the deletedAt marker.
+  if (
+    sourceChannel === "slack" &&
+    body.callbackData === "message_deleted"
+  ) {
+    const deletedMessageTs =
+      typeof sourceMetadata?.messageId === "string"
+        ? sourceMetadata.messageId
+        : undefined;
+
+    if (!deletedMessageTs) {
+      log.debug(
+        { conversationExternalId },
+        "Slack message_deleted event missing sourceMetadata.messageId; ignoring",
+      );
+      return Response.json({ accepted: true, deleted: false });
+    }
+
+    // Look up the stored message via the existing channel-event lookup.
+    // The original message's externalMessageId may differ from its ts
+    // (Slack populates client_msg_id when present), so we join via the
+    // sourceMessageId column which records the ts explicitly.
+    const original = deliveryCrud.findMessageBySourceId(
+      sourceChannel,
+      conversationExternalId,
+      deletedMessageTs,
+    );
+
+    if (!original) {
+      log.debug(
+        { conversationExternalId, deletedMessageTs },
+        "No stored message found for Slack delete; ignoring",
+      );
+      return Response.json({ accepted: true, deleted: false });
+    }
+
+    // Merge deletedAt into the existing slackMeta sub-key. If the row has
+    // no slackMeta (legacy pre-upgrade row), skip — the renderer's flat
+    // fallback ignores deletedAt for those rows anyway, and synthesizing
+    // a partial slackMeta here would produce metadata that fails
+    // readSlackMetadata validation.
+    const row = getMessageById(original.messageId);
+    if (!row?.metadata) {
+      log.debug(
+        {
+          conversationExternalId,
+          deletedMessageTs,
+          messageId: original.messageId,
+        },
+        "Stored Slack message has no metadata; skipping delete marker",
+      );
+      return Response.json({ accepted: true, deleted: false });
+    }
+
+    let parentMetadata: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(row.metadata) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parentMetadata = parsed as Record<string, unknown>;
+      } else {
+        parentMetadata = {};
+      }
+    } catch {
+      log.debug(
+        {
+          conversationExternalId,
+          deletedMessageTs,
+          messageId: original.messageId,
+        },
+        "Failed to parse stored metadata; skipping delete marker",
+      );
+      return Response.json({ accepted: true, deleted: false });
+    }
+
+    const existingSlackMeta =
+      typeof parentMetadata.slackMeta === "string"
+        ? parentMetadata.slackMeta
+        : null;
+
+    if (!existingSlackMeta) {
+      log.debug(
+        {
+          conversationExternalId,
+          deletedMessageTs,
+          messageId: original.messageId,
+        },
+        "Stored Slack message has no slackMeta; skipping delete marker",
+      );
+      return Response.json({ accepted: true, deleted: false });
+    }
+
+    const updatedSlackMeta = mergeSlackMetadata(existingSlackMeta, {
+      deletedAt: Date.now(),
+    });
+
+    // updateMessageMetadata performs a shallow merge over the parent
+    // metadata, replacing only `slackMeta` and leaving sibling keys
+    // (channel, interface, provenance, etc.) untouched. Content column
+    // is intentionally not updated.
+    updateMessageMetadata(original.messageId, { slackMeta: updatedSlackMeta });
+
+    log.info(
+      {
+        conversationExternalId,
+        deletedMessageTs,
+        messageId: original.messageId,
+      },
+      "Marked Slack message as deleted",
+    );
+
+    return Response.json({
+      accepted: true,
+      deleted: true,
+      messageId: original.messageId,
+    });
   }
 
   // Canonicalize the assistant ID so all DB-facing operations use the
