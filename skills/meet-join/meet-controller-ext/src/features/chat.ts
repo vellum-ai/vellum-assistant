@@ -177,8 +177,20 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
  * the composer input or send button is missing, throws a descriptive error.
  * Assumes the chat panel is open — callers that need to lazily open it
  * should use {@link postConsentMessage}.
+ *
+ * When `opts.onEvent` is provided, emits a `trusted_click` for the send
+ * button's screen coordinates before calling `sendButton.click()`. This
+ * mirrors the panel-toggle fix in {@link ensurePanelOpen} and the
+ * admission-button fix in `features/join.ts` — by symmetry with the other
+ * `isTrusted`-gated buttons in Meet's UI, we expect the send button is also
+ * gated, so a bare JS `.click()` from a content script would be silently
+ * ignored. The `.click()` call is kept as a fallback for the jsdom test
+ * harness and any Meet build that does not enforce `isTrusted` on send.
  */
-export async function sendChat(text: string): Promise<void> {
+export async function sendChat(
+  text: string,
+  opts?: EnsurePanelOpenOptions,
+): Promise<void> {
   if (text.length > MEET_CHAT_MAX_LENGTH) {
     throw new Error(
       `text exceeds Meet chat limit of ${MEET_CHAT_MAX_LENGTH} characters (got ${text.length})`,
@@ -208,6 +220,38 @@ export async function sendChat(text: string): Promise<void> {
       `sendChat: send button not found (selector: ${chatSelectors.SEND_BUTTON})`,
     );
   }
+
+  // Compute screen coords and emit the xdotool hint before the JS click.
+  // Math matches `ensurePanelOpen` + `features/join.ts`'s admission-button
+  // block — see the long comment in `features/join.ts` for the assumptions
+  // about screenX/Y, chrome offsets, and DPI. Production Xvfb pins the
+  // window to (0,0) with no bottom chrome, so the `outerHeight - innerHeight`
+  // delta is the top chrome offset.
+  if (opts?.onEvent) {
+    try {
+      const rect = sendButton.getBoundingClientRect();
+      const win = opts.window ?? (globalThis as typeof globalThis);
+      const chromeOffsetY = Math.max(
+        0,
+        (win as typeof globalThis).outerHeight -
+          (win as typeof globalThis).innerHeight,
+      );
+      const screenX = Math.round(
+        ((win as typeof globalThis).screenX ?? 0) + rect.left + rect.width / 2,
+      );
+      const screenY = Math.round(
+        ((win as typeof globalThis).screenY ?? 0) +
+          chromeOffsetY +
+          rect.top +
+          rect.height / 2,
+      );
+      opts.onEvent({ type: "trusted_click", x: screenX, y: screenY });
+    } catch {
+      // If the rect or window shape is bogus, fall through to the JS click
+      // fallback rather than swallowing the whole send attempt.
+    }
+  }
+
   sendButton.click();
 }
 
@@ -252,7 +296,7 @@ export async function postConsentMessage(
   opts?: EnsurePanelOpenOptions,
 ): Promise<void> {
   ensurePanelOpen(opts);
-  await sendChat(text);
+  await sendChat(text, opts);
 }
 
 /**
