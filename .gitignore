@@ -115,5 +115,8 @@ vellum-assistant-safe-do-permissions
 clients/macos/assistant-bin/vellum-assistant
 vellum-assistant-do-fix-retriever-null-check
 
+# Chrome browser extension build
+clients/chrome-extension/vellum-browser-relay.zip
+
 # Drizzle migration files — schema is applied via drizzle-kit push at runtime
 gateway/src/db/migrations/
