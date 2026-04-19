@@ -18,7 +18,7 @@ import type {
 const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
 
 // ---------------------------------------------------------------------------
-// Inlined types & helpers (previously imported from bundled-skills)
+// Local types & helpers used by the watcher provider
 // ---------------------------------------------------------------------------
 
 /** Event time - either a dateTime with timezone or a date for all-day events. */

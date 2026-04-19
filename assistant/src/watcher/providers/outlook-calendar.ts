@@ -18,7 +18,7 @@ import type {
 } from "../provider-types.js";
 
 // ---------------------------------------------------------------------------
-// Inlined types & helpers (previously imported from bundled-skills)
+// Local types & helpers used by the watcher provider
 // ---------------------------------------------------------------------------
 
 /** Microsoft Graph date+time pair. timeZone may be omitted when dateTime carries an offset. */
