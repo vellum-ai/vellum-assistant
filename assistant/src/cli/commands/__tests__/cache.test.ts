@@ -439,6 +439,13 @@ describe("TTL parsing", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain('Invalid --ttl value ""');
   });
+
+  test("rejects whitespace-only TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", " "]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -553,6 +560,12 @@ describe("cache delete", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("cache/delete");
     expect(lastIpcCall!.params).toEqual({ key: "my-key" });
+  });
+
+  test("succeeds with exit 0 when key did not exist", async () => {
+    mockIpcResult = { ok: true, result: { deleted: false } };
+    const { exitCode } = await runCommand(["cache", "delete", "missing-key"]);
+    expect(exitCode).toBe(0);
   });
 
   test("--json outputs { ok: true, deleted: true } on success", async () => {
