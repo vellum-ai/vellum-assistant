@@ -772,12 +772,11 @@ function buildPcmWavBuffer(options: {
 
 function isFfmpegOnPath(): boolean {
   try {
-    const probe = realSpawn("ffmpeg", ["-version"], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    // Synchronously detect ENOENT by listening once and then killing.
-    // If spawn succeeded, ffmpeg exists — close and report true.
-    probe.kill("SIGKILL");
+    // Use execFileSync for the probe instead of spawn — Bun's spawn
+    // throws a synchronous error that leaks as an "unhandled error
+    // between tests" even inside try/catch at module scope.
+    const { execFileSync } = require("node:child_process");
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
