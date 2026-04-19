@@ -116,6 +116,34 @@ interface BotEnv {
   xvfbDisplay: string;
   /** User-data directory root for Chrome — suffixed with meetingId per launch. */
   chromeUserDataRoot: string;
+  /**
+   * Phase 4 avatar opt-in. `AVATAR_ENABLED=1` (or a common truthy
+   * synonym — `true`, `yes`, `on`) threads the v4l2loopback camera flags
+   * through to {@link launchChrome}. Absent or any non-truthy value falls
+   * back to the Phase 1 launcher argv byte-for-byte. The session manager
+   * in the daemon sets this env on the bot container when the assistant
+   * has the Meet avatar feature enabled.
+   */
+  avatarEnabled: boolean;
+}
+
+/**
+ * Parse a truthy env value. Accepts `"1"`, `"true"`, `"yes"`, `"on"`
+ * (case-insensitive, trimmed). Anything else — including `undefined`,
+ * `"0"`, `"false"`, `"no"`, `"off"`, and empty strings — is false.
+ * Kept deliberately narrow so an accidental leading/trailing space or an
+ * operator typing `AVATAR_ENABLED=true` both flip the same switch as
+ * `AVATAR_ENABLED=1`.
+ */
+function parseBooleanEnv(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
 }
 
 function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
@@ -133,6 +161,7 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     nmhSocketPath: env.NMH_SOCKET_PATH ?? "/run/nmh.sock",
     xvfbDisplay: env.XVFB_DISPLAY ?? ":99",
     chromeUserDataRoot: env.CHROME_USER_DATA_ROOT ?? "/tmp/chrome-profile",
+    avatarEnabled: parseBooleanEnv(env.AVATAR_ENABLED),
   };
 }
 
@@ -635,6 +664,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       displayNumber: env.xvfbDisplay,
       extensionPath: env.extensionPath,
       userDataDir,
+      avatarEnabled: env.avatarEnabled,
       logger: {
         info: (m) => deps.logInfo(m),
         error: (m) => deps.logError(m),
