@@ -561,6 +561,22 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-browser-use",
+      "name": "vellum-browser-use",
+      "description": "Browse the web using `assistant browser` CLI commands",
+      "metadata": {
+        "emoji": "🌐",
+        "vellum": {
+          "display-name": "Browser",
+          "feature-flag": "browser",
+          "activation-hints": [
+            "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vellum-github-app-setup",
       "name": "vellum-github-app-setup",
       "description": "Create and configure a GitHub App so the assistant can push commits, open PRs, and comment under its own bot identity. Use when the user wants the assistant to have its own GitHub identity, or when setting up git push access for the first time.",

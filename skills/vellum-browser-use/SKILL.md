@@ -13,25 +13,25 @@ metadata:
 
 Use this skill to browse the web. All browser operations are executed through the `assistant browser` CLI, invoked via `bash` or `host_bash`. Each operation is a subcommand:
 
-| Command | Description |
-|---|---|
-| `assistant browser navigate` | Navigate to a URL |
-| `assistant browser snapshot` | List interactive elements on the current page |
-| `assistant browser screenshot` | Take a visual screenshot |
-| `assistant browser click` | Click an element |
-| `assistant browser type` | Type text into an input |
-| `assistant browser press-key` | Press a keyboard key |
-| `assistant browser scroll` | Scroll the page or a specific element |
-| `assistant browser select-option` | Select an option from a native `<select>` element |
-| `assistant browser hover` | Hover over an element to reveal menus/tooltips |
-| `assistant browser wait-for` | Wait for a condition |
-| `assistant browser extract` | Extract page text content |
-| `assistant browser wait-for-download` | Wait for a file download to complete |
-| `assistant browser fill-credential` | Fill a stored credential into a form field |
-| `assistant browser attach` | Attach the Chrome debugger to the active tab |
-| `assistant browser detach` | Detach the Chrome debugger from the active tab |
-| `assistant browser close` | Close the browser page |
-| `assistant browser status` | Diagnose browser backend readiness and setup steps |
+| Command                               | Description                                        |
+| ------------------------------------- | -------------------------------------------------- |
+| `assistant browser navigate`          | Navigate to a URL                                  |
+| `assistant browser snapshot`          | List interactive elements on the current page      |
+| `assistant browser screenshot`        | Take a visual screenshot                           |
+| `assistant browser click`             | Click an element                                   |
+| `assistant browser type`              | Type text into an input                            |
+| `assistant browser press-key`         | Press a keyboard key                               |
+| `assistant browser scroll`            | Scroll the page or a specific element              |
+| `assistant browser select-option`     | Select an option from a native `<select>` element  |
+| `assistant browser hover`             | Hover over an element to reveal menus/tooltips     |
+| `assistant browser wait-for`          | Wait for a condition                               |
+| `assistant browser extract`           | Extract page text content                          |
+| `assistant browser wait-for-download` | Wait for a file download to complete               |
+| `assistant browser fill-credential`   | Fill a stored credential into a form field         |
+| `assistant browser attach`            | Attach the Chrome debugger to the active tab       |
+| `assistant browser detach`            | Detach the Chrome debugger from the active tab     |
+| `assistant browser close`             | Close the browser page                             |
+| `assistant browser status`            | Diagnose browser backend readiness and setup steps |
 
 ## Getting Started — Check Browser Readiness
 
@@ -42,6 +42,7 @@ assistant browser --json status
 ```
 
 The response includes:
+
 - `recommendedMode` — the best available backend (use this)
 - `modes[]` — per-mode status with `available`, `summary`, and `userActions` (remediation steps)
 
@@ -49,12 +50,12 @@ The response includes:
 
 Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the browser backend:
 
-| Value | Backend | Description |
-|---|---|---|
-| `auto` | Automatic | Default. Picks the best available backend based on context. |
-| `extension` | Chrome extension | Routes through the user's Chrome browser via the extension debugger. |
-| `cdp-inspect` | CDP inspect | Connects to an already-running Chrome instance via DevTools Protocol. |
-| `local` | Playwright | Drives a dedicated Playwright-managed Chromium instance. |
+| Value         | Backend          | Description                                                           |
+| ------------- | ---------------- | --------------------------------------------------------------------- |
+| `auto`        | Automatic        | Default. Picks the best available backend based on context.           |
+| `extension`   | Chrome extension | Routes through the user's Chrome browser via the extension debugger.  |
+| `cdp-inspect` | CDP inspect      | Connects to an already-running Chrome instance via DevTools Protocol. |
+| `local`       | Playwright       | Drives a dedicated Playwright-managed Chromium instance.              |
 
 ```bash
 assistant browser --browser-mode extension navigate --url http://www.example.com
@@ -63,6 +64,7 @@ assistant browser --browser-mode extension navigate --url http://www.example.com
 ### Prefer the Chrome Extension
 
 The **Chrome extension** (`extension` mode) is the preferred browser backend. It is:
+
 - More secure than Chrome's native remote debugging
 - Uses the user's real browser profile (cookies, sessions, saved logins)
 - Best experience for interacting with the user's actual browsing context
@@ -77,6 +79,7 @@ The status response's `userActions` array for the `extension` mode provides thes
 ### Fallback Modes
 
 If the user declines to install the extension:
+
 - **`cdp-inspect`** — Connects to an already-running Chrome instance via DevTools Protocol (Chrome 146+). Requires enabling remote debugging in Chrome settings.
 - **`local`** — Drives a dedicated Playwright-managed Chromium instance. Last resort — does not use the user's browser profile.
 
@@ -127,7 +130,6 @@ assistant browser --json screenshot
 ```
 
 The response includes a `screenshots` array with `mediaType` and `data` (base64) fields.
-
 
 ## Typical Workflow
 
