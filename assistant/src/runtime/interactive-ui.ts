@@ -39,6 +39,27 @@ import { mintDecisionToken } from "./decision-token.js";
 
 const log = getLogger("interactive-ui");
 
+// ── Reserved action IDs ──────────────────────────────────────────────
+
+/**
+ * Action IDs reserved for internal surface lifecycle events. These IDs
+ * are intercepted by `handleSurfaceAction` in conversation-surfaces.ts
+ * as non-terminal events (early return without resolving the pending
+ * `ui_request`). If a caller defines one of these as a custom button ID,
+ * clicking it would silently return early without resolving.
+ *
+ * Used for validation in both the CLI (`parseActions`) and the IPC route
+ * (`ui_request` Zod schema) to reject reserved IDs before they reach the
+ * surface lifecycle.
+ */
+export const RESERVED_ACTION_IDS = new Set([
+  "selection_changed",
+  "content_changed",
+  "state_update",
+  "cancel",
+  "dismiss",
+]);
+
 // ── Cancellation reasons ─────────────────────────────────────────────
 
 /**
