@@ -111,6 +111,22 @@ export interface AvatarRenderer {
    * unsubscribe function are no-ops.
    */
   onFrame(cb: (frame: Y4MFrame) => void): () => void;
+  /**
+   * Optional — advance the renderer's internal audio-playback clock.
+   * The bot's HTTP server wires the audio-playback handle's
+   * `onPlaybackTimestamp` stream into this method when both a
+   * `/play_audio` stream and a viseme-driven renderer are active, so
+   * visemes can be emitted at the moment their corresponding audio
+   * actually plays rather than when the viseme arrived over the wire.
+   *
+   * Only viseme-driven renderers (TalkingHead.js) need to implement
+   * this. Hosted renderers (Simli/HeyGen/Tavus) and GPU sidecars
+   * (SadTalker/MuseTalk) do audio-to-motion timing server-side, so
+   * leaving this method undefined is the correct behavior — the HTTP
+   * server detects the missing method and skips the wiring entirely
+   * for those backends.
+   */
+  notifyPlaybackTimestamp?(ts: number): void;
 }
 
 /**
