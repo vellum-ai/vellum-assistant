@@ -218,8 +218,9 @@ Verify that `message.channels` event subscription is enabled in your Slack app s
 ### OAuth install failed
 
 If the OAuth flow fails or times out, re-run Step 3d. Ensure:
+
 - The Client ID and Client Secret are correct (re-collect via credential_store if unsure)
-- The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (the manifest pre-configures this)
+- The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (added in Step 2)
 - No other process is using port 17322
 
 ## Implementation Rules
