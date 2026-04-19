@@ -781,6 +781,12 @@ async function main() {
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
     },
+    {
+      path: "/v1/integrations/slack/channel/oauth-install",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleSlackOAuthInstall(req),
+    },
 
     // ── OAuth providers ──
     {
