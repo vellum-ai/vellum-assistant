@@ -683,3 +683,34 @@ describe("extractTagLineTexts", () => {
     expect(extractTagLineTexts([])).toEqual([]);
   });
 });
+
+// ── contentBlocks passthrough (PR 2 plumbing) ────────────────────────────────
+
+describe("renderSlackTranscript — contentBlocks field is ignored by renderer", () => {
+  // PR 2 adds an optional `contentBlocks` field on RenderableSlackMessage so
+  // downstream consumers (tool-block preservation in PR 3) can read the
+  // original structured blocks without re-parsing the row. The renderer
+  // itself is unchanged: output must be byte-identical whether or not
+  // `contentBlocks` is populated. This guards against accidental coupling
+  // — PR 3 will introduce the behavioural change in a follow-up.
+  test("renderer output is identical with and without contentBlocks populated", () => {
+    const base = userMsg(TS_14_25, "@alice", "hi there");
+    const withBlocks: RenderableSlackMessage = {
+      ...base,
+      contentBlocks: [
+        { type: "text", text: "hi there" },
+        { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
+      ],
+    };
+    const outWithout = renderSlackTranscript([base]);
+    const outWith = renderSlackTranscript([withBlocks]);
+    expect(outWith).toEqual(outWithout);
+    // Sanity: the tool_use block from contentBlocks must not leak into output.
+    const texts = outWith.flatMap((m) =>
+      m.content.map((b) => (b.type === "text" ? b.text : "")),
+    );
+    for (const t of texts) {
+      expect(t).not.toMatch(/tool_use/);
+    }
+  });
+});
