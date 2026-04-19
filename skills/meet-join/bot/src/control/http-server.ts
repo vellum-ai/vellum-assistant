@@ -474,7 +474,20 @@ export function createHttpServer(
       ) {
         const notify = renderer.notifyPlaybackTimestamp.bind(renderer);
         unsubscribePlaybackTimestamp = handle.onPlaybackTimestamp((ts) => {
-          notify(ts);
+          // Guard against a mid-stream `/avatar/disable`: that handler
+          // sets `avatarRenderer = null` and calls `renderer.stop()`,
+          // but this closure still holds the renderer reference captured
+          // at stream start. Without the current-reference check, every
+          // playback-timestamp tick between disable-fire and stream-end
+          // would land on a stopped renderer. TalkingHead.js's stopped
+          // channel silently drops messages, but any renderer whose
+          // `notifyPlaybackTimestamp` treats post-stop notifications as
+          // an error would crash. The unsubscribe in `finally` only
+          // fires at stream end, so this guard is what severs the
+          // bridge immediately when disable lands.
+          if (avatarRenderer === renderer) {
+            notify(ts);
+          }
         });
       }
 
