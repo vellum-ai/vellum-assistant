@@ -95,7 +95,7 @@ export function registerWatchersCommand(program: Command): void {
             log.info(`  Recent events: ${detail.events.length}`);
             for (const e of detail.events) {
               log.info(
-                `    [${new Date(e.createdAt).toISOString()}] ${e.type}: ${e.summary ?? "(no summary)"}`,
+                `    [${new Date(e.createdAt).toISOString()}] ${e.eventType}: ${e.summary ?? "(no summary)"}`,
               );
             }
           }
@@ -376,7 +376,7 @@ export function registerWatchersCommand(program: Command): void {
           log.info(`${name} (${watcherId}):`);
           for (const e of watcherEvents) {
             log.info(
-              `  [${new Date(e.createdAt).toISOString()}] ${e.type}: ${e.summary ?? "(no summary)"}`,
+              `  [${new Date(e.createdAt).toISOString()}] ${e.eventType}: ${e.summary ?? "(no summary)"}`,
             );
           }
         }
