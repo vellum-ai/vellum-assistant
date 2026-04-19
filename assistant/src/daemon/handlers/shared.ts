@@ -7,6 +7,7 @@ import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
+import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { Conversation } from "../conversation.js";
 import type { TrustContext } from "../conversation-runtime-assembly.js";
@@ -328,6 +329,11 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       // path — e.g. empty segments between consecutive tool_use blocks that
       // break tool-call grouping in the UI.
       if (block.text.trim().length === 0) continue;
+      // Drop Anthropic provider placeholder sentinels. These are injected
+      // into outbound API requests to preserve role alternation and must
+      // never be rendered to users. Belt-and-suspenders with the persist-
+      // time filter in cleanAssistantContent and migration 222.
+      if (isPlaceholderSentinelText(block.text)) continue;
       textParts.push(block.text);
       ensureSegment();
       currentSegmentParts.push(block.text);

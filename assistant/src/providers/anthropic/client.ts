@@ -1022,8 +1022,30 @@ export class AnthropicProvider implements Provider {
                 signal: timeoutSignal,
               }) as unknown as UnifiedStream);
 
+        // Buffer streaming text until it's clear the accumulated text isn't
+        // going to form a placeholder sentinel. Sentinels are injected into
+        // outbound requests for role alternation and are sometimes echoed by
+        // the model; holding back partial prefixes prevents them from
+        // flashing on the live UI before cleanAssistantContent strips them
+        // at persist time. Buffer is bounded by the longest sentinel (~45
+        // chars) and resets on every content_block_start.
+        const SENTINEL_TEXTS: readonly string[] = [
+          PLACEHOLDER_EMPTY_TURN,
+          PLACEHOLDER_EMPTY_TURN.slice(1),
+          PLACEHOLDER_BLOCKS_OMITTED,
+          PLACEHOLDER_BLOCKS_OMITTED.slice(1),
+        ];
+        const couldBeSentinelPrefix = (s: string): boolean =>
+          SENTINEL_TEXTS.some((sentinel) => sentinel.startsWith(s));
+        const isCompleteSentinel = (s: string): boolean =>
+          SENTINEL_TEXTS.includes(s);
+        let textBuffer = "";
+
         stream.on("text", (text) => {
-          onEvent?.({ type: "text_delta", text });
+          textBuffer += text;
+          if (couldBeSentinelPrefix(textBuffer)) return;
+          onEvent?.({ type: "text_delta", text: textBuffer });
+          textBuffer = "";
         });
 
         stream.on("thinking", (thinking) => {
@@ -1038,6 +1060,13 @@ export class AnthropicProvider implements Provider {
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
         stream.on("streamEvent", (event) => {
+          // Reset the text sentinel buffer at each content-block boundary.
+          // A new block starts fresh; at the end of a block, flush any
+          // buffered text that is NOT a complete sentinel, and drop it if
+          // it is one.
+          if (event.type === "content_block_start") {
+            textBuffer = "";
+          }
           if (
             event.type === "content_block_start" &&
             event.content_block.type === "tool_use"
@@ -1101,6 +1130,11 @@ export class AnthropicProvider implements Provider {
             currentStreamingToolName = undefined;
             currentStreamingToolUseId = undefined;
             accumulatedInputJson = "";
+            // Flush residual text buffer unless it's exactly a sentinel.
+            if (textBuffer.length > 0 && !isCompleteSentinel(textBuffer)) {
+              onEvent?.({ type: "text_delta", text: textBuffer });
+            }
+            textBuffer = "";
           }
         });
 
