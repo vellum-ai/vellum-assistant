@@ -52,7 +52,9 @@ const TaskQueueAddParams = z.object({
   notes: z.string().optional(),
   priority_tier: z.number().optional(),
   sort_index: z.number().optional(),
-  if_exists: z.string().optional(),
+  if_exists: z
+    .enum(["create_duplicate", "reuse_existing", "update_existing"])
+    .optional(),
   required_tools: z.array(z.string()).optional(),
 });
 
