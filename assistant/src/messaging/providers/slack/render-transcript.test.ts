@@ -129,6 +129,34 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
+  test("edited marker uses editedAt time, not channelTs", () => {
+    // channelTs at 14:25 (original send time), edited later at 14:32.
+    // The opening time bracket must reflect 14:25 and the suffix must
+    // reflect 14:32 — derived from editedAt, not from channelTs.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "v2", { editedAt: MS_14_32 }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice, edited 14:32]: v2" },
+    ]);
+  });
+
+  test("edited message in a thread renders both arrow and edit suffix", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_28, "@bob", "got it (edit)", {
+        threadTs: TS_14_25,
+        editedAt: MS_14_30,
+      }),
+    ]);
+    const alias = parentAlias(TS_14_25);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: `[14:28 @bob → ${alias}, edited 14:30]: got it (edit)`,
+      },
+    ]);
+  });
+
   test("renders deleted message with deletedAt — content elided", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "(removed)", { deletedAt: MS_14_32 }),
@@ -155,6 +183,67 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     expect(out).toEqual([
       { role: "user", content: `[14:28 @bob removed 👍 from ${alias}]` },
+    ]);
+  });
+});
+
+// ── edited marker ────────────────────────────────────────────────────────────
+
+describe("renderSlackTranscript — edited marker", () => {
+  test("deleted takes precedence over edited (no edit suffix on deleted line)", () => {
+    // A row may carry both editedAt and deletedAt if it was edited before
+    // being deleted. The deleted form takes precedence and the edited
+    // suffix must not appear.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "(removed)", {
+        editedAt: MS_14_30,
+        deletedAt: MS_14_32,
+      }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+    ]);
+    expect(out[0].content.includes("edited")).toBe(false);
+  });
+
+  test("reaction rows do not render the edited marker even if metadata has editedAt", () => {
+    // The renderer must never apply the edited suffix to a reaction-kind row.
+    // We construct a reaction with an editedAt field set in metadata to
+    // confirm the reaction code path ignores it.
+    const reaction: RenderableSlackMessage = {
+      role: "user",
+      content: "",
+      senderLabel: "@bob",
+      createdAt: Number.parseFloat(TS_14_28) * 1000,
+      metadata: {
+        source: "slack",
+        channelId: CHANNEL,
+        channelTs: TS_14_28,
+        eventKind: "reaction",
+        reaction: {
+          emoji: "👍",
+          targetChannelTs: TS_14_25,
+          op: "added",
+        },
+        editedAt: MS_14_30,
+      },
+    };
+    const out = renderSlackTranscript([reaction]);
+    const alias = parentAlias(TS_14_25);
+    expect(out).toEqual([
+      { role: "user", content: `[14:28 @bob reacted 👍 to ${alias}]` },
+    ]);
+    expect(out[0].content.includes("edited")).toBe(false);
+  });
+
+  test("editedAt of 0 (epoch) still renders as 00:00 marker", () => {
+    // Defensive: 0 is a valid (if unusual) timestamp and must not be
+    // skipped by a truthy check.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "v2", { editedAt: 0 }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice, edited 00:00]: v2" },
     ]);
   });
 });
