@@ -295,7 +295,7 @@ async function rsvp(argv: string[]): Promise<void> {
     });
 
     if (!confirmed) {
-      printError("RSVP cancelled by user.");
+      ok({ rsvp: false, reason: "User did not confirm" });
       return;
     }
   }
