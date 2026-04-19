@@ -156,7 +156,11 @@ async function importConversations(
 
       // Override conversation timestamps to match originals
       db.update(conversationsTable)
-        .set({ createdAt: convCreatedAt, updatedAt: convUpdatedAt })
+        .set({
+          createdAt: convCreatedAt,
+          updatedAt: convUpdatedAt,
+          lastMessageAt: messageTimestamps[messageTimestamps.length - 1],
+        })
         .where(eq(conversationsTable.id, conversation.id))
         .run();
 
