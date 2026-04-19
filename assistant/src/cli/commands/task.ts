@@ -52,6 +52,14 @@ function resolveConversationId(
   return undefined;
 }
 
+// ── IPC result shape ──────────────────────────────────────────────────
+
+/** All task IPC handlers return `{ ok, content }` with a human-readable string. */
+interface TaskIpcResult {
+  ok: boolean;
+  content: string;
+}
+
 // ── Registration ──────────────────────────────────────────────────────
 
 export function registerTaskCommand(program: Command): void {
@@ -59,14 +67,53 @@ export function registerTaskCommand(program: Command): void {
     .command("task")
     .description("Manage task templates and the task queue");
 
+  task.addHelpText(
+    "after",
+    `
+Task templates capture a conversation as a reusable recipe that can be
+re-run later with optional input overrides. Templates are stored on disk
+in the assistant's workspace and identified by an auto-generated ID and
+a human-readable title.
+
+Examples:
+  $ assistant task save --conversation-id conv_abc123 --title "Deploy staging"
+  $ assistant task list
+  $ assistant task run --name "Deploy staging"
+  $ assistant task delete tmpl_abc123`,
+  );
+
   // ── save ─────────────────────────────────────────────────────────
 
   task
     .command("save")
     .description("Save the current conversation as a task template")
-    .option("--conversation-id <id>", "Conversation ID to save as a template")
+    .option(
+      "--conversation-id <id>",
+      "Conversation ID to save as a template — run 'assistant conversations list' to find it",
+    )
     .option("--title <title>", "Title for the task template")
     .option("--json", "Output result as machine-readable JSON.")
+    .addHelpText(
+      "after",
+      `
+Captures the referenced conversation as a task template. If --title is
+omitted, the assistant derives one from the conversation content. The
+conversation ID is resolved in order: --conversation-id flag, then the
+__SKILL_CONTEXT_JSON env var, then __CONVERSATION_ID env var.
+
+Arguments:
+  (none — uses options below)
+
+Options:
+  --conversation-id <id>  Conversation to snapshot. Run 'assistant conversations list' to find it.
+  --title <title>         Human-readable name for the template (auto-derived if omitted).
+  --json                  Output as JSON: { "ok": true, "content": "..." }
+
+Examples:
+  $ assistant task save --conversation-id conv_abc123
+  $ assistant task save --conversation-id conv_abc123 --title "Deploy staging"
+  $ assistant task save --json`,
+    )
     .action(
       async (opts: {
         conversationId?: string;
@@ -92,10 +139,7 @@ export function registerTaskCommand(program: Command): void {
         const params: Record<string, unknown> = { conversation_id };
         if (opts.title) params.title = opts.title;
 
-        const result = await cliIpcCall<{ task_id: string; title: string }>(
-          "task/save",
-          params,
-        );
+        const result = await cliIpcCall<TaskIpcResult>("task/save", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -111,12 +155,11 @@ export function registerTaskCommand(program: Command): void {
 
         if (opts.json) {
           process.stdout.write(
-            JSON.stringify({ ok: true, ...result.result }) + "\n",
+            JSON.stringify({ ok: true, content: result.result!.content }) +
+              "\n",
           );
         } else {
-          log.info(
-            `Task template saved: ${result.result!.title} (${result.result!.task_id})`,
-          );
+          log.info(result.result!.content);
         }
       },
     );
@@ -127,8 +170,22 @@ export function registerTaskCommand(program: Command): void {
     .command("list")
     .description("List all task templates")
     .option("--json", "Output result as machine-readable JSON.")
+    .addHelpText(
+      "after",
+      `
+Lists all saved task templates with their IDs and titles. In non-JSON
+mode the output is human-readable text from the daemon. In --json mode
+the raw content string is returned.
+
+Arguments:
+  (none)
+
+Examples:
+  $ assistant task list
+  $ assistant task list --json`,
+    )
     .action(async (opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ tasks: unknown[] }>("task/list");
+      const result = await cliIpcCall<TaskIpcResult>("task/list");
 
       if (!result.ok) {
         if (opts.json) {
@@ -144,15 +201,10 @@ export function registerTaskCommand(program: Command): void {
 
       if (opts.json) {
         process.stdout.write(
-          JSON.stringify({ ok: true, tasks: result.result!.tasks }) + "\n",
+          JSON.stringify({ ok: true, content: result.result!.content }) + "\n",
         );
       } else {
-        const tasks = result.result!.tasks;
-        if (tasks.length === 0) {
-          log.info("No task templates found.");
-        } else {
-          log.info(JSON.stringify(tasks, null, 2));
-        }
+        log.info(result.result!.content);
       }
     });
 
@@ -161,10 +213,37 @@ export function registerTaskCommand(program: Command): void {
   task
     .command("run")
     .description("Run a task template")
-    .option("--id <id>", "Task template ID to run")
-    .option("--name <name>", "Task template name to run")
+    .option(
+      "--id <id>",
+      "Task template ID to run — run 'assistant task list' to find it",
+    )
+    .option(
+      "--name <name>",
+      "Task template name to run — run 'assistant task list' to find it",
+    )
     .option("--inputs <json>", "JSON object of template inputs")
     .option("--json", "Output result as machine-readable JSON.")
+    .addHelpText(
+      "after",
+      `
+Executes a saved task template by ID or name. Provide --id or --name
+(at least one required). Optional --inputs supplies a JSON object of
+key/value overrides for the template.
+
+Arguments:
+  (none — uses options below)
+
+Options:
+  --id <id>         Template ID. Run 'assistant task list' to find it.
+  --name <name>     Template name. Run 'assistant task list' to find it.
+  --inputs <json>   JSON object of input overrides, e.g. '{"branch":"main"}'.
+  --json            Output as JSON: { "ok": true, "content": "..." }
+
+Examples:
+  $ assistant task run --name "Deploy staging"
+  $ assistant task run --id tmpl_abc123 --inputs '{"env":"production"}'
+  $ assistant task run --name "Deploy staging" --json`,
+    )
     .action(
       async (opts: {
         id?: string;
@@ -193,10 +272,7 @@ export function registerTaskCommand(program: Command): void {
           }
         }
 
-        const result = await cliIpcCall<Record<string, unknown>>(
-          "task/run",
-          params,
-        );
+        const result = await cliIpcCall<TaskIpcResult>("task/run", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -212,13 +288,11 @@ export function registerTaskCommand(program: Command): void {
 
         if (opts.json) {
           process.stdout.write(
-            JSON.stringify({ ok: true, ...result.result }) + "\n",
+            JSON.stringify({ ok: true, content: result.result!.content }) +
+              "\n",
           );
         } else {
-          log.info("Task started successfully.");
-          if (result.result) {
-            log.info(JSON.stringify(result.result, null, 2));
-          }
+          log.info(result.result!.content);
         }
       },
     );
@@ -229,8 +303,22 @@ export function registerTaskCommand(program: Command): void {
     .command("delete <ids...>")
     .description("Delete one or more task templates")
     .option("--json", "Output result as machine-readable JSON.")
+    .addHelpText(
+      "after",
+      `
+Removes one or more task templates by their IDs. Accepts multiple IDs
+separated by spaces. Deletion is permanent.
+
+Arguments:
+  ids   One or more template IDs to delete. Run 'assistant task list' to find them.
+
+Examples:
+  $ assistant task delete tmpl_abc123
+  $ assistant task delete tmpl_abc123 tmpl_def456
+  $ assistant task delete tmpl_abc123 --json`,
+    )
     .action(async (ids: string[], opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ deleted: number }>("task/delete", {
+      const result = await cliIpcCall<TaskIpcResult>("task/delete", {
         task_ids: ids,
       });
 
@@ -248,10 +336,10 @@ export function registerTaskCommand(program: Command): void {
 
       if (opts.json) {
         process.stdout.write(
-          JSON.stringify({ ok: true, deleted: result.result!.deleted }) + "\n",
+          JSON.stringify({ ok: true, content: result.result!.content }) + "\n",
         );
       } else {
-        log.info(`Deleted ${result.result!.deleted} task template(s).`);
+        log.info(result.result!.content);
       }
     });
 }
