@@ -9,11 +9,11 @@
  *
  * ## Meeting session lifecycle
  *
- * `startMeetingSession` owns the in-page feature handles (speaker
- * scraper, chat reader today; participant scraper in a follow-up PR).
- * The returned `stop()` disposes every handle. We intentionally keep
- * this local-in-module-scope so parallel PRs can extend the factory
- * without touching the listener wiring.
+ * `startMeetingSession` owns the in-page feature handles (participant
+ * scraper, speaker scraper, chat reader). The returned `stop()` disposes
+ * every handle. We intentionally keep this local-in-module-scope so
+ * parallel PRs can extend the factory without touching the listener
+ * wiring.
  *
  * On `join` we emit a `lifecycle { state: "joining" }` event up-front so
  * the daemon sees the transition even if `runJoinFlow` throws during
@@ -37,6 +37,10 @@ import {
   startChatReader,
 } from "./features/chat.js";
 import { runJoinFlow } from "./features/join.js";
+import {
+  startParticipantScraper,
+  type ParticipantScraperHandle,
+} from "./features/participants.js";
 import {
   startSpeakerScraper,
   type SpeakerScraperHandle,
@@ -90,8 +94,8 @@ interface MeetingSessionHandle {
 
 /**
  * Options carried through to the session factory. `displayName` comes
- * from the bot's `join` command so the chat reader can self-filter the
- * bot's own outbound messages.
+ * from the bot's `join` command so the chat reader and participant
+ * scraper can self-filter the bot's own outbound activity.
  */
 interface MeetingSessionOptions {
   meetingId: string;
@@ -103,9 +107,8 @@ interface MeetingSessionOptions {
  *
  * Called from the bot→extension `join` handler below, after `runJoinFlow`
  * has driven the prejoin UI and confirmed admission. Additional features
- * (participants) will layer into the returned handle in subsequent PRs —
- * extend this factory rather than the listener wiring so session teardown
- * stays in one place.
+ * layer into the returned handle — extend this factory rather than the
+ * listener wiring so session teardown stays in one place.
  */
 function startMeetingSession(
   opts: MeetingSessionOptions,
@@ -121,6 +124,13 @@ function startMeetingSession(
       console.warn("[meet-ext] sendMessage failed:", err);
     }
   };
+
+  const participants: ParticipantScraperHandle = startParticipantScraper({
+    meetingId: opts.meetingId,
+    selfName: opts.displayName,
+    onEvent: sendToBot,
+  });
+  handles.push(participants);
 
   const speaker: SpeakerScraperHandle = startSpeakerScraper({
     meetingId: opts.meetingId,
