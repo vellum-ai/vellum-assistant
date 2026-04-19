@@ -136,6 +136,16 @@ describe('signInCloud', () => {
     await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
   });
 
+  test('oauth-style error fragment rejects with error detail', async () => {
+    launchWebAuthFlowImpl = async () =>
+      'https://fakeextid.chromiumapp.org/cloud-auth#error=assistant_forbidden&error_description=owner_mismatch&trace_id=trace-123';
+
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow(
+      'cloud sign-in failed: assistant_forbidden (owner_mismatch) [trace=trace-123]',
+    );
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
+  });
+
   test('cancelled flow rejects with "cancelled"', async () => {
     launchWebAuthFlowImpl = async () => undefined;
 
@@ -154,21 +164,19 @@ describe('signInCloud', () => {
     expect(seenUrl).not.toContain('www.vellum.ai//accounts');
   });
 
-  test('retries without assistant_id when Chrome reports auth page load failure', async () => {
+  test('does not retry when no alternate auth base URL exists', async () => {
     const seenUrls: string[] = [];
     launchWebAuthFlowImpl = async (details) => {
       seenUrls.push(details.url);
-      if (seenUrls.length === 1) {
-        throw new Error('Authorization page could not be loaded.');
-      }
-      return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
+      throw new Error('Authorization page could not be loaded.');
     };
 
-    await signInCloud(ASSISTANT_A, config);
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow(
+      'Authorization page could not be loaded.',
+    );
 
-    expect(seenUrls.length).toBe(2);
+    expect(seenUrls.length).toBe(1);
     expect(seenUrls[0]).toContain(`assistant_id=${ASSISTANT_A}`);
-    expect(seenUrls[1]).not.toContain('assistant_id=');
   });
 
   test('does not retry against platform runtime host for auth fallback', async () => {
@@ -185,18 +193,17 @@ describe('signInCloud', () => {
       }),
     ).rejects.toThrow('Authorization page could not be loaded.');
 
-    // platform.vellum.ai remaps to www.vellum.ai, so both runtime
-    // fallback attempts are deduped against the primary base URL.
-    expect(seenUrls.length).toBe(2);
+    // platform.vellum.ai remaps to www.vellum.ai and dedupes to a
+    // single candidate URL.
+    expect(seenUrls.length).toBe(1);
     expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
-    expect(seenUrls[1]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
   });
 
   test('retries against assistant-web host derived from runtimeBaseUrl', async () => {
     const seenUrls: string[] = [];
     launchWebAuthFlowImpl = async (details) => {
       seenUrls.push(details.url);
-      if (seenUrls.length < 3) {
+      if (seenUrls.length < 2) {
         throw new Error('Authorization page could not be loaded.');
       }
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
@@ -207,10 +214,9 @@ describe('signInCloud', () => {
       runtimeBaseUrl: 'https://dev-platform.vellum.ai',
     });
 
-    expect(seenUrls.length).toBe(3);
+    expect(seenUrls.length).toBe(2);
     expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
-    expect(seenUrls[1]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
-    expect(seenUrls[2]).toContain('https://dev-assistant.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[1]).toContain('https://dev-assistant.vellum.ai/accounts/chrome-extension/start');
   });
 });
 

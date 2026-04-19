@@ -219,6 +219,14 @@ async function persistToken(assistantId: string, token: StoredCloudToken): Promi
 function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
   const hash = new URL(responseUrl).hash.replace(/^#/, '');
   const params = new URLSearchParams(hash);
+  const error = params.get('error');
+  if (error) {
+    const description = params.get('error_description');
+    const traceId = params.get('trace_id');
+    const detail = description ? `${error} (${description})` : error;
+    const traceSuffix = traceId ? ` [trace=${traceId}]` : '';
+    throw new Error(`cloud sign-in failed: ${detail}${traceSuffix}`);
+  }
   const token = params.get('token');
   const expiresIn = parseInt(params.get('expires_in') ?? '0', 10);
   const guardianId = params.get('guardian_id') ?? '';
@@ -271,18 +279,22 @@ function buildAuthUrl(
   assistantId: string,
   options: {
     baseUrl?: string;
-    includeAssistantId?: boolean;
+    traceId?: string;
+    candidateIndex?: number;
   } = {},
 ): string {
   const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
-  const includeAssistantId = options.includeAssistantId ?? true;
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? config.webBaseUrl);
   let url =
     `${baseUrl}/accounts/chrome-extension/start` +
     `?client_id=${encodeURIComponent(config.clientId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  if (includeAssistantId) {
-    url += `&assistant_id=${encodeURIComponent(assistantId)}`;
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&assistant_id=${encodeURIComponent(assistantId)}`;
+  if (typeof options.traceId === 'string' && options.traceId.length > 0) {
+    url += `&trace_id=${encodeURIComponent(options.traceId)}`;
+    if (typeof options.candidateIndex === 'number') {
+      url += `&trace_candidate=${options.candidateIndex}`;
+    }
   }
   return url;
 }
@@ -290,10 +302,23 @@ function buildAuthUrl(
 interface AuthUrlCandidate {
   url: string;
   baseUrl: string;
-  includeAssistantId: boolean;
+  candidateIndex: number;
 }
 
-function buildAuthUrlCandidates(config: CloudAuthConfig, assistantId: string): AuthUrlCandidate[] {
+function createAuthTraceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `trace-${Date.now()}-${Math.floor(Math.random() * 1_000_000)
+    .toString(16)
+    .padStart(5, '0')}`;
+}
+
+function buildAuthUrlCandidates(
+  config: CloudAuthConfig,
+  assistantId: string,
+  traceId: string,
+): AuthUrlCandidate[] {
   const runtimeFallbackBaseUrl =
     typeof config.runtimeBaseUrl === 'string' && config.runtimeBaseUrl.trim().length > 0
       ? normalizeRuntimeFallbackBaseUrl(config.runtimeBaseUrl)
@@ -307,20 +332,27 @@ function buildAuthUrlCandidates(config: CloudAuthConfig, assistantId: string): A
   const seenUrls = new Set<string>();
   const candidates: AuthUrlCandidate[] = [];
   for (const baseUrl of baseUrls) {
-    for (const includeAssistantId of [true, false]) {
-      const url = buildAuthUrl(config, assistantId, { baseUrl, includeAssistantId });
-      if (seenUrls.has(url)) continue;
-      seenUrls.add(url);
-      candidates.push({ url, baseUrl, includeAssistantId });
-    }
+    const candidateIndex = candidates.length;
+    const url = buildAuthUrl(config, assistantId, {
+      baseUrl,
+      traceId,
+      candidateIndex,
+    });
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+    candidates.push({ url, baseUrl, candidateIndex });
   }
 
   if (candidates.length === 0) {
     const baseUrl = normalizeBaseUrl(config.webBaseUrl);
     candidates.push({
-      url: buildAuthUrl(config, assistantId, { baseUrl, includeAssistantId: true }),
+      url: buildAuthUrl(config, assistantId, {
+        baseUrl,
+        traceId,
+        candidateIndex: 0,
+      }),
       baseUrl,
-      includeAssistantId: true,
+      candidateIndex: 0,
     });
   }
 
@@ -332,30 +364,60 @@ function isAuthorizationPageLoadError(err: unknown): boolean {
   return message.toLowerCase().includes('authorization page could not be loaded');
 }
 
+function sanitizeResponseUrlForLog(responseUrl: string): string {
+  try {
+    const url = new URL(responseUrl);
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch {
+    return '<unparseable-response-url>';
+  }
+}
+
 async function launchWebAuthFlowWithFallback(
   assistantId: string,
   config: CloudAuthConfig,
   interactive: boolean,
 ): Promise<string | undefined> {
-  const candidates = buildAuthUrlCandidates(config, assistantId);
+  const traceId = createAuthTraceId();
+  const candidates = buildAuthUrlCandidates(config, assistantId, traceId);
   let lastError: unknown = null;
+  console.info(
+    `[vellum-cloud-auth] launching web auth flow trace=${traceId} interactive=${interactive} candidates=${candidates.length}`,
+  );
 
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i]!;
+    console.info(
+      `[vellum-cloud-auth] launching candidate trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl}`,
+    );
     try {
-      return await chrome.identity.launchWebAuthFlow({
+      const responseUrl = await chrome.identity.launchWebAuthFlow({
         url: candidate.url,
         interactive,
       });
+      if (responseUrl) {
+        console.info(
+          `[vellum-cloud-auth] candidate succeeded trace=${traceId} idx=${candidate.candidateIndex} response=${sanitizeResponseUrlForLog(responseUrl)}`,
+        );
+      } else {
+        console.warn(
+          `[vellum-cloud-auth] candidate returned no URL trace=${traceId} idx=${candidate.candidateIndex}`,
+        );
+      }
+      return responseUrl;
     } catch (err) {
       lastError = err;
       const hasNext = i < candidates.length - 1;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[vellum-cloud-auth] candidate failed trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl} error=${message}`,
+      );
       if (hasNext && isAuthorizationPageLoadError(err)) {
         const next = candidates[i + 1]!;
         console.warn(
           `[vellum-cloud-auth] authorization page failed to load for ` +
-            `base=${candidate.baseUrl} includeAssistantId=${candidate.includeAssistantId}; ` +
-            `retrying with base=${next.baseUrl} includeAssistantId=${next.includeAssistantId}`,
+            `trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl}; ` +
+            `retrying idx=${next.candidateIndex} base=${next.baseUrl}`,
         );
         continue;
       }

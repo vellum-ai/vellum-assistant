@@ -89,7 +89,7 @@ public enum VellumEnvironment: String {
     public var platformURL: String {
         switch self {
         case .local:
-            return "http://localhost:8000"
+            return "https://dev-platform.vellum.ai"
         case .dev:
             return "https://dev-platform.vellum.ai"
         case .test:
@@ -121,7 +121,7 @@ public enum VellumEnvironment: String {
     public var webURL: String {
         switch self {
         case .local:
-            return "http://localhost:3000"
+            return "https://dev-assistant.vellum.ai"
         case .dev:
             return "https://dev-assistant.vellum.ai"
         case .test:

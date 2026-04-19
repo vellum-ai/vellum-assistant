@@ -83,6 +83,7 @@ public enum NativeMessagingInstaller {
         try installChromeManifest(
             helperBinaryPath: helperBinaryPath,
             extensionIds: extensionIds,
+            vellumEnvironment: ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"],
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fileManager: FileManager.default,
             gatekeeperAssessment: Self.runGatekeeperAssessment(at:)
@@ -106,6 +107,7 @@ public enum NativeMessagingInstaller {
     internal static func installChromeManifest(
         helperBinaryPath: URL,
         extensionIds: [String],
+        vellumEnvironment: String? = nil,
         homeDirectory: URL,
         fileManager: FileManager,
         gatekeeperAssessment: (String) -> Bool = { _ in true }
@@ -136,6 +138,16 @@ public enum NativeMessagingInstaller {
         )
 
         let manifestUrl = targetDir.appendingPathComponent("\(hostName).json")
+        let launcherUrl = launcherScriptPath(under: homeDirectory)
+        let launcherContents = buildLauncherScriptContents(
+            helperBinaryPath: helperBinaryPath.path,
+            vellumEnvironment: vellumEnvironment
+        )
+        try launcherContents.write(to: launcherUrl, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o755)],
+            ofItemAtPath: launcherUrl.path
+        )
 
         // JSONSerialization is used (rather than a Codable struct) so the
         // field order matches the Chrome-expected shape and so the
@@ -148,7 +160,7 @@ public enum NativeMessagingInstaller {
         let manifest: [String: Any] = [
             "name": hostName,
             "description": hostDescription,
-            "path": helperBinaryPath.path,
+            "path": launcherUrl.path,
             "type": "stdio",
             "allowed_origins": extensionIds.map { "chrome-extension://\($0)/" },
         ]
@@ -177,9 +189,14 @@ public enum NativeMessagingInstaller {
     ) throws {
         let manifestUrl = manifestDirectory(under: homeDirectory)
             .appendingPathComponent("\(hostName).json")
+        let launcherUrl = launcherScriptPath(under: homeDirectory)
         if fileManager.fileExists(atPath: manifestUrl.path) {
             try fileManager.removeItem(at: manifestUrl)
             log.info("Removed Chrome native messaging manifest at \(manifestUrl.path, privacy: .public)")
+        }
+        if fileManager.fileExists(atPath: launcherUrl.path) {
+            try fileManager.removeItem(at: launcherUrl)
+            log.info("Removed Chrome native messaging launcher at \(launcherUrl.path, privacy: .public)")
         }
     }
 
@@ -194,6 +211,42 @@ public enum NativeMessagingInstaller {
             .appendingPathComponent("Google", isDirectory: true)
             .appendingPathComponent("Chrome", isDirectory: true)
             .appendingPathComponent("NativeMessagingHosts", isDirectory: true)
+    }
+
+    /// Path to the launcher script referenced by the native messaging manifest.
+    ///
+    /// The script exports `VELLUM_ENVIRONMENT` before exec'ing the real helper
+    /// binary so Chrome-launched processes resolve the correct env-scoped
+    /// lockfile paths even when Chrome provides a minimal process environment.
+    internal static func launcherScriptPath(under homeDirectory: URL) -> URL {
+        manifestDirectory(under: homeDirectory)
+            .appendingPathComponent("\(hostName)-launcher.sh")
+    }
+
+    internal static func buildLauncherScriptContents(
+        helperBinaryPath: String,
+        vellumEnvironment: String?
+    ) -> String {
+        let escapedBinaryPath = shellSingleQuote(helperBinaryPath)
+        let envLine: String
+        if let rawEnv = vellumEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawEnv.isEmpty {
+            let escapedEnv = shellSingleQuote(rawEnv)
+            envLine = "if [ -z \"${VELLUM_ENVIRONMENT:-}\" ]; then export VELLUM_ENVIRONMENT=\(escapedEnv); fi"
+        } else {
+            envLine = ":"
+        }
+
+        return """
+#!/bin/sh
+set -e
+\(envLine)
+exec \(escapedBinaryPath) "$@"
+"""
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
 
     /// Runs `spctl -a -vv <path>` and returns `true` when Gatekeeper
