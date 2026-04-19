@@ -5,6 +5,7 @@ import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
 import { uiRequestRoute } from "./ui-request.js";
 import { wakeConversationRoute } from "./wake-conversation.js";
+import { watcherRoutes } from "./watcher.js";
 
 /** All built-in CLI IPC routes. */
 export const cliIpcRoutes: IpcRoute[] = [
@@ -14,4 +15,5 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...cacheRoutes,
   ...taskTemplateRoutes,
   ...taskQueueRoutes,
+  ...watcherRoutes,
 ];
