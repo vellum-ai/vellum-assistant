@@ -69,7 +69,7 @@ When the user wants to schedule something:
 Create and RSVP are **medium-risk** operations:
 
 - **Create**: The `create` subcommand gates on `assistant ui confirm` — it presents a confirmation dialog to the user and only proceeds if approved. Pass `--skip-confirm` when the user has already given explicit confirmation in the conversation.
-- **RSVP**: Before running the `rsvp` subcommand, request confirmation in the chat. Tell the user which event you're responding to and what response you'll send (accepted, declined, tentative), then wait for explicit approval before proceeding.
+- **RSVP**: The `rsvp` subcommand gates on `assistant ui confirm` — it presents a confirmation dialog showing the event, current status, and new response. Pass `--skip-confirm` when the user has already given explicit confirmation in the conversation.
 
 Confidence scores for medium-risk operations:
 
