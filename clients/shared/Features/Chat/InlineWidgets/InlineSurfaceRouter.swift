@@ -81,8 +81,8 @@ public struct InlineSurfaceRouter: View {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else if case .confirmation(let data) = surface.data {
             // Confirmations manage their own card chrome — collapse to a chip after user acts
-            let confirmId = surface.actions.first(where: { $0.style == .primary })?.id ?? "confirm"
-            let cancelId = surface.actions.first(where: { $0.style != .primary })?.id ?? "cancel"
+            let confirmId = surface.actions.first(where: { $0.style == .primary || $0.style == .destructive })?.id ?? "confirm"
+            let cancelId = surface.actions.first(where: { $0.style == .secondary })?.id ?? "cancel"
             ConfirmationSurfaceView(
                 data: data,
                 showCardChrome: true,
@@ -323,8 +323,8 @@ public struct InlineSurfaceRouter: View {
             }
             .id(surface.id)
         case .confirmation(let data):
-            let confirmId = surface.actions.first(where: { $0.style == .primary })?.id ?? "confirm"
-            let cancelId = surface.actions.first(where: { $0.style != .primary })?.id ?? "cancel"
+            let confirmId = surface.actions.first(where: { $0.style == .primary || $0.style == .destructive })?.id ?? "confirm"
+            let cancelId = surface.actions.first(where: { $0.style == .secondary })?.id ?? "cancel"
             ConfirmationSurfaceView(
                 data: data,
                 confirmActionId: confirmId,

@@ -83,10 +83,10 @@ public struct FormSurfaceView: View {
         .onAppear {
             initializeDefaults()
         }
-        .onChange(of: textValues) { _ in
+        .onChange(of: textValues) {
             validationErrors = []
         }
-        .onChange(of: selectValues) { _ in
+        .onChange(of: selectValues) {
             validationErrors = []
         }
     }
