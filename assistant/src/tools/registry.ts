@@ -230,6 +230,7 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
+    getExternalTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -242,6 +243,15 @@ export async function initializeTools(): Promise<void> {
 
   // Explicit tool instances - no side-effect import required.
   for (const tool of explicitTools) {
+    registerTool(tool);
+  }
+
+  // External skill tools — registered by skill bootstrap modules via
+  // `registerExternalTools()`. Called at init time (not spread into
+  // `explicitTools`) so registrations that happen between module-load
+  // and `initializeTools()` are picked up.
+  const externalTools = getExternalTools();
+  for (const tool of externalTools) {
     registerTool(tool);
   }
 
@@ -272,13 +282,14 @@ export async function initializeTools(): Promise<void> {
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in eagerModuleToolNames, explicitTools, or hostTools).
-  // This handles ESM cache hits where eager-module tools are already in
-  // the registry before init ran.
+  // (declared in eagerModuleToolNames, explicitTools, hostTools, or any
+  // registered external skill tool).  This handles ESM cache hits where
+  // eager-module tools are already in the registry before init ran.
   if (!coreToolsSnapshot) {
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
+      ...externalTools.map((t: Tool) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...cesTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),
