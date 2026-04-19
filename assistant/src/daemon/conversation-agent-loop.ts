@@ -133,6 +133,7 @@ import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
+import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -1083,6 +1084,20 @@ export async function runAgentLoopImpl(
       runMessages = preRunRepair.messages;
     }
 
+    // Replace historical web_search_tool_result blocks with text summaries.
+    // The opaque `encrypted_content` tokens Anthropic attaches to each result
+    // expire / are route-scoped; replaying a stale token is rejected with
+    // `Invalid encrypted_content in search_result block`. Titles + URLs
+    // preserve enough context for the model on follow-up turns.
+    const webSearchStrip = stripHistoricalWebSearchResults(runMessages);
+    if (webSearchStrip.stats.blocksStripped > 0) {
+      rlog.info(
+        { phase: "pre_run", ...webSearchStrip.stats },
+        "Converted historical web_search_tool_result blocks to text summaries",
+      );
+      runMessages = webSearchStrip.messages;
+    }
+
     let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
@@ -1298,7 +1313,9 @@ export async function runAgentLoopImpl(
       );
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
-      preRepairMessages = retryRepair.messages;
+      const retryStrip = stripHistoricalWebSearchResults(runMessages);
+      runMessages = retryStrip.messages;
+      preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
