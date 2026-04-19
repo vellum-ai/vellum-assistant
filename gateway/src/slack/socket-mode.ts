@@ -420,15 +420,27 @@ export class SlackSocketModeClient {
     const isMessageChangedRaw =
       event.type === "message" &&
       messageChangedEvent.subtype === "message_changed";
-    // Only accept message_changed in DMs or tracked bot threads — otherwise
-    // Slack unfurls (link previews) in random channels trigger the bot.
+    // Accept message_changed in DMs, tracked bot threads, or any channel
+    // the bot is explicitly subscribed to via a conversation_id routing
+    // entry. The routing-entry check keeps Slack unfurl (link preview)
+    // events in random channels from triggering the bot, while still
+    // surfacing edits made to any message in a configured channel so the
+    // daemon can correlate them with prior context.
+    const isSubscribedChannel =
+      !!messageChangedEvent.channel &&
+      this.config.gatewayConfig.routingEntries.some(
+        (entry) =>
+          entry.type === "conversation_id" &&
+          entry.key === messageChangedEvent.channel,
+      );
     const isMessageChanged =
       isMessageChangedRaw &&
       (messageChangedEvent.channel_type === "im" ||
         (!!messageChangedEvent.message?.thread_ts &&
           this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
         (!!messageChangedEvent.message?.ts &&
-          this.store.hasThread(messageChangedEvent.message.ts)));
+          this.store.hasThread(messageChangedEvent.message.ts)) ||
+        isSubscribedChannel);
     const isDm =
       event.type === "message" &&
       !isMessageChanged &&
