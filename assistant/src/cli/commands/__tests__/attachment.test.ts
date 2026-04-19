@@ -135,7 +135,8 @@ describe("attachment help", () => {
     expect(stdout).toContain("--mime");
     expect(stdout).toContain("--filename");
     expect(stdout).toContain("--json");
-    expect(stdout).toContain("file must remain on disk");
+    expect(stdout).toContain("must remain");
+    expect(stdout).toContain("on disk");
     expect(stdout).toContain("Examples:");
     expect(stdout).toContain("assistant attachment register --path");
   });

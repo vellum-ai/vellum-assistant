@@ -17,6 +17,7 @@ import { z } from "zod";
 import {
   getFilePathBySourcePath,
   uploadFileBackedAttachment,
+  validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import type { IpcRoute } from "../cli-server.js";
 
@@ -41,12 +42,26 @@ function handleAttachmentRegister(params?: Record<string, unknown>) {
   let sizeBytes: number;
   try {
     const stat = statSync(path);
+    if (!stat.isFile()) {
+      throw new Error(
+        `Path is not a regular file: ${path}. Provide a path to a file, not a directory.`,
+      );
+    }
     sizeBytes = stat.size;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Path is not")) {
+      throw err;
+    }
     throw new Error(`File not found: ${path}`);
   }
 
   const resolvedFilename = filename ?? basename(path);
+
+  const validation = validateAttachmentUpload(resolvedFilename, mimeType);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
   return uploadFileBackedAttachment(
     resolvedFilename,
     mimeType,

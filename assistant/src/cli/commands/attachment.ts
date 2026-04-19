@@ -105,6 +105,7 @@ Examples:
         if (jsonOutput) {
           writeOutput(cmd, { ok: true, ...record });
         } else {
+          process.stdout.write(`${record.id}\n`);
           log.info(`Attachment registered: ${record.id}`);
           log.info(`  Filename: ${record.originalFilename}`);
           log.info(`  MIME:     ${record.mimeType}`);
