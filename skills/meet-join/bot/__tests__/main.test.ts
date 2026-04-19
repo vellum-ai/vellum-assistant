@@ -162,6 +162,9 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     xvfbDisplay: ":99",
     chromeUserDataRoot: "/tmp/chrome-profile",
     avatarEnabled: false,
+    avatarRenderer: "noop",
+    avatarConfigJson: undefined,
+    avatarDevicePath: undefined,
   };
 
   const daemonClient: DaemonClientLike = {

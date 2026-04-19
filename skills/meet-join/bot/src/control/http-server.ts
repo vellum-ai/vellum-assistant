@@ -9,6 +9,9 @@
  *   - `POST /send_chat`               — post a chat message into the Meet chat panel.
  *   - `POST /play_audio`              — stream raw PCM into pacat (Phase 3).
  *   - `DELETE /play_audio/:streamId`  — cancel an in-flight playback (barge-in).
+ *   - `POST /avatar/enable`           — start the configured avatar renderer + wire its frames to `/dev/video10`.
+ *   - `POST /avatar/disable`          — tear down the renderer + detach the device writer.
+ *   - `POST /avatar/viseme`           — forward a viseme event into the active renderer (no-op when disabled).
  *
  * Every mutating route validates its body against the corresponding Zod
  * schema from the contracts barrel so command shapes stay in sync with
@@ -27,6 +30,17 @@ import {
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 
+import {
+  attachDeviceWriter,
+  AvatarRendererUnavailableError,
+  resolveAvatarRenderer,
+  type AvatarConfig,
+  type AvatarRenderer,
+  type DeviceWriterHandle,
+  type VisemeEvent,
+} from "../media/avatar/index.js";
+import type { VideoDeviceHandle } from "../media/video-device.js";
+import { openVideoDevice as defaultOpenVideoDevice } from "../media/video-device.js";
 import {
   startAudioPlayback,
   type AudioPlaybackHandle,
@@ -88,6 +102,61 @@ export interface CreateHttpServerOptions extends HttpServerCallbacks {
    * child process.
    */
   playbackSpawnOptions?: StartAudioPlaybackOptions;
+  /**
+   * Avatar-subsystem options. When absent, the `/avatar/*` routes still
+   * mount (the surface is always present for a consistent API) but every
+   * route returns 503 with an "avatar disabled" body, so callers that
+   * POST to `/avatar/enable` get a clear error rather than silent
+   * success. Populated by `main.ts` at boot when the avatar feature is
+   * opted into via `AVATAR_ENABLED=1`.
+   */
+  avatar?: HttpServerAvatarOptions;
+}
+
+/**
+ * Configuration handed to `createHttpServer` when the avatar subsystem
+ * is available. Mirrors the dependency-injection pattern the rest of
+ * the bot uses so tests can stub out the registry, the device opener,
+ * and the config without touching real v4l2 devices.
+ */
+export interface HttpServerAvatarOptions {
+  /**
+   * Fully-resolved `services.meet.avatar.*` config block the daemon
+   * passed down via env vars. Contains at least `renderer` + `enabled`;
+   * renderer-specific sub-objects are accessed by name inside each
+   * factory. Credentials are already resolved to raw values (the bot
+   * has no vault access) so any credential field in this object is
+   * safe to read directly.
+   */
+  config: AvatarConfig;
+  /**
+   * Renderer-resolver override. Defaults to
+   * {@link resolveAvatarRenderer}; tests swap in a lambda that returns
+   * a `FakeAvatarRenderer` so the HTTP flow can be exercised without
+   * registering a real backend.
+   */
+  resolveRenderer?: (
+    config: AvatarConfig,
+  ) => AvatarRenderer | null;
+  /**
+   * Device opener override. Defaults to
+   * {@link defaultOpenVideoDevice}; tests provide a shim that returns
+   * an in-memory sink so `/avatar/enable` can run without a real
+   * `/dev/video10` on the test host. When absent, the default is used.
+   */
+  openDevice?: (devicePath: string) => Promise<VideoDeviceHandle>;
+  /**
+   * Explicit device path override. When absent, the runtime falls
+   * back to whatever default the device opener uses (today
+   * `/dev/video10`).
+   */
+  devicePath?: string;
+  /**
+   * Maximum FPS cap applied to renderer output before it reaches the
+   * device sink. Defaults to the module default; kept configurable so
+   * tests can validate FPS-gating behavior.
+   */
+  maxFps?: number;
 }
 
 export interface HttpServerHandle {
@@ -130,8 +199,18 @@ export function createHttpServer(
     onPlayAudio,
     startPlayback,
     playbackSpawnOptions,
+    avatar,
   } = options;
   const playbackFactory = startPlayback ?? startAudioPlayback;
+
+  // Avatar state — nulls when the subsystem isn't active. Guarded by a
+  // serialization lock (`avatarMutationChain`) so concurrent `/avatar/enable`
+  // + `/avatar/disable` requests can't interleave a half-torn-down renderer
+  // with a fresh one.
+  let avatarRenderer: AvatarRenderer | null = null;
+  let avatarDeviceHandle: VideoDeviceHandle | null = null;
+  let avatarDeviceWriter: DeviceWriterHandle | null = null;
+  let avatarMutationChain: Promise<unknown> = Promise.resolve();
 
   const activeStreams = new Map<string, ActiveStream>();
 
@@ -472,6 +551,250 @@ export function createHttpServer(
   });
 
   // -------------------------------------------------------------------------
+  // POST /avatar/viseme — forward a viseme event to the active renderer.
+  //
+  // Body shape must match `VisemeEvent` from
+  // `../media/avatar/types.ts` — the same shape the daemon's
+  // `tts-lipsync.ts` forwarder POSTs. When no renderer is active (the
+  // feature is off, or `/avatar/enable` has not yet been called), the
+  // event is dropped with a 200 so the forwarder doesn't buffer /
+  // retry. When the active renderer advertises `needsVisemes: false`,
+  // the event is similarly dropped without calling the renderer — the
+  // drop is cheap enough that the branch is just a belt-and-suspenders
+  // gate in case a renderer forgets to self-check.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/viseme", async (c) => {
+    const body = await readJson(c);
+    const parsed = parseVisemeEvent(body);
+    if (!parsed) {
+      return c.json({ error: "invalid viseme event body" }, 400);
+    }
+    // Drop silently when the renderer isn't active. Keeping a 200 here
+    // means the daemon's fire-and-forget forwarder doesn't flood retry
+    // traffic against a bot that simply hasn't flipped the renderer on.
+    if (!avatarRenderer) {
+      return c.json({ dispatched: false }, 200);
+    }
+    if (!avatarRenderer.capabilities.needsVisemes) {
+      return c.json({ dispatched: false }, 200);
+    }
+    try {
+      avatarRenderer.pushViseme(parsed);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { dispatched: false, error: `pushViseme threw: ${message}` },
+        500,
+      );
+    }
+    return c.json({ dispatched: true }, 200);
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /avatar/enable — start the configured renderer + attach the
+  // device writer. Concurrency-safe via `avatarMutationChain` so racing
+  // enables don't produce two live renderers on one device.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/enable", async (c) => {
+    if (!avatar) {
+      return c.json(
+        {
+          enabled: false,
+          error: "avatar subsystem disabled (AVATAR_ENABLED not set)",
+        },
+        503,
+      );
+    }
+    const previous = avatarMutationChain;
+    let release!: (v: unknown) => void;
+    avatarMutationChain = new Promise((resolve) => {
+      release = resolve;
+    });
+    try {
+      await previous;
+    } catch {
+      // A prior mutation failed; we still hold the lock and can proceed.
+    }
+    try {
+      // Idempotent: if a renderer is already running, just return
+      // success so the daemon's retry path doesn't thrash the device.
+      if (avatarRenderer) {
+        return c.json(
+          {
+            enabled: true,
+            renderer: avatarRenderer.id,
+            alreadyRunning: true,
+          },
+          200,
+        );
+      }
+
+      let renderer: AvatarRenderer | null;
+      try {
+        const resolveFn =
+          avatar.resolveRenderer ?? ((config) => resolveAvatarRenderer(config, {}));
+        renderer = resolveFn(avatar.config);
+      } catch (err) {
+        if (err instanceof AvatarRendererUnavailableError) {
+          return c.json(
+            {
+              enabled: false,
+              renderer: err.rendererId,
+              error: err.reason,
+            },
+            503,
+          );
+        }
+        throw err;
+      }
+
+      // `null` means "noop / disabled at config level" — return 200
+      // because the feature is behaving as configured. No device
+      // attachment happens, and the bot's camera track stays absent
+      // (identical to phase 3 behavior).
+      if (!renderer) {
+        return c.json(
+          {
+            enabled: true,
+            renderer: "noop",
+            active: false,
+          },
+          200,
+        );
+      }
+
+      // Start the renderer BEFORE opening the device so a
+      // construction-time `AvatarRendererUnavailableError` thrown
+      // from `start()` doesn't leak a held file descriptor.
+      try {
+        await renderer.start();
+      } catch (err) {
+        if (err instanceof AvatarRendererUnavailableError) {
+          return c.json(
+            {
+              enabled: false,
+              renderer: err.rendererId,
+              error: err.reason,
+            },
+            503,
+          );
+        }
+        throw err;
+      }
+
+      const openDeviceFn = avatar.openDevice ?? defaultOpenVideoDevice;
+      let deviceHandle: VideoDeviceHandle;
+      try {
+        deviceHandle = avatar.devicePath
+          ? await openDeviceFn(avatar.devicePath)
+          : await openDeviceFn("/dev/video10");
+      } catch (err) {
+        // If the device couldn't be opened, tear the renderer down so
+        // we don't leak a live GPU session or tab.
+        await renderer.stop().catch(() => {});
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json(
+          {
+            enabled: false,
+            renderer: renderer.id,
+            error: `failed to open avatar device: ${message}`,
+          },
+          503,
+        );
+      }
+
+      const writer = attachDeviceWriter({
+        renderer,
+        sink: deviceHandle.sink,
+        maxFps: avatar.maxFps,
+      });
+
+      avatarRenderer = renderer;
+      avatarDeviceHandle = deviceHandle;
+      avatarDeviceWriter = writer;
+
+      return c.json(
+        {
+          enabled: true,
+          renderer: renderer.id,
+          active: true,
+          devicePath: deviceHandle.devicePath,
+        },
+        200,
+      );
+    } finally {
+      release(undefined);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /avatar/disable — detach the writer, stop the renderer, close
+  // the device. Idempotent: returns 200 even when nothing is running.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/disable", async (c) => {
+    if (!avatar) {
+      return c.json(
+        {
+          disabled: true,
+          reason: "avatar subsystem disabled (AVATAR_ENABLED not set)",
+        },
+        200,
+      );
+    }
+    const previous = avatarMutationChain;
+    let release!: (v: unknown) => void;
+    avatarMutationChain = new Promise((resolve) => {
+      release = resolve;
+    });
+    try {
+      await previous;
+    } catch {
+      /* previous mutation error; proceed with teardown */
+    }
+    try {
+      const writer = avatarDeviceWriter;
+      const device = avatarDeviceHandle;
+      const renderer = avatarRenderer;
+
+      avatarDeviceWriter = null;
+      avatarDeviceHandle = null;
+      avatarRenderer = null;
+
+      // Teardown order (reverse of setup): writer → device → renderer.
+      if (writer) {
+        try {
+          writer.stop();
+        } catch {
+          /* best-effort */
+        }
+      }
+      if (device) {
+        await device.close().catch(() => {
+          /* best-effort */
+        });
+      }
+      if (renderer) {
+        await renderer.stop().catch(() => {
+          /* best-effort */
+        });
+      }
+
+      return c.json(
+        {
+          disabled: true,
+          wasActive: renderer !== null,
+        },
+        200,
+      );
+    } finally {
+      release(undefined);
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // Lifecycle — Bun's native server as the listener.
   // -------------------------------------------------------------------------
 
@@ -513,4 +836,34 @@ async function readJson(c: Context): Promise<unknown> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Validate `/avatar/viseme` request bodies against the `VisemeEvent`
+ * shape declared in `../media/avatar/types.ts` without bringing zod
+ * into the bot's runtime surface. The avatar module is deliberately
+ * schema-free (it's shared with hosted renderer factories that may
+ * run in sandboxed environments), so we hand-roll the predicate here.
+ *
+ * Accepts `phoneme: string`, `weight: number`, `timestamp: number`.
+ * Returns `null` for any shape mismatch so the route can reply with a
+ * generic 400 — the daemon's `tts-lipsync.ts` forwarder already tolerates
+ * 4xx/5xx from this route, so surfacing specific issues isn't worth the
+ * extra surface.
+ */
+function parseVisemeEvent(body: unknown): VisemeEvent | null {
+  if (!body || typeof body !== "object") return null;
+  const raw = body as Record<string, unknown>;
+  if (typeof raw.phoneme !== "string") return null;
+  if (typeof raw.weight !== "number" || !Number.isFinite(raw.weight)) {
+    return null;
+  }
+  if (typeof raw.timestamp !== "number" || !Number.isFinite(raw.timestamp)) {
+    return null;
+  }
+  return {
+    phoneme: raw.phoneme,
+    weight: raw.weight,
+    timestamp: raw.timestamp,
+  };
 }
