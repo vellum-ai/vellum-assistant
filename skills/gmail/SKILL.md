@@ -38,6 +38,8 @@ All operations use CLI scripts that return JSON:
 | `gmail-prefs.ts`   | `add-safelist`     | Add sender emails to the safelist                                            |
 | `gmail-prefs.ts`   | `remove-blocklist` | Remove sender emails from the blocklist                                      |
 | `gmail-prefs.ts`   | `remove-safelist`  | Remove sender emails from the safelist                                       |
+| `gmail-prefs.ts`   | `get-management-config` | Get inbox management config (stage, interrupt threshold, last run)      |
+| `gmail-prefs.ts`   | `set-management-config` | Update inbox management config (--stage, --interrupt-threshold, --last-run) |
 
 ### Email Operations
 
