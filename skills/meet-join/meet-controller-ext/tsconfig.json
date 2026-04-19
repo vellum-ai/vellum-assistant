@@ -9,10 +9,15 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "lib": ["ES2022", "DOM"],
-    "types": ["bun", "chrome"],
-    "outDir": "./dist",
-    "rootDir": "."
+    "types": ["chrome", "bun"],
+    "noEmit": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*",
+    "../contracts/index.ts",
+    "../contracts/native-messaging.ts",
+    "../contracts/events.ts",
+    "../contracts/commands.ts"
+  ],
+  "exclude": ["node_modules", "dist", "../contracts/__tests__/**"]
 }
