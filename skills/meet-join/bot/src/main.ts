@@ -188,6 +188,19 @@ export interface BotDeps {
   logError: (msg: string) => void;
   /** Milliseconds to wait for the extension's `ready` handshake. */
   extensionReadyTimeoutMs: number;
+  /**
+   * Milliseconds to wait for the extension to reach `lifecycle:joined` (or
+   * emit `lifecycle:error`) after the bot dispatches the `join` command.
+   * If nothing arrives in this window, assume Chrome never landed on a
+   * Meet tab (restore-session dialog, redirect loop, non-Meet URL, etc.)
+   * and shut down with `lifecycle:error` rather than sitting in
+   * `phase=joining` indefinitely.
+   *
+   * The default (120s) gives the prejoin flow enough slack for the Meet
+   * "ask to join" → host admission cycle, on top of the separate 30s
+   * `extensionReadyTimeoutMs` that bounds the earlier handshake.
+   */
+  extensionJoinedTimeoutMs: number;
   /** Milliseconds before a `send_chat` request times out with a failure. */
   sendChatTimeoutMs: number;
   /** Grace period after sending `leave` for the extension to animate out. */
@@ -234,6 +247,7 @@ export function defaultDeps(): BotDeps {
     logInfo: (msg) => console.log(msg),
     logError: (msg) => console.error(msg),
     extensionReadyTimeoutMs: 30_000,
+    extensionJoinedTimeoutMs: 120_000,
     sendChatTimeoutMs: 10_000,
     leaveGraceMs: 2_000,
     generateRequestId: () => randomUUID(),
@@ -361,6 +375,18 @@ export async function runBot(deps: BotDeps): Promise<void> {
   let shutdownInProgress = false;
   let shutdownDonePromise: Promise<void> | null = null;
 
+  // Timer armed after `join` is dispatched that trips shutdown if the
+  // extension never reaches `lifecycle:joined` / `lifecycle:error`. Cleared
+  // from the lifecycle-message handler and on shutdown. See the timer
+  // setup site below for full rationale.
+  let extensionJoinedTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearExtensionJoinedTimer = (): void => {
+    if (extensionJoinedTimer) {
+      clearTimeout(extensionJoinedTimer);
+      extensionJoinedTimer = null;
+    }
+  };
+
   /**
    * Graceful shutdown. Tears down subsystems in the reverse order of
    * startup: HTTP → tell the extension to leave → Chrome → audio →
@@ -378,6 +404,9 @@ export async function runBot(deps: BotDeps): Promise<void> {
     shutdownInProgress = true;
     shutdownDonePromise = (async () => {
       BotState.setPhase(finalState === "error" ? "error" : "leaving");
+
+      // Any in-flight join-deadline timer is now moot.
+      clearExtensionJoinedTimer();
 
       // Reject any pending send_chat promises so the HTTP handlers unblock
       // with a clear error rather than hanging until their own timer fires.
@@ -611,7 +640,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
     } catch (err) {
       const msg = errMsg(err);
       deps.logError(`meet-bot: ${msg}`);
-      await shutdown("error", "extension never signaled ready");
+      await shutdown("error", `extension never signaled ready: ${msg}`);
       detachSigterm();
       detachSigint();
       deps.exit(1);
@@ -632,12 +661,31 @@ export async function runBot(deps: BotDeps): Promise<void> {
     } catch (err) {
       const msg = errMsg(err);
       deps.logError(`meet-bot: failed to send join to extension: ${msg}`);
-      await shutdown("error", msg);
+      await shutdown("error", `failed to send join to extension: ${msg}`);
       detachSigterm();
       detachSigint();
       deps.exit(1);
       return;
     }
+
+    // Arm the extension-joined deadline. `waitForReady` guarantees the
+    // extension is alive, but it doesn't guarantee Chrome actually landed
+    // on a Meet tab — a restore-session dialog or a redirect loop leaves
+    // the content script unmounted and the background bridge silently
+    // drops the `join` relay. Without this timer the bot would sit in
+    // `phase=joining` indefinitely. The lifecycle message handler clears
+    // `extensionJoinedTimer` on `joined` / `error`; the clear is idempotent
+    // so repeated events are safe.
+    extensionJoinedTimer = setTimeout(() => {
+      if (shutdownInProgress) return;
+      const detail = `extension did not reach joined state within ${deps.extensionJoinedTimeoutMs}ms`;
+      deps.logError(`meet-bot: ${detail}`);
+      void shutdown("error", detail).then(() => {
+        detachSigterm();
+        detachSigint();
+        deps.exit(1);
+      });
+    }, deps.extensionJoinedTimeoutMs);
 
     // Short settle before wiring up the audio pipeline so the page has a
     // moment to render after admission. The extension will emit its own
@@ -703,9 +751,20 @@ export async function runBot(deps: BotDeps): Promise<void> {
         if (state === "joined") BotState.setPhase("joined");
         if (state === "error") BotState.setPhase("error");
         if (state === "left") BotState.setPhase("leaving");
+        // Clear the extension-joined deadline as soon as the extension
+        // reaches a terminal post-prejoin state. Idempotent.
+        if (state === "joined" || state === "error") {
+          clearExtensionJoinedTimer();
+        }
+        // Rewrite meetingId to the authoritative UUID from env. The
+        // extension derives its `meetingId` from `location.pathname` (the
+        // Meet URL code, e.g. `abc-defg-hij`), but the daemon keys
+        // sessions by the UUID passed via `MEETING_ID` env. Stamping here
+        // at the bot boundary keeps the extension simple while ensuring
+        // every daemon-facing event correlates to the correct session.
         publishLifecycle(
           subsystems.daemonClient,
-          msg.meetingId,
+          meetingId,
           state,
           deps,
           msg.detail,
@@ -715,7 +774,11 @@ export async function runBot(deps: BotDeps): Promise<void> {
       case "participant.change":
       case "speaker.change":
       case "chat.inbound":
-        if (subsystems.daemonClient) subsystems.daemonClient.enqueue(msg);
+        // Belt-and-suspenders: overwrite meetingId with the authoritative
+        // UUID before forwarding. See lifecycle case above for rationale.
+        if (subsystems.daemonClient) {
+          subsystems.daemonClient.enqueue({ ...msg, meetingId });
+        }
         return;
       case "diagnostic":
         if (msg.level === "error") deps.logError(`[ext] ${msg.message}`);
