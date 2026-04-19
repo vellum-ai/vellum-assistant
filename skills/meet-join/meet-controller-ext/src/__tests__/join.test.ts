@@ -360,6 +360,206 @@ describe("runJoinFlow (content-script port)", () => {
     expect(trustedClick!.y).toBe(620);
   });
 
+  test("trusted_click adds window screenX/screenY when the window is not at screen origin", async () => {
+    // Exercises a second monitor / tiled window scenario: the browser
+    // window sits at (screenX=150, screenY=80) relative to the X screen
+    // origin. The admission button's screen coordinates must include that
+    // offset, otherwise xdotool would click empty space at (clientX,
+    // clientY) on the wrong monitor. Production Xvfb always pins the
+    // window to 0,0 so this case is not hit today, but a desktop Chromium
+    // run (e.g. for a developer repro) could land here.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    const btn = doc.querySelector(
+      selectors.PREJOIN_JOIN_NOW_BUTTON,
+    ) as HTMLElement;
+    btn.getBoundingClientRect = () =>
+      ({
+        left: 900,
+        top: 500,
+        width: 200,
+        height: 40,
+        right: 1100,
+        bottom: 540,
+        x: 900,
+        y: 500,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-screen-offset",
+        onEvent: (e) => events.push(e),
+        doc,
+        // Window is offset from screen origin; chrome is 100px tall.
+        // Expected: x = 150 + 1000 = 1150, y = 80 + 100 + 520 = 700.
+        window: {
+          screenX: 150,
+          screenY: 80,
+          outerHeight: 820,
+          innerHeight: 720,
+        },
+      });
+    } finally {
+      restore();
+    }
+
+    const trustedClick = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "trusted_click",
+    ) as { type: string; x: number; y: number } | undefined;
+    expect(trustedClick).toBeDefined();
+    expect(trustedClick!.x).toBe(1150);
+    expect(trustedClick!.y).toBe(700);
+  });
+
+  test("trusted_click adds no chrome offset when outerHeight equals innerHeight", async () => {
+    // Kiosk / fullscreen / JSDOM-style windows report `outerHeight ==
+    // innerHeight` (no browser chrome). The computed screen coords must
+    // equal the raw client coords (plus screenX/Y, which are 0 here) —
+    // any positive chrome offset in this case is a bug.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    const btn = doc.querySelector(
+      selectors.PREJOIN_JOIN_NOW_BUTTON,
+    ) as HTMLElement;
+    btn.getBoundingClientRect = () =>
+      ({
+        left: 900,
+        top: 500,
+        width: 200,
+        height: 40,
+        right: 1100,
+        bottom: 540,
+        x: 900,
+        y: 500,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-no-chrome",
+        onEvent: (e) => events.push(e),
+        doc,
+        // No chrome, window at screen origin. Expected = raw rect center:
+        // x = 1000, y = 520.
+        window: {
+          screenX: 0,
+          screenY: 0,
+          outerHeight: 720,
+          innerHeight: 720,
+        },
+      });
+    } finally {
+      restore();
+    }
+
+    const trustedClick = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "trusted_click",
+    ) as { type: string; x: number; y: number } | undefined;
+    expect(trustedClick).toBeDefined();
+    expect(trustedClick!.x).toBe(1000);
+    expect(trustedClick!.y).toBe(520);
+  });
+
+  test("trusted_click documents the devtools-docked-bottom gap", async () => {
+    // KNOWN GAP — not a fix. When devtools are docked to the *bottom* of
+    // the window, Chromium reports `outerHeight > innerHeight` because of
+    // the devtools panel below the viewport. The current math assumes the
+    // entire `outerHeight - innerHeight` delta is TOP chrome and adds it
+    // to screenY, which would push the click past the admission button
+    // into (or below) the devtools surface. The production Xvfb container
+    // never opens devtools, so this is documentation-only: if the
+    // assumption ever breaks, this test pins the current (mis-)behavior
+    // so the regression is explicit rather than silent. Do not "fix" this
+    // in isolation — see the comment block in `join.ts`.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    const btn = doc.querySelector(
+      selectors.PREJOIN_JOIN_NOW_BUTTON,
+    ) as HTMLElement;
+    btn.getBoundingClientRect = () =>
+      ({
+        left: 900,
+        top: 500,
+        width: 200,
+        height: 40,
+        right: 1100,
+        bottom: 540,
+        x: 900,
+        y: 500,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-devtools-bottom",
+        onEvent: (e) => events.push(e),
+        doc,
+        // Simulate devtools docked to the bottom: outerHeight is inflated
+        // by 300px that sits BELOW the viewport, not above it. The
+        // current math treats it as TOP chrome — y becomes 500 + 300 +
+        // 20 = 820 instead of the correct 520.
+        window: {
+          screenX: 0,
+          screenY: 0,
+          outerHeight: 1020,
+          innerHeight: 720,
+        },
+      });
+    } finally {
+      restore();
+    }
+
+    const trustedClick = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "trusted_click",
+    ) as { type: string; x: number; y: number } | undefined;
+    expect(trustedClick).toBeDefined();
+    // Pins the known-mismeasured behavior. If the math is ever updated
+    // to distinguish top vs bottom chrome, this expectation must be
+    // updated to 520 and the comment above deleted.
+    expect(trustedClick!.x).toBe(1000);
+    expect(trustedClick!.y).toBe(820);
+  });
+
   test("falls back to Ask to join when Join now is absent", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);

@@ -229,12 +229,45 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   //   screenX = window.screenX + clientX
   //   screenY = window.screenY + (outerHeight - innerHeight) + clientY
   //
-  // `outerHeight - innerHeight` is the browser-chrome vertical offset
-  // (address bar + tab strip + any info-bar) that sits above the viewport.
   // We still dispatch the JS `.click()` afterwards because (a) it's free,
   // (b) the jsdom test harness exercises that path, and (c) any Meet build
   // that ever relaxes the `isTrusted` check would start working again
   // automatically.
+  //
+  // ---------------------------------------------------------------------
+  // ASSUMPTIONS — this math holds for the production Xvfb + Chromium
+  // configuration set up by `bot/src/browser/chrome-launcher.ts`:
+  //
+  //   - `--window-position=0,0` (window pinned to screen origin so
+  //     `screenX === 0` and `screenY === 0` in practice).
+  //   - No bottom chrome. We treat `outerHeight - innerHeight` as the TOP
+  //     chrome offset, which is only correct when there is no downloads
+  //     bar, no bottom-docked devtools, and no permission info-bar below
+  //     the viewport. If any of those appear, `outerHeight - innerHeight`
+  //     lumps ALL chrome together and we over-count the top offset.
+  //   - No side chrome. We ignore `outerWidth - innerWidth` entirely.
+  //     Our Xvfb container never renders side panels; a desktop Chromium
+  //     with a side panel pinned would need a matching `chromeOffsetX`.
+  //   - No fractional DPI scaling. We assume CSS px == X-server px.
+  //     Xvfb defaults to DPI 96 and we do not set a device scale factor.
+  //
+  // Drift signal: if bot-side xdotool clicks start landing above or to
+  // the side of the admission button, inspect the live `screen=(x,y)`
+  // diagnostic below against a screenshot and audit the assumptions above.
+  //
+  // MDN footnote: per the spec, `Window.screenX` / `Window.screenY` are
+  // the distance from the top-left of the *viewport* (not the browser
+  // window) to the top-left of the screen. Read literally, that would
+  // make the `(outerHeight - innerHeight)` term a double-count. In
+  // practice Chromium under Xvfb with `--window-position=0,0` reports
+  // `screenX === screenY === 0` — so the additive chrome offset is what
+  // actually shifts the coord from client-space down past the address bar
+  // / tab strip. Live evidence: `screen=(1014,536)` for the admission
+  // button matched its on-screen pixel position in PR 26602. Do not
+  // "correct" this math based on the MDN reading alone — run a headed
+  // sibling Chromium (different OS window manager) and re-instrument
+  // before changing it.
+  // ---------------------------------------------------------------------
   const rect = (admissionBtn as HTMLElement).getBoundingClientRect();
   const win = opts.window ?? (doc.defaultView ?? globalThis);
   const chromeOffsetY = Math.max(
