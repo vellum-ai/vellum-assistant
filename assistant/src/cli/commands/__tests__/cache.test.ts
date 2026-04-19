@@ -294,9 +294,9 @@ describe("TTL parsing", () => {
     mockStdinContent = "1";
     mockIpcResult = { ok: true, result: { key: "k" } };
 
-    await runCommand(["cache", "set", "--ttl", "500ms"]);
+    await runCommand(["cache", "set", "--ttl", "1000ms"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(500);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
   });
 
   test("parses seconds", async () => {
@@ -359,6 +359,63 @@ describe("TTL parsing", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --ttl");
+  });
+
+  test("rejects sub-second TTL (100ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "100ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects sub-second TTL (500ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "500ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects sub-second TTL (999ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "999ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("accepts exactly 1000ms", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1000ms"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+  });
+
+  test("accepts 1s", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1s"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+  });
+
+  test("accepts 1500ms (resolves to >= 1s)", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1500ms"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1500);
+  });
+
+  test("--json outputs error on sub-second TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "set",
+      "--ttl",
+      "500ms",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("at least 1s");
   });
 
   test("rejects empty string TTL", async () => {
