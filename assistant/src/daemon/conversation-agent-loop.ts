@@ -133,7 +133,6 @@ import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
 import { deepRepairHistory, repairHistory } from "./history-repair.js";
-import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -143,6 +142,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
 

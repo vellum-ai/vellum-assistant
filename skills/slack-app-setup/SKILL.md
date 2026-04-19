@@ -122,11 +122,11 @@ Now that all three credentials are stored, trigger the automated OAuth install. 
 
 Tell the user: "Opening your browser now — just select your workspace and click **Allow** to install the app."
 
-Then call the daemon's OAuth install endpoint:
+Then call the OAuth install endpoint via the gateway:
 
 ```
 bash {
-  command: "curl -s -X POST http://localhost:${RUNTIME_HTTP_PORT}/v1/integrations/slack/channel/oauth-install -H 'Content-Type: application/json'"
+  command: "curl -s -X POST ${INTERNAL_GATEWAY_BASE_URL}/v1/integrations/slack/channel/oauth-install -H 'Content-Type: application/json'"
   activity: "to run the Slack OAuth install flow"
   timeout: 360000
 }
@@ -231,4 +231,4 @@ If the OAuth flow fails or times out, re-run Step 3d. Ensure:
 
 ## Clearing Credentials
 
-To disconnect Slack, prefer the Settings UI path so the same Slack settings handler clears both secure tokens and workspace metadata together.
+To disconnect Slack, prefer the Settings UI path so the same Slack settings handler used by Settings clears both secure tokens and workspace metadata together.
