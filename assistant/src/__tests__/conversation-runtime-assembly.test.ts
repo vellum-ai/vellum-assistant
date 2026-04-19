@@ -2447,11 +2447,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("should not appear");
   });
 
-  // ── Branch isolation: DMs (chatType === "im") bypass channel rendering ──
-  // The runtime-assembly hook keys the override on `isSlackChannelConversation`
-  // (channel === slack AND chatType !== im), so DMs intentionally fall
-  // through even when the caller passes a chronological transcript.
-  test("slack DMs (chatType im) bypass channel chronological rendering", async () => {
+  // ── DMs (chatType === "im") use chronological rendering ────────────────
+  // The runtime-assembly hook overrides `runMessages` for any Slack
+  // conversation (channels and DMs alike). DMs render flat (no thread
+  // tags), but they DO swap in the pre-assembled chronological transcript
+  // so the model sees one consistent persisted view.
+  test("slack DMs (chatType im) use chronological rendering", async () => {
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
@@ -2467,17 +2468,27 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       slackChronologicalMessages: [
         {
           role: "user",
-          content: [{ type: "text", text: "should not appear in DM" }],
+          content: [
+            { type: "text", text: "[14:25 @alice]: earlier DM line" },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "[14:26 @assistant]: prior reply" }],
         },
       ],
     });
-    expect(result.length).toBe(1);
-    const allText = result[0].content
+    // The chronological transcript REPLACES the default runMessages, so
+    // the inbound `DM question` text does not appear — only the rendered
+    // transcript lines do (plus any non-Slack injections).
+    const allText = result
+      .flatMap((m) => m.content)
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    expect(allText).toContain("DM question");
-    expect(allText).not.toContain("should not appear in DM");
+    expect(allText).toContain("earlier DM line");
+    expect(allText).toContain("prior reply");
+    expect(allText).not.toContain("DM question");
   });
 
   // ── transport_hints suppression for slack channels ────────────────────
@@ -2988,6 +2999,29 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     );
     expect(result).toBeNull();
   });
+
+  test("loadSlackActiveThreadFocusBlock returns null for Slack DMs (no threads)", () => {
+    // DMs do not have threads, so the focus block is always a no-op.
+    // The loader short-circuits before invoking the row loader so the
+    // DB read is skipped entirely.
+    let loaderCalls = 0;
+    const result = loadSlackActiveThreadFocusBlock(
+      "conv-1",
+      {
+        channel: "slack",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "im",
+      },
+      () => {
+        loaderCalls += 1;
+        return [];
+      },
+    );
+    expect(result).toBeNull();
+    expect(loaderCalls).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -3048,6 +3082,25 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
       chatType: "private",
     });
     expect(result).toBeNull();
+  });
+
+  test("returns null for Slack DMs (chatType im) regardless of rows", () => {
+    // DMs do not have threads. Even if a caller mistakenly passes thread-
+    // looking metadata, the assembler short-circuits before scanning rows.
+    const dmCaps: ChannelCapabilities = { ...SLACK_CAPS, chatType: "im" };
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "thread-shaped row in a DM",
+        1_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    expect(assembleSlackActiveThreadFocusBlock(rows, dmCaps)).toBeNull();
   });
 
   test("returns null when no rows have slackMeta", () => {
@@ -3234,10 +3287,10 @@ describe("assembleSlackChronologicalMessages", () => {
   });
 
   test("renders for Slack channels (chatType !== 'im')", () => {
-    // The channel branch and the DM branch share this assembler. The
-    // wiring in `applyRuntimeInjections` decides whether to actually
-    // override `runMessages` based on `isSlackChannelConversation`; the
-    // assembler itself returns rendered messages for any Slack channel.
+    // The channel branch and the DM branch share this assembler.
+    // `applyRuntimeInjections` swaps in the chronological transcript for
+    // any Slack conversation (channels and DMs alike); the assembler
+    // itself returns rendered messages for any Slack channel.
     const channelCaps: ChannelCapabilities = {
       ...DM_CAPS,
       chatType: "channel",
@@ -3248,8 +3301,9 @@ describe("assembleSlackChronologicalMessages", () => {
 
   test("renders when chatType is missing entirely", () => {
     // The assembler treats a missing chatType as a non-DM Slack channel
-    // (it does not infer DM from absence). Callers can still gate via
-    // `isSlackChannelConversation` if they need stricter handling.
+    // (it does not infer DM from absence). Callers that need to
+    // distinguish DMs from channels (e.g. to skip thread-only injections)
+    // can still gate via `isSlackChannelConversation`.
     const looseCaps: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,

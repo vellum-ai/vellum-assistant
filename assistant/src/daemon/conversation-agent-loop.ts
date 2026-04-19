@@ -123,7 +123,6 @@ import {
   getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
-  isSlackChannelConversation,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
   readNowScratchpad,
@@ -895,13 +894,14 @@ export async function runAgentLoopImpl(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
 
-    // For Slack non-DM channels, build a chronological transcript from
-    // the persisted message rows so the model sees one channel-wide view
-    // (sibling threads included) instead of the gateway's per-turn
-    // active-thread hint.
-    const slackChronologicalMessages = isSlackChannelConversation(
-      ctx.channelCapabilities,
-    )
+    // For any Slack conversation (channels and DMs alike), build a
+    // chronological transcript from the persisted message rows so the
+    // model sees one channel-wide view instead of the gateway's per-turn
+    // hints. DMs render as a flat sequence (no thread tags), channels
+    // include sibling threads.
+    const isSlackConversation =
+      ctx.channelCapabilities?.channel === "slack";
+    const slackChronologicalMessages = isSlackConversation
       ? loadSlackChronologicalMessages(
           ctx.conversationId,
           ctx.channelCapabilities!,
@@ -913,9 +913,9 @@ export async function runAgentLoopImpl(
     // to the final user turn listing the thread's parent + replies. Helps
     // the model orient when the channel transcript is long and
     // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
-    const slackActiveThreadFocusBlock = isSlackChannelConversation(
-      ctx.channelCapabilities,
-    )
+    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
+    // since DMs do not have threads.
+    const slackActiveThreadFocusBlock = isSlackConversation
       ? loadSlackActiveThreadFocusBlock(
           ctx.conversationId,
           ctx.channelCapabilities!,

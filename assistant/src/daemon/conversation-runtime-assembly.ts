@@ -1169,11 +1169,14 @@ export function stripTransportHints(messages: Message[]): Message[] {
 // ---------------------------------------------------------------------------
 
 /**
- * True when the channel capabilities describe a Slack non-DM channel: a
- * group/channel/mpim where the assistant renders context across all
- * threads instead of relying on per-turn `<transport_hints>` from the
- * gateway. DMs (`chatType === "im"`) are intentionally excluded so the
- * renderer does not emit thread tags for one-on-one conversations.
+ * True when the channel capabilities describe a Slack non-DM conversation
+ * (group/channel/mpim). Used to gate thread-only behavior such as the
+ * `<active_thread>` focus block. DMs (`chatType === "im"`) are excluded
+ * because they have no threads.
+ *
+ * The chronological-transcript override applies to ALL Slack
+ * conversations (channels and DMs) — gate that on
+ * `channelCapabilities.channel === "slack"` rather than this helper.
  */
 export function isSlackChannelConversation(
   channelCapabilities?: ChannelCapabilities | null,
@@ -1279,11 +1282,9 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
  * `slackMeta` are tolerated: the renderer's flat fallback orders them by
  * `createdAt` alongside post-upgrade rows.
  *
- * For non-DM Slack channels, `<transport_hints>` injection is suppressed
- * by `applyRuntimeInjections` so the model sees one consistent
- * channel-wide chronological view instead of a duplicated active-thread
- * hint. DM transport-hint injection cleanup happens in a later PR once the
- * gateway stops sending Slack hints altogether.
+ * For ALL Slack conversations (channels and DMs), `<transport_hints>`
+ * injection is suppressed by `applyRuntimeInjections` so the model sees
+ * one consistent persisted view instead of a duplicated gateway hint.
  */
 export function assembleSlackChronologicalMessages(
   rows: SlackTranscriptInputRow[],
@@ -1438,6 +1439,7 @@ function buildActiveThreadBlockFromRenderable(
  * Pure assembly entrypoint mirroring `assembleSlackChronologicalMessages`.
  * Returns the rendered `<active_thread>` block as a string, or `null` when:
  *   - the channel is not Slack, OR
+ *   - the channel is a Slack DM (DMs do not have threads), OR
  *   - the latest user row is top-level (not in a thread), OR
  *   - no rows belong to the active thread.
  */
@@ -1446,6 +1448,9 @@ export function assembleSlackActiveThreadFocusBlock(
   capabilities: ChannelCapabilities,
 ): string | null {
   if (capabilities.channel !== "slack") return null;
+  // DMs do not have threads, so the focus block is always a no-op.
+  // Short-circuit explicitly to avoid scanning rows on every turn.
+  if (capabilities.chatType === "im") return null;
   const renderable = rows.map(rowToRenderable);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) return null;
@@ -1455,7 +1460,8 @@ export function assembleSlackActiveThreadFocusBlock(
 /**
  * Loader convenience over `assembleSlackActiveThreadFocusBlock` mirroring
  * `loadSlackChronologicalMessages`. Returns `null` when the channel is not
- * Slack so callers can skip the injection entirely.
+ * Slack, or when it is a Slack DM (DMs have no threads), so callers can
+ * skip the injection entirely without paying for a DB read.
  */
 export function loadSlackActiveThreadFocusBlock(
   conversationId: string,
@@ -1463,6 +1469,7 @@ export function loadSlackActiveThreadFocusBlock(
   loader: (id: string) => MessageRow[] = defaultGetMessages,
 ): string | null {
   if (capabilities.channel !== "slack") return null;
+  if (capabilities.chatType === "im") return null;
   const rows: SlackTranscriptInputRow[] = loader(conversationId).map((row) => ({
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
@@ -1603,13 +1610,16 @@ export async function applyRuntimeInjections(
     transportHints?: string[] | null;
     /**
      * Pre-rendered Slack chronological transcript that replaces the
-     * default `runMessages` history for Slack non-DM channels.
+     * default `runMessages` history for any Slack conversation (channels
+     * and DMs alike).
      *
-     * When `channelCapabilities` describes a Slack non-DM channel and this
+     * When `channelCapabilities` describes a Slack conversation and this
      * array is non-empty, it overrides `runMessages` so the model sees one
      * chronologically-ordered transcript built from the stored Slack
-     * metadata. The `transportHints` pipeline is skipped in that case so
-     * the channel-wide view isn't duplicated by the active-thread hint.
+     * metadata. Channel renders include sibling-thread tags; DM renders
+     * are flat (DMs have no threads). The `transportHints` pipeline is
+     * skipped for any Slack conversation so the persisted view isn't
+     * duplicated by gateway-side hints.
      *
      * Callers build this via `loadSlackChronologicalMessages` (or the
      * underlying `assembleSlackChronologicalMessages`) before invoking
@@ -1644,8 +1654,14 @@ export async function applyRuntimeInjections(
   // (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
   let result = runMessages;
+  // Slack channels AND DMs both override `runMessages` with a pre-rendered
+  // chronological transcript built from persisted message rows. The shared
+  // assembler (`assembleSlackChronologicalMessages`) renders thread tags
+  // for channels and a flat sequence for DMs, so the same branch handles
+  // both. The active-thread focus block below stays gated on `slackChannel`
+  // since DMs do not have threads.
   if (
-    slackChannel &&
+    slackConversation &&
     options.slackChronologicalMessages &&
     options.slackChronologicalMessages.length > 0
   ) {
