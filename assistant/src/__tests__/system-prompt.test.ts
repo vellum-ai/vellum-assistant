@@ -323,13 +323,7 @@ describe("buildSystemPrompt", () => {
       // Copy the real bundled BOOTSTRAP.md into the test workspace so we
       // verify substitution against the actual template the daemon ships.
       const bundled = readFileSync(
-        join(
-          import.meta.dirname,
-          "..",
-          "prompts",
-          "templates",
-          "BOOTSTRAP.md",
-        ),
+        join(import.meta.dirname, "..", "prompts", "templates", "BOOTSTRAP.md"),
         "utf-8",
       );
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);

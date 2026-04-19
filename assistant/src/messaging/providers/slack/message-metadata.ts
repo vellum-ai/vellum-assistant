@@ -52,11 +52,7 @@ export function readSlackMetadata(
   } catch {
     return null;
   }
-  if (
-    parsed === null ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed)
-  ) {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
   }
   const obj = parsed as Record<string, unknown>;

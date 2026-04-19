@@ -286,9 +286,7 @@ export function stripBotMention(text: string): string {
   return stripped || text.trim();
 }
 
-function extractSlackAttachments(
-  files: SlackFile[] | undefined,
-): Array<{
+function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
   fileName?: string;
@@ -398,6 +396,7 @@ export function normalizeSlackDirectMessage(
       source: {
         updateId: eventId,
         messageId: event.ts,
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -470,6 +469,7 @@ export function normalizeSlackChannelMessage(
         updateId: eventId,
         messageId: event.ts,
         chatType: "channel",
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -537,6 +537,7 @@ export function normalizeSlackAppMention(
       source: {
         updateId: eventId,
         messageId: event.ts,
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -703,6 +704,7 @@ export function normalizeSlackReactionAdded(
       source: {
         updateId: eventId,
         messageId: event.item.ts,
+        threadId: event.item.ts,
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -774,13 +776,16 @@ export function normalizeSlackMessageEdit(
         // The original message's ts lets the runtime identify which message was edited
         messageId: edited.ts,
         ...(isDm ? {} : { chatType: "channel" }),
+        ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
     routing,
     // For DMs without a thread, omit threadTs so the reply goes directly in conversation.
     // For channels (or DMs already in a thread), fall back to edited.ts.
-    ...(isDm && !edited.thread_ts ? {} : { threadTs: edited.thread_ts ?? edited.ts }),
+    ...(isDm && !edited.thread_ts
+      ? {}
+      : { threadTs: edited.thread_ts ?? edited.ts }),
     channel: event.channel,
   };
 }

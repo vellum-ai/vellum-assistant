@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
-  writeSlackMetadata,
   type SlackMessageMetadata,
+  writeSlackMetadata,
 } from "./message-metadata.js";
 
 describe("readSlackMetadata", () => {

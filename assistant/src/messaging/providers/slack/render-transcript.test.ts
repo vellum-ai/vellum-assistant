@@ -385,9 +385,7 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
     const out = renderSlackTranscript([
       legacyMsg(MS_14_25, "@bot", "ack", "assistant"),
     ]);
-    expect(out).toEqual([
-      { role: "assistant", content: "[14:25 @bot]: ack" },
-    ]);
+    expect(out).toEqual([{ role: "assistant", content: "[14:25 @bot]: ack" }]);
   });
 
   test("preserves message role faithfully across mixed inputs", () => {

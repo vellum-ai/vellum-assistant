@@ -455,7 +455,9 @@ export class SlackSocketModeClient {
       !!messageDeletedEvent.deleted_ts &&
       (messageDeletedEvent.channel_type === "im" ||
         (!!messageDeletedEvent.previous_message?.thread_ts &&
-          this.store.hasThread(messageDeletedEvent.previous_message.thread_ts)) ||
+          this.store.hasThread(
+            messageDeletedEvent.previous_message.thread_ts,
+          )) ||
         (!!messageDeletedEvent.deleted_ts &&
           this.store.hasThread(messageDeletedEvent.deleted_ts)) ||
         (!!messageDeletedEvent.channel &&
