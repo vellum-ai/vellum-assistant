@@ -248,6 +248,7 @@ describe("no provider configured", () => {
 
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No LLM provider is configured");
     expect(parsed.error).toContain("assistant config set");
   });
@@ -267,6 +268,7 @@ describe("no message provided", () => {
 
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No message provided");
   });
 
@@ -281,6 +283,7 @@ describe("no message provided", () => {
 
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No message provided");
   });
 });
@@ -363,6 +366,7 @@ describe("--json output", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
     expect(parsed.response).toBe("42");
     expect(parsed.model).toBe("claude-test-1");
     expect(parsed.usage).toEqual({
@@ -417,6 +421,7 @@ describe("--max-tokens", () => {
 
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --max-tokens");
   });
 });
