@@ -48,7 +48,7 @@ Manage the queue with `assistant task queue`:
 assistant task queue show
 
 # Add an item to the queue (ad-hoc or from a template)
-assistant task queue add --title "Review Q2 metrics" --required-tools host_bash web_search
+assistant task queue add --title "Review Q2 metrics" --required-tools host_bash,web_search
 
 # Update a work item's status
 assistant task queue update --work-item-id <id> --status done
@@ -65,4 +65,4 @@ assistant task queue run --work-item-id <id>
 - When the user says "add to my tasks" or "add to my queue", use `assistant task queue add` (NOT schedule).
 - Use `assistant task save` only when the user wants to capture a conversation pattern as a reusable template.
 - `assistant task list` shows saved templates; `assistant task queue show` shows the active work queue.
-- **Always specify `--required-tools`** when running `assistant task queue add`. Think about what tools the task will need at execution time and list them explicitly (e.g. `host_bash` for shell commands, `host_file_read host_file_write` for file operations, `web_search web_fetch` for web lookups). The user must approve these tools before the task can run -- omitting them forces a fallback to all tools, which is noisy and may miss non-standard tools the task actually needs.
+- **Always specify `--required-tools`** when running `assistant task queue add`. Think about what tools the task will need at execution time and list them explicitly (e.g. `host_bash` for shell commands, `host_file_read,host_file_write` for file operations, `web_search,web_fetch` for web lookups). The user must approve these tools before the task can run -- omitting them forces a fallback to all tools, which is noisy and may miss non-standard tools the task actually needs.
