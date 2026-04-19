@@ -52,6 +52,7 @@ describe("EXTENSION_TO_BOT_MESSAGE_TYPES", () => {
         "send_chat_result",
         "avatar.started",
         "avatar.frame",
+        "camera_result",
       ]),
     );
   });
@@ -67,6 +68,8 @@ describe("BOT_TO_EXTENSION_MESSAGE_TYPES", () => {
         "avatar.start",
         "avatar.stop",
         "avatar.push_viseme",
+        "camera.enable",
+        "camera.disable",
       ]),
     );
   });
