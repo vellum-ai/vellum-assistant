@@ -38,13 +38,13 @@ function parseTtl(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   if (!raw.trim()) {
     throw new Error(
-      `Invalid --ttl value "${raw}". Expected a number followed by a unit: s, m, or h (e.g. "30s", "5m", "2h").`,
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "1000ms", "30s", "5m", "2h"). Minimum 1s.`,
     );
   }
   const match = TTL_PATTERN.exec(raw.trim());
   if (!match) {
     throw new Error(
-      `Invalid --ttl value "${raw}". Expected a number followed by a unit: s, m, or h (e.g. "30s", "5m", "2h").`,
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "1000ms", "30s", "5m", "2h"). Minimum 1s.`,
     );
   }
   const value = Number(match[1]);
@@ -149,7 +149,7 @@ Examples:
     )
     .option(
       "--ttl <duration>",
-      "Time-to-live (minimum 1s). Units: s, m, h (e.g. 30s, 5m, 2h). Defaults to 30m if omitted.",
+      "Time-to-live (minimum 1s). Units: ms, s, m, h (e.g. 1000ms, 30s, 5m, 2h). Defaults to 30m if omitted.",
     )
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -166,8 +166,8 @@ Arguments:
 
 Options:
   --key <key>       Cache key string. Omit to auto-generate a random hex key.
-  --ttl <duration>  Expiry duration (minimum 1s). Units: s, m, h.
-                    Examples: 30s, 5m, 2h. Defaults to 30m if omitted.
+  --ttl <duration>  Expiry duration (minimum 1s). Units: ms, s, m, h.
+                    Examples: 1000ms, 30s, 5m, 2h. Defaults to 30m if omitted.
   --json            Output as JSON: { "ok": true, "key": "..." }
 
 Examples:
