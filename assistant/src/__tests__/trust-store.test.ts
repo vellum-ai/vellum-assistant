@@ -329,6 +329,32 @@ describe("Trust Store", () => {
       expect(found).toBeDefined();
       expect(found!.userModifiedAt).toBeGreaterThan(0);
     });
+
+    test("does not set userModifiedAt on no-op default rule update", () => {
+      // Updating a default rule with values identical to the template
+      // should NOT set userModifiedAt — the rule hasn't actually diverged.
+      const updated = updateRule("default:ask-host_bash-global", {
+        decision: "ask",
+      });
+      expect(updated.userModifiedAt).toBeUndefined();
+    });
+
+    test("clears userModifiedAt when default rule is reset to template values", () => {
+      // First, modify the rule to diverge from the template
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      let found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(found.userModifiedAt).toBeGreaterThan(0);
+
+      // Now reset it back to the template value
+      updateRule("default:ask-host_bash-global", { decision: "ask" });
+      found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      // userModifiedAt should be cleared since rule matches template again
+      expect(found.userModifiedAt).toBeUndefined();
+    });
   });
 
   // ── findMatchingRule ────────────────────────────────────────────

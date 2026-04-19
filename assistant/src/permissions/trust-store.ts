@@ -498,9 +498,26 @@ function fileUpdateRule(
 
   // Mark default rules with userModifiedAt so backfillDefaults() preserves
   // the user's customization across upgrades instead of overwriting it.
-  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id)) {
-    merged.userModifiedAt = Date.now();
+  // Only set the timestamp when the merged result actually diverges from the
+  // template — a no-op PATCH (same values) should not permanently opt a rule
+  // out of future template migrations.
+  const templates = getDefaultRuleTemplates();
+  const template = templates.find((t) => t.id === id);
+  if (template) {
+    const diverges =
+      merged.tool !== template.tool ||
+      merged.pattern !== template.pattern ||
+      merged.scope !== template.scope ||
+      merged.decision !== template.decision ||
+      merged.priority !== template.priority ||
+      merged.allowHighRisk !== template.allowHighRisk;
+    if (diverges) {
+      merged.userModifiedAt = Date.now();
+    } else {
+      // Rule matches the template again — clear the override marker so
+      // future template changes are applied normally.
+      delete merged.userModifiedAt;
+    }
   }
 
   // Canonicalize through parseTrustRule so that fields invalid for the
