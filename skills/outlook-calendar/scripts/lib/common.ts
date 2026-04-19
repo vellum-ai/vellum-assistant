@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * Shared utilities for gmail scripts.
+ * Shared utilities for outlook-calendar scripts.
  * Provides CLI argument parsing, JSON output helpers, and common patterns.
  */
 
