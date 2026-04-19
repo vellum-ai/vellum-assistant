@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Vellum Meet Controller",
+  "version": "0.0.1",
+  "description": "Controls Google Meet on behalf of the Vellum assistant.",
+  "permissions": ["nativeMessaging", "scripting", "tabs"],
+  "host_permissions": ["https://meet.google.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7HeRDjffv54OgiXEqgqmwhpIo9cruNnF3vscK/Ubn8vENJPp4TSUP2ZVfoWBUVONT5HtKvkYsJJjavokdGMuaRKm9xfdri/WWB+qJRePsGEdTYtNxD5Vrw+c5X6g3S0irNLbqTWGM9++Xn67hYSOKHdDVeKWZGbC6PdqYrTOaB1YHLKp+MulWMgoE4bDc+aWc58LOmhngAbRWreofNM/9Xomazm2TJ5/2zYikaEpRCT1JC3zpLTGfuRroZ2Ln5ut3zphp1aa1z4smViwsFVLUnhLKgWwSv2xPkRRHv5CE5FBDXjvgHNernlD9hn3EZisq3u4Z09C6D2qayC5/IxecQIDAQAB"
+}

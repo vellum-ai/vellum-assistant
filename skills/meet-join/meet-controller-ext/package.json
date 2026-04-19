@@ -1,0 +1,15 @@
+{
+  "name": "@vellumai/meet-controller-ext",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.40",
+    "typescript": "5.9.3"
+  }
+}
