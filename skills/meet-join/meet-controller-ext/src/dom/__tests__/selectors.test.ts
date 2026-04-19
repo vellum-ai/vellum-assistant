@@ -163,17 +163,74 @@ describe("in-meeting selectors", () => {
 describe("chat panel selectors", () => {
   const doc = loadFixture("meet-dom-chat.html");
 
-  test("INPUT resolves the composer textarea", () => {
+  test("INPUT resolves the composer textarea (decorated aria-label)", () => {
     const nodes = doc.querySelectorAll(chatSelectors.INPUT);
     expect(nodes.length).toBe(1);
     expect((nodes[0] as HTMLTextAreaElement).tagName).toBe("TEXTAREA");
+    // Fixture reflects the decorated form shipped by live Meet — the prefix
+    // match must still resolve it.
+    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
+      "Send a message to everyone",
+    );
   });
 
-  test("SEND_BUTTON resolves the send button", () => {
+  test("INPUT prefix match resolves the bare aria-label variant too", () => {
+    // Some Meet builds drop the "to everyone" decoration. Verify the same
+    // selector matches the bare label — this is the forward/backward-compat
+    // property the `^=` prefix match buys us.
+    const bareHtml = `
+      <div>
+        <textarea aria-label="Send a message" rows="1"></textarea>
+      </div>
+    `;
+    const bareDoc = new JSDOM(bareHtml).window.document;
+    const nodes = bareDoc.querySelectorAll(chatSelectors.INPUT);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("TEXTAREA");
+  });
+
+  test("INPUT selector also matches contenteditable div composers", () => {
+    // Meet has been migrating some surfaces from <textarea> to contenteditable
+    // <div>. The selector admits both so future drift doesn't silently break
+    // the query (the `chat.ts` typing logic is a separate concern — see the
+    // selector comment and the PR body).
+    const ceHtml = `
+      <div>
+        <div
+          contenteditable="true"
+          role="textbox"
+          aria-label="Send a message to everyone"
+        ></div>
+      </div>
+    `;
+    const ceDoc = new JSDOM(ceHtml).window.document;
+    const nodes = ceDoc.querySelectorAll(chatSelectors.INPUT);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("DIV");
+    expect((nodes[0] as HTMLElement).getAttribute("contenteditable")).toBe(
+      "true",
+    );
+  });
+
+  test("SEND_BUTTON resolves the send button (decorated aria-label)", () => {
     const nodes = doc.querySelectorAll(chatSelectors.SEND_BUTTON);
     expect(nodes.length).toBe(1);
     expect((nodes[0] as HTMLElement).tagName).toBe("BUTTON");
-    expect((nodes[0] as HTMLElement).textContent?.trim()).toBe("Send");
+    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
+      "Send a message to everyone",
+    );
+  });
+
+  test("SEND_BUTTON prefix match resolves the bare aria-label variant too", () => {
+    const bareHtml = `
+      <div>
+        <button type="button" aria-label="Send a message">Send</button>
+      </div>
+    `;
+    const bareDoc = new JSDOM(bareHtml).window.document;
+    const nodes = bareDoc.querySelectorAll(chatSelectors.SEND_BUTTON);
+    expect(nodes.length).toBe(1);
+    expect((nodes[0] as HTMLElement).tagName).toBe("BUTTON");
   });
 
   test("MESSAGE_NODE resolves each rendered message", () => {
