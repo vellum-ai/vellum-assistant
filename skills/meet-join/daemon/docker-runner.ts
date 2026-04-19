@@ -133,6 +133,27 @@ export interface DockerRunOptions {
   ports?: PortMapping[];
   name?: string;
   network?: string;
+  /**
+   * Optional virtual-camera (`v4l2loopback`) device path to pass through to
+   * the bot container. When set (e.g. `/dev/video10`), the runner adds a
+   * device entry to `HostConfig.Devices` so the bot can open the node as a
+   * character device and push avatar frames into it. Leave unset to skip
+   * avatar passthrough entirely — callers that don't enable the avatar
+   * feature don't need to touch this.
+   *
+   * Behavior is identical in bare-metal and Docker (DinD) modes: the Docker
+   * Engine API's `Devices` field has the same semantics whether the target
+   * is the host's engine or an inner nested `dockerd`. In Docker mode the
+   * device must also be bind-mounted into the assistant container
+   * (`cli/src/lib/docker.ts` handles that when `VELLUM_MEET_AVATAR=1` is
+   * set in the environment) so inner `dockerd` can see the node.
+   *
+   * Intentionally a run-time argument rather than a config-schema field:
+   * the avatar config schema lands in a later PR, and threading it through
+   * here now would force a forward dependency. The session-manager wires
+   * this up once the config is available.
+   */
+  avatarDevicePath?: string;
 }
 
 /** Minimal shape of the Docker `containers/<id>/json` response we rely on. */
@@ -682,6 +703,21 @@ export function buildCreateBody(
     ];
   }
 
+  // Avatar device passthrough. The Docker Engine `Devices` field maps to
+  // `--device=<host>:<container>:<cgroup-perms>`; we use `rwm` (read/write/
+  // mknod) to match the CLI default. Only emitted when the caller opts in
+  // via `avatarDevicePath` — callers without the avatar feature enabled
+  // don't need to touch this.
+  const devices = opts.avatarDevicePath
+    ? [
+        {
+          PathOnHost: opts.avatarDevicePath,
+          PathInContainer: opts.avatarDevicePath,
+          CgroupPermissions: "rwm",
+        },
+      ]
+    : [];
+
   const hostConfig: Record<string, unknown> = {
     Binds: binds,
     PortBindings: portBindings,
@@ -698,6 +734,7 @@ export function buildCreateBody(
     // (`--disable-dev-shm-usage` in the Chrome launch args routes shared
     // memory to `/tmp` as a separate belt-and-suspenders hedge.)
     ShmSize: 2 * 1024 * 1024 * 1024,
+    ...(devices.length > 0 ? { Devices: devices } : {}),
     ...(opts.network ? { NetworkMode: opts.network } : {}),
   };
 

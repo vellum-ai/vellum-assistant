@@ -76,6 +76,86 @@ against a live Meet session. The refresh procedure:
    the combined fixture-plus-selector refresh in a single PR so the diff is
    reviewable as one unit.
 
+## Avatar (v4l2loopback) host setup
+
+The optional avatar pipeline (Phase 4) pushes rendered video frames into a
+virtual V4L2 camera that Chrome exposes as a `videoinput` device inside the
+bot container. The virtual camera is implemented by the `v4l2loopback`
+Linux kernel module, which runs on the **host**, not inside the container.
+The container only needs the userspace tooling (`v4l2-ctl`, ffmpeg codecs)
+already baked into the image via `v4l2loopback-utils`.
+
+### One-time host setup (Linux host)
+
+Linux hosts (including the Docker-Desktop-on-Linux configuration) need to
+load the module once per boot. Most distributions ship the DKMS package,
+which rebuilds the module automatically against the running kernel:
+
+```bash
+sudo apt-get install v4l2loopback-dkms
+sudo modprobe v4l2loopback video_nr=10 card_label="VellumAvatar" exclusive_caps=1
+```
+
+The three module arguments matter:
+
+- `video_nr=10` pins the device to `/dev/video10`. The bot defaults to this
+  path; callers that need a different number must override the `devicePath`
+  argument to `openVideoDevice()` and the `--device` passthrough on both
+  the daemon and bot containers.
+- `card_label="VellumAvatar"` sets the `friendlyName` Chrome surfaces in the
+  camera-picker UI. Any string works; `VellumAvatar` is just a stable label
+  for operator debugging.
+- `exclusive_caps=1` is required for Chrome to treat the node as a normal
+  capture device. Without it, Chrome enumerates the loopback node in a way
+  that Meet ignores.
+
+To persist the load across reboots, drop the module name into
+`/etc/modules-load.d/vellum-avatar.conf` and the arguments into
+`/etc/modprobe.d/vellum-avatar.conf`:
+
+```
+# /etc/modules-load.d/vellum-avatar.conf
+v4l2loopback
+
+# /etc/modprobe.d/vellum-avatar.conf
+options v4l2loopback video_nr=10 card_label="VellumAvatar" exclusive_caps=1
+```
+
+### macOS / Docker Desktop note
+
+v4l2loopback is a Linux-kernel module and cannot be loaded on a macOS host
+directly. Docker Desktop for macOS runs containers inside a Linux VM, so it
+is possible in principle to load the module inside the VM kernel — the
+procedure involves attaching to the VM shell (`lima shell`, `docker
+desktop debug`, or the equivalent) and running `modprobe v4l2loopback` from
+inside. This path is brittle across Docker Desktop upgrades and is not
+officially supported. **The avatar feature is only tested on Linux hosts
+today.** Running the Meet bot on macOS without avatar works normally; the
+bot simply does not enable its virtual camera code path.
+
+### Device passthrough to the bot container
+
+Loading the module makes `/dev/video10` visible on the host. The bot
+container receives it as a bind-mount:
+
+- **Bare-metal mode** — the daemon passes
+  `--device=/dev/video10:/dev/video10` to the bot container's `docker run`
+  when the avatar feature is enabled. The assistant's `DockerRunner`
+  accepts an opt-in `avatarDevicePath` option for this.
+- **Docker mode (DinD)** — the CLI must also pass
+  `--device=/dev/video10:/dev/video10` to the assistant container so the
+  device node exists inside the DinD environment. Set
+  `VELLUM_MEET_AVATAR=1` in the environment before `vellum` spawns the
+  assistant container to opt in. The `DockerRunner` then forwards the same
+  flag to the inner `dockerd` when spawning bot containers.
+
+If `/dev/video10` is missing inside the bot container at runtime, the
+`openVideoDevice()` helper throws a clear error pointing operators back to
+this section. The most common causes are (1) the host `modprobe` step was
+skipped, (2) a different `video_nr` was used, or (3) the `--device`
+passthrough was not wired through both the daemon and bot `docker run`
+invocations in Docker mode.
+
 ## Manual end-to-end verification against a real Meet call
 
 The automated test suite stubs Docker, the configured STT provider, and the
