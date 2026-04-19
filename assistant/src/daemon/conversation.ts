@@ -761,7 +761,11 @@ export class Conversation {
       } catch {
         // Best-effort: the client may already be disconnected during dispose.
       }
-      entry.resolve({ status: "cancelled", surfaceId });
+      entry.resolve({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
     }
     this.pendingStandaloneSurfaces.clear();
     // Clear tombstone timers to prevent dangling references after dispose.
