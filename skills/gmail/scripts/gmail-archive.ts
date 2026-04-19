@@ -109,9 +109,10 @@ async function collectMessageIds(
   let pageToken: string | undefined;
 
   while (allIds.length < MAX_MESSAGES) {
+    const remaining = MAX_MESSAGES - allIds.length;
     const queryParams: Record<string, string> = {
       q: query,
-      maxResults: "500",
+      maxResults: String(Math.min(500, remaining)),
     };
     if (pageToken) queryParams.pageToken = pageToken;
 
@@ -128,7 +129,9 @@ async function collectMessageIds(
 
     const ids = (resp.data.messages ?? []).map((m) => m.id);
     if (ids.length === 0) break;
-    allIds.push(...ids);
+
+    const remaining = MAX_MESSAGES - allIds.length;
+    allIds.push(...ids.slice(0, remaining));
 
     pageToken = resp.data.nextPageToken ?? undefined;
     if (!pageToken) break;
