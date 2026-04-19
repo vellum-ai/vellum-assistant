@@ -100,17 +100,17 @@ const INGRESS_SECRET_TARGETS: Record<string, IngressSecretTarget> = {
     label: "SendGrid API Key",
   },
   "Slack Bot Token": {
-    service: "slack",
+    service: "slack_channel",
     field: "bot_token",
     label: "Slack Bot Token",
   },
   "Slack User Token": {
-    service: "slack",
+    service: "slack_channel",
     field: "user_token",
     label: "Slack User Token",
   },
   "Slack Webhook": {
-    service: "slack",
+    service: "slack_channel",
     field: "webhook_url",
     label: "Slack Webhook URL",
   },
