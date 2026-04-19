@@ -22,14 +22,18 @@ import {
 import {
   addMessage,
   getMessageById,
+  getMessages,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import * as deliveryChannels from "../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../memory/delivery-status.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { backfillDm } from "../../messaging/providers/slack/backfill.js";
 import {
   mergeSlackMetadata,
+  readSlackMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
@@ -913,6 +917,20 @@ export async function handleChannelInbound(
             }
           : undefined;
 
+      // ── DM cold-start backfill ──
+      // First time a Slack DM lands in a conversation that has fewer than
+      // SLACK_DM_BACKFILL_WARM_THRESHOLD stored slackMeta messages, fetch a
+      // window of recent history so the agent sees prior context. One-shot:
+      // once persistence warms up past the threshold, subsequent DMs no
+      // longer trigger backfill. Failures are non-fatal — the new message
+      // proceeds without backfilled history.
+      if (sourceChannel === "slack" && sourceChatType === "im") {
+        await tryBackfillSlackDmIfCold({
+          conversationId: result.conversationId,
+          channelId: conversationExternalId,
+        });
+      }
+
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
       // The onEvent callback in processMessage registers pending interactions, and
@@ -1049,4 +1067,183 @@ async function persistSlackReactionAsMessage(params: {
   );
   deliveryCrud.linkMessage(params.eventId, persisted.id);
   deliveryStatus.markProcessed(params.eventId);
+}
+
+/**
+ * Threshold of stored Slack-tagged messages below which a conversation is
+ * considered "cold" and eligible for one-shot backfill. The number is
+ * deliberately small but greater than 1 so a single sentinel row (e.g. a
+ * stale reaction) does not disqualify a conversation that has no real
+ * message history yet.
+ */
+const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
+
+/**
+ * Count messages in a conversation whose `metadata` carries a parseable
+ * `slackMeta` envelope. Used as the warm-storage signal for cold-start
+ * backfill: any conversation with fewer than the warm threshold is treated
+ * as a candidate for one-shot history hydration.
+ *
+ * Tolerant of legacy / malformed rows: rows without metadata, with invalid
+ * JSON, or without a `slackMeta` key are skipped. Counting is intentionally
+ * cheap (no SQL JSON probing) so it stays portable across drivers.
+ */
+function countSlackMetaMessages(conversationId: string): number {
+  const rows = getMessages(conversationId);
+  let count = 0;
+  for (const row of rows) {
+    if (!row.metadata) continue;
+    let parent: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(row.metadata) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parent = parsed as Record<string, unknown>;
+      }
+    } catch {
+      continue;
+    }
+    if (!parent) continue;
+    const raw = parent.slackMeta;
+    if (typeof raw !== "string") continue;
+    if (readSlackMetadata(raw)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Build the set of `slackMeta.channelTs` values already stored on a
+ * conversation. Used to dedupe backfilled rows so a partial prior backfill
+ * (or a single message that was already persisted via the live ingress
+ * path) does not double-write.
+ */
+function readStoredSlackChannelTs(conversationId: string): Set<string> {
+  const seen = new Set<string>();
+  for (const row of getMessages(conversationId)) {
+    if (!row.metadata) continue;
+    let parent: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(row.metadata) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parent = parsed as Record<string, unknown>;
+      }
+    } catch {
+      continue;
+    }
+    if (!parent) continue;
+    const raw = parent.slackMeta;
+    if (typeof raw !== "string") continue;
+    const meta = readSlackMetadata(raw);
+    if (meta) seen.add(meta.channelTs);
+  }
+  return seen;
+}
+
+/**
+ * Persist a single backfilled Slack message as a `messages` row with a
+ * `slackMeta` envelope.
+ *
+ * This is the shared insertion point for any path that hydrates history
+ * lazily (DM cold-start backfill in this PR; thread gap backfill in a
+ * follow-up PR can route through the same helper). Backfilled rows are
+ * always recorded with role `"user"` — the renderer reads `slackMeta` to
+ * format author / timestamp / thread context, so the role distinction is
+ * not used for display. Caller is responsible for dedup checks before
+ * invoking; this helper performs no idempotency check itself.
+ */
+async function persistBackfilledSlackMessage(params: {
+  conversationId: string;
+  channelId: string;
+  message: ProviderMessage;
+}): Promise<void> {
+  const { message } = params;
+  const slackMeta: SlackMessageMetadata = {
+    source: "slack",
+    channelId: params.channelId,
+    channelTs: message.id,
+    eventKind: "message",
+    ...(message.threadId ? { threadTs: message.threadId } : {}),
+    ...(message.sender.name ? { displayName: message.sender.name } : {}),
+  };
+  await addMessage(params.conversationId, "user", message.text ?? "", {
+    slackMeta: writeSlackMetadata(slackMeta),
+  });
+}
+
+/**
+ * One-shot DM cold-start backfill. When a Slack DM lands in a conversation
+ * with fewer than `SLACK_DM_BACKFILL_WARM_THRESHOLD` stored Slack-tagged
+ * messages, fetch a window of recent history via `backfillDm` and persist
+ * each returned message with a `slackMeta` envelope. Already-stored
+ * messages (matched by `slackMeta.channelTs`) are skipped to keep the
+ * operation idempotent across retries.
+ *
+ * Failure semantics: any error is logged at WARN and swallowed. The caller
+ * proceeds with only the new message.
+ */
+async function tryBackfillSlackDmIfCold(params: {
+  conversationId: string;
+  channelId: string;
+}): Promise<void> {
+  try {
+    const storedCount = countSlackMetaMessages(params.conversationId);
+    if (storedCount >= SLACK_DM_BACKFILL_WARM_THRESHOLD) {
+      return;
+    }
+
+    const fetched = await backfillDm(params.channelId, { limit: 50 });
+    if (fetched.length === 0) {
+      log.debug(
+        { conversationId: params.conversationId, channelId: params.channelId },
+        "DM backfill returned no messages",
+      );
+      return;
+    }
+
+    const seen = readStoredSlackChannelTs(params.conversationId);
+    let written = 0;
+    // Slack's conversation.history returns most-recent first. Reverse so
+    // rows insert in chronological order, giving stable createdAt ordering
+    // and a transcript that reads correctly when the renderer joins on
+    // monotonic createdAt.
+    const ordered = [...fetched].reverse();
+    for (const message of ordered) {
+      if (seen.has(message.id)) continue;
+      try {
+        await persistBackfilledSlackMessage({
+          conversationId: params.conversationId,
+          channelId: params.channelId,
+          message,
+        });
+        seen.add(message.id);
+        written++;
+      } catch (perRowErr) {
+        log.warn(
+          {
+            err: perRowErr,
+            conversationId: params.conversationId,
+            channelId: params.channelId,
+            channelTs: message.id,
+          },
+          "Failed to persist backfilled DM row; continuing",
+        );
+      }
+    }
+
+    log.info(
+      {
+        conversationId: params.conversationId,
+        channelId: params.channelId,
+        fetched: fetched.length,
+        written,
+      },
+      "DM cold-start backfill complete",
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId: params.conversationId, channelId: params.channelId },
+      "DM cold-start backfill failed; proceeding without history",
+    );
+  }
 }
