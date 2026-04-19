@@ -24,7 +24,7 @@ MARKER_END="# <<< vellum-auto-tmux <<<"
 AUTO_TMUX_BLOCK='# >>> vellum-auto-tmux >>>
 # Auto-wrap new interactive shells in tmux so the assistant can see/drive them.
 # Managed by: terminal-sessions skill. Remove this block or run setup-auto-tmux.sh --uninstall to disable.
-if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [ -n "$PS1" ] && [ -z "$VELLUM_NO_AUTO_TMUX" ]; then
+if command -v tmux &>/dev/null && [ -z "${TMUX:-}" ] && [ -n "${PS1:-}" ] && [ -z "${VELLUM_NO_AUTO_TMUX:-}" ]; then
   # Build a human-friendly session name from the terminal tab/window
   _vellum_tty_slug="$(basename "$(tty)" 2>/dev/null | tr "/" "-")"
   _vellum_session="sh-${_vellum_tty_slug}-$$"
@@ -35,7 +35,7 @@ if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [ -n "$PS1" ] && [ -z "$VELL
   fi
 
   # If we are inside VSCode integrated terminal, tag it
-  if [ "$TERM_PROGRAM" = "vscode" ]; then
+  if [ "${TERM_PROGRAM:-}" = "vscode" ]; then
     _vellum_session="vscode-${_vellum_tty_slug}-$$"
   fi
 

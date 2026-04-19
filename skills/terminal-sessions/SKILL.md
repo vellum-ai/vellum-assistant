@@ -129,10 +129,10 @@ tt -k deploy         # Kill a session
 
 This is the recommended way for users to start sessions they want the assistant to see. For example, before starting a Claude Code session: `tt frontend-refactor` then `claude`.
 
-**Install it** by copying to somewhere on the user's PATH:
+**Install it** by copying to somewhere on the user's PATH. Replace `<skill-dir>` with the actual path to this skill directory (e.g. the workspace `skills/terminal-sessions` path):
 
 ```bash
-cp SKILL_DIR/scripts/tt ~/.local/bin/tt && chmod +x ~/.local/bin/tt
+cp <skill-dir>/scripts/tt ~/.local/bin/tt && chmod +x ~/.local/bin/tt
 ```
 
 Make sure `~/.local/bin` is on PATH (add `export PATH="$HOME/.local/bin:$PATH"` to `.zshrc` if needed).
@@ -142,8 +142,8 @@ Make sure `~/.local/bin` is on PATH (add `export PATH="$HOME/.local/bin:$PATH"` 
 [scripts/setup-auto-tmux.sh](scripts/setup-auto-tmux.sh) adds a hook to the user's shell profile (`.zshrc` or `.bashrc`) that automatically wraps every new interactive shell in a named tmux session. This means every terminal tab/window the user opens becomes visible to the assistant with zero extra effort.
 
 ```bash
-bash SKILL_DIR/scripts/setup-auto-tmux.sh             # Install the hook
-bash SKILL_DIR/scripts/setup-auto-tmux.sh --uninstall  # Remove the hook
+bash <skill-dir>/scripts/setup-auto-tmux.sh             # Install the hook
+bash <skill-dir>/scripts/setup-auto-tmux.sh --uninstall  # Remove the hook
 ```
 
 The auto-created session names include the terminal app context (`iterm-`, `vscode-`, or `sh-`) plus the TTY and PID for uniqueness. The user can skip auto-tmux for a single shell by setting `VELLUM_NO_AUTO_TMUX=1`.
