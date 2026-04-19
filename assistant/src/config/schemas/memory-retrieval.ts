@@ -225,15 +225,6 @@ const MemoryContextLoadInjectionSchema = z
       .describe(
         "Reserved slots for skill/CLI capability nodes at conversation start",
       ),
-    turn1UserQueryBias: z
-      .boolean({
-        error:
-          "memory.retrieval.injection.contextLoad.turn1UserQueryBias must be a boolean",
-      })
-      .default(true)
-      .describe(
-        "When true (default), embed the first user message as a dedicated query vector used to rank skill/CLI capability reserve slots on turn 1, instead of relying on the summary-based query. Summaries still drive organic memory retrieval. Set false to revert to summary-dominant ranking.",
-      ),
   })
   .describe("Memory injection limits at conversation start");
 
