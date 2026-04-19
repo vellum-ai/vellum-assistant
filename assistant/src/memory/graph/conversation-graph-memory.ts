@@ -330,18 +330,24 @@ export class ConversationGraphMemory {
       // Decide which retrieval mode to use
       if (!this.initialized || this.needsReload) {
         const recentSummaries = this.fetchRecentSummaries();
-
-        // Extract the first user message as an additional retrieval signal
-        // so context-load biases toward what the user is asking about
         const firstUserText = extractUserText(lastMessage);
+        const turn1Bias =
+          config.memory.retrieval.injection.contextLoad.turn1UserQueryBias;
+
+        let userQuery: string | undefined;
         if (firstUserText) {
-          recentSummaries.unshift(firstUserText);
+          if (turn1Bias) {
+            userQuery = firstUserText;
+          } else {
+            recentSummaries.unshift(firstUserText);
+          }
         }
 
         return await this.runContextLoad(
           messages,
           config,
           recentSummaries,
+          userQuery,
           abortSignal,
           onEvent,
         );
@@ -365,12 +371,14 @@ export class ConversationGraphMemory {
     messages: Message[],
     config: AssistantConfig,
     recentSummaries: string[],
+    userQuery: string | undefined,
     signal: AbortSignal,
     onEvent: (msg: ServerMessage) => void,
   ) {
     const result = await loadContextMemory({
       scopeId: this.scopeId,
       recentSummaries,
+      userQuery,
       config,
       signal,
     });
