@@ -504,6 +504,37 @@ final class MarkdownSegmentViewTests: XCTestCase {
         ])
     }
 
+    /// Pins the current parser behavior for prose that contains `$` signs —
+    /// no `.math` segment should be emitted. This protects against silent
+    /// regressions when inline-math (`$…$`) support lands in the future; any
+    /// new inline-math parser must still leave price-like prose alone.
+    func testProse_withDollarSigns_isNotMisparsedAsMath() {
+        let inputs = [
+            "Prices: $10 and $20",
+            "$price: $10 vs $15$",
+            "Spent $5 on coffee.",
+            "Net of $3.50 after fees.",
+            "One $ left.",
+        ]
+        for input in inputs {
+            let segments = parseMarkdownSegments(input)
+            for segment in segments {
+                if case .math = segment {
+                    XCTFail("Prose with `$` must not emit a .math segment. Input=\(input), got=\(segments)")
+                }
+            }
+            // Every prose input above should collapse into a single .text
+            // segment — pin that too so future refactors don't silently
+            // split prose across multiple segments.
+            XCTAssertEqual(segments.count, 1, "Expected a single .text segment for input=\(input), got \(segments)")
+            if case .text(let text)? = segments.first {
+                XCTAssertEqual(text, input, "Prose must round-trip verbatim")
+            } else {
+                XCTFail("Expected first segment to be .text for input=\(input), got \(segments)")
+            }
+        }
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(

@@ -335,6 +335,9 @@ struct MarkdownSegmentView: View, Equatable {
         prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
+        #if canImport(SwiftMath)
+        clearMathImageCache()
+        #endif
         #if os(macOS)
         measuredTextCache.removeAllObjects()
         typographyRetryScheduled = false
@@ -897,11 +900,23 @@ private let mathImageCache: NSCache<NSString, MathImageCacheEntry> = {
     return cache
 }()
 
+/// Drops every entry in `mathImageCache`. Invoked from
+/// `MarkdownSegmentView.clearAttributedStringCache()` so the math render cache
+/// participates in the same lifecycle reset as the other render caches.
+func clearMathImageCache() {
+    mathImageCache.removeAllObjects()
+}
+
 /// Converts an `NSColor` to a stable hex cache-key component. Uses the
 /// sRGB-calibrated components so color-space shifts don't cause cache misses
-/// on logically identical colors.
+/// on logically identical colors. Returns a sentinel when the color cannot be
+/// bridged into sRGB (e.g. an asset-catalog pattern or named color whose
+/// component accessors would throw) so the caller falls back to a stable but
+/// non-RGB-derived key instead of crashing.
 private func mathCacheColorKey(_ color: NSColor) -> String {
-    let rgb = color.usingColorSpace(.sRGB) ?? color
+    guard let rgb = color.usingColorSpace(.sRGB) else {
+        return "unresolved"
+    }
     let r = Int((rgb.redComponent * 255).rounded())
     let g = Int((rgb.greenComponent * 255).rounded())
     let b = Int((rgb.blueComponent * 255).rounded())
@@ -912,20 +927,12 @@ private func mathCacheColorKey(_ color: NSColor) -> String {
 /// Renders a LaTeX block via `SwiftMath.MathImage`. Results are cached per
 /// (latex, display, color, fontSize) so re-renders during SwiftUI body
 /// evaluation don't retrigger the typesetter.
-private struct MathBlockView: View, Equatable {
+private struct MathBlockView: View {
     let latex: String
     let display: Bool
     let textColor: Color
     let codeBackgroundColor: Color
     let maxContentWidth: CGFloat?
-
-    static func == (lhs: MathBlockView, rhs: MathBlockView) -> Bool {
-        lhs.latex == rhs.latex
-            && lhs.display == rhs.display
-            && lhs.textColor == rhs.textColor
-            && lhs.codeBackgroundColor == rhs.codeBackgroundColor
-            && lhs.maxContentWidth == rhs.maxContentWidth
-    }
 
     private enum RenderResult {
         case image(NSImage, CGSize)
@@ -959,7 +966,18 @@ private struct MathBlockView: View, Equatable {
             return .failure("unknown error")
         }
         let intrinsic = image.size
-        let cost = Int(intrinsic.width * intrinsic.height * 4)
+        // Prefer the actual bitmap pixel dimensions for the NSCache cost so
+        // the `totalCostLimit` reflects real memory pressure. Falling back to
+        // `image.size * 4` under-counts by ~4x on 2x Retina (points vs pixels),
+        // which would let the cache hold ~4x more bytes than intended.
+        let cost: Int = {
+            if let bitmapRep = image.representations.lazy
+                .compactMap({ $0 as? NSBitmapImageRep }).first {
+                return bitmapRep.pixelsWide * bitmapRep.pixelsHigh * 4
+            }
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            return Int(intrinsic.width * scale * intrinsic.height * scale * 4)
+        }()
         mathImageCache.setObject(
             MathImageCacheEntry(image: image, intrinsicSize: intrinsic),
             forKey: cacheKey,
