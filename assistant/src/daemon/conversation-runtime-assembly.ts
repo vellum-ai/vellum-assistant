@@ -1264,12 +1264,23 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
       ? "@assistant"
       : (slackMeta?.displayName ?? "@user");
 
+  let contentBlocks: ContentBlock[] = [];
+  try {
+    const parsed = JSON.parse(row.content);
+    if (Array.isArray(parsed)) {
+      contentBlocks = parsed as ContentBlock[];
+    }
+  } catch {
+    // Plain string row (legacy) — no structured blocks to preserve.
+  }
+
   return {
     role: row.role,
     content: extractPlainText(row.content),
     metadata: slackMeta,
     senderLabel,
     createdAt: row.createdAt,
+    contentBlocks,
   };
 }
 

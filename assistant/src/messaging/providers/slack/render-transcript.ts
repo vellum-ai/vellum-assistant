@@ -16,7 +16,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { Message } from "../../../providers/types.js";
+import type { ContentBlock, Message } from "../../../providers/types.js";
 import type { SlackMessageMetadata } from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
@@ -28,6 +28,15 @@ export interface RenderableSlackMessage {
   senderLabel: string;
   /** Fallback sort key for legacy rows; ignored when metadata.channelTs is set. */
   createdAt: number;
+  /**
+   * Full structured content blocks parsed from the persisted row, when
+   * available. Optional so existing fixtures and callers that only need the
+   * flattened `content` string continue to compile. The current
+   * `renderSlackTranscript` implementation ignores this field — it exists so
+   * downstream consumers (tool-block preservation) can access the original
+   * `tool_use` / `tool_result` blocks without re-parsing the row.
+   */
+  readonly contentBlocks?: readonly ContentBlock[];
 }
 
 export interface RenderOptions {

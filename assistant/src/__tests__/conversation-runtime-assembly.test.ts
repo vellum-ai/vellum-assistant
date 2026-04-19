@@ -3441,6 +3441,54 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).toEqual([]);
   });
 
+  test("row content with interleaved text + tool_use still renders as tag-only text (PR 2 plumbing; tool_use elided by renderer)", () => {
+    // PR 2 plumbs `contentBlocks` through `rowToRenderable` so downstream
+    // consumers (PR 3) can access the original structured blocks. The
+    // renderer itself is unchanged — it still flattens to the text-only
+    // tag line via `extractPlainText`. This test pins down that a row
+    // persisted with `[text, tool_use]` produces output identical to a
+    // row persisted with just `[text]`; the tool_use is elided from the
+    // rendered transcript (preservation lands in PR 3).
+    const userMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    const assistantRowContent = JSON.stringify([
+      { type: "text", text: "looking it up" },
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "search",
+        input: { q: "weather" },
+      },
+    ]);
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "what's the weather?", MS_14_25, metadataEnvelope(userMeta)),
+      {
+        role: "assistant",
+        content: assistantRowContent,
+        createdAt: MS_14_26,
+        metadata: metadataEnvelope(null),
+      },
+    ];
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "[14:25 @alice]: what's the weather?" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[14:26 @assistant]: looking it up" }],
+      },
+    ]);
+  });
+
   test("post-reconciliation: assistant rows with channelTs participate in thread tagging", () => {
     // Once `deliverReplyViaCallback` reconciles `channelTs` from the
     // gateway's response, assistant rows carry a fully-formed slackMeta
