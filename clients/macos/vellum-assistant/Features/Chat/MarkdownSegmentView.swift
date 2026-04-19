@@ -121,6 +121,18 @@ struct MarkdownSegmentView: View, Equatable {
                         .frame(height: 1)
                         .optionalMaxWidth(maxContentWidth)
                         .padding(.vertical, VSpacing.xs)
+
+                case .math(let latex, _):
+                    // Fallback until SwiftMath integration lands in a follow-up PR.
+                    // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                    HStack(spacing: 0) {
+                        Text(latex)
+                            .font(.custom("DMMono-Regular", size: 13))
+                            .foregroundStyle(textColor)
+                            .textSelection(.enabled)
+                            .lineLimit(nil)
+                        Spacer(minLength: 0)
+                    }
                 }
             }
         }
@@ -131,7 +143,7 @@ struct MarkdownSegmentView: View, Equatable {
             switch groups[index] {
             case .selectableRun, .table:
                 return index
-            case .codeBlock, .image, .horizontalRule:
+            case .codeBlock, .image, .horizontalRule, .math:
                 continue
             }
         }
@@ -149,6 +161,7 @@ struct MarkdownSegmentView: View, Equatable {
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
         case horizontalRule
+        case math(latex: String, display: Bool)
     }
 
     #if os(macOS)
@@ -244,6 +257,9 @@ struct MarkdownSegmentView: View, Equatable {
             case .horizontalRule:
                 flushRun()
                 groups.append(.horizontalRule)
+            case .math(let latex, let display):
+                flushRun()
+                groups.append(.math(latex: latex, display: display))
             }
         }
 
@@ -326,6 +342,7 @@ struct MarkdownSegmentView: View, Equatable {
             case .codeBlock(_, let c): return total + c.count
             case .list(let items): return total + items.reduce(0) { $0 + $1.text.count }
             case .table(let h, let r): return total + h.joined().count + r.flatMap { $0 }.joined().count
+            case .math(let latex, _): return total + latex.count
             case .image, .horizontalRule: return total
             }
         }

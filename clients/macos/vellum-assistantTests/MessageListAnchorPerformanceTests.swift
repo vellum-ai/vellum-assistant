@@ -212,6 +212,12 @@ private func groupSegments(_ segments: [MarkdownSegment]) -> [SegmentGroup] {
         case .horizontalRule:
             flushRun()
             groups.append(.horizontalRule)
+        case .math:
+            // Math is rendered standalone (same as codeBlock/table/image) —
+            // not merged into a selectableRun. The perf test harness doesn't
+            // render math, so we just break the run and drop the segment on
+            // the floor (it's not represented in the local SegmentGroup enum).
+            flushRun()
         }
     }
     flushRun()
