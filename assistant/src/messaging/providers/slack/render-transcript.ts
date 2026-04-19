@@ -317,14 +317,16 @@ export function renderSlackTranscript(
 }
 
 /**
- * Final safety pass that drops unpaired `tool_use` / `tool_result` blocks.
+ * Final safety pass that drops unpaired tool-call blocks of either shape:
+ * locally-executed (`tool_use` ↔ `tool_result`) and server-side web search
+ * (`server_tool_use` ↔ `web_search_tool_result`).
  *
- * Anthropic's API requires every `tool_use` in an assistant turn to be
- * matched by a `tool_result` in the following user turn (and vice versa).
+ * Anthropic's API requires every producing block in an assistant turn to be
+ * matched by its consuming block in the following user turn (and vice versa).
  * In normal operation `renderSlackTranscript` emits fully-paired turns
  * because the persisted transcript reflects completed tool exchanges, but
  * edge cases (mid-turn compaction, partial failures, a race between
- * tool_use persistence and tool_result persistence) can leave an orphan in
+ * producer persistence and consumer persistence) can leave an orphan in
  * the rendered output. Sending an orphan to the provider hard-fails the
  * entire request, so we defensively prune any unpaired block here.
  *
@@ -338,16 +340,32 @@ function filterOrphanToolPairs(messages: Message[]): Message[] {
   const consumed = new Set<string>();
   for (const msg of messages) {
     for (const b of msg.content) {
-      if (b.type === "tool_use") produced.add(b.id);
-      else if (b.type === "tool_result") consumed.add(b.tool_use_id);
+      if (b.type === "tool_use" || b.type === "server_tool_use") {
+        produced.add(b.id);
+      } else if (
+        b.type === "tool_result" ||
+        b.type === "web_search_tool_result"
+      ) {
+        consumed.add(b.tool_use_id);
+      }
     }
   }
   const out: Message[] = [];
   for (const msg of messages) {
     const kept: ContentBlock[] = [];
     for (const b of msg.content) {
-      if (b.type === "tool_use" && !consumed.has(b.id)) continue;
-      if (b.type === "tool_result" && !produced.has(b.tool_use_id)) continue;
+      if (
+        (b.type === "tool_use" || b.type === "server_tool_use") &&
+        !consumed.has(b.id)
+      ) {
+        continue;
+      }
+      if (
+        (b.type === "tool_result" || b.type === "web_search_tool_result") &&
+        !produced.has(b.tool_use_id)
+      ) {
+        continue;
+      }
       kept.push(b);
     }
     if (kept.length > 0) out.push({ role: msg.role, content: kept });
