@@ -19,6 +19,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../util/spawn.js";
+import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -230,8 +231,16 @@ Examples:
       try {
         await access(filePath);
       } catch {
-        process.stderr.write(`File not found: ${filePath}\n`);
-        process.exit(1);
+        const msg = `File not found: ${filePath}`;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: msg }) + "\n",
+          );
+        } else {
+          log.error(msg);
+        }
+        process.exitCode = 1;
+        return;
       }
 
       // Validate file extension
@@ -239,19 +248,32 @@ Examples:
       const isVideo = VIDEO_EXTENSIONS.has(ext);
       const isAudio = AUDIO_EXTENSIONS.has(ext);
       if (!isVideo && !isAudio) {
-        process.stderr.write(
-          `Unsupported file type: ${ext}. Only audio and video files can be transcribed.\n`,
-        );
-        process.exit(1);
+        const msg = `Unsupported file type: ${ext}. Only audio and video files can be transcribed.`;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: msg }) + "\n",
+          );
+        } else {
+          log.error(msg);
+        }
+        process.exitCode = 1;
+        return;
       }
 
       // Resolve STT provider
       const transcriber = await resolveBatchTranscriber();
       if (!transcriber) {
-        process.stderr.write(
-          "No speech-to-text provider is configured. Run 'assistant config set services.stt.provider <provider>' to set one up.\n",
-        );
-        process.exit(1);
+        const msg =
+          "No speech-to-text provider is configured. Run 'assistant config set services.stt.provider <provider>' to set one up.";
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: msg }) + "\n",
+          );
+        } else {
+          log.error(msg);
+        }
+        process.exitCode = 1;
+        return;
       }
 
       let wavPath: string | null = null;
@@ -290,10 +312,15 @@ Examples:
           process.stdout.write(text + "\n");
         }
       } catch (err) {
-        process.stderr.write(
-          `Transcription failed: ${(err as Error).message}\n`,
-        );
-        process.exit(1);
+        const msg = `Transcription failed: ${(err as Error).message}`;
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: msg }) + "\n",
+          );
+        } else {
+          log.error(msg);
+        }
+        process.exitCode = 1;
       } finally {
         if (wavPath) {
           try {
