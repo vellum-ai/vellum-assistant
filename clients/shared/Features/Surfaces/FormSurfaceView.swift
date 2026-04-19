@@ -13,6 +13,7 @@ public struct FormSurfaceView: View {
     @State private var currentPageIndex: Int = 0
     @State private var showingSecurityInfo: Bool = false
     @State private var isSubmitted: Bool = false
+    @State private var validationErrors: Set<String> = []
 
     private var safePageIndex: Int {
         guard let pages = data.pages, !pages.isEmpty else { return 0 }
@@ -81,6 +82,12 @@ public struct FormSurfaceView: View {
         }
         .onAppear {
             initializeDefaults()
+        }
+        .onChange(of: textValues) { _ in
+            validationErrors = []
+        }
+        .onChange(of: selectValues) { _ in
+            validationErrors = []
         }
     }
 
@@ -218,6 +225,12 @@ public struct FormSurfaceView: View {
             case .toggle:
                 VToggle(isOn: toggleBinding(for: field.id))
             }
+
+            if validationErrors.contains(field.id) {
+                Text("Required")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
         }
     }
 
@@ -312,9 +325,45 @@ public struct FormSurfaceView: View {
         }
     }
 
+    /// Validate that all required fields have non-empty values.
+    /// Returns the set of field IDs that fail validation.
+    private func validate() -> Set<String> {
+        let allFields: [FormField]
+        if let pages = data.pages {
+            allFields = data.fields + pages.flatMap { $0.fields }
+        } else {
+            allFields = data.fields
+        }
+        var errors: Set<String> = []
+        for field in allFields {
+            guard field.required else { continue }
+            switch field.type {
+            case .text, .textarea, .number, .password:
+                if textValues[field.id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                    errors.insert(field.id)
+                }
+            case .select:
+                if selectValues[field.id]?.isEmpty != false {
+                    errors.insert(field.id)
+                }
+            case .toggle:
+                // Toggles always have a value (true/false), no validation needed
+                break
+            }
+        }
+        return errors
+    }
+
     /// Resign focus and submit the form with visual feedback.
     private func doSubmit() {
         guard !isSubmitted else { return }
+
+        let errors = validate()
+        if !errors.isEmpty {
+            validationErrors = errors
+            return
+        }
+
         isSubmitted = true
         #if os(macOS)
         // Resign first responder so the SecureField doesn't swallow the click
