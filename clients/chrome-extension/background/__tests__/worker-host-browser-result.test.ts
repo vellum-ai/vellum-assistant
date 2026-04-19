@@ -107,6 +107,7 @@ function makeFakeConnection(open: boolean, mode?: RelayMode): FakeConnection {
     },
     send(data) {
       sent.push(data);
+      return true;
     },
     getCurrentMode() {
       return this.mode;
@@ -225,6 +226,22 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     expect(fetchHandle.calls.length).toBe(1);
     const flat = consoleSpy.warnings.flat().join(' ');
     expect(flat).toContain('falling back to HTTP POST');
+  });
+
+  test('falls back to POST when send reports not-delivered after open-check race', async () => {
+    const conn = makeFakeConnection(true);
+    conn.send = () => false;
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-1',
+    };
+
+    await postHostBrowserResult(mode, conn, exampleResult);
+
+    expect(fetchHandle.calls.length).toBe(1);
+    const flat = consoleSpy.warnings.flat().join(' ');
+    expect(flat).toContain('send was not delivered');
   });
 
   test('omits the authorization header when no token is configured', async () => {

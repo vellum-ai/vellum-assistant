@@ -260,14 +260,17 @@ export class RelayConnection {
   }
 
   /**
-   * Send a raw string payload. No-op if the socket is not currently OPEN
-   * — matches the existing worker.ts semantics where heartbeats and
-   * responses silently drop when the socket is mid-reconnect.
+   * Send a raw string payload.
+   *
+   * Returns `true` when the frame was passed to WebSocket.send, `false`
+   * when no OPEN socket was available at send time.
    */
-  send(data: string): void {
+  send(data: string): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data);
+      return true;
     }
+    return false;
   }
 
   /**
@@ -569,15 +572,14 @@ function normaliseReconnectResult(
 // ── host_browser result poster ─────────────────────────────────────
 //
 // The host-browser dispatcher needs a way to ship CDP result envelopes
-// back to the daemon. The transport depends on the relay mode:
+// back to the daemon.
 //
-//   - self-hosted: POST to the local daemon's
-//     `/v1/host-browser-result` endpoint, authenticated with the
-//     stored capability token.
-//   - cloud: send the envelope as a `host_browser_result` frame over
-//     the existing browser-relay WebSocket. The gateway proxies the
-//     frame straight through to the runtime, which resolves it through
-//     the same shared resolver used by `/v1/host-browser-result`.
+// Preferred path (self-hosted + cloud): send a `host_browser_result`
+// frame over the live browser-relay WebSocket.
+//
+// Fallback path (self-hosted only): POST to the local daemon's
+// `/v1/host-browser-result` endpoint when no open socket is available
+// or a send race drops the frame before it reaches the wire.
 
 /**
  * Minimal subset of {@link RelayConnection} that {@link postHostBrowserResult}
@@ -591,7 +593,14 @@ function normaliseReconnectResult(
  */
 export interface RelayConnectionLike {
   isOpen(): boolean;
-  send(data: string): void;
+  /**
+   * Best-effort frame send.
+   *
+   * Returns `true` when the frame was handed to WebSocket.send, `false`
+   * when no OPEN socket was available at send time (race between
+   * caller-side open check and underlying socket state transition).
+   */
+  send(data: string): boolean;
   getCurrentMode(): RelayMode;
 }
 
@@ -622,6 +631,7 @@ export function postHostBrowserEvent(
     return;
   }
   try {
+    // Drop silently on send races — events are lossy by design.
     connection.send(JSON.stringify(event));
   } catch (err) {
     // Same swallow-and-log posture as the other fire-and-forget
@@ -650,6 +660,7 @@ export function postHostBrowserSessionInvalidated(
     return;
   }
   try {
+    // Drop silently on send races — invalidation is advisory.
     connection.send(JSON.stringify(event));
   } catch (err) {
     console.warn(
@@ -680,8 +691,25 @@ export async function postHostBrowserResult(
 ): Promise<void> {
   if (connection && connection.isOpen()) {
     try {
-      connection.send(JSON.stringify({ type: 'host_browser_result', ...result }));
-      return;
+      const delivered = connection.send(
+        JSON.stringify({ type: 'host_browser_result', ...result }),
+      );
+      if (delivered) {
+        return;
+      }
+      if (mode.kind === 'cloud') {
+        // Cloud has no HTTP fallback path — keep existing drop semantics.
+        console.warn(
+          '[vellum-relay] host-browser-result dropped: cloud relay not connected',
+        );
+        return;
+      }
+      // Self-hosted: if send() reports not delivered, fall back to
+      // loopback POST. This covers the race where a close lands between
+      // caller-side isOpen() and actual send.
+      console.warn(
+        '[vellum-relay] host-browser-result relay send was not delivered in self-hosted mode; falling back to HTTP POST',
+      );
     } catch (err) {
       if (mode.kind === 'cloud') {
         // Cloud has no HTTP fallback path — keep existing drop semantics.
