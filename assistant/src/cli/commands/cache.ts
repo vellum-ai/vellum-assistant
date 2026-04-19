@@ -289,15 +289,15 @@ Arguments:
   key   The cache key to remove. Run 'assistant cache get <key>' to
         verify a key exists before deleting.
 
-Removes the entry from the cache. Succeeds silently if the key does not
-exist (idempotent).
+Removes the entry from the cache. Idempotent — exits 0 whether the key
+existed or not, but reports whether an entry was actually removed.
 
 Examples:
   $ assistant cache delete my-key
   $ assistant cache delete my-key --json`,
     )
     .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<Record<string, never>>("cache/delete", {
+      const result = await cliIpcCall<{ deleted: boolean }>("cache/delete", {
         key,
       });
 
@@ -313,10 +313,16 @@ Examples:
         return;
       }
 
+      const deleted = result.result!.deleted;
+
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+        process.stdout.write(JSON.stringify({ ok: true, deleted }) + "\n");
       } else {
-        log.info(`Deleted cache entry "${key}".`);
+        if (deleted) {
+          log.info(`Deleted cache entry "${key}".`);
+        } else {
+          log.info(`No cache entry "${key}" (nothing to delete).`);
+        }
       }
     });
 }
