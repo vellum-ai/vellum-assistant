@@ -109,6 +109,12 @@ struct MainWindowView: View {
     /// the flag isn't worth the runtime-toggle surface bug it created.
     @State var homeStore: HomeStore
     @State var feedStore: HomeFeedStore
+    /// Long-lived view model that tracks the live meeting status pushed by
+    /// the daemon's `meet.*` SSE events. Rendered as the top-of-gallery
+    /// status panel on the Home page. Constructed eagerly (same rationale
+    /// as the Home stores) so the panel is wired up the moment the user
+    /// lands on Home, without having to refresh.
+    @State var meetStatusViewModel: MeetStatusViewModel
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
@@ -147,6 +153,10 @@ struct MainWindowView: View {
         // — ready the instant the `home-feed` flag flips on.
         self._feedStore = State(initialValue: HomeFeedStore(
             client: DefaultHomeFeedClient(),
+            messageStream: eventStreamClient.subscribe()
+        ))
+        // Meet status panel subscribes to the same shared SSE stream.
+        self._meetStatusViewModel = State(initialValue: MeetStatusViewModel(
             messageStream: eventStreamClient.subscribe()
         ))
     }

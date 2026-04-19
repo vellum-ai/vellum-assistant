@@ -17,6 +17,10 @@ import VellumAssistantShared
 struct HomePageView: View {
     @Bindable var store: HomeStore
     @Bindable var feedStore: HomeFeedStore
+    /// Drives the "In meeting" status panel rendered at the top of the
+    /// gallery. Owned by the parent so the panel survives panel-dismiss
+    /// cycles and keeps its SSE subscription live for the whole session.
+    @Bindable var meetStatusViewModel: MeetStatusViewModel
     let onPrimaryCTA: (Capability) -> Void
     let onShortcutCTA: (Capability) -> Void
     /// Fired when a feed action resolves to a daemon-created conversation
@@ -53,6 +57,11 @@ struct HomePageView: View {
     private func content(for state: RelationshipState) -> some View {
         ScrollView {
             VStack(alignment: .center, spacing: VSpacing.xxl) {
+                // "In meeting" status banner — returns EmptyView when idle,
+                // so when no meeting is active the layout collapses to the
+                // prior hero-first appearance.
+                MeetStatusPanel(viewModel: meetStatusViewModel)
+
                 HomeHeroView(state: state)
                     .padding(.top, VSpacing.xxl)
 
