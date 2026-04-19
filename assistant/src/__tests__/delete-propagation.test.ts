@@ -23,6 +23,7 @@ mock.module("../config/env.js", () => ({
 
 import { eq } from "drizzle-orm";
 
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
 import { messages } from "../memory/schema.js";
@@ -35,6 +36,12 @@ import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 initializeDb();
 
 const TEST_BEARER_TOKEN = "test-token";
+// Slack `message_deleted` events stamp the deleted message's original author
+// as the actor (gateway: `event.previous_message.user`). The author must be a
+// recognised member for the inbound ACL to admit the event — gating delete
+// behind ACL is the contract under test.
+const SLACK_DELETE_ACTOR_ID = "U_DELETE_ACTOR";
+const SLACK_DELETE_ACTOR_DISPLAY_NAME = "Delete Actor";
 
 function resetState(): void {
   const db = getDb();
@@ -42,6 +49,19 @@ function resetState(): void {
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM conversation_keys");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
+}
+
+function seedActiveDeleteActor(externalChatId: string): void {
+  upsertContactChannel({
+    sourceChannel: "slack",
+    externalUserId: SLACK_DELETE_ACTOR_ID,
+    externalChatId,
+    status: "active",
+    policy: "allow",
+    displayName: SLACK_DELETE_ACTOR_DISPLAY_NAME,
+  });
 }
 
 interface SeededMessage {
@@ -109,6 +129,7 @@ function buildSlackDeleteRequest(opts: {
   externalChatId: string;
   deletedTs: string;
   eventId?: string;
+  actorExternalId?: string;
 }): Request {
   const eventId = opts.eventId ?? `evt-del-${opts.deletedTs}`;
   return new Request("http://localhost:8080/channels/inbound", {
@@ -125,7 +146,7 @@ function buildSlackDeleteRequest(opts: {
       externalMessageId: eventId,
       content: "",
       callbackData: "message_deleted",
-      actorExternalId: "slack-system",
+      actorExternalId: opts.actorExternalId ?? SLACK_DELETE_ACTOR_ID,
       sourceMetadata: {
         // The original (deleted) message's ts — the lookup key.
         messageId: opts.deletedTs,
@@ -137,6 +158,7 @@ function buildSlackDeleteRequest(opts: {
 describe("Slack delete propagation", () => {
   beforeEach(() => {
     resetState();
+    seedActiveDeleteActor("C0123CHANNEL");
   });
 
   test("marks slackMeta.deletedAt and leaves content untouched", async () => {
@@ -276,7 +298,7 @@ describe("Slack delete propagation", () => {
         externalMessageId: "evt-del-no-source",
         content: "",
         callbackData: "message_deleted",
-        actorExternalId: "slack-system",
+        actorExternalId: SLACK_DELETE_ACTOR_ID,
         // sourceMetadata intentionally omitted
       }),
     });
@@ -292,6 +314,47 @@ describe("Slack delete propagation", () => {
       .from(messages)
       .where(eq(messages.id, seeded.messageId))
       .get();
+    const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const slackMeta = readSlackMetadata(parsed.slackMeta as string);
+    expect(slackMeta!.deletedAt).toBeUndefined();
+  });
+
+  test("delete from non-member actor is rejected by ACL and does not apply", async () => {
+    // Use a channel where NO active member is seeded so the actor cannot
+    // resolve via the channel's externalChatId either. This is the
+    // regression check for the gap where the delete short-circuit ran
+    // before ingress ACL — under the fix the ACL must reject the delete
+    // so no row is mutated. Also clear the C0123CHANNEL seed for the
+    // alt channel below since beforeEach wires the seed on C0123CHANNEL
+    // only.
+    const altChannel = "C0_NON_MEMBER_CHAN";
+    const seeded = seedSlackMessage({
+      externalChatId: altChannel,
+      originalTs: "7777.7777",
+      content: "Original audited text",
+      withSlackMeta: true,
+    });
+
+    const req = buildSlackDeleteRequest({
+      externalChatId: seeded.externalChatId,
+      deletedTs: seeded.originalTs,
+      actorExternalId: "U_NON_MEMBER",
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // ACL denies the inbound — the response must not carry `deleted: true`.
+    expect(json.deleted).not.toBe(true);
+
+    // The original row remains unmodified — content untouched and no
+    // deletedAt marker stamped on slackMeta.
+    const db = getDb();
+    const row = db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, seeded.messageId))
+      .get();
+    expect(row!.content).toBe("Original audited text");
     const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
     const slackMeta = readSlackMetadata(parsed.slackMeta as string);
     expect(slackMeta!.deletedAt).toBeUndefined();

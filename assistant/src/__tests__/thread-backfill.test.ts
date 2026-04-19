@@ -754,4 +754,94 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const json = (await resp.json()) as Record<string, unknown>;
     expect(json.accepted).toBe(true);
   });
+
+  test("backfill is awaited: parent is stored before handleChannelInbound returns", async () => {
+    // Replace the resolved promise with a manually-controlled deferred so we
+    // can prove that the inbound handler awaits the backfill rather than
+    // racing it against the agent-loop dispatch. If `await` were missing,
+    // `handleChannelInbound` would resolve before the parent row hit the
+    // database and the immediate post-response read below would miss it.
+    let resolveBackfill: (() => void) | null = null;
+    const backfillCompleted = new Promise<void>((resolve) => {
+      resolveBackfill = resolve;
+    });
+
+    backfillThreadMock.mockImplementation(async () => {
+      await backfillCompleted;
+      return [
+        makeBackfillMessage({
+          id: "8888.0",
+          text: "thread parent",
+          threadId: undefined,
+          sender: { id: "U_PARENT_AWAIT", name: "Parent Author" },
+        }),
+      ];
+    });
+
+    let agentLoopFired = false;
+    const processMessage = async (): Promise<{ messageId: string }> => {
+      // The agent loop runs *after* backfill. Confirm the parent row is
+      // already visible at this point — that proves the backfill landed
+      // before dispatch.
+      agentLoopFired = true;
+      return { messageId: "agent-result-id" };
+    };
+
+    const inboundPromise = handleChannelInbound(
+      buildThreadReplyRequest("8888.0", "8888.1"),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    // Give the handler enough microtasks to reach the awaited backfill.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    // Backfill is suspended at the awaited deferred — the parent row should
+    // not yet be persisted, and the agent loop must not have fired.
+    const db = getDb();
+    const rowsBeforeResolve = db.$client
+      .prepare("SELECT metadata FROM messages")
+      .all() as Array<{ metadata: string | null }>;
+    const tsBefore = rowsBeforeResolve
+      .map((row) => {
+        if (!row.metadata) return undefined;
+        try {
+          const env = JSON.parse(row.metadata) as Record<string, unknown>;
+          if (typeof env.slackMeta !== "string") return undefined;
+          const meta = readSlackMetadata(env.slackMeta);
+          return meta?.channelTs;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((ts): ts is string => ts !== undefined);
+    expect(tsBefore.includes("8888.0")).toBe(false);
+    expect(agentLoopFired).toBe(false);
+
+    // Release the backfill mock; the awaited handler should now finish.
+    resolveBackfill!();
+    const resp = await inboundPromise;
+    expect(resp.status).toBe(200);
+
+    const rowsAfter = db.$client
+      .prepare("SELECT metadata FROM messages")
+      .all() as Array<{ metadata: string | null }>;
+    const tsAfter = rowsAfter
+      .map((row) => {
+        if (!row.metadata) return undefined;
+        try {
+          const env = JSON.parse(row.metadata) as Record<string, unknown>;
+          if (typeof env.slackMeta !== "string") return undefined;
+          const meta = readSlackMetadata(env.slackMeta);
+          return meta?.channelTs;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((ts): ts is string => ts !== undefined);
+
+    // The parent row is present before the response is delivered, so the
+    // agent loop dispatched after this point sees it.
+    expect(tsAfter.includes("8888.0")).toBe(true);
+  });
 });

@@ -186,15 +186,85 @@ export async function handleChannelInbound(
     );
   }
 
+  // Canonicalize the assistant ID so all DB-facing operations use the
+  // consistent 'self' key regardless of what the gateway sent.
+  const canonicalAssistantId = canonicalChannelAssistantId(assistantId);
+  if (canonicalAssistantId !== assistantId) {
+    log.debug(
+      { raw: assistantId, canonical: canonicalAssistantId },
+      "Canonicalized channel assistant ID",
+    );
+  }
+
+  // Coerce actorExternalId to a string at the boundary — the field
+  // comes from unvalidated JSON and may be a number, object, or other
+  // non-string type. Non-string truthy values would throw inside
+  // canonicalizeInboundIdentity when it calls .trim().
+  const rawSenderId =
+    body.actorExternalId != null ? String(body.actorExternalId) : undefined;
+
+  // Canonicalize the sender identity so all trust lookups, member matching,
+  // and guardian binding comparisons use a normalized form. Phone-like
+  // channels (voice, whatsapp) are normalized to E.164; non-phone
+  // channels pass through the platform-stable ID unchanged.
+  const canonicalSenderId = rawSenderId
+    ? canonicalizeInboundIdentity(sourceChannel, rawSenderId)
+    : null;
+
+  // Track whether the original payload included a sender identity. A
+  // whitespace-only actorExternalId canonicalizes to null but still
+  // represents an explicit (malformed) identity claim that must enter the
+  // ACL deny path rather than bypassing it.
+  const hasSenderIdentityClaim = rawSenderId !== undefined;
+
+  // ── Guardian channel activation ──
+  // When a bare /start arrives on a channel with no guardian, auto-initiate
+  // guardian verification so the first user can claim the channel.
+  const guardianActivationResponse = await handleGuardianActivationIntercept({
+    sourceChannel,
+    conversationExternalId,
+    rawSenderId,
+    canonicalSenderId,
+    actorDisplayName: body.actorDisplayName,
+    actorUsername: body.actorUsername,
+    sourceMetadata: body.sourceMetadata,
+    replyCallbackUrl: body.replyCallbackUrl,
+    mintBearerToken,
+    assistantId,
+    externalMessageId,
+  });
+  if (guardianActivationResponse) return guardianActivationResponse;
+
+  // ── Ingress ACL enforcement ──
+  const aclResult = await enforceIngressAcl({
+    canonicalSenderId,
+    hasSenderIdentityClaim,
+    rawSenderId,
+    sourceChannel,
+    conversationExternalId,
+    canonicalAssistantId,
+    trimmedContent,
+    sourceMetadata: body.sourceMetadata,
+    actorDisplayName: body.actorDisplayName,
+    actorUsername: body.actorUsername,
+    replyCallbackUrl: body.replyCallbackUrl,
+    mintBearerToken,
+    assistantId,
+    externalMessageId,
+  });
+  if (aclResult.earlyResponse) return aclResult.earlyResponse;
+  const { resolvedMember, guardianVerifyCode } = aclResult;
+
   // ── Slack delete propagation ──
   // Slack message_deleted events are forwarded by the gateway with the
   // sentinel `callbackData = "message_deleted"` and `sourceMetadata.messageId`
   // set to the original (deleted) message's ts. Short-circuit the rest of
   // the pipeline: the agent loop should not run for delete notifications,
-  // and routing the event through guardian/ACL/approval paths would be
-  // incorrect. We mark the stored row as deleted in slackMeta but leave
-  // `content` untouched for audit purposes — rendering elides based on
-  // the deletedAt marker.
+  // and routing the event through approval / agent paths would be incorrect.
+  // We mark the stored row as deleted in slackMeta but leave `content`
+  // untouched for audit purposes — rendering elides based on the deletedAt
+  // marker. Gated behind ingress ACL so non-members cannot drive deletes
+  // (matches the edit-intercept policy).
   if (sourceChannel === "slack" && body.callbackData === "message_deleted") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
@@ -307,75 +377,6 @@ export async function handleChannelInbound(
       messageId: original.messageId,
     });
   }
-
-  // Canonicalize the assistant ID so all DB-facing operations use the
-  // consistent 'self' key regardless of what the gateway sent.
-  const canonicalAssistantId = canonicalChannelAssistantId(assistantId);
-  if (canonicalAssistantId !== assistantId) {
-    log.debug(
-      { raw: assistantId, canonical: canonicalAssistantId },
-      "Canonicalized channel assistant ID",
-    );
-  }
-
-  // Coerce actorExternalId to a string at the boundary — the field
-  // comes from unvalidated JSON and may be a number, object, or other
-  // non-string type. Non-string truthy values would throw inside
-  // canonicalizeInboundIdentity when it calls .trim().
-  const rawSenderId =
-    body.actorExternalId != null ? String(body.actorExternalId) : undefined;
-
-  // Canonicalize the sender identity so all trust lookups, member matching,
-  // and guardian binding comparisons use a normalized form. Phone-like
-  // channels (voice, whatsapp) are normalized to E.164; non-phone
-  // channels pass through the platform-stable ID unchanged.
-  const canonicalSenderId = rawSenderId
-    ? canonicalizeInboundIdentity(sourceChannel, rawSenderId)
-    : null;
-
-  // Track whether the original payload included a sender identity. A
-  // whitespace-only actorExternalId canonicalizes to null but still
-  // represents an explicit (malformed) identity claim that must enter the
-  // ACL deny path rather than bypassing it.
-  const hasSenderIdentityClaim = rawSenderId !== undefined;
-
-  // ── Guardian channel activation ──
-  // When a bare /start arrives on a channel with no guardian, auto-initiate
-  // guardian verification so the first user can claim the channel.
-  const guardianActivationResponse = await handleGuardianActivationIntercept({
-    sourceChannel,
-    conversationExternalId,
-    rawSenderId,
-    canonicalSenderId,
-    actorDisplayName: body.actorDisplayName,
-    actorUsername: body.actorUsername,
-    sourceMetadata: body.sourceMetadata,
-    replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
-    assistantId,
-    externalMessageId,
-  });
-  if (guardianActivationResponse) return guardianActivationResponse;
-
-  // ── Ingress ACL enforcement ──
-  const aclResult = await enforceIngressAcl({
-    canonicalSenderId,
-    hasSenderIdentityClaim,
-    rawSenderId,
-    sourceChannel,
-    conversationExternalId,
-    canonicalAssistantId,
-    trimmedContent,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
-    assistantId,
-    externalMessageId,
-  });
-  if (aclResult.earlyResponse) return aclResult.earlyResponse;
-  const { resolvedMember, guardianVerifyCode } = aclResult;
 
   if (hasAttachments) {
     const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
@@ -508,14 +509,73 @@ export async function handleChannelInbound(
     });
   }
 
-  // ── Slack reaction persistence ──
+  // ── Slack reaction handling ──
   // Reactions arrive as regular `SlackInboundEvent`s with `callbackData`
-  // prefixed `reaction:` (added) or `reaction_removed:` (removed). Persist
-  // them as `messages` rows so the chronological renderer (PR 18) can
-  // surface them inline. Reactions never trigger an agent response, so we
-  // short-circuit before escalation, approval interception, and agent-loop
-  // dispatch.
+  // prefixed `reaction:` (added) or `reaction_removed:` (removed).
+  //
+  // Two paths from here:
+  //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
+  //      the guardian on an active approval prompt is consumed by
+  //      `handleApprovalInterception` to apply the decision. In that case
+  //      we do NOT persist the reaction as a transcript line — pre-upgrade
+  //      semantics carried no transcript trace for resolved reactions.
+  //   2. All other reactions (non-guardian, no pending approval, stale,
+  //      and any `reaction_removed:` event regardless of actor) fall
+  //      through to `persistSlackReactionAsMessage` so the chronological
+  //      renderer (PR 18) can surface them inline. Reactions never
+  //      trigger an agent response, so we short-circuit before
+  //      escalation and agent-loop dispatch in both cases.
   if (isSlackReactionEvent(body)) {
+    // Approval interception runs only for reactions (added) — `reaction_removed`
+    // never expresses an approval intent, so un-reacting is left as a pure
+    // transcript signal. Gated by the same `replyCallbackUrl && !duplicate`
+    // preconditions used by the standard approval interception call below.
+    const isReactionAdded = body.callbackData?.startsWith("reaction:") === true;
+    if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
+      const trustCtxForReaction: TrustContext = resolveTrustContext({
+        assistantId: canonicalAssistantId,
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId: rawSenderId,
+        actorUsername: body.actorUsername,
+        actorDisplayName: body.actorDisplayName,
+      });
+
+      const approvalMessageTs =
+        typeof sourceMetadata?.messageId === "string"
+          ? sourceMetadata.messageId
+          : undefined;
+
+      const reactionApprovalResult = await handleApprovalInterception({
+        conversationId: result.conversationId,
+        callbackData: body.callbackData,
+        content: trimmedContent,
+        conversationExternalId,
+        sourceChannel,
+        actorExternalId: canonicalSenderId ?? rawSenderId,
+        replyCallbackUrl,
+        bearerToken: mintBearerToken(),
+        trustCtx: trustCtxForReaction,
+        assistantId: canonicalAssistantId,
+        approvalCopyGenerator,
+        approvalConversationGenerator,
+        approvalMessageTs,
+      });
+
+      // A real guardian decision was applied — short-circuit and skip the
+      // reaction-persistence path so we do not double-record it as a
+      // transcript line. All other interception outcomes (stale_ignored,
+      // non-guardian, no pending approval) fall through to persistence.
+      if (reactionApprovalResult.type === "guardian_decision_applied") {
+        return Response.json({
+          accepted: true,
+          duplicate: false,
+          eventId: result.eventId,
+          approval: reactionApprovalResult.type,
+        });
+      }
+    }
+
     const reactedMessageTs =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
@@ -934,11 +994,15 @@ export async function handleChannelInbound(
       // When a Slack reply arrives for a thread the daemon never saw the
       // parent of, fetch the thread's recent history from Slack and persist
       // the missing messages so the chronological renderer (PR 18) has the
-      // full conversation. Fire-and-forget: failures are swallowed and
-      // never block the agent loop, the outbound HTTP response, or message
-      // dispatch.
+      // full conversation. Awaited (mirrors the DM cold-start path above)
+      // so the agent loop dispatched immediately afterwards observes the
+      // backfilled parent — without this, `loadSlackChronologicalMessages`
+      // can race the persist and miss thread context. Backfill is bounded
+      // (parent + ~50 messages) and the agent latency is dominated by the
+      // LLM call, so the added latency is negligible. Failures are
+      // swallowed inside the helper so they never block dispatch.
       if (slackThreadTs) {
-        void triggerSlackThreadBackfillIfNeeded({
+        await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,

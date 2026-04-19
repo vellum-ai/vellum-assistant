@@ -39,10 +39,19 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { upsertContactChannel } from "../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  upsertContactChannel,
+} from "../contacts/contacts-write.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { getDb, initializeDb } from "../memory/db.js";
+import {
+  createApprovalRequest,
+  getPendingApprovalForRequest,
+} from "../memory/guardian-approvals.js";
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   isSlackReactionEvent,
@@ -375,5 +384,155 @@ describe("Slack reaction event persistence", () => {
       .where(eq(channelInboundEvents.id, eventId))
       .get();
     expect(eventRow?.messageId).toBe(messageRows[0].id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guardian approval-by-reaction integration test
+// ---------------------------------------------------------------------------
+//
+// Verifies that a guardian's `reaction:` event on a pending approval prompt
+// applies the decision via `handleApprovalInterception` and short-circuits
+// the reaction-persistence path so no transcript-line row is written. This
+// is the regression check for the gap where the reaction short-circuit ran
+// before approval interception, silently breaking guardian approval-by-reaction.
+
+const GUARDIAN_USER_ID = "U_GUARDIAN_REACT";
+const GUARDIAN_DISPLAY_NAME = "Guardian Reactor";
+const GUARDIAN_REACTION_TOOL = "execute_shell";
+const GUARDIAN_REACTION_INPUT = { command: "rm -rf /tmp/test" };
+
+function seedGuardianForChannel(): void {
+  createGuardianBinding({
+    channel: "slack",
+    guardianExternalUserId: GUARDIAN_USER_ID,
+    guardianDeliveryChatId: SLACK_CHANNEL_ID,
+    guardianPrincipalId: GUARDIAN_USER_ID,
+  });
+}
+
+function seedPendingGuardianApprovalForReaction(
+  requestId: string,
+  conversationId: string,
+): void {
+  createApprovalRequest({
+    runId: `run-${requestId}`,
+    requestId,
+    conversationId,
+    channel: "slack",
+    requesterExternalUserId: "requester-user-1",
+    requesterChatId: SLACK_CHANNEL_ID,
+    guardianExternalUserId: GUARDIAN_USER_ID,
+    guardianChatId: SLACK_CHANNEL_ID,
+    toolName: GUARDIAN_REACTION_TOOL,
+    expiresAt: Date.now() + 300_000,
+  });
+
+  // Register a pending interaction so applyGuardianDecision finds the
+  // requester-side hook to drive `allow`.
+  const handleConfirmationResponse = mock(() => {});
+  const mockSession = {
+    handleConfirmationResponse,
+    ensureActorScopedHistory: async () => {},
+  } as unknown as Conversation;
+  pendingInteractions.register(requestId, {
+    conversation: mockSession,
+    conversationId,
+    kind: "confirmation",
+    confirmationDetails: {
+      toolName: GUARDIAN_REACTION_TOOL,
+      input: GUARDIAN_REACTION_INPUT,
+      riskLevel: "high",
+      allowlistOptions: [
+        { label: "test", description: "test", pattern: "test" },
+      ],
+      scopeOptions: [{ label: "everywhere", scope: "everywhere" }],
+    },
+  });
+}
+
+describe("guardian approval-by-reaction integration via handleChannelInbound", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM channel_inbound_events");
+    db.run("DELETE FROM conversations");
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    db.run("DELETE FROM channel_guardian_approval_requests");
+    pendingInteractions.clear();
+    msgCounter = 0;
+  });
+
+  test("guardian reaction on pending approval applies decision and persists no transcript row", async () => {
+    seedGuardianForChannel();
+    const requestId = "req-guardian-react-1";
+    // Conversation must exist so the approval row's conversation_id FK
+    // resolves; reuse an inbound seed by sending a no-op message that the
+    // ACL allows. Easier: insert directly via the DB layer.
+    const db = getDb();
+    const conversationId = "conv-react-test-1";
+    const now = Date.now();
+    db.$client
+      .prepare(
+        `INSERT INTO conversations (
+          id, title, created_at, updated_at, total_input_tokens, total_output_tokens,
+          total_estimated_cost, context_compacted_message_count, conversation_type,
+          source, memory_scope_id, host_access, is_auto_title
+        ) VALUES (?, NULL, ?, ?, 0, 0, 0, 0, 'standard', 'user', 'default', 0, 1)`,
+      )
+      .run(conversationId, now, now);
+
+    seedPendingGuardianApprovalForReaction(requestId, conversationId);
+
+    const reactedTs = "1700000099.000001";
+    const body = {
+      sourceChannel: "slack",
+      interface: "slack",
+      conversationExternalId: SLACK_CHANNEL_ID,
+      externalMessageId: `${SLACK_CHANNEL_ID}:${reactedTs}:guardian-react`,
+      content: "reaction:white_check_mark",
+      callbackData: "reaction:white_check_mark",
+      actorExternalId: GUARDIAN_USER_ID,
+      actorDisplayName: GUARDIAN_DISPLAY_NAME,
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      sourceMetadata: {
+        messageId: reactedTs,
+        chatType: "channel",
+      },
+    };
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(resp.status).toBe(200);
+    expect(json.accepted).toBe(true);
+    expect(json.approval).toBe("guardian_decision_applied");
+
+    // The pending approval row is resolved (no longer pending).
+    expect(getPendingApprovalForRequest(requestId)).toBeNull();
+
+    // No transcript row was written for the reaction itself — pre-upgrade
+    // semantics carried no transcript trace for resolved approvals.
+    const reactionRows = readPersistedMessages().filter((row) => {
+      if (!row.metadata) return false;
+      try {
+        const env = JSON.parse(row.metadata) as Record<string, unknown>;
+        if (typeof env.slackMeta !== "string") return false;
+        const meta = readSlackMetadata(env.slackMeta);
+        return meta?.eventKind === "reaction";
+      } catch {
+        return false;
+      }
+    });
+    expect(reactionRows.length).toBe(0);
   });
 });
