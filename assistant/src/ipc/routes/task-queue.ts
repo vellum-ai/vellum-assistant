@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { broadcastToAllClients } from "../../acp/index.js";
 import type { ToolContext } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { IpcRoute } from "../cli-server.js";
@@ -110,6 +111,9 @@ async function handleTaskQueueAdd(params?: Record<string, unknown>) {
     input as Record<string, unknown>,
     queueToolContext(),
   );
+  if (!result.isError) {
+    broadcastToAllClients?.({ type: "tasks_changed" });
+  }
   return { content: result.content, isError: result.isError };
 }
 
@@ -121,6 +125,9 @@ async function handleTaskQueueUpdate(params?: Record<string, unknown>) {
     input as Record<string, unknown>,
     queueToolContext(),
   );
+  if (!result.isError) {
+    broadcastToAllClients?.({ type: "tasks_changed" });
+  }
   return { content: result.content, isError: result.isError };
 }
 
@@ -132,6 +139,9 @@ async function handleTaskQueueRemove(params?: Record<string, unknown>) {
     input as Record<string, unknown>,
     queueToolContext(),
   );
+  if (!result.isError) {
+    broadcastToAllClients?.({ type: "tasks_changed" });
+  }
   return { content: result.content, isError: result.isError };
 }
 
@@ -143,6 +153,9 @@ async function handleTaskQueueRun(params?: Record<string, unknown>) {
     input as Record<string, unknown>,
     queueToolContext(),
   );
+  if (!result.isError) {
+    broadcastToAllClients?.({ type: "tasks_changed" });
+  }
   return { content: result.content, isError: result.isError };
 }
 

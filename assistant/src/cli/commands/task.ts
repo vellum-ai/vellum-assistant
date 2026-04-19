@@ -76,7 +76,7 @@ Examples:
     .description("Save the current conversation as a task template")
     .option(
       "--conversation-id <id>",
-      "Conversation ID to save as a template. Falls back to env vars.",
+      "Conversation ID to save as a template -- run 'assistant conversations list' to find it. Falls back to env vars.",
     )
     .option("--title <title>", "Title for the task template.")
     .option("--json", "Output result as machine-readable JSON.")
