@@ -124,12 +124,6 @@ import * as taskRun from "./bundled-skills/tasks/tools/task-run.js";
 import * as taskSave from "./bundled-skills/tasks/tools/task-save.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
-// ── watcher ────────────────────────────────────────────────────────────────────
-import * as watcherCreate from "./bundled-skills/watcher/tools/watcher-create.js";
-import * as watcherDelete from "./bundled-skills/watcher/tools/watcher-delete.js";
-import * as watcherDigest from "./bundled-skills/watcher/tools/watcher-digest.js";
-import * as watcherList from "./bundled-skills/watcher/tools/watcher-list.js";
-import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -272,11 +266,4 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
-
-  // watcher
-  ["watcher:tools/watcher-create.ts", watcherCreate],
-  ["watcher:tools/watcher-list.ts", watcherList],
-  ["watcher:tools/watcher-update.ts", watcherUpdate],
-  ["watcher:tools/watcher-delete.ts", watcherDelete],
-  ["watcher:tools/watcher-digest.ts", watcherDigest],
 ]);
