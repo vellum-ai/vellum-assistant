@@ -874,6 +874,33 @@ class MeetSessionManagerImpl {
       SKIP_PULSE: "0",
     };
 
+    // Avatar config → bot env.
+    //
+    // When the avatar feature is enabled we thread the config down to the
+    // bot via a trio of env vars:
+    //
+    //   - `AVATAR_ENABLED` — flips the bot's Chrome flags into
+    //     v4l2loopback mode (added in PR 3) and mounts the `/avatar/*`
+    //     HTTP surface.
+    //   - `AVATAR_RENDERER` — which factory the bot's registry resolves.
+    //   - `AVATAR_CONFIG_JSON` — the full config block, serialized as a
+    //     single JSON string so renderer-specific sub-objects flow through
+    //     without having to explode each one into its own env var.
+    //   - `AVATAR_DEVICE_PATH` — explicit device-node override the bot
+    //     passes through to its Chrome launcher and `/avatar/enable`
+    //     handler.
+    //
+    // Credential fields inside the config are resolved to raw values in
+    // the daemon (via the vault) before being handed off — the bot has
+    // no vault access. Concrete renderer PRs extend this serialization
+    // step to substitute in their own vault-resolved credentials.
+    if (meet.avatar.enabled) {
+      env.AVATAR_ENABLED = "1";
+      env.AVATAR_RENDERER = meet.avatar.renderer;
+      env.AVATAR_CONFIG_JSON = JSON.stringify(meet.avatar);
+      env.AVATAR_DEVICE_PATH = meet.avatar.devicePath;
+    }
+
     const runner = this.deps.dockerRunnerFactory();
 
     let runResult: DockerRunResult;
@@ -909,6 +936,16 @@ class MeetSessionManagerImpl {
           [MEET_BOT_LABEL]: "true",
           [MEET_BOT_MEETING_ID_LABEL]: meetingId,
         },
+        // When avatar is enabled, pass through the v4l2loopback device so
+        // the bot container can open `/dev/video10` (or whatever override
+        // the user configured) as a character device and push frames into
+        // it. The CLI (`cli/src/lib/docker.ts`) is responsible for
+        // bind-mounting the host device into the assistant container in
+        // Docker mode; this daemon-side wiring threads it one more hop to
+        // the bot container.
+        ...(meet.avatar.enabled
+          ? { avatarDevicePath: meet.avatar.devicePath }
+          : {}),
       });
     } catch (err) {
       log.error(

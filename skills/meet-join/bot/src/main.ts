@@ -70,10 +70,19 @@ import { startXvfb, stopXvfb, type XvfbHandle } from "./browser/xvfb.js";
 import { DaemonClient } from "./control/daemon-client.js";
 import {
   createHttpServer,
+  type HttpServerAvatarOptions,
   type HttpServerCallbacks,
   type HttpServerHandle,
 } from "./control/http-server.js";
 import { BotState } from "./control/state.js";
+// Importing the avatar barrel has the side effect of registering the noop
+// factory. Individual renderer-backend PRs extend this list with their own
+// side-effect imports.
+import {
+  AvatarRendererUnavailableError,
+  resolveAvatarRenderer,
+  type AvatarConfig,
+} from "./media/avatar/index.js";
 import {
   startAudioCapture,
   type AudioCaptureHandle,
@@ -125,6 +134,28 @@ interface BotEnv {
    * has the Meet avatar feature enabled.
    */
   avatarEnabled: boolean;
+  /**
+   * Phase 4 renderer selector. Defaults to `"noop"` (safe fallback)
+   * when unset. Drives which factory the registry resolves when the
+   * daemon calls `/avatar/enable`. The session-manager sets this env
+   * from `services.meet.avatar.renderer` on the bot container.
+   */
+  avatarRenderer: string;
+  /**
+   * Optional JSON-encoded avatar-config bundle. The session-manager
+   * serializes the fully-resolved `services.meet.avatar.*` block (with
+   * vault-resolved credentials substituted in) and passes it as a
+   * single env var so the bot can hand the whole thing to each
+   * renderer factory without having to juggle a dozen env vars.
+   */
+  avatarConfigJson: string | undefined;
+  /**
+   * Explicit device-path override. Mirrors
+   * `services.meet.avatar.devicePath` from the daemon config. When
+   * unset, the bot falls back to `/dev/video10` (the default
+   * {@link launchChrome} also uses).
+   */
+  avatarDevicePath: string | undefined;
 }
 
 /**
@@ -162,6 +193,9 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     xvfbDisplay: env.XVFB_DISPLAY ?? ":99",
     chromeUserDataRoot: env.CHROME_USER_DATA_ROOT ?? "/tmp/chrome-profile",
     avatarEnabled: parseBooleanEnv(env.AVATAR_ENABLED),
+    avatarRenderer: env.AVATAR_RENDERER ?? "noop",
+    avatarConfigJson: env.AVATAR_CONFIG_JSON,
+    avatarDevicePath: env.AVATAR_DEVICE_PATH,
   };
 }
 
@@ -211,7 +245,10 @@ export interface BotDeps {
     onError: (err: Error) => void;
   }) => DaemonClientLike;
   createHttpServer: (
-    opts: HttpServerCallbacks & { apiToken: string },
+    opts: HttpServerCallbacks & {
+      apiToken: string;
+      avatar?: HttpServerAvatarOptions;
+    },
   ) => HttpServerHandle;
   /**
    * Ensure a directory exists (recursive). Exposed as a dep so tests can
@@ -754,7 +791,19 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
     // ---------------------------------------------------------------------
     // Step 8 — HTTP control surface.
+    //
+    // When `AVATAR_ENABLED=1` is set, construct the avatar options bag
+    // the server needs to wire the `/avatar/*` routes. We ALSO eagerly
+    // attempt to resolve the configured renderer here so a misconfig
+    // (missing credential, bad id, unreachable sidecar) surfaces in
+    // the bot boot log rather than the first time the agent tries to
+    // turn the avatar on. Note that we intentionally only CONSTRUCT —
+    // we do not call `start()` — so an eager construction failure
+    // just logs; the renderer is actually started on the daemon's
+    // `/avatar/enable` HTTP call.
     // ---------------------------------------------------------------------
+    const avatarHttpOptions = buildAvatarHttpOptions(env, deps);
+
     subsystems.httpServer = deps.createHttpServer({
       apiToken: botApiToken,
       onLeave: (reason) => {
@@ -768,6 +817,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       onPlayAudio: () => {
         // Phase 3 will replace the 501 stub with a real implementation.
       },
+      avatar: avatarHttpOptions,
     });
     await subsystems.httpServer.start(env.httpPort);
 
@@ -952,6 +1002,66 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Assemble the avatar options bag passed to `createHttpServer` when the
+ * avatar feature is enabled. Returns `undefined` when
+ * `AVATAR_ENABLED=0` (or unset) so the HTTP server short-circuits
+ * `/avatar/*` routes with 503. Also performs an eager construction
+ * probe: if the configured renderer can't be resolved the failure is
+ * logged — but we do NOT bail the bot boot, since the renderer is not
+ * strictly required for the meeting to proceed.
+ */
+function buildAvatarHttpOptions(
+  env: BotEnv,
+  deps: BotDeps,
+): HttpServerAvatarOptions | undefined {
+  if (!env.avatarEnabled) return undefined;
+
+  // Parse the JSON-encoded config blob the daemon passed down. Fall
+  // back to a minimal config derived from `AVATAR_RENDERER` + the
+  // device-path env so tests and operators can exercise the path
+  // without populating the full blob.
+  let parsed: Record<string, unknown> | null = null;
+  if (env.avatarConfigJson) {
+    try {
+      const raw = JSON.parse(env.avatarConfigJson);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        parsed = raw as Record<string, unknown>;
+      }
+    } catch (err) {
+      deps.logError(
+        `meet-bot: AVATAR_CONFIG_JSON is not valid JSON: ${errMsg(err)} — falling back to env defaults`,
+      );
+    }
+  }
+
+  const config: AvatarConfig = {
+    ...(parsed ?? {}),
+    enabled: true,
+    renderer: env.avatarRenderer,
+  };
+
+  // Eager construction probe — non-fatal on failure.
+  try {
+    resolveAvatarRenderer(config, {});
+  } catch (err) {
+    if (err instanceof AvatarRendererUnavailableError) {
+      deps.logError(
+        `meet-bot: avatar renderer "${err.rendererId}" unavailable at boot: ${err.reason} (will respond 503 on /avatar/enable)`,
+      );
+    } else {
+      deps.logError(
+        `meet-bot: avatar renderer eager-probe threw: ${errMsg(err)} (will surface on /avatar/enable)`,
+      );
+    }
+  }
+
+  return {
+    config,
+    ...(env.avatarDevicePath ? { devicePath: env.avatarDevicePath } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
