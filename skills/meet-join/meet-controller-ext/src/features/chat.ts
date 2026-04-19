@@ -178,14 +178,27 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
  * Assumes the chat panel is open — callers that need to lazily open it
  * should use {@link postConsentMessage}.
  *
- * When `opts.onEvent` is provided, emits a `trusted_click` for the send
- * button's screen coordinates before calling `sendButton.click()`. This
- * mirrors the panel-toggle fix in {@link ensurePanelOpen} and the
- * admission-button fix in `features/join.ts` — by symmetry with the other
- * `isTrusted`-gated buttons in Meet's UI, we expect the send button is also
- * gated, so a bare JS `.click()` from a content script would be silently
- * ignored. The `.click()` call is kept as a fallback for the jsdom test
- * harness and any Meet build that does not enforce `isTrusted` on send.
+ * When `opts.onEvent` is provided, two extra extension→bot signals are
+ * emitted so the bot can drive the composer + send via real X-server
+ * events (required by any Meet build that enforces `event.isTrusted` on
+ * the corresponding controls):
+ *
+ * 1. After the native-setter `.value = text` + synthetic `input` event,
+ *    the composer is focused and a `trusted_type` event is emitted so the
+ *    bot can xdotool-type the text as real keystrokes. This is
+ *    belt-and-suspenders: if Meet accepts the synthetic path, the
+ *    xdotool-typed text lands in the same focused field and is harmless;
+ *    if not, xdotool fills the gap. We wait ~250ms after emitting so the
+ *    (async) keystrokes have time to land before clicking send.
+ *
+ * 2. Before the send-button `.click()`, a `trusted_click` is emitted for
+ *    the button's screen coordinates. This mirrors the panel-toggle fix
+ *    in {@link ensurePanelOpen} and the admission-button fix in
+ *    `features/join.ts` — by symmetry with other `isTrusted`-gated
+ *    buttons in Meet's UI, we expect the send button is also gated, so a
+ *    bare JS `.click()` from a content script would be silently ignored.
+ *    The `.click()` call is kept as a fallback for the jsdom test
+ *    harness and any Meet build that does not enforce `isTrusted` on send.
  */
 export async function sendChat(
   text: string,
@@ -211,6 +224,22 @@ export async function sendChat(
   // hood through Playwright's element-handle bindings.
   input.value = text;
   input.dispatchEvent(new Event("input", { bubbles: true }));
+
+  // If the caller wired up an `onEvent` sink, also drive the composer via
+  // xdotool-type. Focus the field first so xdotool's X-server keystrokes
+  // land on the right element, then emit the trusted_type event and give
+  // the bot a short window to type before we click send. No coord math
+  // here — the bot types into whatever is focused on the Xvfb display.
+  if (opts?.onEvent) {
+    try {
+      input.focus();
+    } catch {
+      // Some jsdom / degraded DOM builds throw on .focus(); fall through
+      // and let the synthetic-setter path carry the composer.
+    }
+    opts.onEvent({ type: "trusted_type", text });
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  }
 
   const sendButton = document.querySelector<HTMLButtonElement>(
     chatSelectors.SEND_BUTTON,

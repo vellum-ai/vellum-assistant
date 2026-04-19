@@ -65,6 +65,7 @@ import {
   type LaunchChromeOptions,
 } from "./browser/chrome-launcher.js";
 import { xdotoolClick } from "./browser/xdotool-click.js";
+import { xdotoolType } from "./browser/xdotool-type.js";
 import { startXvfb, stopXvfb, type XvfbHandle } from "./browser/xvfb.js";
 import { DaemonClient } from "./control/daemon-client.js";
 import {
@@ -161,6 +162,18 @@ export interface BotDeps {
    * See `browser/xdotool-click.ts` for rationale.
    */
   xdotoolClick: (opts: { x: number; y: number; display: string }) => Promise<void>;
+  /**
+   * Type text via real X-server keystrokes into whatever is currently
+   * focused on the Xvfb display. Used as belt-and-suspenders for the
+   * chat composer when Meet gates input on `event.isTrusted === true`.
+   * The extension is responsible for focusing the right element before
+   * emitting `trusted_type`. See `browser/xdotool-type.ts` for rationale.
+   */
+  xdotoolType: (opts: {
+    text: string;
+    display: string;
+    delayMs?: number;
+  }) => Promise<void>;
   startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   createDaemonClient: (opts: {
     daemonUrl: string;
@@ -233,6 +246,7 @@ export function defaultDeps(): BotDeps {
     createNmhSocketServer: (opts) => createNmhSocketServer(opts),
     launchChrome: (opts) => launchChrome(opts),
     xdotoolClick: (opts) => xdotoolClick(opts),
+    xdotoolType: (opts) => xdotoolType(opts),
     startAudioCapture,
     createDaemonClient: (opts) =>
       new DaemonClient({
@@ -811,6 +825,28 @@ export async function runBot(deps: BotDeps): Promise<void> {
           .catch((err: unknown) => {
             const detail = err instanceof Error ? err.message : String(err);
             deps.logError(`meet-bot: trusted_click failed: ${detail}`);
+          });
+        return;
+      }
+      case "trusted_type": {
+        // Mirror of trusted_click: fire-and-forget, log on success /
+        // failure, never cascade into a bot shutdown. The extension has
+        // already focused the target element; the bot just types into
+        // whatever is focused on the Xvfb display.
+        deps
+          .xdotoolType({
+            text: msg.text,
+            delayMs: msg.delayMs,
+            display: env.xvfbDisplay,
+          })
+          .then(() =>
+            deps.logInfo(
+              `meet-bot: trusted_type dispatched (${msg.text.length} chars)`,
+            ),
+          )
+          .catch((err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            deps.logError(`meet-bot: trusted_type failed: ${detail}`);
           });
         return;
       }

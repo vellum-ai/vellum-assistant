@@ -441,6 +441,75 @@ describe("sendChat", () => {
     expect(sendClicks).toBe(1);
   });
 
+  test("emits exactly one trusted_type event between the input event and send click when onEvent is provided", async () => {
+    const doc = installed!.dom.window.document;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
+    const sendButton = doc.querySelector<HTMLButtonElement>(
+      chatSelectors.SEND_BUTTON,
+    );
+    expect(input).not.toBeNull();
+    expect(sendButton).not.toBeNull();
+
+    // Record the temporal order of:
+    //   1. the synthetic "input" event firing on the textarea (post `.value = text`)
+    //   2. each onEvent call (trusted_type or trusted_click for the send button)
+    //   3. the send-button click.
+    const timeline: Array<
+      | { kind: "input"; value: string }
+      | { kind: "event"; ev: ExtensionToBotMessage }
+      | { kind: "send-click"; inputValue: string }
+    > = [];
+
+    input!.addEventListener("input", () => {
+      timeline.push({ kind: "input", value: input!.value });
+    });
+    sendButton!.addEventListener("click", () => {
+      timeline.push({ kind: "send-click", inputValue: input!.value });
+    });
+
+    const onEvent = (ev: ExtensionToBotMessage): void => {
+      timeline.push({ kind: "event", ev });
+    };
+
+    await sendChat("hello", {
+      onEvent,
+      window: {
+        screenX: 0,
+        screenY: 0,
+        outerHeight: 820,
+        innerHeight: 720,
+      },
+    });
+
+    // Exactly one trusted_type event with the literal payload.
+    const trustedTypes = timeline.filter(
+      (entry): entry is { kind: "event"; ev: ExtensionToBotMessage } =>
+        entry.kind === "event" && entry.ev.type === "trusted_type",
+    );
+    expect(trustedTypes.length).toBe(1);
+    const trustedType = trustedTypes[0]!.ev;
+    if (trustedType.type === "trusted_type") {
+      expect(trustedType.text).toBe("hello");
+    }
+
+    // Ordering: input event first (carries the native-setter value), then
+    // trusted_type, then any send-button trusted_click, then the JS click.
+    const inputIdx = timeline.findIndex((e) => e.kind === "input");
+    const trustedTypeIdx = timeline.findIndex(
+      (e) => e.kind === "event" && e.ev.type === "trusted_type",
+    );
+    const sendClickIdx = timeline.findIndex((e) => e.kind === "send-click");
+    expect(inputIdx).toBeGreaterThanOrEqual(0);
+    expect(trustedTypeIdx).toBeGreaterThan(inputIdx);
+    expect(sendClickIdx).toBeGreaterThan(trustedTypeIdx);
+
+    // The textarea should still carry the native-setter value at send time.
+    const sendEntry = timeline[sendClickIdx];
+    if (sendEntry && sendEntry.kind === "send-click") {
+      expect(sendEntry.inputValue).toBe("hello");
+    }
+  });
+
   test("accepts exactly 2000 characters", async () => {
     const doc = installed!.dom.window.document;
     const sendButton = doc.querySelector<HTMLButtonElement>(

@@ -94,6 +94,8 @@ interface MakeDepsOpts {
   chromeLaunchError?: Error;
   /** Force `xdotoolClick` to reject. */
   xdotoolClickError?: Error;
+  /** Force `xdotoolType` to reject. */
+  xdotoolTypeError?: Error;
   /** Force `startXvfb` to reject. */
   xvfbError?: Error;
   /** Short-circuit `waitForReady` to reject with this error. */
@@ -259,6 +261,15 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         display: clickOpts.display,
       });
       if (opts.xdotoolClickError) throw opts.xdotoolClickError;
+    },
+    xdotoolType: async (typeOpts) => {
+      calls.push({
+        kind: "xdotool.type",
+        text: typeOpts.text,
+        delayMs: typeOpts.delayMs,
+        display: typeOpts.display,
+      });
+      if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
     },
     startAudioCapture: async (audioOpts) => {
       calls.push({ kind: "audio.start", socketPath: audioOpts.socketPath });
@@ -598,6 +609,57 @@ describe("runBot — extension message routing", () => {
     expect(
       handles.errors.some((m) =>
         m.includes("trusted_click failed: xdotool exit code 1"),
+      ),
+    ).toBe(true);
+    // Bot stays alive — no shutdown triggered.
+    const counts = handles.stopCounts();
+    expect(counts.chrome).toBe(0);
+    expect(counts.xvfb).toBe(0);
+  });
+
+  test("trusted_type invokes xdotoolType with the payload + configured display", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "hello world",
+      delayMs: 25,
+    });
+    // xdotoolType is fire-and-forget (same pattern as trusted_click), so
+    // give it a microtask to settle and the logInfo to land.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const typeCall = handles.calls.find((c) => c.kind === "xdotool.type");
+    expect(typeCall).toBeDefined();
+    expect(typeCall!.text).toBe("hello world");
+    expect(typeCall!.delayMs).toBe(25);
+    expect(typeCall!.display).toBe(":99");
+    // Success should surface via logInfo with the character count.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("trusted_type dispatched (11 chars)"),
+      ),
+    ).toBe(true);
+  });
+
+  test("trusted_type xdotool failures surface via logError but don't shut down", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      xdotoolTypeError: new Error("xdotool type exit code 1"),
+    });
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "fail me",
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(
+      handles.errors.some((m) =>
+        m.includes("trusted_type failed: xdotool type exit code 1"),
       ),
     ).toBe(true);
     // Bot stays alive — no shutdown triggered.
