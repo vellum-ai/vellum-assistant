@@ -220,10 +220,10 @@ struct ScrollDebugOverlayView: View {
         HStack(spacing: 6) {
             Text(label)
                 .foregroundStyle(VColor.contentSecondary)
-                .frame(width: 84, alignment: .trailing)
+                .frame(width: 100, alignment: .trailing)
             Text(value)
                 .foregroundStyle(valueColor ?? VColor.contentDefault)
-                .frame(minWidth: 60, alignment: .leading)
+                .frame(minWidth: 80, alignment: .leading)
         }
     }
 
