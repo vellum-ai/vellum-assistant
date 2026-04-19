@@ -14,12 +14,16 @@ import {
 
 import {
   buildCreateBody,
+  type ContainerListEntry,
   demultiplexDockerLogs,
   DockerApiError,
   DockerRunner,
   dockerSocketUnreachableMessage,
   extractBoundPorts,
   HOST_GATEWAY_ALIAS,
+  MEET_BOT_LABEL,
+  MEET_BOT_MEETING_ID_LABEL,
+  reapOrphanedMeetBots,
   resetSocketReachabilityCacheForTests,
   resolveWorkspaceSubpath,
 } from "../docker-runner.js";
@@ -666,5 +670,256 @@ describe("DockerRunner workspace-mount mode branching", () => {
     expect(mock.captured).toHaveLength(7);
     const pingCalls = mock.captured.filter((c) => c.url.includes("/_ping"));
     expect(pingCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Container-create labels (orphan-reaper scheme)
+// ---------------------------------------------------------------------------
+
+describe("buildCreateBody labels", () => {
+  test("omits Labels when none supplied", () => {
+    const body = buildCreateBody({ image: "x:y" });
+    expect(body.Labels).toBeUndefined();
+  });
+
+  test("emits Labels payload when supplied (orphan-reaper label scheme)", () => {
+    const body = buildCreateBody({
+      image: "vellum-meet-bot:dev",
+      labels: {
+        [MEET_BOT_LABEL]: "true",
+        [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+      },
+    });
+    expect(body.Labels).toEqual({
+      "vellum.meet.bot": "true",
+      "vellum.meet.meetingId": "meeting-a",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listContainers + kill
+// ---------------------------------------------------------------------------
+
+describe("DockerRunner.listContainers", () => {
+  let mock: MockDocker;
+
+  afterEach(async () => {
+    await mock?.close();
+  });
+
+  test("passes label filter + all=false in query string", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({
+      status: 200,
+      body: [
+        {
+          Id: "c1",
+          Labels: { "vellum.meet.bot": "true", "vellum.meet.meetingId": "a" },
+        },
+      ],
+    });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.listContainers({
+      labels: { "vellum.meet.bot": "true" },
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].Id).toBe("c1");
+
+    const [req] = mock.captured;
+    expect(req.method).toBe("GET");
+    expect(req.url).toContain("/containers/json");
+    expect(req.url).toContain("filters=");
+    // Decode the filters JSON and verify the label filter round-trips.
+    const encoded = new URL(req.url, "http://localhost").searchParams.get(
+      "filters",
+    );
+    const parsed = JSON.parse(encoded ?? "{}");
+    expect(parsed.label).toEqual(["vellum.meet.bot=true"]);
+  });
+});
+
+describe("DockerRunner.kill", () => {
+  let mock: MockDocker;
+
+  afterEach(async () => {
+    await mock?.close();
+  });
+
+  test("POSTs /containers/<id>/kill with signal query", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 204, body: null });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    await runner.kill("cid", "SIGTERM");
+
+    expect(mock.captured).toHaveLength(1);
+    expect(mock.captured[0].method).toBe("POST");
+    expect(mock.captured[0].url).toContain("/containers/cid/kill");
+    expect(mock.captured[0].url).toContain("signal=SIGTERM");
+  });
+
+  test("defaults to SIGKILL when no signal is supplied", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 204, body: null });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    await runner.kill("cid");
+    expect(mock.captured[0].url).toContain("signal=SIGKILL");
+  });
+
+  test("swallows 404 and 409 (already-dead container)", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 404, body: "no such container" });
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    await expect(runner.kill("gone")).resolves.toBeUndefined();
+
+    await mock.close();
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 409, body: "container is not running" });
+    const runner2 = new DockerRunner({ socketPath: mock.socketPath });
+    await expect(runner2.kill("stopped")).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reapOrphanedMeetBots
+// ---------------------------------------------------------------------------
+
+interface FakeDocker {
+  listContainers: (opts: {
+    labels?: Record<string, string>;
+    all?: boolean;
+  }) => Promise<ContainerListEntry[]>;
+  kill: (containerId: string, signal?: string) => Promise<void>;
+}
+
+function silentLogger() {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  };
+}
+
+describe("reapOrphanedMeetBots", () => {
+  test("kills containers whose meetingId is not in the active set, keeps the rest", async () => {
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-a",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+          },
+        },
+        {
+          Id: "c-b",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(["meeting-b"]),
+      logger: silentLogger(),
+    });
+
+    expect(result.killed).toEqual(["c-a"]);
+    expect(result.kept).toEqual(["c-b"]);
+    // SIGTERM went out synchronously during the sweep. The delayed SIGKILL
+    // is scheduled via unref'd setTimeout — we assert only the SIGTERM here.
+    expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
+      { id: "c-a", signal: "SIGTERM" },
+    ]);
+  });
+
+  test("returns empty result when there are no orphans", async () => {
+    const docker: FakeDocker = {
+      listContainers: async () => [],
+      kill: async () => {
+        throw new Error("should not be called");
+      },
+    };
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      logger: silentLogger(),
+    });
+    expect(result).toEqual({ killed: [], kept: [] });
+  });
+
+  test("continues sweeping when one container's kill throws", async () => {
+    const killed: string[] = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-a",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+          },
+        },
+        {
+          Id: "c-b",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+          },
+        },
+        {
+          Id: "c-c",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-c",
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        if (signal !== "SIGTERM") return; // delayed SIGKILL — ignore
+        if (id === "c-b") throw new Error("engine glitch");
+        killed.push(id);
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      logger: silentLogger(),
+    });
+
+    // c-b threw during SIGTERM; c-a and c-c still reached kill successfully.
+    expect(killed).toEqual(["c-a", "c-c"]);
+    expect(result.killed).toEqual(["c-a", "c-c"]);
+    expect(result.kept).toEqual([]);
+  });
+
+  test("returns empty result and logs a warning if listContainers throws", async () => {
+    const docker: FakeDocker = {
+      listContainers: async () => {
+        throw new Error("engine unreachable");
+      },
+      kill: async () => {
+        throw new Error("should not be called");
+      },
+    };
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      logger: silentLogger(),
+    });
+    expect(result).toEqual({ killed: [], kept: [] });
   });
 });
