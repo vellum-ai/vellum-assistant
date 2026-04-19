@@ -39,6 +39,7 @@ import { unifyLlmCallSiteConfigsMigration } from "./038-unify-llm-callsite-confi
 import { dropLegacyLlmKeysMigration } from "./039-drop-legacy-llm-keys.js";
 import { seedLatencyCallSiteDefaultsMigration } from "./040-seed-latency-callsite-defaults.js";
 import { backfillGoogleGmailSettingsScopeMigration } from "./041-backfill-google-gmail-settings-scope.js";
+import { fixBackfillGoogleGmailSettingsScopeMigration } from "./042-fix-backfill-google-gmail-settings-scope.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -89,4 +90,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropLegacyLlmKeysMigration,
   seedLatencyCallSiteDefaultsMigration,
   backfillGoogleGmailSettingsScopeMigration,
+  fixBackfillGoogleGmailSettingsScopeMigration,
 ];
