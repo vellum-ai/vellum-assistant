@@ -1,6 +1,7 @@
 import type { IpcRoute } from "../cli-server.js";
 import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
+import { taskTemplateRoutes } from "./task.js";
 import { uiRequestRoute } from "./ui-request.js";
 import { wakeConversationRoute } from "./wake-conversation.js";
 
@@ -10,4 +11,5 @@ export const cliIpcRoutes: IpcRoute[] = [
   uiRequestRoute,
   wakeConversationRoute,
   ...cacheRoutes,
+  ...taskTemplateRoutes,
 ];
