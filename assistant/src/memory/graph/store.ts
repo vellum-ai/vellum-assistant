@@ -358,6 +358,47 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
   return query.all().map(rowToNode);
 }
 
+/**
+ * Pull capability (skill / CLI) nodes directly from SQLite, ordered by
+ * significance DESC. Matches the content shapes produced by both the
+ * legacy (`skill:{id}\n`, `cli:{name}\n`) and current
+ * (`The "..." skill (id) is available.`, `The "assistant ..." CLI command`)
+ * seeding systems — keeping the SQL filter in sync with `isCapabilityNode`.
+ *
+ * Used as a cold-start fallback for context-load capability injection when
+ * no semantic-search candidates are capability nodes (e.g. fresh assistants
+ * whose embedding jobs haven't completed yet). The content-pattern filter
+ * prevents organic procedural memories from crowding out real capabilities.
+ */
+export function queryCapabilityNodes(
+  scopeId: string,
+  limit: number,
+): MemoryNode[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(memoryGraphNodes)
+    .where(
+      and(
+        eq(memoryGraphNodes.scopeId, scopeId),
+        eq(memoryGraphNodes.type, "procedural"),
+        sql`${memoryGraphNodes.fidelity} != 'gone'`,
+        or(
+          sql`${memoryGraphNodes.content} LIKE 'skill:%'`,
+          sql`${memoryGraphNodes.content} LIKE 'cli:%'`,
+          and(
+            sql`${memoryGraphNodes.content} LIKE 'The "%'`,
+            sql`${memoryGraphNodes.content} LIKE '% is available.%'`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(sql`${memoryGraphNodes.significance} DESC`)
+    .limit(limit)
+    .all();
+  return rows.map(rowToNode);
+}
+
 /** Count all non-gone nodes in a scope. */
 export function countNodes(scopeId: string): number {
   const db = getDb();
