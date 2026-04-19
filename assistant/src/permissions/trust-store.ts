@@ -202,6 +202,9 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   // or allowHighRisk has changed in the template (e.g. host_bash pattern
   // changed from '*' to '**', host tool priorities changed from 1000 to 50,
   // workspace scope changed from getRootDir()+workspace to getWorkspaceDir()).
+  //
+  // Rules with `userModifiedAt` set are skipped — the user explicitly
+  // customized them and their override should be preserved across upgrades.
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
@@ -213,6 +216,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
           rule.decision !== template.decision ||
           rule.allowHighRisk !== template.allowHighRisk)
       ) {
+        if (rule.userModifiedAt != null) {
+          log.info(
+            { ruleId: rule.id, userModifiedAt: rule.userModifiedAt },
+            "Skipping migration of user-modified default rule",
+          );
+          continue;
+        }
         log.info(
           {
             ruleId: rule.id,
@@ -469,9 +479,6 @@ function fileUpdateRule(
     priority?: number;
   },
 ): TrustRule {
-  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id))
-    throw new Error(`Cannot modify default trust rule: ${id}`);
   if (updates.tool?.startsWith("__internal:"))
     throw new Error(
       `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
@@ -488,6 +495,13 @@ function fileUpdateRule(
   if (updates.scope != null) merged.scope = updates.scope;
   if (updates.decision != null) merged.decision = updates.decision;
   if (updates.priority != null) merged.priority = updates.priority;
+
+  // Mark default rules with userModifiedAt so backfillDefaults() preserves
+  // the user's customization across upgrades instead of overwriting it.
+  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
+  if (defaultIds.has(id)) {
+    merged.userModifiedAt = Date.now();
+  }
 
   // Canonicalize through parseTrustRule so that fields invalid for the
   // (potentially changed) tool family are stripped. For example, if a rule's
