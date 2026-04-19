@@ -83,6 +83,23 @@ RUN bun install --frozen-lockfile
 
 COPY skills/meet-join/bot/src ./src
 
+# Native-messaging host registration: copy the manifest template + renderer
+# script into the image, then render the manifest with the extension's ID
+# baked in (derived from the sibling extension package's public key). The
+# rendered file lands at Chrome's well-known search path so Chromium picks
+# it up automatically when it boots inside the container.
+COPY skills/meet-join/bot/native-messaging ./native-messaging
+COPY skills/meet-join/bot/scripts/render-nmh-manifest.ts ./scripts/render-nmh-manifest.ts
+COPY skills/meet-join/meet-controller-ext/manifest.json /tmp/ext-manifest.json
+
+RUN mkdir -p /etc/opt/chrome/native-messaging-hosts \
+  && bun scripts/render-nmh-manifest.ts \
+       /etc/opt/chrome/native-messaging-hosts/com.vellum.meet.json \
+       --ext-manifest /tmp/ext-manifest.json \
+       --template /app/bot/native-messaging/com.vellum.meet.json \
+  && chmod +x /app/bot/src/native-messaging/nmh-shim.ts \
+  && rm /tmp/ext-manifest.json
+
 # The PulseAudio bootstrap script is shelled out to at container start by
 # `src/media/pulse.ts`; ensure the executable bit is set in the image so the
 # runtime `bash` invocation succeeds. The script is NOT run at build time —
