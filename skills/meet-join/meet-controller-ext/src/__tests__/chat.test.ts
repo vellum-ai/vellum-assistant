@@ -521,4 +521,73 @@ describe("postConsentMessage", () => {
     await postConsentMessage("already open");
     expect(installed!.panelToggleClicks()).toBe(0);
   });
+
+  test("emits a trusted_click with computed screen coords when the panel is closed", async () => {
+    installed!.closePanel();
+
+    // Stub the toggle's geometry so the coordinate math is deterministic —
+    // jsdom returns a zero rect by default. Math mirrors the admission-button
+    // block in `features/join.ts`: x = screenX + rect.left + width/2,
+    // y = screenY + (outerHeight - innerHeight) + rect.top + height/2.
+    const doc = installed!.dom.window.document;
+    const toggle = doc.querySelector(chatSelectors.PANEL_BUTTON) as HTMLElement;
+    toggle.getBoundingClientRect = () =>
+      ({
+        left: 1200,
+        top: 60,
+        width: 40,
+        height: 40,
+        right: 1240,
+        bottom: 100,
+        x: 1200,
+        y: 60,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: ExtensionToBotMessage[] = [];
+    await postConsentMessage("hi", {
+      onEvent: (ev) => events.push(ev),
+      // chrome = outerHeight - innerHeight = 100; screen origin = (0, 0).
+      // Expected: x = 1200 + 20 = 1220, y = 100 + 60 + 20 = 180.
+      window: {
+        screenX: 0,
+        screenY: 0,
+        outerHeight: 820,
+        innerHeight: 720,
+      },
+    });
+
+    const trustedClicks = events.filter(
+      (e) => e.type === "trusted_click",
+    ) as Array<
+      Extract<ExtensionToBotMessage, { type: "trusted_click" }>
+    >;
+    expect(trustedClicks.length).toBe(1);
+    expect(trustedClicks[0]!.x).toBe(1220);
+    expect(trustedClicks[0]!.y).toBe(180);
+
+    // JS click fallback still fired (opens the panel in the jsdom harness).
+    expect(installed!.panelToggleClicks()).toBe(1);
+  });
+
+  test("does not emit a trusted_click when the panel is already open", async () => {
+    // Panel already open (MESSAGE_LIST mounted) — ensurePanelOpen must
+    // short-circuit before the toggle-lookup + emit path.
+    const events: ExtensionToBotMessage[] = [];
+    await postConsentMessage("hi", {
+      onEvent: (ev) => events.push(ev),
+      window: {
+        screenX: 0,
+        screenY: 0,
+        outerHeight: 820,
+        innerHeight: 720,
+      },
+    });
+
+    const trustedClicks = events.filter((e) => e.type === "trusted_click");
+    expect(trustedClicks.length).toBe(0);
+    expect(installed!.panelToggleClicks()).toBe(0);
+  });
 });
