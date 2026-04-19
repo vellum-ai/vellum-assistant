@@ -96,6 +96,13 @@ interface MakeDepsOpts {
   xvfbError?: Error;
   /** Short-circuit `waitForReady` to reject with this error. */
   extensionReadyError?: Error;
+  /**
+   * Deadline for the extension to reach `lifecycle:joined`. Defaults to
+   * a very large value in tests so the happy-path suite doesn't trip the
+   * timer while sitting at `phase=joining`. Only the Gap B test should
+   * override this to a small value.
+   */
+  extensionJoinedTimeoutMs?: number;
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): {
@@ -310,6 +317,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       errors.push(msg);
     },
     extensionReadyTimeoutMs: 1_000,
+    extensionJoinedTimeoutMs: opts.extensionJoinedTimeoutMs ?? 60_000,
     sendChatTimeoutMs: 500,
     leaveGraceMs: 0,
     generateRequestId: () => {
@@ -910,5 +918,236 @@ describe("runBot — daemon-client terminal errors", () => {
     const last = lifecycleStates[lifecycleStates.length - 1]!;
     expect(last.state).toBe("error");
     expect(last.detail).toContain("daemon ingress failure");
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Gap A: meetingId rewrite at the bot boundary
+ * -----------------------------------------------------------------------
+ * The Chrome extension stamps every event with `meetingId = location.pathname`
+ * (the Meet URL code, e.g. `abc-defg-hij`), but the daemon keys each bot
+ * session by the UUID passed via the `MEETING_ID` env. The bot must overwrite
+ * `meetingId` with the authoritative UUID before forwarding to the daemon so
+ * events correlate to the right session even if the extension misreports.
+ */
+describe("runBot — Gap A: meetingId rewrite at bot boundary", () => {
+  test("participant.change has meetingId rewritten to the env UUID", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    // Simulate the extension's URL-code-based meetingId — not the env UUID.
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(1);
+    const event = fresh[0];
+    expect(event?.type).toBe("participant.change");
+    // Must be rewritten to the env UUID ("m-1" in test deps), not the
+    // extension-supplied URL code.
+    if (event?.type === "participant.change") {
+      expect(event.meetingId).toBe("m-1");
+    }
+  });
+
+  test("speaker.change + chat.inbound both have meetingId rewritten", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(2);
+    for (const event of fresh) {
+      if (event.type === "speaker.change" || event.type === "chat.inbound") {
+        expect(event.meetingId).toBe("m-1");
+      }
+    }
+  });
+
+  test("lifecycle events have meetingId rewritten to the env UUID", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(1);
+    const event = fresh[0];
+    expect(event?.type).toBe("lifecycle");
+    if (event?.type === "lifecycle") {
+      expect(event.meetingId).toBe("m-1");
+      expect(event.state).toBe("joined");
+    }
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Gap B: extension-joined deadline
+ * -----------------------------------------------------------------------
+ * `waitForReady` only proves the extension is alive, not that Chrome landed
+ * on a Meet tab. A restore-session dialog or redirect loop leaves the
+ * content script unmounted and the `join` relay is silently dropped. Bound
+ * the wait with `extensionJoinedTimeoutMs` so the bot doesn't sit in
+ * `phase=joining` forever.
+ */
+describe("runBot — Gap B: extension-joined deadline", () => {
+  test("fires shutdown with error when extension never reaches joined", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    // Let the boot reach `waitForReady`, then fire ready but never fire
+    // `lifecycle:joined`. The timer should trip and shutdown should fire.
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Wait longer than `extensionJoinedTimeoutMs` for the timer to fire.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState).toBeDefined();
+    expect(errState?.detail).toContain(
+      "extension did not reach joined state within 50ms",
+    );
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+
+  test("lifecycle:joined from extension clears the timer (no shutdown)", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `joined` before the timer deadline — should prevent shutdown.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // Give the timer plenty of time to fire if it wasn't cleared.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // No shutdown should have occurred.
+    expect(handles.exitCode()).toBeNull();
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(0);
+    expect(counts.chrome).toBe(0);
+    expect(counts.audio).toBe(0);
+    expect(handles.daemonStopped()).toBe(false);
+  });
+
+  test("lifecycle:error from extension clears the timer (no duplicate shutdown)", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `error` — handler updates state and clears the timer, but does
+    // not itself initiate shutdown (that's the extension's signal the
+    // meet-side died; shutdown is a separate path we're validating is
+    // idempotent).
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "error",
+      detail: "prejoin captcha",
+    });
+
+    // Give the timer plenty of time to fire if it wasn't cleared.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The error lifecycle event was forwarded.
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => e.state);
+    expect(lifecycleStates).toContain("error");
+
+    // But no timer-driven shutdown should have fired.
+    // exitCode remains null because nothing else triggered shutdown.
+    expect(handles.exitCode()).toBeNull();
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Gap C: error detail forwarded to the daemon
+ * -----------------------------------------------------------------------
+ * Previously `waitForReady` / send-join failures reported a generic string
+ * to the daemon, losing the underlying error's message. The specific cause
+ * must reach the conversation log.
+ */
+describe("runBot — Gap C: error detail forwarding", () => {
+  test("waitForReady rejection forwards the underlying error message to daemon", async () => {
+    BotState.__resetForTests();
+    const specific = "timed out after 1234ms waiting for extension ready handshake";
+    const { deps, handles } = makeDeps({
+      extensionReadyError: new Error(specific),
+    });
+
+    await runBot(deps);
+
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState).toBeDefined();
+    // Detail must contain BOTH the generic context AND the specific cause.
+    expect(errState?.detail).toContain("extension never signaled ready");
+    expect(errState?.detail).toContain(specific);
   });
 });
