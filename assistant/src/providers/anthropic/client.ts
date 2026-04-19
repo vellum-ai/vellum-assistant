@@ -627,16 +627,27 @@ export class AnthropicProvider implements Provider {
       authToken?: string;
     } = {},
   ) {
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    // Pass the same deadline to the SDK so its per-request timeout can't
+    // fire before `createStreamTimeout` does. The SDK's default is 10 min,
+    // which truncates any request we intend to run longer than that. We add
+    // a 60s buffer so `createStreamTimeout` always wins — its abort reason
+    // produces a clearer error message than the SDK's generic timeout.
+    const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
     this.client = options.authToken
       ? new Anthropic({
           apiKey: null,
           authToken: options.authToken,
           baseURL: options.baseURL,
+          timeout: sdkTimeoutMs,
         })
-      : new Anthropic({ apiKey, baseURL: options.baseURL });
+      : new Anthropic({
+          apiKey,
+          baseURL: options.baseURL,
+          timeout: sdkTimeoutMs,
+        });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
   }
 
   async sendMessage(

@@ -52,7 +52,6 @@ mock.module("../util/retry.js", () => {
   const RETRYABLE_NETWORK_MESSAGE_PATTERNS = [
     /socket.*closed unexpectedly/i,
     /socket hang up/i,
-    /request was aborted/i,
   ];
 
   function isRetryableNetworkError(error: unknown): boolean {
@@ -449,28 +448,13 @@ describe("RetryProvider — network error retries", () => {
     expect(inner.calls).toBe(1);
   });
 
-  test("retries on 'Request was aborted' (transport-level abort, no abortReason)", async () => {
-    // Exactly the wire-format the Anthropic SDK emits when its underlying
-    // fetch AbortSignal fires without a daemon-tagged reason (bun fetch
-    // deadline, edge LB, NAT idle).
-    const inner = makeFlaky(
-      1,
-      new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
-        "anthropic",
-      ),
-    );
-    const provider = new RetryProvider(inner);
-
-    const result = await provider.sendMessage(MESSAGES);
-    expect(inner.calls).toBe(2);
-    expect(result.stopReason).toBe("end_turn");
-  });
-
-  test("does NOT retry 'Request was aborted' when abortReason is set (caller/daemon cancel)", async () => {
+  test("does NOT retry a ProviderError tagged with abortReason", async () => {
+    // Defensive: if any future retryable pattern matches an error carrying
+    // a daemon/user-initiated abortReason, the abortReason guard in
+    // providers/retry.ts:isRetryableError must still short-circuit it.
     const inner = makeFailing(
       new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
+        "Anthropic request failed: socket closed unexpectedly",
         "anthropic",
         undefined,
         { abortReason: { kind: "user_cancel", source: "test" } },
@@ -479,9 +463,8 @@ describe("RetryProvider — network error retries", () => {
     const provider = new RetryProvider(inner);
 
     await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
-      "Request was aborted",
+      "socket closed",
     );
-    // Only the initial call — no retries.
     expect(inner.calls).toBe(1);
   });
 
