@@ -667,6 +667,18 @@
       }
     },
     {
+      "id": "watcher",
+      "name": "watcher",
+      "description": "Create and manage polling watchers that monitor external services (Gmail, Google Calendar, GitHub, Linear, Outlook) for events and process them with custom action prompts",
+      "metadata": {
+        "emoji": "👀",
+        "vellum": {
+          "display-name": "Watcher"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "weather",
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",

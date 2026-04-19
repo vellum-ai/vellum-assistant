@@ -180,7 +180,7 @@ export async function runWatchersOnce(
         // Do NOT call provider.cleanup() here — auto-disable is reversible.
         // If the watcher is re-enabled later, it must diff against the same
         // baseline to avoid missing events that occurred while disabled.
-        // Cleanup is only correct on true deletion (see tools/watcher/delete.ts).
+        // Cleanup is only correct on true deletion (see watcher delete IPC route).
         log.warn(
           { watcherId: watcher.id, name: watcher.name },
           "Watcher disabled by circuit breaker",
