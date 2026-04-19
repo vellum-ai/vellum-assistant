@@ -485,6 +485,31 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "terminal-sessions",
+      "name": "terminal-sessions",
+      "description": "Manage persistent terminal sessions via tmux. Create, read, write to, list, and close named shell sessions. Use when the user asks about running terminal processes, wants help orchestrating CLI tasks, or asks you to monitor or interact with long-running commands. Also use when the user mentions tmux sessions.",
+      "metadata": {
+        "emoji": "🖥️",
+        "author": "vellum-ai",
+        "version": "0.1",
+        "vellum": {
+          "display-name": "Terminal Sessions",
+          "activation-hints": [
+            "User asks about their running terminal sessions or processes",
+            "User wants to monitor a long-running command",
+            "User wants the assistant to run something in a persistent shell",
+            "User mentions tmux or terminal management",
+            "User wants to orchestrate multiple CLI agents (e.g. Claude Code sessions)"
+          ],
+          "avoid-when": [
+            "A simple one-shot command that host_bash handles fine",
+            "The user is asking about shell scripting in general, not session management"
+          ]
+        }
+      },
+      "compatibility": "Requires tmux installed on the host machine. Works on macOS and Linux."
+    },
+    {
       "id": "time-based-actions",
       "name": "time-based-actions",
       "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
