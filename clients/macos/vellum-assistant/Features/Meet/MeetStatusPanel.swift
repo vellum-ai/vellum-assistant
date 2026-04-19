@@ -19,14 +19,19 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MeetS
 ///
 /// The state transitions are driven purely by events:
 /// - `meet.joining` → `.joining(meetingId, url)`
-/// - `meet.joined`  → `.joined(meetingId, title, joinedAt = now)` ONLY if we
-///   previously saw a `meet.joining` for the same meeting. Out-of-order
-///   `meet.joined` (no preceding `meet.joining`) is ignored so the panel
-///   stays idle.
+/// - `meet.joined`  → `.joined(meetingId, title, joinedAt = now)`. When a
+///   preceding `meet.joining` is present for the same meeting, the joining
+///   URL is carried forward as the title. When `meet.joined` arrives without
+///   a prior `meet.joining` (e.g. the client reconnected its SSE stream
+///   mid-meeting), we still transition to `.joined` but use the meetingId as
+///   the title fallback — the daemon does not republish `meet.joining` on
+///   reconnect, so gating on it would leave the panel blank while the bot is
+///   demonstrably live.
 /// - `meet.error`   → `.error(reason)`
 /// - `meet.left`    → `.idle` (any in-flight state collapses to idle)
 ///
-/// Out-of-order `meet.left` with no in-flight state is a no-op.
+/// Out-of-order `meet.left` with no in-flight state is a no-op — if `.left`
+/// fires while idle, the meeting is over and there is nothing to render.
 @MainActor
 @Observable
 public final class MeetStatusViewModel {
@@ -74,19 +79,24 @@ public final class MeetStatusViewModel {
             state = .joining(meetingId: m.meetingId, url: m.url)
 
         case .meetJoined(let m):
-            // Only promote to `.joined` if we were already in a `.joining`
-            // state for this meeting. An out-of-order `meet.joined` with no
-            // preceding `meet.joining` is treated as stale and ignored —
-            // this is the acceptance-criteria "out-of-order events" guard.
-            guard case let .joining(existingId, url) = state,
-                  existingId == m.meetingId
-            else {
-                log.debug("Ignoring meet.joined without preceding meet.joining: \(m.meetingId, privacy: .public)")
-                return
+            // Carry the joining URL forward as the title when we saw a
+            // matching `meet.joining` for this meeting. Otherwise this is
+            // either a reconnect (the SSE stream dropped and resubscribed
+            // mid-meeting, so the daemon has already published `meet.joining`
+            // and will not republish it) or an event we observed before the
+            // view model was constructed. In both cases the bot is live, so
+            // we must transition into `.joined` anyway — using the meetingId
+            // as a title fallback until a later event populates real data.
+            let title: String
+            if case let .joining(existingId, url) = state, existingId == m.meetingId {
+                title = url
+            } else {
+                log.debug("meet.joined without preceding meet.joining — using meetingId as title fallback: \(m.meetingId, privacy: .public)")
+                title = m.meetingId
             }
             state = .joined(
                 meetingId: m.meetingId,
-                title: url,
+                title: title,
                 joinedAt: clock()
             )
 
