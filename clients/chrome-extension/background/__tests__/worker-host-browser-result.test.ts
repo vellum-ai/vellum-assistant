@@ -5,12 +5,13 @@
  * `RelayConnection` so we can exercise both transport branches without
  * standing up a real socket or local daemon. Covers:
  *
- *   - self-hosted mode: POSTs to `${baseUrl}/v1/host-browser-result`
- *     with `Authorization: Bearer <token>` and the JSON-serialised
- *     result envelope as the body.
- *   - cloud mode with an OPEN connection: sends a JSON-stringified
+ *   - open relay socket (cloud + self-hosted): sends a JSON-stringified
  *     `host_browser_result` frame via `connection.send` and never
  *     touches `fetch`.
+ *   - self-hosted mode fallback: POSTs to
+ *     `${baseUrl}/v1/host-browser-result` with
+ *     `Authorization: Bearer <token>` when no open relay socket is
+ *     available.
  *   - cloud mode with a closed or null connection: logs a warning,
  *     never touches `fetch`, and never throws.
  *
@@ -156,7 +157,26 @@ afterEach(() => {
 // ── Self-hosted mode ────────────────────────────────────────────────
 
 describe('postHostBrowserResult — self-hosted mode', () => {
-  test('POSTs to ${baseUrl}/v1/host-browser-result with bearer auth', async () => {
+  test('uses an open relay connection and skips fetch', async () => {
+    const conn = makeFakeConnection(true);
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-1',
+    };
+
+    await postHostBrowserResult(mode, conn, exampleResult);
+
+    expect(fetchHandle.calls).toEqual([]);
+    expect(conn.sent.length).toBe(1);
+    const parsed = JSON.parse(conn.sent[0]) as Record<string, unknown>;
+    expect(parsed.type).toBe('host_browser_result');
+    expect(parsed.requestId).toBe(exampleResult.requestId);
+    expect(parsed.content).toBe(exampleResult.content);
+    expect(parsed.isError).toBe(exampleResult.isError);
+  });
+
+  test('falls back to POST with bearer auth when no relay connection is provided', async () => {
     const mode: RelayMode = {
       kind: 'self-hosted',
       baseUrl: 'http://127.0.0.1:9999',
@@ -173,6 +193,38 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     expect(headers?.authorization).toBe('Bearer tok-1');
     expect(headers?.['content-type']).toBe('application/json');
     expect(call.init?.body).toBe(JSON.stringify(exampleResult));
+  });
+
+  test('falls back to POST when the supplied connection is not open', async () => {
+    const conn = makeFakeConnection(false);
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-1',
+    };
+
+    await postHostBrowserResult(mode, conn, exampleResult);
+
+    expect(fetchHandle.calls.length).toBe(1);
+    expect(conn.sent).toEqual([]);
+  });
+
+  test('falls back to POST when WS send throws in self-hosted mode', async () => {
+    const conn = makeFakeConnection(true);
+    conn.send = () => {
+      throw new Error('socket send failed');
+    };
+    const mode: RelayMode = {
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:9999',
+      token: 'tok-1',
+    };
+
+    await postHostBrowserResult(mode, conn, exampleResult);
+
+    expect(fetchHandle.calls.length).toBe(1);
+    const flat = consoleSpy.warnings.flat().join(' ');
+    expect(flat).toContain('falling back to HTTP POST');
   });
 
   test('omits the authorization header when no token is configured', async () => {
@@ -234,20 +286,6 @@ describe('postHostBrowserResult — self-hosted mode', () => {
     expect(payload.url).toBe('http://127.0.0.1:9999/v1/host-browser-result');
     expect(String(payload.responseBodySnippet)).toContain('not found');
   });
-
-  test('ignores the supplied connection in self-hosted mode', async () => {
-    const conn = makeFakeConnection(true);
-    const mode: RelayMode = {
-      kind: 'self-hosted',
-      baseUrl: 'http://127.0.0.1:9999',
-      token: 'tok-1',
-    };
-
-    await postHostBrowserResult(mode, conn, exampleResult);
-
-    expect(fetchHandle.calls.length).toBe(1);
-    expect(conn.sent).toEqual([]);
-  });
 });
 
 // ── Cloud mode ──────────────────────────────────────────────────────
@@ -303,6 +341,25 @@ describe('postHostBrowserResult — cloud mode', () => {
     const flat = consoleSpy.warnings.flat().join(' ');
     expect(flat).toContain('cloud relay not connected');
   });
+
+  test('warns and no-ops when cloud WS send throws', async () => {
+    const conn = makeFakeConnection(true);
+    conn.send = () => {
+      throw new Error('socket send failed');
+    };
+    const mode: RelayMode = {
+      kind: 'cloud',
+      baseUrl: 'https://api.vellum.ai',
+      token: 'cloud-token',
+    };
+
+    const returned = await postHostBrowserResult(mode, conn, exampleResult);
+    expect(returned).toBeUndefined();
+
+    expect(fetchHandle.calls).toEqual([]);
+    const flat = consoleSpy.warnings.flat().join(' ');
+    expect(flat).toContain('cloud relay send failed');
+  });
 });
 
 // ── Live mode read (stale-token regression) ─────────────────────────
@@ -333,8 +390,10 @@ async function dispatchViaConnection(
 }
 
 describe('postHostBrowserResult — live mode read via getCurrentMode()', () => {
-  test('self-hosted: second dispatch picks up a refreshed token from the connection', async () => {
-    const conn = makeFakeConnection(true, {
+  test('self-hosted HTTP fallback: second dispatch picks up a refreshed token from the connection', async () => {
+    // Force HTTP fallback by marking the connection closed so the token
+    // carried in mode is still exercised.
+    const conn = makeFakeConnection(false, {
       kind: 'self-hosted',
       baseUrl: 'http://127.0.0.1:9999',
       token: 'tok-old',
@@ -374,6 +433,9 @@ describe('postHostBrowserResult — live mode read via getCurrentMode()', () => 
       token: 'tok-old',
     });
 
+    // Start disconnected to force self-hosted HTTP fallback for the
+    // first dispatch, then flip to cloud + open for the second.
+    conn.open = false;
     await dispatchViaConnection(conn, exampleResult);
     expect(fetchHandle.calls.length).toBe(1);
     expect(conn.sent.length).toBe(0);
@@ -383,6 +445,7 @@ describe('postHostBrowserResult — live mode read via getCurrentMode()', () => 
       baseUrl: 'https://api.vellum.ai',
       token: 'cloud-token',
     };
+    conn.open = true;
 
     await dispatchViaConnection(conn, exampleResult);
 
