@@ -165,7 +165,7 @@ export async function gcalRequest<T = unknown>(
       args.push("--account", opts.account);
     }
 
-    let path = opts.path;
+    let path = `https://www.googleapis.com/calendar/v3${opts.path}`;
     if (opts.query && Object.keys(opts.query).length > 0) {
       const qs = new URLSearchParams(opts.query).toString();
       path += "?" + qs;
