@@ -1,5 +1,12 @@
 /**
- * chrome-launcher: spawns google-chrome-stable as a PLAIN USER PROCESS.
+ * chrome-launcher: spawns chromium as a PLAIN USER PROCESS.
+ *
+ * We launch Debian's `chromium` package rather than `google-chrome-stable`
+ * because Chrome 128+ silently strips the `--load-extension` command-line
+ * flag ("--load-extension is not allowed in Google Chrome, ignoring"),
+ * which blocks our extension-based architecture. Chromium still honors
+ * the flag and is otherwise indistinguishable to Meet's BotGuard when
+ * launched as a plain subprocess.
  *
  * Deliberately does NOT use CDP or any CDP-based automation framework.
  * The launcher also does NOT pass any of:
@@ -11,9 +18,8 @@
  * anonymous joiners with "You can't join this video call" before the prejoin
  * surface renders. The empirical reproduction lives in the Phase 1.11 plan
  * at .private/plans/archived/meet-phase-1-11-chrome-extension.md. Browser
- * control happens via a Chrome extension loaded with --load-extension that
- * communicates with this bot process via Chrome Native Messaging; it does
- * NOT depend on CDP.
+ * control happens via a loaded extension that communicates with this bot
+ * process via Chrome Native Messaging; it does NOT depend on CDP.
  */
 
 import {
@@ -36,8 +42,8 @@ export interface LaunchChromeOptions {
   /** Absolute path to the Chrome user-data directory for this session. */
   userDataDir: string;
   /**
-   * Chrome binary path. Defaults to `/usr/bin/google-chrome-stable` (installed
-   * by the bot container). Override in tests.
+   * Browser binary path. Defaults to `/usr/bin/chromium` (Debian's chromium
+   * package, installed by the bot container). Override in tests.
    */
   chromeBinary?: string;
   /**
@@ -105,6 +111,8 @@ function buildChromeArgs(opts: {
     "--no-default-browser-check",
     "--disable-default-apps",
     "--use-fake-ui-for-media-stream",
+    "--enable-logging=stderr",
+    "--v=0",
     `--user-data-dir=${opts.userDataDir}`,
     `--load-extension=${opts.extensionPath}`,
     opts.meetingUrl,
@@ -120,7 +128,7 @@ function buildChromeArgs(opts: {
 export async function launchChrome(
   opts: LaunchChromeOptions,
 ): Promise<ChromeProcessHandle> {
-  const chromeBinary = opts.chromeBinary ?? "/usr/bin/google-chrome-stable";
+  const chromeBinary = opts.chromeBinary ?? "/usr/bin/chromium";
   const logger = opts.logger ?? NOOP_LOGGER;
   const spawnFn = opts.spawn ?? nodeSpawn;
   const sigkillGraceMs = opts.sigkillGraceMs ?? DEFAULT_SIGKILL_GRACE_MS;

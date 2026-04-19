@@ -16,9 +16,10 @@
 # than `.dockerignore`) so it takes precedence over the existing repo-root
 # `.dockerignore` file, which targets other images.
 #
-# --platform linux/amd64 is required because google-chrome-stable ships
-# amd64 only — on arm64 Macs Docker would otherwise pick arm64 and fail to
-# install Chrome.
+# --platform linux/amd64 is required because the inner DinD engine only
+# runs bot containers under that platform and Chromium's amd64 apt package
+# is the tested baseline. On arm64 Macs Docker would otherwise pick arm64
+# and the meet-bot image would not match the assistant container's platform.
 #
 # Usage:
 #   ./scripts/build-meet-bot-image.sh

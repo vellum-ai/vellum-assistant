@@ -1,17 +1,19 @@
 # meet-bot container image.
 #
 # Runs the Meet bot inside a Debian-based Bun image with Xvfb (virtual
-# display), PulseAudio (virtual audio devices), google-chrome-stable (for
-# Chrome extension support required by the Chrome extension based
-# meet-join architecture), and ffmpeg for future audio capture/encoding
-# needs.
+# display), PulseAudio (virtual audio devices), chromium (Debian package, for
+# the `--load-extension` support required by the extension-based meet-join
+# architecture — google-chrome-stable silently strips that flag as of
+# Chrome 128+), and ffmpeg for future audio capture/encoding needs.
 #
 # The real Meet-join + audio-capture logic lands in later PRs of the
 # meet-phase-1 plan; this image just needs to build cleanly and boot
 # `bun src/main.ts` to completion so CI can smoke-test the structure.
 #
-# NOTE: google-chrome-stable ships amd64 only. This image must be built
-# with --platform linux/amd64 — enforced in scripts/build-meet-bot-image.sh.
+# NOTE: Meet's BotGuard accepts chromium launched as a plain subprocess
+# (no CDP attachment) but rejects Chrome-with-CDP. The image inherits the
+# `--platform linux/amd64` build constraint for parity with other amd64
+# dependencies — enforced in `scripts/build-meet-bot-image.sh`.
 #
 # Build context: the REPO ROOT (not `skills/meet-join/bot/`). The bot package
 # depends on the sibling workspace package `skills/meet-join/contracts` via
@@ -35,39 +37,37 @@ FROM oven/bun:1.3.11@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4
 # System dependencies. Keep this list grouped and sorted so future PRs can
 # add/remove packages cleanly.
 #
-#   Xvfb + PulseAudio: virtual display and audio stack for headless Chrome.
-#   dbus-x11:          required at runtime by Chrome.
+#   Xvfb + PulseAudio: virtual display and audio stack for headless Chromium.
+#   ca-certificates:   TLS trust store for any outbound HTTPS the bot makes
+#                      at runtime.
+#   dbus-x11:          required at runtime by Chromium.
 #   ffmpeg:            audio/video encoding for transcript + recording paths.
-#   fonts-liberation/libvulkan1/xdg-utils: google-chrome-stable runtime deps.
-#   libnss3/libgbm1/libasound2: Chrome shared-library dependencies.
-#   wget + gnupg:      required to fetch Google's apt signing key and configure
-#                      the google-chrome repo (see next RUN).
+#   fonts-liberation/libvulkan1/xdg-utils: chromium runtime deps.
+#   libnss3/libgbm1/libasound2: Chromium shared-library dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     dbus-x11 \
     ffmpeg \
     fonts-liberation \
-    gnupg \
     libasound2 \
     libgbm1 \
     libnss3 \
     libvulkan1 \
     pulseaudio \
     pulseaudio-utils \
-    wget \
     xdg-utils \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Install google-chrome-stable from Google's official apt repo. We use Chrome
-# (not Chromium) because the Chrome extension based meet-join architecture
-# requires Chrome's extension support. Per CLAUDE.md's Docker dependencies
-# rule, package versions are NOT pinned — rely on the base-image digest for
-# reproducibility.
-RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub \
-    | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
-  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
-    > /etc/apt/sources.list.d/google-chrome.list \
-  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+# Install Debian's chromium (NOT google-chrome-stable). As of Chrome 128+,
+# google-chrome-stable silently strips the `--load-extension` command-line
+# flag ("--load-extension is not allowed in Google Chrome, ignoring"), which
+# blocks our extension-based architecture. Chromium keeps the flag working
+# and is otherwise indistinguishable to Meet's BotGuard when launched as a
+# plain subprocess without CDP attachment. Per CLAUDE.md's Docker
+# dependencies rule, package versions are NOT pinned — rely on the
+# base-image digest for reproducibility.
+RUN apt-get update && apt-get install -y --no-install-recommends chromium \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/bot
@@ -80,6 +80,14 @@ COPY skills/meet-join/contracts /app/contracts
 # source files change.
 COPY skills/meet-join/bot/package.json skills/meet-join/bot/bun.lock skills/meet-join/bot/tsconfig.json ./
 RUN bun install --frozen-lockfile
+
+# The contracts/ directory has no package.json and no node_modules of its own,
+# but its TS files import `zod`. Both the bot (at runtime) and the extension
+# build (which imports contracts via relative paths) need zod resolvable from
+# /app/contracts/. Symlink the bot's node_modules in so Node/Bun's upward
+# module resolution finds zod when walking up from /app/contracts/*.ts.
+RUN mkdir -p /app/contracts/node_modules \
+  && ln -sf /app/bot/node_modules/zod /app/contracts/node_modules/zod
 
 COPY skills/meet-join/bot/src ./src
 
@@ -103,9 +111,9 @@ COPY skills/meet-join/bot/native-messaging ./native-messaging
 COPY skills/meet-join/bot/scripts/render-nmh-manifest.ts ./scripts/render-nmh-manifest.ts
 COPY skills/meet-join/meet-controller-ext/manifest.json /tmp/ext-manifest.json
 
-RUN mkdir -p /etc/opt/chrome/native-messaging-hosts \
+RUN mkdir -p /etc/chromium/native-messaging-hosts \
   && bun scripts/render-nmh-manifest.ts \
-       /etc/opt/chrome/native-messaging-hosts/com.vellum.meet.json \
+       /etc/chromium/native-messaging-hosts/com.vellum.meet.json \
        --ext-manifest /tmp/ext-manifest.json \
        --template /app/bot/native-messaging/com.vellum.meet.json \
   && chmod +x /app/bot/src/native-messaging/nmh-shim.ts \

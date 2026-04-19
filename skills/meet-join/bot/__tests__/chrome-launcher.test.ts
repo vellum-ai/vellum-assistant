@@ -2,7 +2,7 @@
  * Unit tests for the chrome-launcher primitive.
  *
  * We inject a fake `spawn` via `opts.spawn` so the tests never actually exec
- * google-chrome-stable. Each fake child process exposes `.kill(signal)`,
+ * chromium. Each fake child process exposes `.kill(signal)`,
  * `.on("exit", cb)`, and `.stdout`/`.stderr` event emitters, mirroring the
  * shape of a real `ChildProcess`.
  *
@@ -105,14 +105,14 @@ const BASE_OPTS = {
 };
 
 describe("launchChrome", () => {
-  test("defaults chromeBinary to /usr/bin/google-chrome-stable", async () => {
+  test("defaults chromeBinary to /usr/bin/chromium", async () => {
     const child = makeFakeChild();
     const fake = makeFakeSpawn(child);
 
     await launchChrome({ ...BASE_OPTS, spawn: fake.spawn });
 
     expect(fake.calls.length).toBe(1);
-    expect(fake.calls[0]!.command).toBe("/usr/bin/google-chrome-stable");
+    expect(fake.calls[0]!.command).toBe("/usr/bin/chromium");
   });
 
   test("argv contains extension, user-data-dir, --no-sandbox, and meeting URL", async () => {
