@@ -50,12 +50,6 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
-// ── google-calendar ────────────────────────────────────────────────────────────
-import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
-import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
-import * as calendarGetEvent from "./bundled-skills/google-calendar/tools/calendar-get-event.js";
-import * as calendarListEvents from "./bundled-skills/google-calendar/tools/calendar-list-events.js";
-import * as calendarRsvp from "./bundled-skills/google-calendar/tools/calendar-rsvp.js";
 // ── image-studio ───────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from "./bundled-skills/image-studio/tools/media-generate-image.js";
 // ── media-processing ───────────────────────────────────────────────────────────
@@ -78,12 +72,6 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
-// ── outlook-calendar ───────────────────────────────────────────────────────────
-import * as outlookCalendarCheckAvailability from "./bundled-skills/outlook-calendar/tools/outlook-calendar-check-availability.js";
-import * as outlookCalendarCreateEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-create-event.js";
-import * as outlookCalendarGetEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-get-event.js";
-import * as outlookCalendarListEvents from "./bundled-skills/outlook-calendar/tools/outlook-calendar-list-events.js";
-import * as outlookCalendarRsvp from "./bundled-skills/outlook-calendar/tools/outlook-calendar-rsvp.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -197,16 +185,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
 
-  // google-calendar
-  ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
-  ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
-  ["google-calendar:tools/calendar-create-event.ts", calendarCreateEvent],
-  [
-    "google-calendar:tools/calendar-check-availability.ts",
-    calendarCheckAvailability,
-  ],
-  ["google-calendar:tools/calendar-rsvp.ts", calendarRsvp],
-
   // image-studio
   ["image-studio:tools/media-generate-image.ts", mediaGenerateImage],
 
@@ -235,25 +213,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
-
-  // outlook-calendar
-  [
-    "outlook-calendar:tools/outlook-calendar-list-events.ts",
-    outlookCalendarListEvents,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-get-event.ts",
-    outlookCalendarGetEvent,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-create-event.ts",
-    outlookCalendarCreateEvent,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-check-availability.ts",
-    outlookCalendarCheckAvailability,
-  ],
-  ["outlook-calendar:tools/outlook-calendar-rsvp.ts", outlookCalendarRsvp],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
