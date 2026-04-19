@@ -11,17 +11,22 @@ metadata:
 
 You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode. Walk through each step below.
 
-**CRITICAL: Follow these steps strictly in order. Do NOT combine steps, skip ahead, or ask for multiple tokens at once. Each step must be completed and confirmed before moving to the next. The bot token does NOT exist until the app is installed — you cannot collect it early.**
+**Before starting, set expectations:** "We're creating a custom Slack app for your assistant — this gives you your own bot identity, avatar, and name in Slack. There are a few steps to get through, but most of it is automated."
+
+**CRITICAL: Follow these steps strictly in order. Do NOT combine steps or skip ahead.**
 
 ## Value Classification
 
-| Value      | Type       | Storage method            | Secret? |
-| ---------- | ---------- | ------------------------- | ------- |
-| App Token  | Credential | `credential_store` prompt | **Yes** |
-| Bot Token  | Credential | `credential_store` prompt | **Yes** |
-| User Token | Credential | `credential_store` prompt | **Yes** |
+| Value         | Type       | Storage method            | Secret? |
+| ------------- | ---------- | ------------------------- | ------- |
+| App Token     | Credential | `credential_store` prompt | **Yes** |
+| Client ID     | Credential | `credential_store` prompt | **Yes** |
+| Client Secret | Credential | `credential_store` prompt | **Yes** |
+| Bot Token     | Credential | OAuth (automatic)         | **Yes** |
+| User Token    | Credential | OAuth (automatic)         | **Yes** |
 
-- All tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
+- App Token, Client ID, and Client Secret are collected via `credential_store` prompt — never accept them pasted in plaintext chat.
+- Bot Token and User Token are captured automatically via the OAuth install flow.
 
 # Setup Steps
 
@@ -43,7 +48,7 @@ Then branch on the state of `app_token` and `bot_token` first (those are the req
 
 - If `app_token` and `bot_token` are **both** present:
   - If `user_token` is also present — Slack is fully configured with full triage visibility. Offer to show status or reconfigure.
-  - If `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now (Step 3.5) to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
+  - If `user_token` is missing — Slack is connected with **bot-only visibility**. Offer to collect the user token now (Step 3) to enable full triage visibility across all channels the user is in. The user token is optional; if they decline, leave the setup as-is.
 - If exactly **one** of `app_token` or `bot_token` is present — offer to resume setup from the missing step. (If a `user_token` is also present, leave it in place; it will be re-validated against the bot's workspace once setup completes.)
 - If **neither** `app_token` nor `bot_token` is present — continue to Step 1. (If a `user_token` is present without a paired bot/app, it is orphaned from a prior incomplete setup. Tell the user it will be replaced during this run, and proceed.)
 
@@ -59,7 +64,7 @@ Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen 
 
 ```
 bash {
-  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { redirect_urls: ['http://localhost:17322/oauth/callback'], scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
   activity: "to generate the Slack app manifest link"
 }
 ```
@@ -70,11 +75,13 @@ The command outputs a ready-to-click URL. Present it to the user: "Click this li
 
 Wait for the user to confirm they've created the app before proceeding.
 
-## Step 2: Generate App Token & Collect It
+## Step 2: Collect Credentials & Install via OAuth
 
-**Do NOT skip ahead to the bot token. The app token must be collected first — the bot token does not exist yet.**
+After the app is created, the user lands on the app's **Basic Information** page. We need three values from this page, then we'll automate the rest.
 
-Tell the user to navigate to **Settings > Basic Information > App-Level Tokens** in their newly created Slack app, then:
+### Step 2a: App Token
+
+Tell the user to scroll to **App-Level Tokens** on the Basic Information page, then:
 
 1. Click **Generate Token and Scopes**
 2. Token name: "Socket Mode" (or any name they prefer)
@@ -85,66 +92,57 @@ Collect the app token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
-The `slack_channel` secure prompt already routes through the same Slack settings handler used by Settings. Treat that tool result as authoritative:
+If it succeeds, continue. If it returns an error, ask the user to re-enter the token.
 
-- If it succeeds, continue.
-- If it returns an error, ask the user to re-enter the token.
-- If it returns a warning that the connection is incomplete, that is expected until the bot token is collected.
+### Step 2b: Client ID
 
-## Step 3: Install App & Collect Bot Token
+Tell the user to scroll to **App Credentials** on the same Basic Information page. The Client ID is displayed there.
 
-**IMPORTANT: The bot token only becomes available AFTER the app is installed. The user MUST install the app first — do NOT ask for the bot token before this step. The bot token is found under Install App (NOT under OAuth & Permissions).**
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_id"`, `label: "Client ID"`, `description: "From Basic Information > App Credentials"`
 
-Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
+### Step 2c: Client Secret
 
-**Note:** This app requests user scopes so your assistant can read messages in channels the bot isn't a member of. Some Slack workspaces require admin approval for user-scope installs. If the install page shows "Request approval" instead of "Allow", you'll need your workspace admin to approve it before continuing.
+The Client Secret is right below the Client ID on the same page (the user may need to click "Show" to reveal it).
 
-After installation, the **Bot User OAuth Token** will appear on the same Install App page. Collect it securely:
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_secret"`, `label: "Client Secret"`, `placeholder: "starts with a long alphanumeric string"`, `description: "From Basic Information > App Credentials (click Show to reveal)"`
 
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
+### Step 2d: Run OAuth Install
 
-After the bot-token prompt succeeds, the same Slack settings handler used by Settings has already:
+Now that all three credentials are stored, trigger the automated OAuth install. This opens the user's browser to Slack's authorization page — they just click **Allow**.
 
-- validated the bot token with Slack
-- stored workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)
-- activated Socket Mode when both tokens are present
+Tell the user: "Opening your browser now — just select your workspace and click **Allow** to install the app."
 
-Use the most recent `credential_store` result as the source of truth:
+Then call the daemon's OAuth install endpoint:
 
-- If it reports the Slack channel is connected, continue.
-- If it reports an error, stop and fix that error before moving on.
-- If it reports an incomplete setup warning, collect the missing token instead of improvising extra validation commands.
+```
+bash {
+  command: "curl -s -X POST http://localhost:${RUNTIME_HTTP_PORT}/v1/integrations/slack/channel/oauth-install -H 'Content-Type: application/json'"
+  activity: "to run the Slack OAuth install flow"
+  timeout: 360000
+}
+```
 
-Show the user their setup progress:
+This endpoint reads the stored Client ID and Client Secret, opens a browser to Slack's OAuth consent screen, and automatically captures the bot token and user token when the user clicks **Allow**. It blocks until the user completes authorization (up to 5 minutes).
+
+Parse the JSON response:
+
+- If `success: true` — bot and user tokens were captured and stored automatically. Continue to Step 3.
+- If `success: false` — show the `error` field and troubleshoot. Common issues:
+  - "Client ID not found" / "Client Secret not found" — re-collect the missing credential via Step 2b/2c.
+  - "OAuth flow failed: OAuth2 loopback callback timed out" — the user didn't complete authorization in time. Re-run Step 2d.
+  - "OAuth flow failed: OAuth2 authorization denied" — the user clicked Cancel or the workspace requires admin approval.
+
+After the OAuth install succeeds, show the user their setup progress:
 
 "Setup progress:
 ✅ App created
-✅ Tokens configured
+✅ Tokens configured (bot + user tokens captured automatically)
 ✅ Connection active
 ⬜ Connection tested
 
 Almost there — let's do a quick test!"
 
-## Step 3.5: Collect User OAuth Token (Optional, Recommended)
-
-**This step is optional but recommended.** The User OAuth Token lets the assistant READ messages in every channel the user is in — including channels the bot isn't a member of — for triage purposes. Writes (posting, reacting, editing) always go through the bot token; the assistant will never post, react, or edit as the user.
-
-Tell the user to go back to the **Install App** page in their Slack app settings and scroll down past the Bot User OAuth Token. Look for the **User OAuth Token** (starts with `xoxp-`).
-
-**If there is no User OAuth Token shown on the Install App page**, the workspace admin may have restricted user-scope installs. Skip this step — setup works without it (bot-only visibility). Continue to Step 4.
-
-Otherwise, collect the user token securely:
-
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "Optional — lets the assistant read messages in channels the bot isn't a member of. Writes always go through the bot."`
-
-The handler validates the token against Slack (auth.test) **and** confirms the token is for the same workspace as the bot. Treat the tool result as authoritative:
-
-- If it succeeds, continue to Step 4.
-- If it returns an error (invalid token or workspace mismatch), ask the user to re-copy the User OAuth Token from the Install App page and try again.
-
-If the user explicitly declines to provide a user token, continue to Step 4. They can add it later by re-running this skill.
-
-## Step 4: Test Your Connection
+## Step 3: Test Your Connection
 
 Now let's test the connection by verifying the user can receive messages from the bot. This confirms everything works and links the user's Slack identity for future message delivery.
 
@@ -152,9 +150,9 @@ Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user explicitly wants to skip this step, proceed to Step 5, but let them know they can always verify later by saying "verify me on slack".
+If the user explicitly wants to skip this step, proceed to Step 4, but let them know they can always verify later by saying "verify me on slack".
 
-## Step 5: Report Success
+## Step 4: Report Success
 
 Summarize with the completed checklist.
 
@@ -186,8 +184,8 @@ Identity: skipped"
 
 For `{triage_line}`, use:
 
-- If `user_token` was collected: `✅ Triage visibility: full (can read all your channels)`
-- If `user_token` was skipped: `⬜ Triage visibility: bot-only (only channels the bot is a member of) — you can collect a user token anytime to enable full triage`
+- If `hasUserToken` was `true` in the OAuth response: `✅ Triage visibility: full (can read all your channels)`
+- If `hasUserToken` was `false`: `⬜ Triage visibility: bot-only (only channels the bot is a member of) — you can collect a user token anytime to enable full triage`
 
 ## Troubleshooting
 
@@ -207,13 +205,19 @@ Re-enter the token via credential_store prompt. The handler validates tokens on 
 
 Verify that `message.channels` event subscription is enabled in your Slack app settings under **Event Subscriptions > Subscribe to bot events**. The manifest pre-configures this, but it can be accidentally removed.
 
+### OAuth install failed
+
+If the OAuth flow fails or times out, re-run Step 2d. Ensure:
+- The Client ID and Client Secret are correct (re-collect via credential_store if unsure)
+- The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (the manifest pre-configures this)
+- No other process is using port 17322
+
 ## Implementation Rules
 
-- All token collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, `curl`, or `assistant config set slack.*` in chat to collect or manipulate tokens. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
+- App Token, Client ID, and Client Secret collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, or other mechanisms. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
+- Bot Token and User Token are captured automatically by the OAuth install flow. Do NOT ask the user to copy-paste these tokens.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn in the conversation. Wait for the user to confirm completion before moving on.
-- **Do NOT ask for both tokens at once.** Collect the app token (Step 2) first, then install the app (Step 3), then collect the bot token. The bot token literally does not exist until the app is installed.
-- **Do NOT tell the user to find the bot token under "OAuth & Permissions".** The bot token appears on the **Install App** page after installation.
-- **Do NOT tell the user to set up a redirect URL.** Socket Mode does not require redirect URLs, OAuth redirect URLs, or any publicly reachable endpoints. The manifest already configures Socket Mode — no additional URL configuration is needed.
+- **Do NOT tell the user to manually copy the bot token.** The OAuth flow captures it automatically.
 
 ## Clearing Credentials
 
