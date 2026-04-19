@@ -238,7 +238,7 @@ current usage and quota information from the platform.
 
 Examples:
   $ assistant email status
-  Address:  mybot@mybot.${domain}
+  Address:  hi@mybot.${domain}
   Status:   active
   Since:    2026-04-15
   Sent:     12 / 100 (daily)
@@ -246,7 +246,7 @@ Examples:
   Monthly:  42 sent, 18 received
 
   $ assistant email status --json
-  {"address":"mybot@mybot.${domain}","status":"active","created_at":"2026-04-15T...","usage":{...}}`,
+  {"address":"hi@mybot.${domain}","status":"active","created_at":"2026-04-15T...","usage":{...}}`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       try {
