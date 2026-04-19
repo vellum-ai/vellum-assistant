@@ -1,22 +1,17 @@
 # meet-join
 
-Skill for joining Google Meet calls as a bot, transcribing audio, and
-bridging the meeting into an assistant conversation. See
-[`SKILL.md`](./SKILL.md) for the user-facing skill contract and
-[`AGENTS.md`](./AGENTS.md) for the development / isolation rules.
+Google Meet join + transcription + voice/chat participation skill.
 
-## Layout
+The skill entrypoint lives in [`SKILL.md`](./SKILL.md); skill-internal
+architecture and the isolation rule are covered in
+[`AGENTS.md`](./AGENTS.md).
 
-- `bot/` — the containerized Meet bot. Debian + Bun + Chromium +
-  PulseAudio + Xvfb. Built from [`bot/Dockerfile`](./bot/Dockerfile).
-- `meet-controller-ext/` — the Chrome extension that drives the prejoin
-  DOM and reports lifecycle / transcript / participant events back to
-  the bot over Native Messaging.
-- `daemon/` — assistant-side code that owns session state, ingests
-  bot-emitted events, and republishes them on `assistantEventHub`.
-- `contracts/` — shared wire-level types used by the bot and daemon.
-- `routes/`, `tools/` — HTTP routes and tool registrations that wire
-  the skill into the assistant.
+## Docs
+
+- [Live verification runbook](./docs/LIVE-VERIFICATION.md) — manual smoke
+  tests for multi-party scrapers, streaming STT, barge-in, and
+  consent-triggered auto-leave. Run these against a real Meet whenever
+  you touch the bot, extension, audio ingest, or consent monitor.
 
 ## Performance on arm64 hosts
 

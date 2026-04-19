@@ -65,10 +65,28 @@ export const BOT_AUDIO_ENCODING = "pcm_s16le";
 export const CANCEL_DELETE_TIMEOUT_MS = 5_000;
 
 /**
- * ffmpeg arguments that read whatever format the TTS provider emits on
- * stdin and write raw 48 kHz / mono / s16le PCM on stdout. The decoder is
- * format-agnostic (no `-f` on input) so the same pipeline accepts mp3,
- * wav, or raw provider-native PCM without branching.
+ * ffmpeg arguments that read whatever container-wrapped format the TTS
+ * provider emits on stdin and write raw 48 kHz / mono / s16le PCM on
+ * stdout. The decoder is format-agnostic (no `-f` on input) so the same
+ * pipeline accepts mp3, wav, or opus without branching — ffmpeg sniffs
+ * the container and picks the right decoder.
+ *
+ * Why the explicit output `-ar 48000` matters:
+ *
+ *   Provider voices ship at a variety of native sample rates — ElevenLabs
+ *   mp3 at 22.05 kHz or 44.1 kHz, Fish Audio wav at 44.1 kHz, Deepgram
+ *   opus at 48 kHz, etc. The bot's `/play_audio` endpoint feeds its body
+ *   directly into `pacat --playback --rate=48000 --channels=1 --format=s16le`,
+ *   so any rate mismatch would render as chipmunk/slowed audio in the
+ *   meeting. ffmpeg resamples to the output `-ar` (via libswresample), and
+ *   `-ac 1` downmixes to mono so stereo voices don't get interleaved-
+ *   sample-as-time-domain corruption when pacat reads them as mono.
+ *
+ *   Keeping `-ar 48000 -ac 1` on the OUTPUT side (post `-i`) is what makes
+ *   the resample/downmix happen — if these flags were on the input side,
+ *   they would be interpreted as "assume the input is already this rate"
+ *   (useful only for headerless raw PCM), which is exactly the chipmunk
+ *   bug we're guarding against.
  */
 export const FFMPEG_TRANSCODE_ARGS = [
   "-hide_banner",
