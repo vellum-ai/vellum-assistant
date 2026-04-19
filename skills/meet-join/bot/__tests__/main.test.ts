@@ -241,6 +241,8 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         extensionPath: chromeOpts.extensionPath,
         displayNumber: chromeOpts.displayNumber,
         userDataDir: chromeOpts.userDataDir,
+        avatarEnabled: chromeOpts.avatarEnabled,
+        avatarDevicePath: chromeOpts.avatarDevicePath,
       });
       if (opts.chromeLaunchError) throw opts.chromeLaunchError;
       return {
@@ -1272,5 +1274,59 @@ describe("runBot — Gap C: error detail forwarding", () => {
     // Detail must contain BOTH the generic context AND the specific cause.
     expect(errState?.detail).toContain("extension never signaled ready");
     expect(errState?.detail).toContain(specific);
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * avatarDevicePath threading to launchChrome
+ * -----------------------------------------------------------------------
+ * When `services.meet.avatar.devicePath` is set (threaded down as
+ * `AVATAR_DEVICE_PATH` on the bot env), the bot must pass the same
+ * device path to `launchChrome` so Chrome's
+ * `--use-file-for-fake-video-capture=<path>` flag targets the device
+ * the renderer writes to. Without this, the renderer writes frames to
+ * one node (e.g. `/dev/video11`) and Chrome reads from another
+ * (`/dev/video10` default) and participants see a black frame.
+ */
+describe("runBot — avatarDevicePath threads to launchChrome", () => {
+  test("env.avatarDevicePath flows through to launchChrome when set", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    const realEnv = deps.env;
+    deps.env = () => ({
+      ...realEnv(),
+      avatarEnabled: true,
+      avatarDevicePath: "/dev/video11",
+    });
+
+    await bootHappyPath(deps, handles);
+
+    const launchCall = handles.calls.find((c) => c.kind === "chrome.launch");
+    expect(launchCall).toBeDefined();
+    expect(launchCall!.avatarEnabled).toBe(true);
+    expect(launchCall!.avatarDevicePath).toBe("/dev/video11");
+  });
+
+  test("omits avatarDevicePath from launchChrome when env is unset", async () => {
+    // When no operator override exists, the key is absent from the
+    // options object so the launcher falls back to its module-local
+    // DEFAULT_AVATAR_DEVICE_PATH. This is important: a spurious
+    // `avatarDevicePath: undefined` would also work, but absence is
+    // the cleanest signal "use the default".
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    const realEnv = deps.env;
+    deps.env = () => ({
+      ...realEnv(),
+      avatarEnabled: true,
+      avatarDevicePath: undefined,
+    });
+
+    await bootHappyPath(deps, handles);
+
+    const launchCall = handles.calls.find((c) => c.kind === "chrome.launch");
+    expect(launchCall).toBeDefined();
+    expect(launchCall!.avatarEnabled).toBe(true);
+    expect(launchCall!.avatarDevicePath).toBeUndefined();
   });
 });

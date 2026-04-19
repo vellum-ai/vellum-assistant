@@ -91,6 +91,10 @@ import {
 } from "./media/audio-capture.js";
 import { setupPulseAudio } from "./media/pulse.js";
 import {
+  createCameraChannel,
+  type CameraChannel,
+} from "./native-messaging/camera-channel.js";
+import {
   createNmhSocketServer,
   type NmhSocketServer,
   type NmhSocketServerOptions,
@@ -438,6 +442,15 @@ export async function runBot(deps: BotDeps): Promise<void> {
     daemonClient: DaemonClientLike | null;
     audioCapture: AudioCaptureHandle | null;
     httpServer: HttpServerHandle | null;
+    /**
+     * Camera-toggle channel. Constructed alongside the avatar HTTP
+     * options (when avatar is enabled AND the NMH socket server is up)
+     * so the HTTP server's `/avatar/enable`/`/avatar/disable` routes can
+     * flip the Meet camera on/off via the extension. `shutdown()` is
+     * called during bot teardown so in-flight round-trips reject
+     * deterministically rather than waiting for their 7s timeout.
+     */
+    cameraChannel: CameraChannel | null;
   };
   const subsystems: Subsystems = {
     xvfb: null,
@@ -446,6 +459,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
     daemonClient: null,
     audioCapture: null,
     httpServer: null,
+    cameraChannel: null,
   };
 
   // Pending `send_chat` requests, correlated by requestId so the extension's
@@ -535,6 +549,24 @@ export async function runBot(deps: BotDeps): Promise<void> {
           ? () => subsystems.httpServer!.stop()
           : null,
       );
+      // Abort any in-flight camera round-trips so HTTP handlers awaiting
+      // enableCamera / disableCamera don't hang for the full 7s channel
+      // timeout. Runs after HTTP stop (no new requests can enter) and
+      // before chrome/socket teardown (so the extension is still notionally
+      // around to respond, but we no longer care about the result). Safe
+      // when the channel was never created (avatar disabled, or booted
+      // without a socket server).
+      if (subsystems.cameraChannel) {
+        try {
+          subsystems.cameraChannel.shutdown(
+            detail ?? (finalState === "error" ? "error" : "shutdown"),
+          );
+        } catch (err) {
+          deps.logError(
+            `meet-bot: camera-channel shutdown failed: ${errMsg(err)}`,
+          );
+        }
+      }
       // Send `leave` best-effort; swallow errors because the extension
       // may already be gone. Give it a short grace period to animate out.
       if (subsystems.socketServer) {
@@ -703,6 +735,15 @@ export async function runBot(deps: BotDeps): Promise<void> {
       extensionPath: env.extensionPath,
       userDataDir,
       avatarEnabled: env.avatarEnabled,
+      // When an operator overrides `services.meet.avatar.devicePath`
+      // (threaded here as `AVATAR_DEVICE_PATH`), the renderer will write
+      // frames to that path — Chrome's `--use-file-for-fake-video-capture`
+      // flag must target the same device or Meet reads from the wrong
+      // node and participants see a black frame. Omitting the key when
+      // unset preserves the launcher's module-local default (/dev/video10).
+      ...(env.avatarDevicePath
+        ? { avatarDevicePath: env.avatarDevicePath }
+        : {}),
       logger: {
         info: (m) => deps.logInfo(m),
         error: (m) => deps.logError(m),
@@ -803,11 +844,9 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // just logs; the renderer is actually started on the daemon's
     // `/avatar/enable` HTTP call.
     // ---------------------------------------------------------------------
-    const avatarHttpOptions = buildAvatarHttpOptions(
-      env,
-      deps,
-      subsystems.socketServer,
-    );
+    const { options: avatarHttpOptions, cameraChannel } =
+      buildAvatarHttpOptions(env, deps, subsystems.socketServer);
+    subsystems.cameraChannel = cameraChannel;
 
     subsystems.httpServer = deps.createHttpServer({
       apiToken: botApiToken,
@@ -1011,7 +1050,7 @@ function errMsg(err: unknown): string {
 
 /**
  * Assemble the avatar options bag passed to `createHttpServer` when the
- * avatar feature is enabled. Returns `undefined` when
+ * avatar feature is enabled. Returns `undefined` options when
  * `AVATAR_ENABLED=0` (or unset) so the HTTP server short-circuits
  * `/avatar/*` routes with 503. Also performs an eager construction
  * probe: if the configured renderer can't be resolved the failure is
@@ -1021,13 +1060,23 @@ function errMsg(err: unknown): string {
  * When `socketServer` is non-null the caller forwards a narrowed
  * `AvatarNativeMessagingSender` so the TalkingHead.js renderer (and
  * any future extension-mediated renderer) can drive the avatar tab.
+ * In that same case we also construct a {@link CameraChannel} bound
+ * to the full `sendToExtension` surface (so `camera.enable` /
+ * `camera.disable` frames round-trip through the extension) and thread
+ * its `enableCamera`/`disableCamera` into `HttpServerAvatarOptions.camera`
+ * so `/avatar/enable` and `/avatar/disable` actually flip the Meet
+ * camera toggle. The channel handle is returned separately so the
+ * caller can invoke `shutdown()` during bot teardown.
  */
 function buildAvatarHttpOptions(
   env: BotEnv,
   deps: BotDeps,
   socketServer: NmhSocketServer | null,
-): HttpServerAvatarOptions | undefined {
-  if (!env.avatarEnabled) return undefined;
+): {
+  options: HttpServerAvatarOptions | undefined;
+  cameraChannel: CameraChannel | null;
+} {
+  if (!env.avatarEnabled) return { options: undefined, cameraChannel: null };
 
   // Parse the JSON-encoded config blob the daemon passed down. Fall
   // back to a minimal config derived from `AVATAR_RENDERER` + the
@@ -1080,11 +1129,37 @@ function buildAvatarHttpOptions(
     }
   }
 
-  return {
+  // Stand up the camera-toggle channel when the NMH socket server is
+  // wired up. Uses the full `sendToExtension` / `onExtensionMessage`
+  // surface (NOT the narrowed avatar-only `AvatarNativeMessagingSender`)
+  // because `camera.enable` / `camera.disable` live outside the narrow
+  // avatar.* command set. Absent a socket server (boot smoke builds,
+  // tests without a socket-server mock), the channel stays null and the
+  // HTTP server falls back to its "renderer-only, no camera toggle"
+  // path — which is the correct behavior because there's no extension
+  // to receive the toggle command anyway.
+  const cameraChannel: CameraChannel | null = socketServer
+    ? createCameraChannel({
+        sendToExtension: (msg) => socketServer.sendToExtension(msg),
+        onExtensionMessage: (cb) => socketServer.onExtensionMessage(cb),
+      })
+    : null;
+
+  const options: HttpServerAvatarOptions = {
     config,
     ...(nativeMessaging ? { nativeMessaging } : {}),
     ...(env.avatarDevicePath ? { devicePath: env.avatarDevicePath } : {}),
+    ...(cameraChannel
+      ? {
+          camera: {
+            enableCamera: () => cameraChannel.enableCamera(),
+            disableCamera: () => cameraChannel.disableCamera(),
+          },
+        }
+      : {}),
   };
+
+  return { options, cameraChannel };
 }
 
 // ---------------------------------------------------------------------------
