@@ -3332,8 +3332,12 @@ describe("assembleSlackChronologicalMessages", () => {
       eventKind: "message",
       displayName: "@alice",
     };
-    // Outbound assistant rows in production lack channelTs (filled in by a
-    // later reconciliation PR), so they go through the legacy fallback path.
+    // Outbound assistant rows in DMs may go through the legacy fallback
+    // when no slackMeta envelope is present at all (e.g. a row written
+    // before the post-send reconciliation lands, or pre-upgrade history).
+    // This fixture pins down the legacy interleave behaviour and matches
+    // how `assembleSlackChronologicalMessages` falls back to chronological
+    // ordering by createdAt for null-slackMeta rows.
     const rows: SlackTranscriptInputRow[] = [
       row("user", "hi assistant", MS_14_25, metadataEnvelope(userMeta1)),
       row("assistant", "hi back!", MS_14_26, metadataEnvelope(null)),
@@ -3435,5 +3439,149 @@ describe("assembleSlackChronologicalMessages", () => {
   test("empty rows yields an empty array (Slack DM with no history)", () => {
     const result = assembleSlackChronologicalMessages([], DM_CAPS);
     expect(result).toEqual([]);
+  });
+
+  test("post-reconciliation: assistant rows with channelTs participate in thread tagging", () => {
+    // Once `deliverReplyViaCallback` reconciles `channelTs` from the
+    // gateway's response, assistant rows carry a fully-formed slackMeta
+    // envelope. They must then render through the Slack chronological
+    // path (not the legacy fallback) so reply rows pointing at the
+    // assistant's prior message get a `→ Mxxxxxx` parent-alias arrow.
+    //
+    // This is the cross-thread visibility that the slack-thread-aware-
+    // context plan promises: a follow-up user reply to the assistant's
+    // earlier post should render with a parent-alias arrow that the model
+    // can use to reason about which prior assistant message it threads off.
+    const SLACK_CHANNEL_ID_2 = "C0THREAD";
+    const ASSISTANT_TS = "1700001000.000111";
+    const REPLY_TS = "1700001020.000222";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+
+    const assistantMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_2,
+      channelTs: ASSISTANT_TS,
+      eventKind: "message",
+    };
+    const userReplyMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_2,
+      channelTs: REPLY_TS,
+      threadTs: ASSISTANT_TS, // Reply to the assistant's earlier message.
+      displayName: "@alice",
+      eventKind: "message",
+    };
+
+    // 1700001000 UTC = 2023-11-14 22:30:00 UTC
+    const MS_ASSISTANT = 1700001000_000;
+    const MS_REPLY = 1700001020_000;
+
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "assistant",
+        "Earlier reply",
+        MS_ASSISTANT,
+        metadataEnvelope(assistantMeta),
+      ),
+      row("user", "Following up", MS_REPLY, metadataEnvelope(userReplyMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(2);
+
+    // The user follow-up MUST carry a `→ Mxxxxxx` parent-alias arrow that
+    // points at the assistant's prior message. Before reconciliation, the
+    // assistant row was treated as legacy/null-metadata and excluded from
+    // alias issuance — the user reply rendered without the arrow.
+    const replyText = (result![1].content[0] as { text: string }).text;
+    expect(replyText).toMatch(/→ M[0-9a-f]{6}/);
+    expect(replyText).toContain(parentAlias(ASSISTANT_TS));
+  });
+
+  test("post-reconciliation: assistant row appears in active-thread focus block", () => {
+    // The active-thread focus block at
+    // `conversation-runtime-assembly.ts:1387` filters out rows with null
+    // metadata. Before reconciliation, outbound assistant rows were null-
+    // metadata at the renderable layer and silently dropped from the focus
+    // block — even when they were part of the active thread the user just
+    // replied to. Once channelTs is filled in, the assistant row's
+    // `threadTs` matches the active thread and the row is included.
+    const SLACK_CHANNEL_ID_3 = "C0FOCUS2";
+    const PARENT_TS = "1700002000.000001";
+    const ASSISTANT_REPLY_TS = "1700002005.000111";
+    const USER_REPLY_TS = "1700002010.000222";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+
+    const parentMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_3,
+      channelTs: PARENT_TS,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    const assistantInThreadMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_3,
+      channelTs: ASSISTANT_REPLY_TS,
+      threadTs: PARENT_TS, // Assistant's reply lives inside the active thread.
+      eventKind: "message",
+    };
+    const userInThreadMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID_3,
+      channelTs: USER_REPLY_TS,
+      threadTs: PARENT_TS, // Latest user row — drives active-thread detection.
+      displayName: "@alice",
+      eventKind: "message",
+    };
+
+    const rows: SlackTranscriptInputRow[] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Parent message" }]),
+        createdAt: 1700002000_000,
+        metadata: metadataEnvelope(parentMeta),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Assistant earlier reply" },
+        ]),
+        createdAt: 1700002005_000,
+        metadata: metadataEnvelope(assistantInThreadMeta),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Follow-up" }]),
+        createdAt: 1700002010_000,
+        metadata: metadataEnvelope(userInThreadMeta),
+      },
+    ];
+
+    const focusBlock = assembleSlackActiveThreadFocusBlock(
+      rows,
+      SLACK_CAPS_CHANNEL,
+    );
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("<active_thread>");
+    expect(focusBlock!).toContain("Parent message");
+    // The assistant's earlier reply must appear in the focus block now —
+    // before reconciliation it was excluded because its slackMeta failed
+    // `readSlackMetadata` validation (no channelTs).
+    expect(focusBlock!).toContain("Assistant earlier reply");
+    expect(focusBlock!).toContain("Follow-up");
   });
 });

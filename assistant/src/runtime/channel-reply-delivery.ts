@@ -1,6 +1,12 @@
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
-import { getMessages } from "../memory/conversation-crud.js";
+import {
+  getMessageById,
+  getMessages,
+  updateMessageMetadata,
+} from "../memory/conversation-crud.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
@@ -8,6 +14,8 @@ import {
   isSlackCallbackUrl,
   textToSlackBlocks,
 } from "./slack-block-formatting.js";
+
+const log = getLogger("channel-reply-delivery");
 
 const INTER_SEGMENT_DELAY_MS = 150;
 
@@ -206,6 +214,22 @@ export async function deliverReplyViaCallback(
       kind: a.kind,
     }));
 
+    // Compose an `onMessageTs` that reconciles `slackMeta.channelTs` on the
+    // persisted assistant row once Slack returns the authoritative ts. The
+    // assistant row was written BEFORE the gateway POST in
+    // `handleMessageComplete`, so the partial `slackMeta` it carries is
+    // missing `channelTs` and would otherwise be rejected by
+    // `readSlackMetadata`, dropping the row out of chronological/thread-tag
+    // rendering. We only act on the FIRST ts (top-level segment); any
+    // subsequent split segments become independent Slack messages with
+    // their own ts and are not represented as separate DB rows.
+    const reconcileOnMessageTs = makeChannelTsReconciler(msgs[i].id);
+    const callerOnMessageTs = options?.onMessageTs;
+    const composedOnMessageTs = (ts: string): void => {
+      reconcileOnMessageTs(ts);
+      callerOnMessageTs?.(ts);
+    };
+
     await deliverRenderedReplyViaCallback({
       callbackUrl,
       chatId: externalChatId,
@@ -219,8 +243,88 @@ export async function deliverReplyViaCallback(
       ephemeral: options?.ephemeral,
       user: options?.user,
       messageTs: options?.messageTs,
-      onMessageTs: options?.onMessageTs,
+      onMessageTs: composedOnMessageTs,
     });
     break;
   }
+}
+
+/**
+ * Build a one-shot `onMessageTs` handler that reconciles the persisted
+ * assistant message's `slackMeta.channelTs` from Slack's authoritative `ts`.
+ *
+ * Behavior:
+ * - Acts only on the first invocation per delivery (subsequent segments
+ *   correspond to independent Slack messages with their own ts and are not
+ *   represented as separate DB rows).
+ * - No-op when the row was not persisted with a `slackMeta` envelope (the
+ *   channel was not Slack at write-time, e.g. vellum/telegram outbound).
+ * - No-op when the row's existing `slackMeta` already parses cleanly via
+ *   `readSlackMetadata` (channelTs already present, e.g. from a prior
+ *   reconciliation).
+ * - Failures are logged and swallowed so a transient DB error cannot break
+ *   the outbound delivery itself.
+ */
+function makeChannelTsReconciler(messageId: string): (ts: string) => void {
+  let applied = false;
+  return (ts: string): void => {
+    if (applied) return;
+    applied = true;
+    if (!ts) return;
+    try {
+      // Re-read the row's current metadata so a concurrent edit-propagation
+      // write (e.g. `editedAt`) is not clobbered. `updateMessageMetadata`
+      // shallow-merges into the top-level envelope, and the slackMeta
+      // sub-object is merged manually below so we can preserve fields on
+      // the partial pre-send envelope (`mergeSlackMetadata` would call
+      // `readSlackMetadata` which rejects the partial form for lacking
+      // channelTs — exactly the state we are reconciling).
+      const row = getMessageById(messageId);
+      if (row === null || row.metadata === null) return;
+      let envelope: Record<string, unknown>;
+      try {
+        envelope = JSON.parse(row.metadata) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      const slackMetaRaw =
+        typeof envelope.slackMeta === "string" ? envelope.slackMeta : null;
+      if (slackMetaRaw === null) return;
+      // If the existing slackMeta already parses cleanly via the strict
+      // reader, channelTs is already present (a prior reconciliation ran,
+      // or backfill stamped the field) — nothing to do.
+      if (readSlackMetadata(slackMetaRaw) !== null) return;
+      // Lenient parse of the partial slackMeta so we can preserve every
+      // field already written by `handleMessageComplete` (source,
+      // eventKind, channelId, threadTs, ...) while patching channelTs in.
+      let existingSlackMeta: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(slackMetaRaw) as unknown;
+        if (
+          parsed === null ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
+        ) {
+          return;
+        }
+        existingSlackMeta = parsed as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      const mergedSlackMeta = JSON.stringify({
+        ...existingSlackMeta,
+        channelTs: ts,
+        // Force `source: "slack"` for parity with `mergeSlackMetadata`'s
+        // invariant — the reader rejects anything else and we never want a
+        // reconciled row to slip through with a stale source.
+        source: "slack",
+      });
+      updateMessageMetadata(messageId, { slackMeta: mergedSlackMeta });
+    } catch (err) {
+      log.warn(
+        { err, messageId },
+        "Failed to reconcile slackMeta.channelTs on outbound assistant row",
+      );
+    }
+  };
 }

@@ -5,10 +5,11 @@
  *
  * Persistence happens BEFORE the Slack adapter sends the message, so Slack's
  * authoritative `ts` (-> `channelTs`) is not yet known at this layer. The
- * partial `slackMeta` written here is intentionally missing `channelTs`; a
- * later PR (PR 21) reconciles the field by writing it back once the send
- * response returns. These tests document that ordering and verify the
- * `channelTs` absence at the persistence boundary.
+ * partial `slackMeta` written here is intentionally missing `channelTs`; the
+ * post-send reconciliation step in `deliverReplyViaCallback` writes
+ * `channelTs` back into the row once the gateway returns the Slack-assigned
+ * ts. These tests document the persistence-side ordering — see
+ * `channel-reply-delivery.test.ts` for the reconciliation behaviour.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -202,9 +203,12 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.threadTs).toBe("1234.5678");
 
     // Persistence runs BEFORE the Slack adapter posts the message, so the
-    // authoritative `ts` (-> `channelTs`) is not yet known. A later PR will
-    // reconcile this field. Until then, `readSlackMetadata` rejects the
-    // partial metadata since `channelTs` is still required by the schema.
+    // authoritative `ts` (-> `channelTs`) is not yet known at this layer.
+    // The post-send reconciliation in `deliverReplyViaCallback` fills the
+    // field once the gateway returns the Slack-assigned ts (covered by
+    // `channel-reply-delivery.test.ts`). Until that runs, the partial
+    // metadata is intentionally rejected by `readSlackMetadata` so callers
+    // that try to use it before reconciliation get a clear null.
     expect(slackMeta.channelTs).toBeUndefined();
     expect(readSlackMetadata(slackMetaRaw as string)).toBeNull();
   });
