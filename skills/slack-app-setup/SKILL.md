@@ -79,6 +79,8 @@ Wait for the user to confirm they've created the app before proceeding.
 
 ## Step 2: Add Redirect URL
 
+**Do NOT skip this step.** The redirect URL is required for the OAuth install in Step 3d to work.
+
 After creating the app, tell the user to navigate to **OAuth & Permissions** in the sidebar, then scroll to **Redirect URLs** and:
 
 1. Click **Add New Redirect URL**
@@ -89,18 +91,20 @@ This enables the automated OAuth install in Step 3. Wait for the user to confirm
 
 ## Step 3: Collect Credentials & Install via OAuth
 
+**CRITICAL — this step has sub-steps that MUST be done sequentially. Do NOT parallelize or skip ahead.** Each sub-step requires the user to perform an action in the Slack UI, then you collect the result. Walk the user through each action explicitly before prompting for the value.
+
 The user should navigate back to **Basic Information**. We need three values from this page, then we'll automate the rest.
 
 ### Step 3a: App Token
 
-Tell the user to scroll to **App-Level Tokens** on the Basic Information page, then:
+**First, guide the user to CREATE the token.** The app token does not exist yet — the user must generate it. Tell the user to scroll to **App-Level Tokens** on the Basic Information page, then:
 
 1. Click **Generate Token and Scopes**
 2. Token name: "Socket Mode" (or any name they prefer)
 3. Add scope: `connections:write`
 4. Click **Generate**
 
-Collect the app token securely:
+Tell the user to copy the token that appears (starts with `xapp-`). **Wait for the user to confirm they've generated it**, then collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
