@@ -193,15 +193,19 @@ async function archiveByCacheKey(
   let cachedData: Record<string, string[]> | null = null;
 
   try {
-    const proc = Bun.spawn(
-      ["assistant", "cache", "get", cacheKey, "--json"],
-      { stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = Bun.spawn(["assistant", "cache", "get", cacheKey, "--json"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const stdout = await new Response(proc.stdout).text();
     await proc.exited;
 
     const parsed = JSON.parse(stdout);
-    if (parsed.ok === true && parsed.data !== null && parsed.data !== undefined) {
+    if (
+      parsed.ok === true &&
+      parsed.data !== null &&
+      parsed.data !== undefined
+    ) {
       cachedData = parsed.data as Record<string, string[]>;
     }
   } catch {
