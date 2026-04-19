@@ -129,7 +129,10 @@ Examples:
       opts.mode === "edit" ? "edit" : "generate";
     const sourcePaths: string[] | undefined = opts.source;
     const modelOverride: string | undefined = opts.model;
-    const variants: number = Math.max(1, Math.min(opts.variants ?? 1, 4));
+    const rawVariants = opts.variants ?? 1;
+    const variants: number = Number.isNaN(rawVariants)
+      ? 1
+      : Math.max(1, Math.min(rawVariants, 4));
     const outputDir: string = opts.outputDir ?? os.tmpdir();
 
     // --- Validate edit mode requires --source ---
@@ -196,16 +199,20 @@ Examples:
           errors.push(`File not found: ${filePath}`);
           continue;
         }
-        const file = Bun.file(filePath);
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const mimeType =
-          file.type !== "application/octet-stream"
-            ? file.type
-            : mimeForExtension(filePath);
-        validImages.push({
-          mimeType,
-          dataBase64: buffer.toString("base64"),
-        });
+        try {
+          const file = Bun.file(filePath);
+          const buffer = Buffer.from(await file.arrayBuffer());
+          const mimeType =
+            file.type !== "application/octet-stream"
+              ? file.type
+              : mimeForExtension(filePath);
+          validImages.push({
+            mimeType,
+            dataBase64: buffer.toString("base64"),
+          });
+        } catch (err) {
+          errors.push(`Could not read ${filePath}: ${(err as Error).message}`);
+        }
       }
 
       if (validImages.length === 0) {

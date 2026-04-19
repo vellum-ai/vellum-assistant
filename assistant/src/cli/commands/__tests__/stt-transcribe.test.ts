@@ -330,7 +330,7 @@ describe("success cases", () => {
     expect(stdout).toContain("Hello, this is a test transcript.");
   });
 
-  test("--json output contains expected fields", async () => {
+  test("--json output contains expected fields including ok: true", async () => {
     mockAccessResult = "ok";
     mockTranscriber = fakeTranscriber;
     mockFileSize = 1024;
@@ -345,6 +345,7 @@ describe("success cases", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
     expect(parsed.transcript).toBe("Hello, this is a test transcript.");
     expect(parsed.provider).toBe("openai-whisper");
     expect(typeof parsed.durationSeconds).toBe("number");
@@ -369,7 +370,7 @@ describe("success cases", () => {
     expect(stdout).toContain("No speech detected");
   });
 
-  test("no speech detected with --json returns empty transcript", async () => {
+  test("no speech detected with --json returns empty transcript with ok: true", async () => {
     mockAccessResult = "ok";
     mockTranscriber = {
       ...fakeTranscriber,
@@ -387,6 +388,7 @@ describe("success cases", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
     expect(parsed.transcript).toBe("");
     expect(parsed.provider).toBe("openai-whisper");
   });

@@ -289,6 +289,7 @@ Examples:
           if (jsonOutput) {
             process.stdout.write(
               JSON.stringify({
+                ok: true,
                 transcript: "",
                 provider: transcriber.providerId,
                 durationSeconds,
@@ -303,6 +304,7 @@ Examples:
         if (jsonOutput) {
           process.stdout.write(
             JSON.stringify({
+              ok: true,
               transcript: text,
               provider: transcriber.providerId,
               durationSeconds,

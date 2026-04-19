@@ -514,6 +514,27 @@ describe("edit mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("variants", () => {
+  test("non-numeric --variants defaults to 1", async () => {
+    mockProviderKey = "test-key";
+    const outDir = join(os.tmpdir(), `img-nan-variants-${Date.now()}`);
+
+    const { exitCode } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Test",
+      "--variants",
+      "abc",
+      "--output-dir",
+      outDir,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGenerateCall).toBeDefined();
+    const req = lastGenerateCall!.request as { variants: number };
+    expect(req.variants).toBe(1);
+  });
+
   test("--variants is passed through to generateImage", async () => {
     mockProviderKey = "test-key";
     mockGenerateResult = {
