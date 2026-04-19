@@ -12,19 +12,27 @@ public struct ConfirmationSurfaceView: View {
 
     @State private var selectedAction: SelectedAction?
 
-    public init(data: ConfirmationSurfaceData, showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
+    /// The action ID to emit when the user confirms.
+    /// Defaults to "confirm"; overridden when explicit actions are provided.
+    private let confirmActionId: String
+
+    /// The action ID to emit when the user cancels/denies.
+    /// Defaults to "cancel"; overridden when explicit actions are provided.
+    private let cancelActionId: String
+
+    public init(
+        data: ConfirmationSurfaceData,
+        showCardChrome: Bool = false,
+        confirmActionId: String = "confirm",
+        cancelActionId: String = "cancel",
+        onAction: @escaping (String) -> Void
+    ) {
         self.data = data
         self.showCardChrome = showCardChrome
+        self.confirmActionId = confirmActionId
+        self.cancelActionId = cancelActionId
         self.onAction = onAction
     }
-
-    /// The action ID to emit when the user cancels.
-    /// Always "cancel" — the visible label is controlled by `data.cancelLabel`.
-    private var cancelActionId: String { "cancel" }
-
-    /// The action ID to emit when the user confirms.
-    /// Always "confirm" — the visible label is controlled by `data.confirmLabel`.
-    private var confirmActionId: String { "confirm" }
 
     public var body: some View {
         Group {
