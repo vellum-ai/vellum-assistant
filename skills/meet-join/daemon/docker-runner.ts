@@ -691,11 +691,11 @@ export function buildCreateBody(
     // `host-gateway` value is required. Applied unconditionally because
     // the resolution is identical either way on modern engines.
     ExtraHosts: [HOST_GATEWAY_ALIAS],
-    // Docker's default `/dev/shm` is 64 MiB, which Chromium exhausts when
+    // Docker's default `/dev/shm` is 64 MiB, which Chrome exhausts when
     // loading a JS-heavy page like Google Meet — the renderer then crashes
     // with a cryptic "Target page, context or browser has been closed". 2 GiB
-    // is the commonly-cited safe default for Puppeteer/Playwright in Docker.
-    // (`--disable-dev-shm-usage` in the Chromium launch args routes shared
+    // is the commonly-cited safe default for Chrome automation in Docker.
+    // (`--disable-dev-shm-usage` in the Chrome launch args routes shared
     // memory to `/tmp` as a separate belt-and-suspenders hedge.)
     ShmSize: 2 * 1024 * 1024 * 1024,
     ...(opts.network ? { NetworkMode: opts.network } : {}),

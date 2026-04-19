@@ -48,17 +48,20 @@ const MEET_CHAT_MAX_LENGTH = 2000;
  *
  * The server is a thin wiring layer: it validates the incoming payload,
  * updates the lifecycle phase where appropriate, and delegates the actual
- * work (driving Playwright, talking to the ASR pipeline, etc.) to these
- * callbacks. Phases 2 and 3 replace the 501 stubs with real implementations.
+ * work (dispatching to the Chrome extension over native messaging, talking
+ * to the ASR pipeline, etc.) to these callbacks. Phases 2 and 3 replace the
+ * 501 stubs with real implementations.
  */
 export interface HttpServerCallbacks {
   /** Called when `POST /leave` is received and the phase has been flipped. */
   onLeave: (reason: string | undefined) => Promise<void> | void;
   /**
    * Called when `POST /send_chat` is received with a valid body. The
-   * implementation is expected to type `text` into the Meet chat composer
-   * and submit it. Throwing (or rejecting) is the signal that Playwright
-   * could not post the message — the HTTP route converts that into a 502.
+   * implementation is expected to forward `text` to the Chrome extension
+   * (via the NMH socket) so the extension can type it into the Meet chat
+   * composer and submit it. Throwing (or rejecting) is the signal that the
+   * extension could not post the message — the HTTP route converts that
+   * into a 502.
    */
   onSendChat: (text: string) => Promise<void> | void;
   /**
@@ -146,10 +149,11 @@ export function createHttpServer(
 
   /**
    * Tail of the chat-send queue. Concurrent POST /send_chat requests must
-   * not interleave Playwright operations on the shared chat input — one
-   * fill()/press() sequence must complete before the next begins, otherwise
-   * two messages race on the same DOM element and both may be lost or
-   * garbled. Identical pattern to `playbackChain` above.
+   * not interleave extension commands on the shared chat input — one
+   * fill/press sequence (run inside the extension) must complete before
+   * the next begins, otherwise two messages race on the same DOM element
+   * and both may be lost or garbled. Identical pattern to `playbackChain`
+   * above.
    */
   let chatChain: Promise<void> = Promise.resolve();
 
@@ -218,9 +222,10 @@ export function createHttpServer(
 
   // -------------------------------------------------------------------------
   // POST /send_chat — validate, enforce Meet's 2000-char chat limit, then
-  // hand off to the Playwright-backed callback. Success returns 200; a
-  // thrown/rejected callback is surfaced as 502 so the daemon can tell
-  // "bad request" apart from "Meet DOM didn't cooperate".
+  // hand off to the extension-backed callback (over the NMH socket).
+  // Success returns 200; a thrown/rejected callback is surfaced as 502 so
+  // the daemon can tell "bad request" apart from "extension failed to post
+  // the message".
   // -------------------------------------------------------------------------
 
   app.post("/send_chat", async (c) => {

@@ -1,22 +1,27 @@
 # meet-controller-ext — Agent Instructions
 
 Chrome extension (Manifest V3) that controls Google Meet on behalf of the
-Vellum meet-bot. It runs inside the same Chromium the bot drives via
-Playwright; the bot launches Chromium with `--load-extension=/app/ext`
-pointed at this package's `dist/` output (wiring added in PR 13).
+Vellum meet-bot. It runs inside google-chrome-stable, which the bot spawns
+as a plain subprocess with `--load-extension=/app/ext` pointed at this
+package's `dist/` output. The bot does NOT use CDP or any CDP-based
+automation library — Meet's BotGuard rejects CDP-attached joiners, so all
+DOM work happens inside this extension and is driven over Chrome Native
+Messaging.
 
 ## Where it fits
 
 - Lives at `skills/meet-join/meet-controller-ext/` alongside the sibling
   `bot/` and `contracts/` packages.
 - The bot's Dockerfile copies the built `dist/` into `/app/ext` and tells
-  Chromium to load it at launch time (PR 13).
-- The extension talks to the bot via Chrome Native Messaging: the bot
-  registers a native host manifest (PR 6) whose `allowed_origins` pin this
-  extension's ID, and the service worker `connectNative()`s to it (PR 8).
-- Meet DOM automation (chat, participants, speaker detection, virtual-mic
-  priming) moves from Playwright page-world scripts into this extension's
-  content script across PRs 9-12.
+  google-chrome-stable to load it at launch time (via
+  `bot/src/browser/chrome-launcher.ts`).
+- The extension talks to the bot via Chrome Native Messaging. The bot
+  registers a native host manifest (rendered at image-build time by
+  `bot/scripts/render-nmh-manifest.ts`) whose `allowed_origins` pin this
+  extension's ID, and the service worker `connectNative()`s to it.
+- Meet DOM automation — chat send/read, participant scraping, speaker
+  detection, virtual-mic priming — runs inside this extension's content
+  script (`src/features/*.ts`).
 
 ## Build
 
@@ -29,9 +34,9 @@ Produces `dist/manifest.json`, `dist/background.js`, `dist/content.js`.
 
 ## The `key` field
 
-`manifest.json` pins the extension's public key so Chromium computes a
+`manifest.json` pins the extension's public key so Chrome computes a
 **stable extension ID** across installs. That stable ID is what the
-Native Messaging host manifest's `allowed_origins` entry targets (PR 6).
+Native Messaging host manifest's `allowed_origins` entry targets.
 Regenerating the key rotates the ID and requires a matching NMH update.
 
 - The private key is **not** committed to the repo. Only the base64
@@ -59,5 +64,4 @@ matching fixture assertion, CI fails.
 When Meet's DOM drifts, refresh the fixtures and bump
 `GOOGLE_MEET_SELECTOR_VERSION` in `selectors.ts`. The step-by-step refresh
 procedure is documented in `skills/meet-join/bot/README.md` §
-"Refreshing Meet DOM fixtures" for now; that README will relocate alongside
-this package later in the migration.
+"Refreshing Meet DOM fixtures".

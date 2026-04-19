@@ -14,7 +14,7 @@
  *      controller extension loaded via `--load-extension`. Chrome must NOT
  *      be driven via CDP — Meet's bot detection rejects CDP-attached
  *      joiners. Extension-side DOM work happens via Chrome Native
- *      Messaging rather than Playwright/Puppeteer.
+ *      Messaging rather than via any CDP-based automation library.
  *   5. Instantiate `DaemonClient` and wait for the extension handshake
  *      (`{ type: "ready" }`) to land on the socket server.
  *   6. Publish `lifecycle:joining` and send the `join` command to the

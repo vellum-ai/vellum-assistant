@@ -1,7 +1,8 @@
 /**
  * chrome-launcher: spawns google-chrome-stable as a PLAIN USER PROCESS.
  *
- * Deliberately does NOT use CDP, Playwright, Puppeteer, or any of:
+ * Deliberately does NOT use CDP or any CDP-based automation framework.
+ * The launcher also does NOT pass any of:
  *   --remote-debugging-port
  *   --remote-debugging-pipe
  *   --enable-automation

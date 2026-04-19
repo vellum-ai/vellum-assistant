@@ -46,3 +46,34 @@ are **not** candidates for relocation into `skills/meet-join/`:
   declaration of every assistant feature flag, including `meet`. This is
   the canonical flag registry; per-flag entries are not relocated to
   owning skills.
+
+## Browser control: the extension package (`meet-controller-ext/`)
+
+Browser-side Meet control lives in the sibling `meet-controller-ext/`
+package, NOT in `bot/`. The bot launches google-chrome-stable as a plain
+subprocess with `--load-extension=/app/ext` (where `/app/ext` is the
+built output of `meet-controller-ext/`). Bot ↔ extension communication
+flows through Chrome Native Messaging over a Unix socket owned by the
+bot process.
+
+**Rationale**: Playwright-driven Chrome is detected by Meet's BotGuard;
+we use a real Chrome subprocess with a bundled extension instead. Any
+attempt to reintroduce CDP (`--remote-debugging-port`,
+`--enable-automation`, Playwright, Puppeteer) will fail at the Meet
+prejoin surface. See `.private/plans/archived/meet-phase-1-11-chrome-extension.md`
+for the empirical repro.
+
+**Where each piece lives**:
+
+- `meet-controller-ext/src/features/` — in-page logic: `join.ts`,
+  `participants.ts`, `speaker.ts`, `chat.ts`.
+- `meet-controller-ext/src/dom/` — Meet DOM selectors + wait helpers,
+  with fixture-backed tests under `src/dom/__tests__/`.
+- `meet-controller-ext/src/messaging/` — extension-side transport to
+  the bot's native messaging host.
+- `bot/src/native-messaging/` — bot-side socket server + NMH shim.
+- `contracts/native-messaging.ts` — zod-validated wire protocol for
+  `BotToExtensionMessage` / `ExtensionToBotMessage`.
+
+Do not re-introduce Playwright or any CDP-based automation library into
+`bot/`. See `bot/AGENTS.md` for the bot-side architecture.

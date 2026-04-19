@@ -4,20 +4,23 @@ Container bot that joins a Google Meet session on behalf of an AI assistant so t
 
 ## Role
 
-`meet-bot` runs inside a Linux Docker container with Xvfb, PulseAudio, and Playwright-driven Chromium. The assistant launches a bot instance when the user asks it to attend a meeting; the bot joins the Meet URL as a participant, captures audio through a virtual PulseAudio sink, and streams transcript/events back to the assistant.
+`meet-bot` runs inside a Linux Docker container with Xvfb, PulseAudio, and a Chrome extension driving google-chrome-stable as a plain subprocess. The assistant launches a bot instance when the user asks it to attend a meeting; the bot joins the Meet URL as a participant, captures audio through a virtual PulseAudio sink, and streams transcript/events back to the assistant.
+
+Why not CDP / a headless-automation library? Google Meet's BotGuard detects CDP attachment (`--remote-debugging-port`, `--enable-automation`, etc.) and rejects anonymous joiners before the prejoin UI renders. We therefore launch `google-chrome-stable` as a plain user process with `--load-extension=/app/ext`, and drive Meet from inside a bundled Chrome extension (`../meet-controller-ext/`). Bot ↔ extension communication flows over a Unix-socket-backed Chrome Native Messaging host.
 
 This package contains:
 
-- `src/main.ts` — process entry point.
+- `src/main.ts` — process entry point. Boots PulseAudio, Xvfb, the NMH socket server, then spawns Chrome with the controller extension loaded. Waits for the extension's `ready` handshake, dispatches the `join` command, and stands up the HTTP control surface.
+- `src/browser/chrome-launcher.ts` — spawns `google-chrome-stable` as a plain subprocess with `--load-extension=/app/ext`. No CDP.
+- `src/browser/xvfb.ts` — virtual-display manager for headful Chrome.
+- `src/native-messaging/` — Chrome Native Messaging host: socket server + shim process that Chrome runs in response to `chrome.runtime.connectNative(...)`.
+- `src/control/` — HTTP control surface (`/leave`, `/send_chat`, `/play_audio`), bot lifecycle state, daemon client.
+- `src/media/` — PulseAudio bootstrap, audio capture (parec → daemon socket), audio playback (pacat).
 - `src/health.ts` — placeholder health probe invoked by the Dockerfile's `HEALTHCHECK`.
-- `Dockerfile` — container image with Xvfb, PulseAudio, Chromium, and Playwright dependencies.
-- `__tests__/` — smoke tests that run inside the Bun test runner.
+- `Dockerfile` — container image with Xvfb, PulseAudio, google-chrome-stable, ffmpeg. The extension is built inside the image and installed at `/app/ext/`.
+- `__tests__/` — tests that run inside the Bun test runner.
 
-## Status
-
-This is the **skeleton** for the Meet bot. Today it does nothing but boot, log `meet-bot booted`, and exit 0. Real Meet-join, audio capture, and HTTP control-surface logic land in later PRs.
-
-See the plan at `.private/plans/meet-phase-1-listen.md` (repo-local, not committed) for the full rollout — this is PR 1 of 24.
+Browser-side DOM work (join flow, participant scraping, speaker indicator, chat send/read) lives in `../meet-controller-ext/src/features/`. Events flow bot → extension as `BotToExtensionMessage` and extension → bot as `ExtensionToBotMessage` (see `../contracts/native-messaging.ts`).
 
 ## Development
 
@@ -36,10 +39,10 @@ To build the container image (requires Docker):
 
 ## Refreshing Meet DOM fixtures
 
-The bot interacts with Google Meet through CSS/attribute selectors centralized in
-`src/browser/dom-selectors.ts`. Because Meet's web UI drifts without notice,
-we commit HTML fixtures in `__tests__/fixtures/` and test every selector
-against those fixtures. The shipped fixtures are **plausible approximations**
+The extension interacts with Google Meet through CSS/attribute selectors centralized in
+`skills/meet-join/meet-controller-ext/src/dom/selectors.ts`. Because Meet's web UI drifts without
+notice, we commit HTML fixtures in `skills/meet-join/meet-controller-ext/src/dom/__tests__/fixtures/`
+and test every selector against those fixtures. The shipped fixtures are **plausible approximations**
 of Meet's DOM authored by hand — they exercise the selectors but are not
 literal snapshots.
 
@@ -52,19 +55,20 @@ against a live Meet session. The refresh procedure:
    throwaway test meeting, not a live customer call.
 2. **Capture outer-HTML** of the relevant DOM regions via Chrome DevTools:
    - Prejoin: right-click the prejoin panel root → Inspect → copy outer HTML
-     into `__tests__/fixtures/meet-dom-prejoin.html`.
+     into `skills/meet-join/meet-controller-ext/src/dom/__tests__/fixtures/meet-dom-prejoin.html`.
    - In-meeting: capture the main meeting grid + toolbar + participant panel
-     into `__tests__/fixtures/meet-dom-ingame.html`.
+     into `.../fixtures/meet-dom-ingame.html`.
    - Chat: open the chat panel, send one test message, then capture the
-     panel into `__tests__/fixtures/meet-dom-chat.html`.
+     panel into `.../fixtures/meet-dom-chat.html`.
    - Scrub any real names, avatars, message content, and meeting IDs from the
      captured HTML — the fixtures are committed to the public repo.
-3. **Update `GOOGLE_MEET_SELECTOR_VERSION`** in `src/browser/dom-selectors.ts`
-   to today's ISO date (`YYYY-MM-DD`). This records which Meet revision the
-   selectors are calibrated against.
+3. **Update `GOOGLE_MEET_SELECTOR_VERSION`** in
+   `skills/meet-join/meet-controller-ext/src/dom/selectors.ts` to today's ISO
+   date (`YYYY-MM-DD`). This records which Meet revision the selectors are
+   calibrated against.
 4. **Re-run the selector tests**:
    ```bash
-   bun test __tests__/dom-selectors.test.ts
+   cd skills/meet-join/meet-controller-ext && bun test src/dom/__tests__/selectors.test.ts
    ```
 5. **Fix any selector drift.** Selectors marked `// TODO(meet-dom)` are the
    most likely to need adjustment — they are the ones we already knew were
@@ -109,6 +113,10 @@ the meet subsystem, run this manual verification loop.
    The assistant should respond with the session descriptor (meetingId,
    container id, bot base URL).
 2. **Observe the bot join.** Expected behavior within ~30 seconds:
+   - `main.ts` spawns google-chrome-stable with `--load-extension=/app/ext`.
+     The extension's background worker opens a Unix-socket-backed native
+     messaging connection back to the bot process, then the extension's
+     content script navigates the Meet prejoin UI.
    - A new participant with the assistant's configured display name
      appears in the Meet participant list.
    - The bot posts the consent message in Meet chat (the string from
@@ -117,7 +125,8 @@ the meet subsystem, run this manual verification loop.
      conversation, each prefixed with `[<SpeakerName>]: <text>`.
 3. **Verify SSE events in the macOS client.** The "In meeting" status panel
    should reflect live participant and speaker changes as people join,
-   leave, or speak.
+   leave, or speak. All of those events originate inside the extension and
+   flow back to the daemon via NMH → socket server → daemon client.
 4. **Exercise the auto-leave path.** Ask another participant to type
    `please leave` (or any of the configured `objectionKeywords`) in Meet
    chat. Expected: the bot leaves the meeting within ~5 seconds and
@@ -145,17 +154,43 @@ the meet subsystem, run this manual verification loop.
 
 ### Failure triage
 
-- **Bot never joins** — check the assistant log for
-  `meet-session-manager` and `meet-docker-runner` errors. Most common
-  causes: missing STT provider credentials, stale image, Docker socket not
-  reachable from inside the container host.
+- **Bot never joins** — the most common causes are extension load failures
+  or native-messaging misconfiguration:
+  - Check extension load errors by inspecting the Chrome debug log:
+    ```bash
+    docker exec <container> cat /tmp/chrome-profile-*/chrome_debug.log
+    ```
+    (may not always exist; if it does, look for `Extension error:` lines).
+  - Confirm the native-messaging host manifest exists at
+    `/etc/opt/chrome/native-messaging-hosts/com.vellum.meet.json` and the
+    extension ID inside that manifest's `allowed_origins` matches the ID
+    derived from the extension's public key.
+  - Confirm the NMH shim (`src/native-messaging/nmh-shim.ts`) is executable
+    inside the container (`chmod +x` is applied at image build time but a
+    volume mount can hide it).
+  - Also check the assistant log for `meet-session-manager` and
+    `meet-docker-runner` errors: missing STT provider credentials, stale
+    image, or Docker socket not reachable from inside the container host.
+- **Extension failed to connect to native host** — the most specific flavor
+  of "bot never joins":
+  - Verify `/etc/opt/chrome/native-messaging-hosts/com.vellum.meet.json`
+    contains `{"path": "/app/bot/src/native-messaging/nmh-shim.ts", ...}`
+    pointing at an existing, executable file.
+  - Verify the manifest's `allowed_origins` includes the extension's origin
+    (`chrome-extension://<ID>/`). The ID is derived deterministically from
+    the extension's public key in its `manifest.json` — `render-nmh-manifest.ts`
+    runs at image-build time to keep the two in sync.
 - **No transcripts in the conversation** — check for `meet-audio-ingest`
   warnings in the log; the bot may be failing to connect to the Unix
-  socket or the STT provider may be rejecting the session.
+  socket or the STT provider may be rejecting the session. (The audio
+  pipeline is unchanged by the extension migration — audio flows parec →
+  socket → daemon.)
 - **Bot doesn't auto-leave on objection** — check for
-  `meet-consent-monitor` log lines. The LLM call can time out silently
-  if the configured provider is misconfigured; the log will say "LLM
-  call failed — staying in the meeting".
+  `meet-consent-monitor` log lines on the daemon side. The LLM call can
+  time out silently if the configured provider is misconfigured; the log
+  will say "LLM call failed — staying in the meeting". (The consent
+  monitor runs on the daemon, not the bot — unchanged by the extension
+  migration.)
 - **Artifacts missing after leave** — check the storage writer log
   (`meet-storage-writer`). Common cause: ffmpeg not on the host PATH
   for audio encoding.
