@@ -520,9 +520,16 @@ describe("includes frontmatter parsing", () => {
   });
 });
 
-describe("bundled browser skill", () => {
+describe("managed browser skill", () => {
+  const BROWSER_SKILL_MD = readFileSync(
+    join(import.meta.dirname, "../../../skills/vellum-browser-use/SKILL.md"),
+    "utf-8",
+  );
+
   beforeEach(() => {
-    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+    const skillDir = join(TEST_DIR, "skills", "vellum-browser-use");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), BROWSER_SKILL_MD);
   });
 
   afterEach(() => {
@@ -531,18 +538,17 @@ describe("bundled browser skill", () => {
       rmSync(skillsDir, { recursive: true, force: true });
   });
 
-  test("browser skill appears in full catalog (including bundled)", () => {
+  test("browser skill appears in full catalog", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.name).toBe("browser");
+    expect(browserSkill!.name).toBe("vellum-browser-use");
     expect(browserSkill!.displayName).toBe("Browser");
-    expect(browserSkill!.bundled).toBe(true);
   });
 
   test("browser skill has correct metadata", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.description).toBe(
       "Browse the web using `assistant browser` CLI commands",
@@ -551,7 +557,7 @@ describe("bundled browser skill", () => {
 
   test("browser skill has no tool manifest", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
     // Browser tools are dispatched via skill_execute and do not use
     // a skill-tool manifest.

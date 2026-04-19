@@ -6,7 +6,7 @@ metadata:
   emoji: "🍽️"
   vellum:
     display-name: "Restaurant Reservation Booking"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
 Book restaurant reservations on OpenTable or Resy using browser automation. All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`.

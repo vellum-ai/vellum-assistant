@@ -60,12 +60,13 @@ describe("browser CLI-only architecture end-state", () => {
 
   // ── 2. Browser skill directory exists with SKILL.md ──────────────
 
-  test("bundled browser skill directory exists with SKILL.md but no TOOLS.json", async () => {
+  test("managed browser skill directory exists with SKILL.md but no TOOLS.json", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
+    // Browser skill lives in skills/browser/ (managed), not bundled-skills/.
     const skillDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser",
+      "../../../skills/vellum-browser-use",
     );
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
     // Browser operations are dispatched via the CLI, not via skill tools.
@@ -79,7 +80,7 @@ describe("browser CLI-only architecture end-state", () => {
     const fs = await import("node:fs");
     const toolsDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser/tools",
+      "../../../skills/vellum-browser-use/tools",
     );
     // Browser operations are dispatched via CLI commands,
     // not via per-tool executor files.

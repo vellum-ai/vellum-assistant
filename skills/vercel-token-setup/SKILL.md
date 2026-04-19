@@ -6,7 +6,7 @@ metadata:
   emoji: "▲"
   vellum:
     display-name: "Vercel Token Setup"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
 You are helping your user set up a Vercel API token so they can publish apps to the web.
