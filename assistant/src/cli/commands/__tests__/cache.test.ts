@@ -489,7 +489,7 @@ describe("cache get", () => {
 
 describe("cache delete", () => {
   test("sends cache/delete IPC and succeeds", async () => {
-    mockIpcResult = { ok: true, result: {} };
+    mockIpcResult = { ok: true, result: { deleted: true } };
 
     const { exitCode } = await runCommand(["cache", "delete", "my-key"]);
 
@@ -498,8 +498,8 @@ describe("cache delete", () => {
     expect(lastIpcCall!.params).toEqual({ key: "my-key" });
   });
 
-  test("--json outputs { ok: true } on success", async () => {
-    mockIpcResult = { ok: true, result: {} };
+  test("--json outputs { ok: true, deleted: true } on success", async () => {
+    mockIpcResult = { ok: true, result: { deleted: true } };
 
     const { exitCode, stdout } = await runCommand([
       "cache",
@@ -510,7 +510,22 @@ describe("cache delete", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed).toEqual({ ok: true });
+    expect(parsed).toEqual({ ok: true, deleted: true });
+  });
+
+  test("--json outputs { ok: true, deleted: false } when key did not exist", async () => {
+    mockIpcResult = { ok: true, result: { deleted: false } };
+
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "delete",
+      "missing-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({ ok: true, deleted: false });
   });
 
   test("exits with error on IPC failure", async () => {
