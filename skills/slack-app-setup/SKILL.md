@@ -13,6 +13,8 @@ You are helping your user connect a Slack bot to the Vellum Assistant via Socket
 
 **Before starting, set expectations:** "We're creating a custom Slack app for your assistant — this gives you your own bot identity, avatar, and name in Slack. There are a few steps to get through, but most of it is automated."
 
+**CRITICAL: This skill contains exact commands to run. You MUST execute the bash commands as written — do NOT improvise, summarize, or "walk through manually." The manifest, scopes, and settings are precise. If you skip the bash command and show raw YAML/JSON instead, the manifest will be incomplete and setup will fail.**
+
 **CRITICAL: Follow these steps strictly in order. Do NOT combine steps or skip ahead.**
 
 ## Value Classification
@@ -58,7 +60,7 @@ Note: `user_token` is optional. Missing `user_token` is **not** blocking — set
 
 Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate the manifest creation URL.
 
-**IMPORTANT — use `bash` to build the manifest and URL programmatically.** Do NOT manually interpolate the user's name into a JSON string — special characters (quotes, backslashes, slashes, etc.) will break the JSON or the URL. Instead, run a `bash` command that passes the name and description via environment variables (so the shell never interprets user input) and uses `bun -e` with `JSON.stringify` and `encodeURIComponent` to safely build the JSON and URL.
+**MANDATORY — you MUST use the `bash` command below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The bash command below contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that the user clicks to create the app with everything already configured.
 
 Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen values:
 
@@ -231,6 +233,8 @@ If the OAuth flow fails or times out, re-run Step 3d. Ensure:
 
 ## Implementation Rules
 
+- **Do NOT improvise or write your own manifest.** The bash command in Step 1 contains the only correct manifest. If you show raw YAML/JSON or write a manifest from memory, it WILL be missing scopes, event subscriptions, or socket mode settings and setup will fail.
+- **Do NOT skip the bash command in Step 1.** You must run it to generate the pre-filled URL. The user should never have to paste a manifest — they click a link.
 - App Token, Client ID, and Client Secret collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, or other mechanisms. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
 - Bot Token and User Token are captured automatically by the OAuth install flow. Do NOT ask the user to copy-paste these tokens.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn in the conversation. Wait for the user to confirm completion before moving on.
