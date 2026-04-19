@@ -1243,10 +1243,15 @@ function extractPlainText(rawContent: string): string {
  * yield `metadata: null`; the renderer then takes its flat-render fallback
  * path and the row stays in chronological order via `createdAt`.
  *
- * Sender labels:
- * - assistant rows: always `"@assistant"`.
- * - user rows: prefer `slackMeta.displayName`, otherwise fall back to a
- *   generic `"@user"` label so the renderer's tag template still parses.
+ * Sender labels are emitted only when they add information beyond the role
+ * slot:
+ * - Reaction rows: always labeled — `@assistant` for the assistant, the real
+ *   `slackMeta.displayName` for a known user, or `@user` as a last-resort
+ *   subject so the rendered `[time X reacted ...]` line still parses.
+ * - Assistant message rows: `null` — the role slot already says "assistant".
+ * - User message rows: real `slackMeta.displayName` when available (to
+ *   disambiguate speakers in multi-party channels); `null` otherwise so the
+ *   renderer drops the redundant `@user` placeholder.
  */
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   let slackMeta: ReturnType<typeof readSlackMetadata> = null;
@@ -1261,10 +1266,18 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     }
   }
 
-  const senderLabel =
-    row.role === "assistant"
-      ? "@assistant"
-      : (slackMeta?.displayName ?? "@user");
+  const isReaction = slackMeta?.eventKind === "reaction";
+  let senderLabel: string | null;
+  if (isReaction) {
+    senderLabel =
+      row.role === "assistant"
+        ? "@assistant"
+        : (slackMeta?.displayName ?? "@user");
+  } else if (row.role === "assistant") {
+    senderLabel = null;
+  } else {
+    senderLabel = slackMeta?.displayName ?? null;
+  }
 
   let contentBlocks: ContentBlock[] = [];
   try {

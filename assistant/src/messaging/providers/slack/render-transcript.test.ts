@@ -35,7 +35,7 @@ const CHANNEL = "C0001";
 
 function userMsg(
   ts: string,
-  sender: string,
+  sender: string | null,
   content: string,
   opts: {
     threadTs?: string;
@@ -64,7 +64,7 @@ function userMsg(
 
 function reactionMsg(
   ts: string,
-  actor: string,
+  actor: string | null,
   emoji: string,
   targetTs: string,
   op: "added" | "removed" = "added",
@@ -91,7 +91,7 @@ function reactionMsg(
 
 function legacyMsg(
   createdAt: number,
-  sender: string,
+  sender: string | null,
   content: string,
   role: "user" | "assistant" = "user",
 ): RenderableSlackMessage {
@@ -217,6 +217,76 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     expect(out).toEqual([
       textMsg("user", `[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
+    ]);
+  });
+
+  test("omits sender label for assistant-role message (role slot conveys identity)", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, null, "yo 👋", { role: "assistant" }),
+    ]);
+    expect(out).toEqual([textMsg("assistant", "[11/14/23 14:25]: yo 👋")]);
+  });
+
+  test("omits sender label for user-role message with null senderLabel (no displayName)", () => {
+    const out = renderSlackTranscript([userMsg(TS_14_25, null, "yo")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:25]: yo")]);
+  });
+
+  test("omits sender label on legacy user row with null senderLabel", () => {
+    const out = renderSlackTranscript([legacyMsg(MS_14_25, null, "hi")]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:25]: hi")]);
+  });
+
+  test("omits sender label in thread-reply tag for assistant row", () => {
+    const alias = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      userMsg(TS_14_28, null, "got it", {
+        threadTs: TS_14_25,
+        role: "assistant",
+      }),
+    ]);
+    expect(out).toEqual([
+      textMsg("assistant", `[11/14/23 14:28 → ${alias}]: got it`),
+    ]);
+  });
+
+  test("omits sender label in deleted tag for assistant row", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, null, "(removed)", {
+        deletedAt: MS_14_32,
+        role: "assistant",
+      }),
+    ]);
+    expect(out).toEqual([
+      textMsg("assistant", "[11/14/23 14:25 — deleted 11/14/23 14:32]"),
+    ]);
+  });
+
+  test("omits sender label in edited tag for assistant row", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, null, "v2", {
+        editedAt: MS_14_30,
+        role: "assistant",
+      }),
+    ]);
+    expect(out).toEqual([
+      textMsg("assistant", "[11/14/23 14:25, edited 11/14/23 14:30]: v2"),
+    ]);
+  });
+
+  test("reaction with null senderLabel falls back on role-derived subject", () => {
+    // Defensive: reactions always need a grammatical subject. If a caller
+    // accidentally passes null, the renderer falls back on a role-derived
+    // label so the tag line still parses.
+    const alias = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      reactionMsg(TS_14_28, null, "👍", TS_14_25, "added", "assistant"),
+    ]);
+    expect(out).toEqual([
+      textMsg(
+        "assistant",
+        `[11/14/23 14:28 @assistant reacted 👍 to ${alias}]`,
+      ),
     ]);
   });
 });
@@ -700,7 +770,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     // Assistant tool_use is paired with a follow-up user tool_result so the
     // PR 4 orphan filter leaves both blocks intact.
     const assistantRow: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "looking it up", {
+      ...userMsg(TS_14_25, null, "looking it up", {
         role: "assistant",
       }),
       contentBlocks: [
@@ -718,7 +788,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out[0]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 14:25 @assistant]: looking it up" },
+        { type: "text", text: "[11/14/23 14:25]: looking it up" },
         { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
       ],
     });
@@ -729,7 +799,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     // PR 4 orphan filter leaves the row intact; the assertion still pins
     // the shape of the user row specifically (no tag line, single block).
     const assistantRow: RenderableSlackMessage = {
-      ...userMsg(TS_14_24, "@assistant", "", { role: "assistant" }),
+      ...userMsg(TS_14_24, null, "", { role: "assistant" }),
       contentBlocks: [
         { type: "tool_use", id: "tu_1", name: "search", input: {} },
       ],
@@ -752,7 +822,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
 
   test("[thinking, text] assistant row preserves thinking before tag line (order preserved)", () => {
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "here's the answer", {
+      ...userMsg(TS_14_25, null, "here's the answer", {
         role: "assistant",
       }),
       contentBlocks: [
@@ -766,7 +836,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
         role: "assistant",
         content: [
           { type: "thinking", thinking: "let me think", signature: "sig-abc" },
-          { type: "text", text: "[11/14/23 14:25 @assistant]: here's the answer" },
+          { type: "text", text: "[11/14/23 14:25]: here's the answer" },
         ],
       },
     ]);
@@ -777,7 +847,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     // that carry both tool_use and tool_result in the same message. The
     // renderer passes them through in order.
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "doing a thing", {
+      ...userMsg(TS_14_25, null, "doing a thing", {
         role: "assistant",
       }),
       contentBlocks: [
@@ -791,7 +861,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25 @assistant]: doing a thing" },
+          { type: "text", text: "[11/14/23 14:25]: doing a thing" },
           { type: "tool_use", id: "tu_A", name: "op", input: {} },
           { type: "tool_result", tool_use_id: "tu_A", content: "ok" },
         ],
@@ -801,7 +871,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
 
   test("[text, ui_surface] assistant row strips ui_surface — only tag line remains", () => {
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "reply body", { role: "assistant" }),
+      ...userMsg(TS_14_25, null, "reply body", { role: "assistant" }),
       contentBlocks: [
         { type: "text", text: "reply body" },
         // ui_surface is local-only UI scaffolding and must not leak into
@@ -814,14 +884,14 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:25 @assistant]: reply body" }],
+        content: [{ type: "text", text: "[11/14/23 14:25]: reply body" }],
       },
     ]);
   });
 
   test("[text, server_tool_use] assistant row strips server_tool_use (unknown to replay)", () => {
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "web search", { role: "assistant" }),
+      ...userMsg(TS_14_25, null, "web search", { role: "assistant" }),
       contentBlocks: [
         { type: "text", text: "web search" },
         {
@@ -836,7 +906,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:25 @assistant]: web search" }],
+        content: [{ type: "text", text: "[11/14/23 14:25]: web search" }],
       },
     ]);
   });
@@ -944,7 +1014,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
     // anywhere in the transcript. The tool_use must be stripped; the tag
     // line (derived from the text block) stays.
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "looking it up", {
+      ...userMsg(TS_14_25, null, "looking it up", {
         role: "assistant",
       }),
       contentBlocks: [
@@ -962,7 +1032,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25 @assistant]: looking it up" },
+          { type: "text", text: "[11/14/23 14:25]: looking it up" },
         ],
       },
     ]);
@@ -993,7 +1063,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
 
   test("fully-paired tool_use/tool_result — both preserved", () => {
     const assistantRow: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "running op", { role: "assistant" }),
+      ...userMsg(TS_14_25, null, "running op", { role: "assistant" }),
       contentBlocks: [
         { type: "text", text: "running op" },
         { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
@@ -1014,7 +1084,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25 @assistant]: running op" },
+          { type: "text", text: "[11/14/23 14:25]: running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
         ],
       },
@@ -1065,7 +1135,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
     const fixture: RenderableSlackMessage[] = [
       // Paired tool call.
       {
-        ...userMsg(TS_14_25, "@assistant", "running op", { role: "assistant" }),
+        ...userMsg(TS_14_25, null, "running op", { role: "assistant" }),
         contentBlocks: [
           { type: "text", text: "running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: {} },
@@ -1079,7 +1149,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       },
       // Orphan tool_use on the assistant side.
       {
-        ...userMsg(TS_14_28, "@assistant", "looking", { role: "assistant" }),
+        ...userMsg(TS_14_28, null, "looking", { role: "assistant" }),
         contentBlocks: [
           { type: "text", text: "looking" },
           { type: "tool_use", id: "tu_orphan", name: "op", input: {} },
@@ -1108,7 +1178,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25 @assistant]: running op" },
+          { type: "text", text: "[11/14/23 14:25]: running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: {} },
         ],
       },
@@ -1120,7 +1190,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:28 @assistant]: looking" }],
+        content: [{ type: "text", text: "[11/14/23 14:28]: looking" }],
       },
       {
         role: "user",
@@ -1131,7 +1201,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
 
   test("filter does not touch thinking, image, file, or text blocks", () => {
     const base: RenderableSlackMessage = {
-      ...userMsg(TS_14_25, "@assistant", "here you go", { role: "assistant" }),
+      ...userMsg(TS_14_25, null, "here you go", { role: "assistant" }),
       contentBlocks: [
         { type: "thinking", thinking: "ponder", signature: "sig" },
         {
@@ -1177,7 +1247,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
               filename: "doc.pdf",
             },
           },
-          { type: "text", text: "[11/14/23 14:25 @assistant]: here you go" },
+          { type: "text", text: "[11/14/23 14:25]: here you go" },
         ],
       },
     ]);

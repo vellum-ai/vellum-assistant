@@ -2409,11 +2409,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(lines[1]).not.toContain("→ M");
     // Post-upgrade row carries its thread tag.
     expect(lines[2]).toContain(`→ ${ALIAS_T0}`);
-    // Sender labels: legacy users fall back to "@user" (the row mapper
-    // intentionally does not mine outer metadata for displayName hints —
-    // the renderer's flat fallback handles them uniformly).
-    expect(lines[0]).toContain("@user");
-    expect(lines[1]).toContain("@assistant");
+    // Sender labels: legacy rows carry no structured displayName, and the
+    // role slot already conveys user-vs-assistant identity, so the row
+    // mapper emits `null` senderLabel and the renderer omits the label
+    // entirely. Real Slack usernames are only rendered for post-upgrade
+    // user rows where `slackMeta.displayName` is populated.
+    expect(lines[0]).not.toContain("@user");
+    expect(lines[0]).not.toContain("@assistant");
+    expect(lines[1]).not.toContain("@assistant");
+    expect(lines[1]).not.toContain("@user");
   });
 
   // ── Branch isolation: non-Slack channels untouched ───────────────────
@@ -2474,7 +2478,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         },
         {
           role: "assistant",
-          content: [{ type: "text", text: "[11/14/23 14:26 @assistant]: prior reply" }],
+          content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
         },
       ],
     });
@@ -3353,7 +3357,7 @@ describe("assembleSlackChronologicalMessages", () => {
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:26 @assistant]: hi back!" }],
+        content: [{ type: "text", text: "[11/14/23 14:26]: hi back!" }],
       },
       {
         role: "user",
@@ -3401,10 +3405,10 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).not.toBeNull();
     expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
       [
-        "[11/14/23 14:25 @user]: old hi",
-        "[11/14/23 14:26 @assistant]: old reply",
+        "[11/14/23 14:25]: old hi",
+        "[11/14/23 14:26]: old reply",
         "[11/14/23 14:28 @alice]: fresh hi",
-        "[11/14/23 14:30 @assistant]: fresh reply",
+        "[11/14/23 14:30]: fresh reply",
       ],
     );
     expect(result!.map((m) => m.role)).toEqual([
@@ -3431,7 +3435,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[11/14/23 14:25 @user]: hello" }],
+        content: [{ type: "text", text: "[11/14/23 14:25]: hello" }],
       },
     ]);
   });
@@ -3490,7 +3494,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(rendered[1]!).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 14:26 @assistant]: looking it up" },
+        { type: "text", text: "[11/14/23 14:26]: looking it up" },
         {
           type: "tool_use",
           id: "tu_1",
@@ -3816,7 +3820,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result![1]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 23:03 @assistant]: checking..." },
+        { type: "text", text: "[11/14/23 23:03]: checking..." },
         {
           type: "tool_use",
           id: "tu_abc",
@@ -3836,7 +3840,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result![3]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 23:03 @assistant]: one more lookup..." },
+        { type: "text", text: "[11/14/23 23:03]: one more lookup..." },
         {
           type: "tool_use",
           id: "tu_def",
@@ -3855,7 +3859,7 @@ describe("assembleSlackChronologicalMessages", () => {
     // Row 6: assistant final text-only answer, rendered as tag line only.
     expect(result![5]).toEqual({
       role: "assistant",
-      content: [{ type: "text", text: "[11/14/23 23:03 @assistant]: all done" }],
+      content: [{ type: "text", text: "[11/14/23 23:03]: all done" }],
     });
     // Row 7: user follow-up tag line.
     expect(result![6]).toEqual({

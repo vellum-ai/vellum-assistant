@@ -24,8 +24,14 @@ export interface RenderableSlackMessage {
   content: string;
   /** `null` indicates a legacy pre-upgrade row stored without Slack metadata. */
   metadata: SlackMessageMetadata | null;
-  /** Display name or fallback (e.g. "@alice" or "@U12345"). */
-  senderLabel: string;
+  /**
+   * Sender display name to prepend to the tag line (e.g. `"@alice"`), or
+   * `null` to omit the label entirely. Callers should pass `null` when the
+   * label would be redundant with the `role` slot — i.e. assistant rows and
+   * user rows with no real Slack displayName. Reaction rows always need a
+   * subject, so they receive a role-derived fallback if `null` is passed.
+   */
+  senderLabel: string | null;
   /** Fallback sort key for legacy rows; ignored when metadata.channelTs is set. */
   createdAt: number;
   /**
@@ -53,7 +59,7 @@ const DEFAULT_MAX_REACTIONS = 5;
  * persisted row when rendering the Slack chronological transcript.
  *
  * `text` is intentionally omitted — text content is subsumed into the tag
- * line (e.g. `[11/14/23 14:25 @assistant]: ...`) so callers reading the
+ * line (e.g. `[11/14/23 14:25 @alice]: ...`) so callers reading the
  * rendered output see one human-readable line per row rather than a raw
  * text block stripped of thread context.
  *
@@ -133,20 +139,21 @@ function sortKey(msg: RenderableSlackMessage): number {
  */
 function renderMessage(msg: RenderableSlackMessage): string {
   const meta = msg.metadata;
+  const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {
     // Legacy pre-upgrade row: flat render, no thread tag.
     const time = formatEpochMs(msg.createdAt);
-    return `[${time} ${msg.senderLabel}]: ${msg.content}`;
+    return `[${time}${senderPart}]: ${msg.content}`;
   }
 
   const time = formatSlackTs(meta.channelTs);
 
   if (meta.deletedAt !== undefined) {
     const dtime = formatEpochMs(meta.deletedAt);
-    return `[${time} ${msg.senderLabel} — deleted ${dtime}]`;
+    return `[${time}${senderPart} — deleted ${dtime}]`;
   }
 
-  let head = `[${time} ${msg.senderLabel}`;
+  let head = `[${time}${senderPart}`;
   if (meta.threadTs && meta.threadTs !== meta.channelTs) {
     head += ` → ${parentAlias(meta.threadTs)}`;
   }
@@ -167,10 +174,12 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
   if (!meta || meta.eventKind !== "reaction" || !meta.reaction) return null;
   const time = formatSlackTs(meta.channelTs);
+  const actor =
+    msg.senderLabel ?? (msg.role === "assistant" ? "@assistant" : "@user");
   const verb = meta.reaction.op === "added" ? "reacted" : "removed";
   const prep = meta.reaction.op === "added" ? "to" : "from";
   const target = parentAlias(meta.reaction.targetChannelTs);
-  return `[${time} ${msg.senderLabel} ${verb} ${meta.reaction.emoji} ${prep} ${target}]`;
+  return `[${time} ${actor} ${verb} ${meta.reaction.emoji} ${prep} ${target}]`;
 }
 
 /**
