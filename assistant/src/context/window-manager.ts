@@ -31,6 +31,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
+  'Thread anchors: when a compacted message is the parent of a thread whose replies survive in the retained context, preserve the parent\'s text verbatim — do not summarize or paraphrase it. Reactions on such anchors may be aggregated (e.g., "three users reacted").',
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
@@ -499,7 +500,9 @@ export class ContextWindowManager {
     // the summary at index 0 as child-owned.
     this.nonPersistedPrefixCount = Math.max(
       0,
-      this.nonPersistedPrefixCount - injectedInCompactable - injectedSummaryOffset,
+      this.nonPersistedPrefixCount -
+        injectedInCompactable -
+        injectedSummaryOffset,
     );
     this.summaryIsInjected = false;
 
@@ -643,7 +646,9 @@ export class ContextWindowManager {
     );
 
     const estimateBlockTokens = (b: ContentBlock): number =>
-      estimateContentBlockTokens(b, { providerName: this.estimationProviderName });
+      estimateContentBlockTokens(b, {
+        providerName: this.estimationProviderName,
+      });
 
     let totalTokens = 0;
     for (const block of blocks) {
@@ -656,7 +661,11 @@ export class ContextWindowManager {
     // images to drop. Images are high-cost and their text context (message
     // headers, surrounding tool_use/tool_result serializations) is preserved.
     const result = [...blocks];
-    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+    for (
+      let i = 0;
+      i < result.length && totalTokens > maxTranscriptTokens;
+      i++
+    ) {
       if (result[i].type === "image") {
         totalTokens -= estimateBlockTokens(result[i]);
         const stub: ContentBlock = {
@@ -674,7 +683,11 @@ export class ContextWindowManager {
     // than dropping it entirely so the summarizer always has content to work with.
     let dropUntil = 0;
     let droppedTokens = 0;
-    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+    for (
+      let i = 0;
+      i < result.length && totalTokens > maxTranscriptTokens;
+      i++
+    ) {
       const blockTokens = estimateBlockTokens(result[i]);
       const excess = totalTokens - maxTranscriptTokens;
       if (blockTokens > excess && result[i].type === "text") {
@@ -767,7 +780,9 @@ export class ContextWindowManager {
 
     // Fallback: extract text-only transcript for local summary generation.
     const textTranscript = transcriptBlocks
-      .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
       .map((b) => b.text)
       .join("\n\n");
 
@@ -854,7 +869,11 @@ function adjustForToolPairs(
     // Collect tool_use_ids referenced by tool_results in this user message
     const referencedIds = new Set<string>();
     for (const block of msg.content) {
-      if ((block.type === "tool_result" || block.type === "web_search_tool_result") && "tool_use_id" in block) {
+      if (
+        (block.type === "tool_result" ||
+          block.type === "web_search_tool_result") &&
+        "tool_use_id" in block
+      ) {
         referencedIds.add((block as { tool_use_id: string }).tool_use_id);
       }
     }
@@ -970,7 +989,8 @@ function serializeMessagesToContentBlocks(messages: Message[]): ContentBlock[] {
           textLines.length = 0;
         }
         blocks.push(block);
-      } else if (block.type === "tool_result") { // guard:allow-tool-result-only — web_search_tool_result handled by serializeBlock via else branch
+      } else if (block.type === "tool_result") {
+        // guard:allow-tool-result-only — web_search_tool_result handled by serializeBlock via else branch
         // Extract images from tool_result contentBlocks before serializing.
         const collectedImages: ImageContent[] = [];
         textLines.push(serializeToolResultBlock(block, collectedImages));

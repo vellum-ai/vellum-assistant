@@ -343,8 +343,16 @@ describe("attachment extraction in normalize functions", () => {
       const config = makeConfig();
       const event = makeDmEvent({
         files: [
-          makeSlackFile({ id: "F001", mimetype: "image/png", name: "photo.png" }),
-          makeSlackFile({ id: "F002", mimetype: "image/jpeg", name: "pic.jpg" }),
+          makeSlackFile({
+            id: "F001",
+            mimetype: "image/png",
+            name: "photo.png",
+          }),
+          makeSlackFile({
+            id: "F002",
+            mimetype: "image/jpeg",
+            name: "pic.jpg",
+          }),
         ],
       });
       const result = normalizeSlackDirectMessage(event, "evt-1", config);
@@ -446,7 +454,11 @@ describe("attachment extraction in normalize functions", () => {
       const config = makeConfig();
       const event = makeChannelEvent({
         files: [
-          makeSlackFile({ id: "F010", mimetype: "image/gif", name: "anim.gif" }),
+          makeSlackFile({
+            id: "F010",
+            mimetype: "image/gif",
+            name: "anim.gif",
+          }),
         ],
       });
       const result = normalizeSlackChannelMessage(event, "evt-ch-1", config);
@@ -521,11 +533,7 @@ describe("attachment extraction in normalize functions", () => {
             }),
           ],
         });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-4",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-4", config);
 
         expect(result).not.toBeNull();
         expect(result!.event.message.attachments).toHaveLength(1);
@@ -537,11 +545,7 @@ describe("attachment extraction in normalize functions", () => {
       it("normalizes channel message with file_share subtype without files", () => {
         const config = makeConfig();
         const event = makeChannelEvent({ subtype: "file_share" });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-5",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-5", config);
 
         expect(result).not.toBeNull();
         expect(result!.event.message.content).toBe("hello");
@@ -551,11 +555,7 @@ describe("attachment extraction in normalize functions", () => {
       it("drops channel message with bot_message subtype", () => {
         const config = makeConfig();
         const event = makeChannelEvent({ subtype: "bot_message" });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-6",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-6", config);
 
         expect(result).toBeNull();
       });
@@ -592,21 +592,17 @@ describe("attachment extraction in normalize functions", () => {
   });
 });
 
-// --- source.threadId propagation ---
-//
-// Asserts that PR 2's new `source.threadId` field is populated on every
-// Slack normalizer that has thread info, and absent for top-level messages
-// without a thread.
-
+// Shared factory for SlackMessageChangedEvent used by the edit-normalizer
+// tests (PR 4) and the source.threadId propagation tests (PR 2).
 function makeMessageChangedEvent(
   overrides?: Partial<{
     channel: string;
-    channelType: "im" | "channel" | "group" | "mpim";
-    ts: string;
+    channelType: SlackMessageChangedEvent["channel_type"];
+    eventTs: string;
     messageTs: string;
     user: string;
     text: string;
-    threadTs: string;
+    threadTs?: string;
   }>,
 ): SlackMessageChangedEvent {
   return {
@@ -614,15 +610,141 @@ function makeMessageChangedEvent(
     subtype: "message_changed",
     channel: overrides?.channel ?? "C456",
     channel_type: overrides?.channelType ?? "channel",
-    ts: overrides?.ts ?? "1700000001.000000",
+    ts: overrides?.eventTs ?? "1700000000.000200",
+    event_ts: overrides?.eventTs ?? "1700000000.000200",
     message: {
       user: overrides?.user ?? "U123",
       text: overrides?.text ?? "edited content",
-      ts: overrides?.messageTs ?? "1700000000.000000",
+      ts: overrides?.messageTs ?? "1700000000.000100",
       ...(overrides?.threadTs ? { thread_ts: overrides.threadTs } : {}),
+    },
+    previous_message: {
+      user: overrides?.user ?? "U123",
+      text: "original content",
+      ts: overrides?.messageTs ?? "1700000000.000100",
     },
   };
 }
+
+describe("normalizeSlackMessageEdit", () => {
+  it("normalizes an edit in a subscribed channel (not DM, not bot thread)", () => {
+    // Bot is subscribed to the channel via a conversation_id routing entry —
+    // this is the case PR 4 expanded the gateway filter to admit.
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000100",
+      eventTs: "1700000000.000200",
+      user: "U123",
+    });
+    const eventId = "Ev0XYZ";
+
+    const result = normalizeSlackMessageEdit(event, eventId, config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+    expect(result!.event.source.chatType).toBe("channel");
+    expect(result!.routing.assistantId).toBe("ast-2");
+    expect(result!.routing.routeSource).toBe("conversation_id");
+
+    // PR 3 invariant: source.messageId is the original Slack ts (the lookup
+    // key the daemon uses to find the prior message), and externalMessageId
+    // is the per-edit eventId. They MUST be distinct so successive edits do
+    // not collide in the dedup pipeline.
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.message.externalMessageId).toBe(eventId);
+    expect(result!.event.source.messageId).not.toBe(
+      result!.event.message.externalMessageId,
+    );
+  });
+
+  it("uses message ts as threadTs for top-level channel edits", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000100",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev1", config);
+
+    expect(result).not.toBeNull();
+    // For channel edits without a thread_ts, fall back to the message ts so
+    // any reply lands on the same root message.
+    expect(result!.threadTs).toBe("1700000000.000100");
+    expect(result!.channel).toBe("C456");
+  });
+
+  it("preserves thread_ts on a threaded channel edit", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000150",
+      threadTs: "1700000000.000050",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+    expect(result!.event.source.messageId).toBe("1700000000.000150");
+  });
+
+  it("returns null when channel has no routing entry and not a DM", () => {
+    // Without a route and without DM fallback, an edit in an unknown channel
+    // is unroutable — normalize must return null so the gateway drops it.
+    const config = makeConfig({
+      routingEntries: [],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C999",
+      channelType: "channel",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev3", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("ignores edits authored by the bot itself", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+    });
+    const event = makeMessageChangedEvent({ user: "UBOT" });
+    const result = normalizeSlackMessageEdit(event, "Ev4", config, "UBOT");
+
+    expect(result).toBeNull();
+  });
+});
+
+// --- source.threadId propagation ---
+//
+// Asserts that PR 2's new `source.threadId` field is populated on every
+// Slack normalizer that has thread info, and absent for top-level messages
+// without a thread.
 
 describe("source.threadId propagation", () => {
   describe("normalizeSlackDirectMessage", () => {
@@ -703,7 +825,11 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackMessageEdit", () => {
     it("populates source.threadId for channel edits inside a thread", () => {
-      const config = makeConfig();
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+      });
       const event = makeMessageChangedEvent({
         threadTs: "1700000000.555555",
       });
@@ -714,7 +840,11 @@ describe("source.threadId propagation", () => {
     });
 
     it("omits source.threadId for channel edits with no thread", () => {
-      const config = makeConfig();
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+      });
       const event = makeMessageChangedEvent();
       const result = normalizeSlackMessageEdit(event, "evt-tid-9", config);
 
