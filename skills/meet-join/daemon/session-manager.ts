@@ -121,6 +121,11 @@ import {
   MeetTtsCancelledError,
   type SpeakInput,
 } from "./tts-bridge.js";
+import {
+  startTtsLipsync,
+  type StartTtsLipsyncArgs,
+  type TtsLipsyncHandle,
+} from "./tts-lipsync.js";
 
 const log = getLogger("meet-session-manager");
 
@@ -332,6 +337,17 @@ interface ActiveSession extends MeetSession {
    */
   ttsBridge: MeetTtsBridgeLike;
   /**
+   * Forwarder that subscribes to {@link MeetTtsBridge.onViseme} and POSTs
+   * each event to the bot's `/avatar/viseme` endpoint so the in-bot avatar
+   * renderer drives blendshape weights against the audio the bot is
+   * simultaneously playing out. Started in `join()` right after the TTS
+   * bridge is constructed and stopped in `leave()` BEFORE
+   * `ttsBridge.cancelAll()` so no late POSTs fire against a shutting-down
+   * bridge. See {@link startTtsLipsync} for the forwarder's fire-and-forget
+   * HTTP semantics.
+   */
+  ttsLipsyncHandle: TtsLipsyncHandle;
+  /**
    * Barge-in watcher for this meeting — auto-cancels in-flight TTS when
    * a non-bot speaker takes the floor while the bot is mid-utterance.
    * Started in `join()` immediately after the session record is in place
@@ -447,6 +463,13 @@ export interface MeetTtsBridgeFactoryArgs {
   meetingId: string;
   botBaseUrl: string;
   botApiToken: string;
+}
+
+/** Arguments passed to {@link MeetSessionManagerDeps.ttsLipsyncFactory}. */
+export interface MeetTtsLipsyncFactoryArgs {
+  bridge: MeetTtsBridgeLike;
+  botApiToken: string;
+  meetingId: string;
 }
 
 /** Arguments passed to {@link MeetSessionManagerDeps.bargeInWatcherFactory}. */
@@ -575,6 +598,14 @@ export interface MeetSessionManagerDeps {
    */
   ttsBridgeFactory?: (args: MeetTtsBridgeFactoryArgs) => MeetTtsBridgeLike;
   /**
+   * Override the TTS lip-sync forwarder factory. Default invokes
+   * {@link startTtsLipsync} to subscribe the bridge's `onViseme` channel
+   * and POST each event to the bot's `/avatar/viseme` endpoint. Tests can
+   * inject a fake that returns a handle whose `stop()` is observed without
+   * needing the bridge or bot to exist.
+   */
+  ttsLipsyncFactory?: (args: MeetTtsLipsyncFactoryArgs) => TtsLipsyncHandle;
+  /**
    * Override the barge-in watcher factory. Default constructs a
    * {@link MeetBargeInWatcher} that subscribes to the meeting's
    * dispatcher and the {@link assistantEventHub} for `meet.speaking_*`
@@ -662,6 +693,8 @@ class MeetSessionManagerImpl {
         deps.chatOpportunityDetectorFactory ??
         defaultChatOpportunityDetectorFactory,
       ttsBridgeFactory: deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
+      ttsLipsyncFactory:
+        deps.ttsLipsyncFactory ?? defaultTtsLipsyncFactory,
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
@@ -726,6 +759,11 @@ class MeetSessionManagerImpl {
       }
       try {
         session.chatOpportunityDetector?.dispose();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        session.ttsLipsyncHandle.stop();
       } catch {
         /* best-effort */
       }
@@ -1135,6 +1173,22 @@ class MeetSessionManagerImpl {
       botApiToken,
     });
 
+    // TTS lip-sync forwarder — subscribes to the bridge's viseme channel
+    // and POSTs each event to the bot's `/avatar/viseme` endpoint so the
+    // in-bot avatar renderer drives mouth blendshapes against the audio
+    // the bot is simultaneously playing out. Must be constructed AFTER
+    // the bridge (it subscribes synchronously in `startTtsLipsync`) and
+    // BEFORE any speak() call can land — since all speaks are gated on
+    // the session record hitting `this.sessions`, wiring it here (before
+    // the session is inserted) guarantees the tap is in place when the
+    // first speak fires. Its handle lives on the ActiveSession so
+    // `leave()` can stop the forwarder BEFORE the bridge is torn down.
+    const ttsLipsyncHandle = this.deps.ttsLipsyncFactory({
+      bridge: ttsBridge,
+      botApiToken,
+      meetingId,
+    });
+
     // Barge-in watcher — auto-cancels in-flight TTS when a non-bot speaker
     // takes the floor mid-utterance. Subscribes to the dispatcher and the
     // assistant-event-hub for `meet.speaking_*` lifecycle. Constructed
@@ -1163,6 +1217,7 @@ class MeetSessionManagerImpl {
       storageWriter,
       chatOpportunityDetector,
       ttsBridge,
+      ttsLipsyncHandle,
       bargeInWatcher,
     };
     this.sessions.set(meetingId, session);
@@ -1219,6 +1274,13 @@ class MeetSessionManagerImpl {
         try {
           unsubscribe();
         } catch {}
+      }
+      // Unsubscribe the lip-sync forwarder before we move on so no viseme
+      // event fires against the soon-to-be-removed bridge / container.
+      try {
+        ttsLipsyncHandle.stop();
+      } catch {
+        /* best-effort */
       }
       unregisterMeetingDispatcher(meetingId);
       await audioIngest.stop().catch(() => {});
@@ -1341,6 +1403,20 @@ class MeetSessionManagerImpl {
       log.warn(
         { err, meetingId },
         "MeetBargeInWatcher.stop threw during leave — continuing teardown",
+      );
+    }
+
+    // Stop the TTS lip-sync forwarder BEFORE we cancel in-flight TTS so no
+    // late viseme POST fires against a shutting-down bridge. The forwarder's
+    // `stop()` only unsubscribes from the bridge's `onViseme` channel — it
+    // does not wait for any in-flight `/avatar/viseme` POSTs to settle, since
+    // those are fire-and-forget and tolerate being dropped.
+    try {
+      session.ttsLipsyncHandle.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "TtsLipsyncHandle.stop threw during leave — continuing teardown",
       );
     }
 
@@ -1816,6 +1892,11 @@ class MeetSessionManagerImpl {
             /* best-effort */
           }
           try {
+            lingering.ttsLipsyncHandle.stop();
+          } catch {
+            /* best-effort */
+          }
+          try {
             await lingering.ttsBridge.cancelAll();
           } catch {
             /* best-effort */
@@ -2044,6 +2125,30 @@ function defaultTtsBridgeFactory(
     },
   };
   return new MeetTtsBridge(bridgeArgs, bridgeDeps);
+}
+
+/**
+ * Default {@link startTtsLipsync} factory — subscribes to the bridge's
+ * viseme channel and forwards every event to the bot's `/avatar/viseme`
+ * endpoint. The forwarder tolerates bot-side HTTP errors (404 before
+ * PR 5's route is deployed, 5xx during transient failures) internally, so
+ * the session manager never observes a rejection from this path. Tests
+ * can inject a fake via {@link MeetSessionManagerDeps.ttsLipsyncFactory}
+ * to observe start/stop without touching the bridge's emit path or the
+ * bot HTTP surface. The default cast is only safe because
+ * {@link MeetTtsBridgeLike} is a strict subset of the {@link MeetTtsBridge}
+ * shape {@link startTtsLipsync} reads — `onViseme`, `botBaseUrl`, and
+ * `meetingId` are only accessed through the real bridge instance, not
+ * through the narrow session-manager interface.
+ */
+function defaultTtsLipsyncFactory(
+  args: MeetTtsLipsyncFactoryArgs,
+): TtsLipsyncHandle {
+  const lipsyncArgs: StartTtsLipsyncArgs = {
+    bridge: args.bridge as unknown as MeetTtsBridge,
+    botApiToken: args.botApiToken,
+  };
+  return startTtsLipsync(lipsyncArgs);
 }
 
 /**
