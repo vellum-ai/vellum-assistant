@@ -1,12 +1,17 @@
 # meet-bot container image.
 #
 # Runs the Meet bot inside a Debian-based Bun image with Xvfb (virtual
-# display), PulseAudio (virtual audio devices), Chromium + Playwright
-# dependencies, and ffmpeg for future audio capture/encoding needs.
+# display), PulseAudio (virtual audio devices), google-chrome-stable (for
+# Chrome extension support required by the Chrome extension based
+# meet-join architecture), and ffmpeg for future audio capture/encoding
+# needs.
 #
 # The real Meet-join + audio-capture logic lands in later PRs of the
 # meet-phase-1 plan; this image just needs to build cleanly and boot
 # `bun src/main.ts` to completion so CI can smoke-test the structure.
+#
+# NOTE: google-chrome-stable ships amd64 only. This image must be built
+# with --platform linux/amd64 — enforced in scripts/build-meet-bot-image.sh.
 #
 # Build context: the REPO ROOT (not `skills/meet-join/bot/`). The bot package
 # depends on the sibling workspace package `skills/meet-join/contracts` via
@@ -30,24 +35,40 @@ FROM oven/bun:1.3.11@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4
 # System dependencies. Keep this list grouped and sorted so future PRs can
 # add/remove packages cleanly.
 #
-#   Xvfb + PulseAudio: virtual display and audio stack for headless Chromium.
-#   dbus-x11:          required at runtime by Chromium under Playwright.
-#   chromium:          browser binary (Playwright can also install its own,
-#                      but having it in the base image keeps first-run fast).
+#   Xvfb + PulseAudio: virtual display and audio stack for headless Chrome.
+#   dbus-x11:          required at runtime by Chrome.
 #   ffmpeg:            audio/video encoding for transcript + recording paths.
-#   libnss3/libgbm1/libasound2: Chromium shared-library dependencies that
-#                      Playwright's Debian list normally expects to be present.
+#   fonts-liberation/libvulkan1/xdg-utils: google-chrome-stable runtime deps.
+#   libnss3/libgbm1/libasound2: Chrome shared-library dependencies.
+#   wget + gnupg:      required to fetch Google's apt signing key and configure
+#                      the google-chrome repo (see next RUN).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
     dbus-x11 \
     ffmpeg \
+    fonts-liberation \
+    gnupg \
     libasound2 \
     libgbm1 \
     libnss3 \
+    libvulkan1 \
     pulseaudio \
     pulseaudio-utils \
+    wget \
+    xdg-utils \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+# Install google-chrome-stable from Google's official apt repo. We use Chrome
+# (not Chromium) because the Chrome extension based meet-join architecture
+# requires Chrome's extension support. Per CLAUDE.md's Docker dependencies
+# rule, package versions are NOT pinned — rely on the base-image digest for
+# reproducibility.
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list \
+  && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/bot
 
@@ -59,11 +80,6 @@ COPY skills/meet-join/contracts /app/contracts
 # source files change.
 COPY skills/meet-join/bot/package.json skills/meet-join/bot/bun.lock skills/meet-join/bot/tsconfig.json ./
 RUN bun install --frozen-lockfile
-
-# Pull Playwright's Chromium build. This is kept separate from apt's
-# chromium install so the Playwright-controlled binary stays in sync with
-# the `playwright` package version pinned in package.json.
-RUN bunx playwright install chromium
 
 COPY skills/meet-join/bot/src ./src
 
