@@ -31,16 +31,49 @@
  * {@link AvatarRendererUnavailableError}).
  */
 
+import type {
+  BotAvatarPushVisemeCommand,
+  BotAvatarStartCommand,
+  BotAvatarStopCommand,
+  ExtensionToBotMessage,
+} from "../../../../contracts/native-messaging.js";
+
 import {
   AvatarRendererUnavailableError,
   type AvatarRenderer,
 } from "./types.js";
 
 /**
- * Dependencies the daemon hands to every renderer factory. Currently a
- * logger — concrete renderers typically also take their own construction
- * arguments (endpoint URLs, credentials) via the `config` object rather
- * than through this deps bag. Kept as a shape so later PRs can grow it
+ * Narrow slice of the NMH socket server the TalkingHead renderer (and
+ * any future extension-mediated renderer) uses to talk to the Chrome
+ * extension. Scoped to avatar-only message types so a buggy renderer
+ * cannot smuggle a `join`/`leave`/`send_chat` through this surface.
+ *
+ * The bot's `main.ts` wires a wrapper around {@link NmhSocketServer}
+ * that narrows to exactly the three avatar commands. Tests pass an
+ * in-memory fake that captures sent frames.
+ */
+export interface AvatarNativeMessagingSender {
+  /** Send one of the avatar.* commands. Throws if no extension is connected. */
+  sendToExtension: (
+    msg:
+      | BotAvatarStartCommand
+      | BotAvatarStopCommand
+      | BotAvatarPushVisemeCommand,
+  ) => void;
+  /**
+   * Register a handler for every inbound extension→bot message. The
+   * TalkingHead renderer filters for `avatar.started` / `avatar.frame`
+   * and ignores every other type (which is handled by the bot's main
+   * message router).
+   */
+  onExtensionMessage: (cb: (msg: ExtensionToBotMessage) => void) => void;
+}
+
+/**
+ * Dependencies the daemon hands to every renderer factory. Renderers
+ * use whichever fields they need and ignore the rest — the optional
+ * fields let the shape grow additively as new renderer backends arrive
  * without breaking existing factories.
  */
 export interface AvatarRendererDeps {
@@ -50,6 +83,14 @@ export interface AvatarRendererDeps {
     warn(msg: string, extra?: Record<string, unknown>): void;
     error(msg: string, extra?: Record<string, unknown>): void;
   };
+  /**
+   * Native-messaging surface the TalkingHead.js renderer uses to
+   * drive the extension-hosted avatar tab. Absent when the bot is
+   * booted without a live socket server (tests, smoke builds) — the
+   * renderer must throw {@link AvatarRendererUnavailableError} when
+   * it's not wired and a caller asks for TalkingHead specifically.
+   */
+  nativeMessaging?: AvatarNativeMessagingSender;
 }
 
 /**

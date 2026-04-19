@@ -10,11 +10,16 @@ import { describe, expect, test } from "bun:test";
 
 import {
   BOT_TO_EXTENSION_MESSAGE_TYPES,
+  BotAvatarPushVisemeCommandSchema,
+  BotAvatarStartCommandSchema,
+  BotAvatarStopCommandSchema,
   BotJoinCommandSchema,
   BotLeaveCommandSchema,
   BotSendChatCommandSchema,
   BotToExtensionMessageSchema,
   EXTENSION_TO_BOT_MESSAGE_TYPES,
+  ExtensionAvatarFrameMessageSchema,
+  ExtensionAvatarStartedMessageSchema,
   ExtensionDiagnosticMessageSchema,
   ExtensionInboundChatMessageSchema,
   ExtensionLifecycleMessageSchema,
@@ -45,6 +50,8 @@ describe("EXTENSION_TO_BOT_MESSAGE_TYPES", () => {
         "trusted_click",
         "trusted_type",
         "send_chat_result",
+        "avatar.started",
+        "avatar.frame",
       ]),
     );
   });
@@ -53,7 +60,14 @@ describe("EXTENSION_TO_BOT_MESSAGE_TYPES", () => {
 describe("BOT_TO_EXTENSION_MESSAGE_TYPES", () => {
   test("includes every discriminator used by BotToExtensionMessageSchema", () => {
     expect(new Set(BOT_TO_EXTENSION_MESSAGE_TYPES)).toEqual(
-      new Set(["join", "leave", "send_chat"]),
+      new Set([
+        "join",
+        "leave",
+        "send_chat",
+        "avatar.start",
+        "avatar.stop",
+        "avatar.push_viseme",
+      ]),
     );
   });
 });
@@ -299,6 +313,81 @@ describe("ExtensionSendChatResultMessageSchema", () => {
   });
 });
 
+describe("ExtensionAvatarStartedMessageSchema", () => {
+  test("parses the avatar.started ack", () => {
+    const input = { type: "avatar.started" as const };
+    const parsed = ExtensionAvatarStartedMessageSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+});
+
+describe("ExtensionAvatarFrameMessageSchema", () => {
+  test("parses a jpeg frame", () => {
+    const input = {
+      type: "avatar.frame" as const,
+      bytes: "aGVsbG8=",
+      width: 1280,
+      height: 720,
+      format: "jpeg" as const,
+      ts: 1234,
+    };
+    const parsed = ExtensionAvatarFrameMessageSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("parses a y4m frame", () => {
+    const input = {
+      type: "avatar.frame" as const,
+      bytes: "eWZyYW1l",
+      width: 640,
+      height: 480,
+      format: "y4m" as const,
+      ts: 42,
+    };
+    const parsed = ExtensionAvatarFrameMessageSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("rejects empty bytes", () => {
+    expect(() =>
+      ExtensionAvatarFrameMessageSchema.parse({
+        type: "avatar.frame",
+        bytes: "",
+        width: 320,
+        height: 240,
+        format: "jpeg",
+        ts: 0,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects non-positive dimensions", () => {
+    expect(() =>
+      ExtensionAvatarFrameMessageSchema.parse({
+        type: "avatar.frame",
+        bytes: "AA==",
+        width: 0,
+        height: 240,
+        format: "jpeg",
+        ts: 0,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects unknown format", () => {
+    expect(() =>
+      ExtensionAvatarFrameMessageSchema.parse({
+        type: "avatar.frame",
+        bytes: "AA==",
+        width: 320,
+        height: 240,
+        format: "png",
+        ts: 0,
+      }),
+    ).toThrow();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ExtensionToBotMessageSchema — discriminated union round-trip
 // ---------------------------------------------------------------------------
@@ -366,6 +455,15 @@ describe("ExtensionToBotMessageSchema", () => {
         requestId: "req-2",
         ok: false,
         error: "not allowed",
+      },
+      { type: "avatar.started" },
+      {
+        type: "avatar.frame",
+        bytes: "aGVsbG8=",
+        width: 1280,
+        height: 720,
+        format: "jpeg",
+        ts: 10,
       },
     ];
 
@@ -489,6 +587,104 @@ describe("BotSendChatCommandSchema", () => {
   });
 });
 
+describe("BotAvatarStartCommandSchema", () => {
+  test("parses avatar.start without optional fields", () => {
+    const input = { type: "avatar.start" as const };
+    const parsed = BotAvatarStartCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("parses avatar.start with targetFps and modelUrl", () => {
+    const input = {
+      type: "avatar.start" as const,
+      targetFps: 24,
+      modelUrl: "chrome-extension://abcdef/avatar/default-avatar.glb",
+    };
+    const parsed = BotAvatarStartCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("rejects non-integer targetFps", () => {
+    expect(() =>
+      BotAvatarStartCommandSchema.parse({
+        type: "avatar.start",
+        targetFps: 12.5,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects targetFps > 60", () => {
+    expect(() =>
+      BotAvatarStartCommandSchema.parse({
+        type: "avatar.start",
+        targetFps: 61,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("BotAvatarStopCommandSchema", () => {
+  test("parses avatar.stop", () => {
+    const input = { type: "avatar.stop" as const };
+    const parsed = BotAvatarStopCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+});
+
+describe("BotAvatarPushVisemeCommandSchema", () => {
+  test("parses a viseme event", () => {
+    const input = {
+      type: "avatar.push_viseme" as const,
+      phoneme: "ah",
+      weight: 0.8,
+      timestamp: 500,
+    };
+    const parsed = BotAvatarPushVisemeCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("parses the amplitude sentinel", () => {
+    const input = {
+      type: "avatar.push_viseme" as const,
+      phoneme: "amp",
+      weight: 0.25,
+      timestamp: 10,
+    };
+    const parsed = BotAvatarPushVisemeCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("rejects weight outside [0, 1]", () => {
+    expect(() =>
+      BotAvatarPushVisemeCommandSchema.parse({
+        type: "avatar.push_viseme",
+        phoneme: "ah",
+        weight: 1.5,
+        timestamp: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      BotAvatarPushVisemeCommandSchema.parse({
+        type: "avatar.push_viseme",
+        phoneme: "ah",
+        weight: -0.1,
+        timestamp: 0,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects empty phoneme", () => {
+    expect(() =>
+      BotAvatarPushVisemeCommandSchema.parse({
+        type: "avatar.push_viseme",
+        phoneme: "",
+        weight: 0.5,
+        timestamp: 0,
+      }),
+    ).toThrow();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // BotToExtensionMessageSchema — discriminated union round-trip
 // ---------------------------------------------------------------------------
@@ -504,6 +700,15 @@ describe("BotToExtensionMessageSchema", () => {
       },
       { type: "leave", reason: "user requested" },
       { type: "send_chat", text: "hi", requestId: "req-1" },
+      { type: "avatar.start" },
+      { type: "avatar.start", targetFps: 24 },
+      { type: "avatar.stop" },
+      {
+        type: "avatar.push_viseme",
+        phoneme: "ah",
+        weight: 0.5,
+        timestamp: 100,
+      },
     ];
 
     for (const fixture of fixtures) {

@@ -35,6 +35,7 @@ export {
   registerAvatarRenderer,
   resolveAvatarRenderer,
   type AvatarConfig,
+  type AvatarNativeMessagingSender,
   type AvatarRendererDeps,
   type AvatarRendererFactory,
 } from "./registry.js";
@@ -43,3 +44,10 @@ export {
 // `resolveAvatarRenderer` can find it when something explicitly asks
 // for the id rather than relying on the null short-circuit path.
 import "./noop-renderer.js";
+
+// Side-effect import: registers the TalkingHead.js factory under
+// `"talking-head"`. The factory throws AvatarRendererUnavailableError
+// when `deps.nativeMessaging` isn't wired (e.g. in tests without a
+// socket server) so the HTTP layer turns that into a 503 with a
+// clear reason rather than crashing.
+import "./talking-head/index.js";

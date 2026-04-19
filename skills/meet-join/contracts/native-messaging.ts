@@ -195,6 +195,66 @@ export type ExtensionSendChatResultMessage = z.infer<
 >;
 
 /**
+ * Ack emitted by the extension once its avatar tab has mounted and the
+ * TalkingHead.js renderer is ready to receive visemes. This is the
+ * extension-side counterpart to the bot's `avatar.start` command and lets
+ * the bot's TalkingHead renderer complete its own `start()` promise with a
+ * bounded wait (fallback to noop on timeout).
+ */
+export const ExtensionAvatarStartedMessageSchema = z.object({
+  type: z.literal("avatar.started"),
+});
+export type ExtensionAvatarStartedMessage = z.infer<
+  typeof ExtensionAvatarStartedMessageSchema
+>;
+
+/**
+ * Valid formats for an `avatar.frame` payload.
+ *
+ * - `"jpeg"` — JPEG bytes produced by `HTMLCanvasElement.toBlob("image/jpeg")`.
+ *   The bot transcodes these to Y4M via a short-lived ffmpeg child before
+ *   writing to `/dev/video10`.
+ * - `"y4m"` — already-framed Y4M bytes (future streaming-capture path).
+ *   The bot emits these directly via `onFrame`.
+ */
+export const AvatarFrameFormatSchema = z.enum(["jpeg", "y4m"]);
+export type AvatarFrameFormat = z.infer<typeof AvatarFrameFormatSchema>;
+
+/**
+ * A single rendered frame produced by the TalkingHead.js avatar tab and
+ * forwarded by the extension to the bot over native messaging. The bot
+ * re-emits the frame bytes through its avatar renderer's `onFrame`
+ * subscriber chain, which feeds the v4l2loopback camera device that
+ * Chrome in the Meet tab reads from.
+ *
+ * Bytes ride the wire as a base64 string because Chrome's native-messaging
+ * transport is JSON-only — we cannot ship a raw `ArrayBuffer`. The
+ * extension base64-encodes the canvas-capture payload before posting;
+ * the bot decodes inside `talking-head/renderer.ts`.
+ */
+export const ExtensionAvatarFrameMessageSchema = z.object({
+  type: z.literal("avatar.frame"),
+  /** Base64-encoded frame bytes. */
+  bytes: z.string().min(1),
+  /** Frame width in pixels. */
+  width: z.number().int().positive(),
+  /** Frame height in pixels. */
+  height: z.number().int().positive(),
+  /** Pixel/container format of `bytes`. */
+  format: AvatarFrameFormatSchema,
+  /**
+   * Monotonic timestamp (ms) of when the frame was captured inside the
+   * avatar tab. Downstream audio-alignment (PR 9) keys off this value;
+   * for v1 the bot emits frames in arrival order and the daemon does no
+   * timestamp gating.
+   */
+  ts: z.number(),
+});
+export type ExtensionAvatarFrameMessage = z.infer<
+  typeof ExtensionAvatarFrameMessageSchema
+>;
+
+/**
  * Every payload the extension may send to the bot over the native-messaging
  * pipe. Consumers should parse incoming frames with this schema to both
  * validate and narrow on `type`.
@@ -209,6 +269,8 @@ export const ExtensionToBotMessageSchema = z.discriminatedUnion("type", [
   ExtensionTrustedClickMessageSchema,
   ExtensionTrustedTypeMessageSchema,
   ExtensionSendChatResultMessageSchema,
+  ExtensionAvatarStartedMessageSchema,
+  ExtensionAvatarFrameMessageSchema,
 ]);
 export type ExtensionToBotMessage = z.infer<typeof ExtensionToBotMessageSchema>;
 
@@ -223,6 +285,8 @@ export const EXTENSION_TO_BOT_MESSAGE_TYPES = [
   "trusted_click",
   "trusted_type",
   "send_chat_result",
+  "avatar.started",
+  "avatar.frame",
 ] as const;
 
 export type ExtensionToBotMessageType =
@@ -272,6 +336,71 @@ export const BotSendChatCommandSchema = z.object({
 export type BotSendChatCommand = z.infer<typeof BotSendChatCommandSchema>;
 
 /**
+ * Ask the extension to open the avatar tab (TalkingHead.js-rendered 3D
+ * face) and begin capturing canvas frames. The extension replies with an
+ * `avatar.started` frame once the avatar tab has mounted and is ready to
+ * accept visemes. If the ack doesn't arrive within a few seconds, the
+ * bot-side renderer throws `AvatarRendererUnavailableError` so the
+ * session-manager can fall back to the noop renderer.
+ *
+ * `targetFps` is advisory — the extension uses it to size its
+ * `requestAnimationFrame` capture cadence. The bot also applies an FPS
+ * cap at the device-writer layer, so the extension need not match it
+ * exactly.
+ */
+export const BotAvatarStartCommandSchema = z.object({
+  type: z.literal("avatar.start"),
+  /** Target capture framerate hint. Advisory; the bot rate-limits again. */
+  targetFps: z.number().int().min(1).max(60).optional(),
+  /**
+   * Optional URL override for the avatar page / GLB. When absent the
+   * extension falls back to the bundled `chrome.runtime.getURL("avatar/avatar.html")`
+   * + bundled `default-avatar.glb`. When present, the bot is expected
+   * to have staged the GLB as a `web_accessible_resources` entry so
+   * `chrome.runtime.getURL` can resolve it. See `features/avatar.ts`.
+   */
+  modelUrl: z.string().optional(),
+});
+export type BotAvatarStartCommand = z.infer<typeof BotAvatarStartCommandSchema>;
+
+/**
+ * Tear down the avatar tab and stop capturing frames. Idempotent: a
+ * second `avatar.stop` while the tab is already closed is a no-op on
+ * the extension side.
+ */
+export const BotAvatarStopCommandSchema = z.object({
+  type: z.literal("avatar.stop"),
+});
+export type BotAvatarStopCommand = z.infer<typeof BotAvatarStopCommandSchema>;
+
+/**
+ * Forward a viseme/amplitude event into the running avatar tab. The
+ * extension's feature background module relays the event into the
+ * avatar tab via `chrome.tabs.sendMessage`. The avatar content script
+ * drives TalkingHead.js's blend-shape weights from the viseme payload.
+ *
+ * Mirrors `VisemeEvent` from the bot's avatar types. Kept schema-local
+ * (rather than re-exporting from avatar/types.ts) so the contracts
+ * package stays independent of the bot implementation.
+ */
+export const BotAvatarPushVisemeCommandSchema = z.object({
+  type: z.literal("avatar.push_viseme"),
+  /**
+   * Phoneme or viseme identifier. Providers that emit viseme/alignment
+   * metadata use their native label; the amplitude-envelope fallback
+   * uses the sentinel `"amp"`.
+   */
+  phoneme: z.string().min(1),
+  /** Mouth-openness weight in `[0, 1]`. */
+  weight: z.number().min(0).max(1),
+  /** Monotonic timestamp (ms) used to align the viseme with the audio. */
+  timestamp: z.number(),
+});
+export type BotAvatarPushVisemeCommand = z.infer<
+  typeof BotAvatarPushVisemeCommandSchema
+>;
+
+/**
  * Every command the bot may send to the extension over the native-messaging
  * pipe. Consumers should parse incoming frames with this schema to both
  * validate and narrow on `type`.
@@ -280,6 +409,9 @@ export const BotToExtensionMessageSchema = z.discriminatedUnion("type", [
   BotJoinCommandSchema,
   BotLeaveCommandSchema,
   BotSendChatCommandSchema,
+  BotAvatarStartCommandSchema,
+  BotAvatarStopCommandSchema,
+  BotAvatarPushVisemeCommandSchema,
 ]);
 export type BotToExtensionMessage = z.infer<typeof BotToExtensionMessageSchema>;
 
@@ -288,6 +420,9 @@ export const BOT_TO_EXTENSION_MESSAGE_TYPES = [
   "join",
   "leave",
   "send_chat",
+  "avatar.start",
+  "avatar.stop",
+  "avatar.push_viseme",
 ] as const;
 
 export type BotToExtensionMessageType =

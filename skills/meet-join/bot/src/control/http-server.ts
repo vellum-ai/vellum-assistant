@@ -35,6 +35,7 @@ import {
   AvatarRendererUnavailableError,
   resolveAvatarRenderer,
   type AvatarConfig,
+  type AvatarNativeMessagingSender,
   type AvatarRenderer,
   type DeviceWriterHandle,
   type VisemeEvent,
@@ -138,6 +139,16 @@ export interface HttpServerAvatarOptions {
   resolveRenderer?: (
     config: AvatarConfig,
   ) => AvatarRenderer | null;
+  /**
+   * Native-messaging surface forwarded to the renderer factory's
+   * `deps.nativeMessaging`. Renderers that drive an extension-hosted
+   * avatar (TalkingHead.js) require this; renderers that render
+   * server-side or delegate to a hosted WebRTC backend ignore it.
+   * When absent, `/avatar/enable` falls back to a deps bag without a
+   * native-messaging surface — the TalkingHead factory then throws
+   * {@link AvatarRendererUnavailableError} and the route returns 503.
+   */
+  nativeMessaging?: AvatarNativeMessagingSender;
   /**
    * Device opener override. Defaults to
    * {@link defaultOpenVideoDevice}; tests provide a shim that returns
@@ -634,7 +645,13 @@ export function createHttpServer(
       let renderer: AvatarRenderer | null;
       try {
         const resolveFn =
-          avatar.resolveRenderer ?? ((config) => resolveAvatarRenderer(config, {}));
+          avatar.resolveRenderer ??
+          ((config) =>
+            resolveAvatarRenderer(config, {
+              ...(avatar.nativeMessaging
+                ? { nativeMessaging: avatar.nativeMessaging }
+                : {}),
+            }));
         renderer = resolveFn(avatar.config);
       } catch (err) {
         if (err instanceof AvatarRendererUnavailableError) {

@@ -76,12 +76,13 @@ import {
 } from "./control/http-server.js";
 import { BotState } from "./control/state.js";
 // Importing the avatar barrel has the side effect of registering the noop
-// factory. Individual renderer-backend PRs extend this list with their own
-// side-effect imports.
+// factory and the TalkingHead.js factory. Individual renderer-backend PRs
+// extend this list with their own side-effect imports.
 import {
   AvatarRendererUnavailableError,
   resolveAvatarRenderer,
   type AvatarConfig,
+  type AvatarNativeMessagingSender,
 } from "./media/avatar/index.js";
 import {
   startAudioCapture,
@@ -802,7 +803,11 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // just logs; the renderer is actually started on the daemon's
     // `/avatar/enable` HTTP call.
     // ---------------------------------------------------------------------
-    const avatarHttpOptions = buildAvatarHttpOptions(env, deps);
+    const avatarHttpOptions = buildAvatarHttpOptions(
+      env,
+      deps,
+      subsystems.socketServer,
+    );
 
     subsystems.httpServer = deps.createHttpServer({
       apiToken: botApiToken,
@@ -1012,10 +1017,15 @@ function errMsg(err: unknown): string {
  * probe: if the configured renderer can't be resolved the failure is
  * logged — but we do NOT bail the bot boot, since the renderer is not
  * strictly required for the meeting to proceed.
+ *
+ * When `socketServer` is non-null the caller forwards a narrowed
+ * `AvatarNativeMessagingSender` so the TalkingHead.js renderer (and
+ * any future extension-mediated renderer) can drive the avatar tab.
  */
 function buildAvatarHttpOptions(
   env: BotEnv,
   deps: BotDeps,
+  socketServer: NmhSocketServer | null,
 ): HttpServerAvatarOptions | undefined {
   if (!env.avatarEnabled) return undefined;
 
@@ -1043,9 +1053,21 @@ function buildAvatarHttpOptions(
     renderer: env.avatarRenderer,
   };
 
+  // Narrow the NMH socket server to the three avatar.* outbound
+  // commands + the inbound listener hook. The renderer gets a
+  // hard-typed surface it can't use to smuggle `join`/`leave`/etc.
+  const nativeMessaging: AvatarNativeMessagingSender | undefined = socketServer
+    ? {
+        sendToExtension: (msg) => socketServer.sendToExtension(msg),
+        onExtensionMessage: (cb) => socketServer.onExtensionMessage(cb),
+      }
+    : undefined;
+
   // Eager construction probe — non-fatal on failure.
   try {
-    resolveAvatarRenderer(config, {});
+    resolveAvatarRenderer(config, {
+      ...(nativeMessaging ? { nativeMessaging } : {}),
+    });
   } catch (err) {
     if (err instanceof AvatarRendererUnavailableError) {
       deps.logError(
@@ -1060,6 +1082,7 @@ function buildAvatarHttpOptions(
 
   return {
     config,
+    ...(nativeMessaging ? { nativeMessaging } : {}),
     ...(env.avatarDevicePath ? { devicePath: env.avatarDevicePath } : {}),
   };
 }
