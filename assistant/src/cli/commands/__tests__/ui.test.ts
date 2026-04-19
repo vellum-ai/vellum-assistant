@@ -1145,6 +1145,50 @@ describe("ui request — --actions parsing", () => {
     expect(lastIpcCall).toBeNull();
   });
 
+  test("rejects 'cancel' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"cancel","label":"Cancel"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('id "cancel" is reserved for internal use');
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'dismiss' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"dismiss","label":"Dismiss"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('id "dismiss" is reserved for internal use');
+    expect(lastIpcCall).toBeNull();
+  });
+
   test("non-reserved IDs are accepted alongside validation", async () => {
     process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
       conversationId: "conv-1",
