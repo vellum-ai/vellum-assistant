@@ -63,7 +63,7 @@ describe("browser CLI-only architecture end-state", () => {
   test("managed browser skill directory exists with SKILL.md but no TOOLS.json", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
-    // Browser skill lives in skills/browser/ (managed), not bundled-skills/.
+    // Browser skill lives in skills/vellum-browser-use/ (managed), not bundled-skills/.
     const skillDir = path.resolve(
       import.meta.dirname,
       "../../../skills/vellum-browser-use",
