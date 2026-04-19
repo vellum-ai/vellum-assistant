@@ -65,6 +65,7 @@ export const LLMCallSiteEnum = z.enum([
   "skillCategoryInference",
   "meetConsentMonitor",
   "meetChatOpportunity",
+  "inference",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
@@ -297,9 +298,7 @@ export const LLMSchema = z
     // every call site). Latency-optimized defaults for background call sites
     // are seeded into the user's on-disk config by migration 040, not at
     // schema level, so `LLMSchema.parse({})` yields an empty map.
-    callSites: z
-      .partialRecord(LLMCallSiteEnum, LLMCallSiteConfig)
-      .default({}),
+    callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
