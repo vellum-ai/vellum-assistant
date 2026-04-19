@@ -184,6 +184,69 @@ function removeMediaModal(doc: Document): void {
   dialog?.remove();
 }
 
+/**
+ * Inject the minimal chat DOM (message list + composer textarea + send button)
+ * into `doc` so step 6's {@link postConsentMessage} call can locate everything
+ * it needs. Mounting the message list short-circuits `ensurePanelOpen`, so no
+ * panel-toggle click is required.
+ *
+ * Returns the mounted textarea and send button so individual tests can spy on
+ * their state after the join completes.
+ */
+function insertChatSurface(doc: Document): {
+  input: HTMLTextAreaElement;
+  sendButton: HTMLButtonElement;
+} {
+  const list = doc.createElement("div");
+  list.setAttribute("role", "list");
+  list.setAttribute("aria-label", "Chat messages");
+  doc.body.appendChild(list);
+
+  const input = doc.createElement("textarea");
+  input.setAttribute("aria-label", "Send a message");
+  doc.body.appendChild(input);
+
+  const sendButton = doc.createElement("button");
+  sendButton.setAttribute("type", "button");
+  sendButton.setAttribute("aria-label", "Send a message");
+  sendButton.textContent = "Send";
+  doc.body.appendChild(sendButton);
+
+  return {
+    input: input as HTMLTextAreaElement,
+    sendButton: sendButton as HTMLButtonElement,
+  };
+}
+
+/**
+ * Install `doc` (and its owning window) as the process-wide `document` /
+ * `window` so `chat.ts`'s bare `document` references resolve to the test
+ * fixture. Returns a restore function the test should call in cleanup.
+ *
+ * `postConsentMessage` lives in `chat.ts`, which operates on the global
+ * `document` (there's no `doc` overload for the chat helpers). Bun's runtime
+ * has no DOM, so without this wiring the call crashes with a ReferenceError.
+ */
+function installGlobalDoc(doc: Document): () => void {
+  const win = (doc as unknown as { defaultView: Window }).defaultView;
+  const prevDoc = (globalThis as Record<string, unknown>).document;
+  const prevWin = (globalThis as Record<string, unknown>).window;
+  (globalThis as Record<string, unknown>).document = doc;
+  (globalThis as Record<string, unknown>).window = win;
+  return () => {
+    if (prevDoc === undefined) {
+      delete (globalThis as Record<string, unknown>).document;
+    } else {
+      (globalThis as Record<string, unknown>).document = prevDoc;
+    }
+    if (prevWin === undefined) {
+      delete (globalThis as Record<string, unknown>).window;
+    } else {
+      (globalThis as Record<string, unknown>).window = prevWin;
+    }
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -194,16 +257,22 @@ describe("runJoinFlow (content-script port)", () => {
     removeMediaModal(doc);
     const clicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
     insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
 
     const events: unknown[] = [];
-    await runJoinFlow({
-      meetingUrl: "https://meet.google.com/abc-defg-hij",
-      displayName: "Vellum Bot",
-      consentMessage: "Hi, Vellum is listening.",
-      meetingId: "mtg-1",
-      onEvent: (e) => events.push(e),
-      doc,
-    });
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-1",
+        onEvent: (e) => events.push(e),
+        doc,
+      });
+    } finally {
+      restore();
+    }
 
     // Name input populated with the displayName.
     const input = doc.querySelector(
@@ -238,15 +307,21 @@ describe("runJoinFlow (content-script port)", () => {
     doc.querySelector(selectors.PREJOIN_JOIN_NOW_BUTTON)?.remove();
     const clicks = spyOnClick(doc, selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
     insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
 
-    await runJoinFlow({
-      meetingUrl: "https://meet.google.com/abc-defg-hij",
-      displayName: "Vellum Bot",
-      consentMessage: "Hi, Vellum is listening.",
-      meetingId: "mtg-2",
-      onEvent: () => {},
-      doc,
-    });
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-2",
+        onEvent: () => {},
+        doc,
+      });
+    } finally {
+      restore();
+    }
 
     expect(clicks).toEqual([selectors.PREJOIN_ASK_TO_JOIN_BUTTON]);
   });
@@ -260,15 +335,21 @@ describe("runJoinFlow (content-script port)", () => {
     );
     const joinClicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
     insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
 
-    await runJoinFlow({
-      meetingUrl: "https://meet.google.com/abc-defg-hij",
-      displayName: "Vellum Bot",
-      consentMessage: "Hi, Vellum is listening.",
-      meetingId: "mtg-3",
-      onEvent: () => {},
-      doc,
-    });
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-3",
+        onEvent: () => {},
+        doc,
+      });
+    } finally {
+      restore();
+    }
 
     expect(modalClicks).toEqual([
       selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON,
@@ -284,19 +365,108 @@ describe("runJoinFlow (content-script port)", () => {
     doc.querySelector(selectors.PREJOIN_NAME_INPUT)?.remove();
     const clicks = spyOnClick(doc, selectors.PREJOIN_JOIN_NOW_BUTTON);
     insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
 
-    await runJoinFlow({
-      meetingUrl: "https://meet.google.com/abc-defg-hij",
-      displayName: "Vellum Bot",
-      consentMessage: "Hi, Vellum is listening.",
-      meetingId: "mtg-4",
-      onEvent: () => {},
-      doc,
-    });
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-4",
+        onEvent: () => {},
+        doc,
+      });
+    } finally {
+      restore();
+    }
 
     // No name input means nothing to assert on `.value` — instead verify the
     // flow still clicked Join now, demonstrating the branch didn't fail.
     expect(clicks).toEqual([selectors.PREJOIN_JOIN_NOW_BUTTON]);
+  });
+
+  test("posts the consent message to the chat composer at step 6", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    const { input, sendButton } = insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    let sendClicks = 0;
+    sendButton.addEventListener("click", () => {
+      sendClicks += 1;
+    });
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-consent",
+        onEvent: (e) => events.push(e),
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    // The consent text made it into the composer textarea.
+    expect(input.value).toBe("Hi, Vellum is listening.");
+    // The send button was clicked exactly once to submit the message.
+    expect(sendClicks).toBe(1);
+
+    // No error diagnostics on the happy path.
+    const errorDiagnostics = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "diagnostic" &&
+        (e as { level?: string }).level === "error",
+    );
+    expect(errorDiagnostics.length).toBe(0);
+  });
+
+  test("surfaces a diagnostic but does not fail the join when the consent post fails", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    // Mount the message list (so ensurePanelOpen short-circuits) but
+    // deliberately omit the chat composer so sendChat throws "chat input
+    // not found". The bot is already admitted at this point, so the join
+    // must still resolve successfully.
+    const list = doc.createElement("div");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Chat messages");
+    doc.body.appendChild(list);
+    const restore = installGlobalDoc(doc);
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-consent-fail",
+        onEvent: (e) => events.push(e),
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    // Consent-post error surfaced as a diagnostic.
+    const diag = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "diagnostic" &&
+        (e as { level?: string }).level === "error" &&
+        typeof (e as { message?: string }).message === "string" &&
+        (e as { message: string }).message.startsWith("consent post failed:"),
+    );
+    expect(diag).toBeDefined();
   });
 
   test("emits a diagnostic and rejects when admission times out", async () => {

@@ -21,8 +21,11 @@
  *      to Ask to join (locked meeting, host admits).
  *   5. Wait for the in-meeting UI. The red "Leave call" button is the
  *      canonical marker — it only mounts once the bot is in the meeting.
- *   6. Post `consentMessage` in chat. PR 12 wires this up; for PR 9 we leave
- *      a TODO and return early.
+ *   6. Post `consentMessage` in chat via {@link postConsentMessage}. Best
+ *      effort — if the chat composer can't be located we surface a
+ *      diagnostic error but do NOT fail the join, since the bot is already
+ *      in the meeting at this point and tearing it down would be strictly
+ *      worse than a missing consent notice.
  *
  * Error strategy: every step throws a descriptive `Error` on timeout. Before
  * re-throwing, we emit an `ExtensionDiagnosticMessage` via `opts.onEvent` so
@@ -33,6 +36,7 @@
 import type { ExtensionToBotMessage } from "../../../contracts/native-messaging.js";
 import { selectors } from "../dom/selectors.js";
 import { waitForAny, waitForSelector } from "../dom/wait.js";
+import { postConsentMessage } from "./chat.js";
 
 /** How long to wait for the prejoin surface to mount. */
 const PREJOIN_TIMEOUT_MS = 30_000;
@@ -59,8 +63,8 @@ export interface RunJoinFlowOptions {
   /** Display name Meet will render next to the bot's tile. */
   displayName: string;
   /**
-   * Consent notice to post once the bot is in the meeting. Plumbed through
-   * for PR 12 (chat posting). Not used in PR 9.
+   * Consent notice to post once the bot is in the meeting. Dropped into the
+   * chat panel via {@link postConsentMessage} as step 6 of the flow.
    */
   consentMessage: string;
   /** Opaque identifier for the meeting the extension is in. */
@@ -100,13 +104,13 @@ function fail(
 }
 
 /**
- * Drive the Meet prejoin surface to completion.
+ * Drive the Meet prejoin surface to completion and post the consent notice.
  *
- * Resolves once the in-meeting UI has mounted. Does NOT post the consent
- * message — that is deferred to PR 12 (see the TODO at step 6).
+ * Resolves once the in-meeting UI has mounted and the consent-message post
+ * attempt has completed (success or caught failure).
  */
 export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
-  const { displayName, onEvent } = opts;
+  const { consentMessage, displayName, onEvent } = opts;
   const doc = opts.doc ?? document;
 
   // Step 1 — dismiss the media-permission modal if Meet rendered one. Best
@@ -190,8 +194,20 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
     );
   }
 
-  // Step 6 — TODO(meet-ext): post consent via sendChat (added in PR 12).
-  // For PR 9 we stop here and let the content-script entry emit the
-  // `lifecycle { state: "joined" }` event.
-  return;
+  // Step 6 — post the consent notice in chat. Best effort: the bot is
+  // already admitted at this point, so a chat-post failure should surface as
+  // a diagnostic but must not fail the join itself (tearing the bot back out
+  // of the meeting is strictly worse than a missing consent message). The
+  // most likely failure mode is Meet's chat DOM drifting out from under our
+  // selectors.
+  try {
+    await postConsentMessage(consentMessage);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    onEvent({
+      type: "diagnostic",
+      level: "error",
+      message: `consent post failed: ${msg}`,
+    });
+  }
 }
