@@ -2,10 +2,10 @@
  * meet-join skill — tool registration entry point.
  *
  * Imports every meet_* tool exported by this skill and hands them to the
- * assistant's external-tool registry when the `meet` feature flag is on.
+ * assistant's tool registry when the `meet` feature flag is on.
  * `initializeTools()` in `assistant/src/tools/registry.ts` reads the
- * registry at daemon startup so the tools become visible to the LLM for
- * the lifetime of the process.
+ * external tool list at daemon startup so the tools become visible to the
+ * LLM for the lifetime of the process.
  *
  * This module is intentionally a pure side-effect module: `import`ing it
  * is all the bootstrap needs to do. It has no default export and its
@@ -14,7 +14,7 @@
  * ## Feature-flag semantics
  *
  * Registration is gated by the `meet` feature flag at module-load time,
- * mirroring the CES-tools pattern in `tool-manifest.ts` — tools only
+ * mirroring the CES-tools pattern in `registry.ts` — tools only
  * enter the registry (and therefore only occupy LLM tool-list tokens)
  * when the flag is on. Toggling the flag requires a daemon restart to
  * take effect, which is acceptable because the same is true for every
@@ -27,7 +27,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../assistant/src/config/assistant-feature-flags.js";
 import { getConfig } from "../../assistant/src/config/loader.js";
-import { registerExternalTools } from "../../assistant/src/tools/tool-manifest.js";
+import { registerExternalTools } from "../../assistant/src/tools/registry.js";
 import {
   meetDisableAvatarTool,
   meetEnableAvatarTool,

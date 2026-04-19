@@ -16,6 +16,29 @@ const log = getLogger("tool-registry");
 
 const tools = new Map<string, Tool>();
 
+// ── External tool registry ───────────────────────────────────────────
+// Skills register their tools here at initialization time so the tool
+// manifest can include them without importing from `../skills/`.
+const externalTools: Tool[] = [];
+
+/**
+ * Register tools provided by an external skill. Called during skill
+ * initialization (e.g. meet-join bootstrap).
+ *
+ * Lives in registry.ts (not tool-manifest.ts) to avoid a circular
+ * dependency: skills/load.ts → … → meet-join/register.ts → tool-manifest.ts
+ * → skills/load.ts. Keeping it here lets external skill bootstraps import
+ * from registry.ts, which is already a leaf in the dependency graph.
+ */
+export function registerExternalTools(tools: Tool[]): void {
+  externalTools.push(...tools);
+}
+
+/** Return all externally registered tools. */
+export function getExternalTools(): Tool[] {
+  return [...externalTools];
+}
+
 // Snapshot of core tools captured after initializeTools() completes.
 // Used by __resetRegistryForTesting() to restore eager tools that cannot
 // be re-registered because ESM import caching prevents side effects
@@ -230,7 +253,6 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
-    getExternalTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -250,8 +272,8 @@ export async function initializeTools(): Promise<void> {
   // `registerExternalTools()`. Called at init time (not spread into
   // `explicitTools`) so registrations that happen between module-load
   // and `initializeTools()` are picked up.
-  const externalTools = getExternalTools();
-  for (const tool of externalTools) {
+  const extTools = getExternalTools();
+  for (const tool of extTools) {
     registerTool(tool);
   }
 
@@ -289,7 +311,7 @@ export async function initializeTools(): Promise<void> {
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
-      ...externalTools.map((t: Tool) => t.name),
+      ...extTools.map((t: Tool) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...cesTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),

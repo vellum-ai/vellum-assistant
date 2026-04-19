@@ -13,7 +13,7 @@
  * exactly what the bootstrap call registers without pulling in the
  * whole assistant tool-registry module graph (which would force us
  * to stand up SQLite, credential storage, etc. just to assert a tool
- * list). The real integration from register.ts → tool-manifest.ts is
+ * list). The real integration from register.ts → registry.ts is
  * thin enough that a pure-call assertion here is sufficient.
  */
 
@@ -23,7 +23,7 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 let flagEnabled = true;
 let captured: Array<{ name: string }> | null = null;
 
-mock.module("../../../assistant/src/tools/tool-manifest.js", () => ({
+mock.module("../../../assistant/src/tools/registry.js", () => ({
   registerExternalTools: (tools: Array<{ name: string }>) => {
     captured = tools.map((t) => ({ name: t.name }));
   },

@@ -13,7 +13,7 @@ relative paths. The Docker build copies `assistant/` and `packages/` but not
 
 Skills wire into the assistant through registries:
 
-- **Tools**: `registerExternalTools()` in `assistant/src/tools/tool-manifest.ts`
+- **Tools**: `registerExternalTools()` in `assistant/src/tools/registry.ts`
 - **Routes**: `registerSkillRoute()` in `assistant/src/runtime/skill-route-registry.ts`
 - **Shutdown**: `registerShutdownHook()` in `assistant/src/daemon/shutdown-registry.ts`
 

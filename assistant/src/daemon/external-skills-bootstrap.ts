@@ -4,7 +4,7 @@
  * Loads first-party skills that expose **in-process tools** to the daemon.
  * Importing this module triggers each skill's `register.ts` to run, which
  * in turn calls `registerExternalTools()` on the assistant-side tool
- * manifest. The daemon's `initializeTools()` then picks the registered
+ * registry. The daemon's `initializeTools()` then picks the registered
  * tools up and makes them available to the LLM.
  *
  * ## Why the cross-directory import exists
