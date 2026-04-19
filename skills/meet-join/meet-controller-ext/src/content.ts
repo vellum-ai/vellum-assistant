@@ -24,13 +24,20 @@
  * in that case because the scrapers require an admitted meeting.
  */
 import type {
+  BotCameraDisableCommand,
+  BotCameraEnableCommand,
   BotSendChatCommand,
   BotToExtensionMessage,
+  ExtensionCameraResultMessage,
   ExtensionSendChatResultMessage,
   ExtensionToBotMessage,
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
+import {
+  disableCamera,
+  enableCamera,
+} from "./features/camera.js";
 import {
   type ChatReader,
   sendChat,
@@ -203,6 +210,11 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
+    if (msg.type === "camera.enable" || msg.type === "camera.disable") {
+      void handleCameraToggle(msg);
+      return false;
+    }
+
     return false;
   },
 );
@@ -333,10 +345,68 @@ async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
   }
 }
 
-// Export the send-chat handler for unit testing. It is wired into
-// `chrome.runtime.onMessage` above when the script loads; the test
-// imports it directly to drive the `meet_send_chat` tool path end-to-end
-// without needing to fake the chrome.runtime.onMessage dispatcher. Not
-// part of the extension's public surface — the background SW never
-// imports content.ts.
+/**
+ * Execute a {@link BotCameraEnableCommand} / {@link BotCameraDisableCommand}
+ * and emit a matching {@link ExtensionCameraResultMessage} back to the
+ * background. Mirrors {@link handleSendChat}: forwards a trusted_click via
+ * `onEvent` so the bot drives the click through xdotool (Meet's isTrusted
+ * gate rejects synthetic clicks on bottom-toolbar controls in general, so
+ * we assume the camera toggle is gated too and route through xdotool by
+ * default). Errors are surfaced via `ok: false` with a descriptive reason.
+ */
+async function handleCameraToggle(
+  cmd: BotCameraEnableCommand | BotCameraDisableCommand,
+): Promise<void> {
+  const sendToBot = (event: ExtensionToBotMessage): void => {
+    try {
+      void chrome.runtime.sendMessage(event);
+    } catch (err) {
+      console.warn("[meet-ext] sendMessage failed:", err);
+    }
+  };
+
+  let reply: ExtensionCameraResultMessage;
+  try {
+    const run =
+      cmd.type === "camera.enable" ? enableCamera : disableCamera;
+    const result = await run({
+      onEvent: sendToBot,
+      // Pass the live `window` so the camera feature can compute screen-
+      // space coordinates for the toggle's `trusted_click`. Mirrors the
+      // fallback that `postConsentMessage` / `sendChat` rely on.
+      window: globalThis as unknown as {
+        screenX: number;
+        screenY: number;
+        outerHeight: number;
+        innerHeight: number;
+      },
+    });
+    reply = {
+      type: "camera_result",
+      requestId: cmd.requestId,
+      ok: true,
+      changed: result.changed,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reply = {
+      type: "camera_result",
+      requestId: cmd.requestId,
+      ok: false,
+      error: message,
+    };
+  }
+  try {
+    chrome.runtime.sendMessage(reply);
+  } catch (err) {
+    console.warn("[meet-ext] failed to send camera_result:", err);
+  }
+}
+
+// Export the send-chat + camera-toggle handlers for unit testing. They are
+// wired into `chrome.runtime.onMessage` above when the script loads; the
+// tests import them directly to drive the tool paths end-to-end without
+// needing to fake the chrome.runtime.onMessage dispatcher. Not part of the
+// extension's public surface — the background SW never imports content.ts.
 export { handleSendChat as __handleSendChat };
+export { handleCameraToggle as __handleCameraToggle };

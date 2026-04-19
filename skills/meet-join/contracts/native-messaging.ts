@@ -195,6 +195,43 @@ export type ExtensionSendChatResultMessage = z.infer<
 >;
 
 /**
+ * Result of a prior `camera.enable` / `camera.disable` command, correlated
+ * by `requestId`. Semantics mirror {@link ExtensionSendChatResultMessageSchema}:
+ *
+ * - `ok: true` indicates the extension confirmed the Meet camera toggle
+ *   reached the requested state (either because a click was dispatched and
+ *   the aria-state transition was observed, or because the toggle was
+ *   already in the requested state — see `changed`).
+ * - `ok: false` indicates the extension could not bring the toggle to the
+ *   requested state (toggle element missing, aria-state polling timed out).
+ *   `error` carries a human-readable reason the bot surfaces in logs.
+ * - `changed` distinguishes a no-op short-circuit (`false` — toggle was
+ *   already in the requested state) from a successful click that produced
+ *   a state transition (`true`). The bot uses this for observability — a
+ *   spammy `/avatar/enable` retry loop that keeps reporting `changed=false`
+ *   is informative signal that the renderer is flapping without the camera
+ *   drifting.
+ */
+export const ExtensionCameraResultMessageSchema = z.object({
+  type: z.literal("camera_result"),
+  /** Correlation id from the originating `camera.enable` / `camera.disable` command. */
+  requestId: z.string().min(1),
+  /** Whether the camera toggle reached the requested state. */
+  ok: z.boolean(),
+  /**
+   * True if a click was dispatched and the aria-state transition was
+   * observed; false if the toggle was already in the requested state (no
+   * click happened). Only meaningful when `ok === true`.
+   */
+  changed: z.boolean().optional(),
+  /** Human-readable failure reason when `ok === false`. */
+  error: z.string().optional(),
+});
+export type ExtensionCameraResultMessage = z.infer<
+  typeof ExtensionCameraResultMessageSchema
+>;
+
+/**
  * Every payload the extension may send to the bot over the native-messaging
  * pipe. Consumers should parse incoming frames with this schema to both
  * validate and narrow on `type`.
@@ -209,6 +246,7 @@ export const ExtensionToBotMessageSchema = z.discriminatedUnion("type", [
   ExtensionTrustedClickMessageSchema,
   ExtensionTrustedTypeMessageSchema,
   ExtensionSendChatResultMessageSchema,
+  ExtensionCameraResultMessageSchema,
 ]);
 export type ExtensionToBotMessage = z.infer<typeof ExtensionToBotMessageSchema>;
 
@@ -223,6 +261,7 @@ export const EXTENSION_TO_BOT_MESSAGE_TYPES = [
   "trusted_click",
   "trusted_type",
   "send_chat_result",
+  "camera_result",
 ] as const;
 
 export type ExtensionToBotMessageType =
@@ -271,6 +310,48 @@ export const BotSendChatCommandSchema = z.object({
 });
 export type BotSendChatCommand = z.infer<typeof BotSendChatCommandSchema>;
 
+// ---------------------------------------------------------------------------
+// camera.enable / camera.disable — toggle the Meet camera via the extension.
+//
+// The bot drives the Meet camera via the extension (not via any CDP path)
+// because Meet's bottom-toolbar buttons are inside the same DOM the extension
+// already manages. The extension reads the camera-toggle button's aria-label
+// to determine current state, short-circuits when the toggle is already in
+// the requested state, clicks the toggle otherwise, then polls the aria-state
+// for up to 5s to confirm the transition landed.
+//
+// Reply shape: {@link ExtensionCameraResultMessageSchema}, correlated by
+// `requestId`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask the extension to turn the Meet camera ON. If the camera is already on,
+ * the extension short-circuits without clicking. The extension replies with
+ * a `camera_result` carrying the same `requestId`.
+ */
+export const BotCameraEnableCommandSchema = z.object({
+  type: z.literal("camera.enable"),
+  /** Correlation id the extension must echo back in `camera_result`. */
+  requestId: z.string().min(1),
+});
+export type BotCameraEnableCommand = z.infer<
+  typeof BotCameraEnableCommandSchema
+>;
+
+/**
+ * Ask the extension to turn the Meet camera OFF. If the camera is already
+ * off, the extension short-circuits without clicking. The extension replies
+ * with a `camera_result` carrying the same `requestId`.
+ */
+export const BotCameraDisableCommandSchema = z.object({
+  type: z.literal("camera.disable"),
+  /** Correlation id the extension must echo back in `camera_result`. */
+  requestId: z.string().min(1),
+});
+export type BotCameraDisableCommand = z.infer<
+  typeof BotCameraDisableCommandSchema
+>;
+
 /**
  * Every command the bot may send to the extension over the native-messaging
  * pipe. Consumers should parse incoming frames with this schema to both
@@ -280,6 +361,8 @@ export const BotToExtensionMessageSchema = z.discriminatedUnion("type", [
   BotJoinCommandSchema,
   BotLeaveCommandSchema,
   BotSendChatCommandSchema,
+  BotCameraEnableCommandSchema,
+  BotCameraDisableCommandSchema,
 ]);
 export type BotToExtensionMessage = z.infer<typeof BotToExtensionMessageSchema>;
 
@@ -288,6 +371,8 @@ export const BOT_TO_EXTENSION_MESSAGE_TYPES = [
   "join",
   "leave",
   "send_chat",
+  "camera.enable",
+  "camera.disable",
 ] as const;
 
 export type BotToExtensionMessageType =

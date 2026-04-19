@@ -9,8 +9,8 @@
  *   - `POST /send_chat`               — post a chat message into the Meet chat panel.
  *   - `POST /play_audio`              — stream raw PCM into pacat (Phase 3).
  *   - `DELETE /play_audio/:streamId`  — cancel an in-flight playback (barge-in).
- *   - `POST /avatar/enable`           — start the configured avatar renderer + wire its frames to `/dev/video10`.
- *   - `POST /avatar/disable`          — tear down the renderer + detach the device writer.
+ *   - `POST /avatar/enable`           — start the configured avatar renderer, wire its frames to `/dev/video10`, then flip the Meet camera toggle ON via the camera channel.
+ *   - `POST /avatar/disable`          — flip the Meet camera toggle OFF (before renderer teardown to avoid a brief black frame), then tear down the renderer + detach the device writer.
  *   - `POST /avatar/viseme`           — forward a viseme event into the active renderer (no-op when disabled).
  *
  * Every mutating route validates its body against the corresponding Zod
@@ -157,6 +157,33 @@ export interface HttpServerAvatarOptions {
    * tests can validate FPS-gating behavior.
    */
   maxFps?: number;
+  /**
+   * Camera-channel handle the server uses to ask the extension to turn
+   * the Meet camera on / off. When absent, `/avatar/enable` starts the
+   * renderer and `/avatar/disable` stops it — without flipping the
+   * camera toggle. This is the boot-smoke-test behavior (no extension
+   * is attached) and also the fallback when the extension is temporarily
+   * disconnected.
+   *
+   * When present, `/avatar/enable` starts the renderer FIRST (so the
+   * v4l2loopback device has frames to emit the moment Meet reads from
+   * it) and then flips the camera toggle ON; `/avatar/disable` flips the
+   * toggle OFF FIRST (so Meet stops emitting to other participants
+   * before the renderer tears down the frames) and then stops the
+   * renderer. This ordering avoids a brief black frame between the two
+   * transitions that other participants would otherwise see.
+   *
+   * A failed camera toggle is non-fatal on the enable path: the server
+   * logs the failure via the response body and leaves the renderer
+   * running, since tearing it back down would be strictly worse than a
+   * stuck camera toggle. On the disable path, a failed toggle is also
+   * non-fatal — we still stop the renderer so the device doesn't leak
+   * frames into a Meet tab that may still have the camera on.
+   */
+  camera?: {
+    enableCamera: () => Promise<{ changed: boolean }>;
+    disableCamera: () => Promise<{ changed: boolean }>;
+  };
 }
 
 export interface HttpServerHandle {
@@ -715,15 +742,38 @@ export function createHttpServer(
       avatarDeviceHandle = deviceHandle;
       avatarDeviceWriter = writer;
 
-      return c.json(
-        {
-          enabled: true,
-          renderer: renderer.id,
-          active: true,
-          devicePath: deviceHandle.devicePath,
-        },
-        200,
-      );
+      // Flip the Meet camera toggle ON so other participants start
+      // receiving frames from `/dev/video10` (now fed by the renderer).
+      // Ordered AFTER renderer start + device attach so the moment the
+      // toggle flips the camera ON, Meet reads real frames instead of a
+      // black frame. Non-fatal on failure: a stuck camera toggle is a
+      // regression signal but tearing the renderer back down would be
+      // strictly worse — the device is attached, the renderer is
+      // running, and the next `/avatar/enable` retry or a manual user
+      // click can recover.
+      let cameraChange: { changed: boolean } | null = null;
+      let cameraError: string | null = null;
+      if (avatar.camera) {
+        try {
+          cameraChange = await avatar.camera.enableCamera();
+        } catch (err) {
+          cameraError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      const body: Record<string, unknown> = {
+        enabled: true,
+        renderer: renderer.id,
+        active: true,
+        devicePath: deviceHandle.devicePath,
+      };
+      if (cameraChange !== null) {
+        body.cameraChanged = cameraChange.changed;
+      }
+      if (cameraError !== null) {
+        body.cameraError = cameraError;
+      }
+      return c.json(body, 200);
     } finally {
       release(undefined);
     }
@@ -763,6 +813,22 @@ export function createHttpServer(
       avatarDeviceHandle = null;
       avatarRenderer = null;
 
+      // Flip the camera OFF BEFORE tearing down the renderer so other
+      // participants stop seeing the video track before the frame source
+      // disappears — this avoids the brief black frame gap that would
+      // otherwise appear while the renderer/device teardown is in
+      // flight. Non-fatal on failure; we still complete teardown so the
+      // device doesn't hold open a handle.
+      let cameraChange: { changed: boolean } | null = null;
+      let cameraError: string | null = null;
+      if (avatar.camera) {
+        try {
+          cameraChange = await avatar.camera.disableCamera();
+        } catch (err) {
+          cameraError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
       // Teardown order (reverse of setup): writer → device → renderer.
       if (writer) {
         try {
@@ -782,13 +848,17 @@ export function createHttpServer(
         });
       }
 
-      return c.json(
-        {
-          disabled: true,
-          wasActive: renderer !== null,
-        },
-        200,
-      );
+      const body: Record<string, unknown> = {
+        disabled: true,
+        wasActive: renderer !== null,
+      };
+      if (cameraChange !== null) {
+        body.cameraChanged = cameraChange.changed;
+      }
+      if (cameraError !== null) {
+        body.cameraError = cameraError;
+      }
+      return c.json(body, 200);
     } finally {
       release(undefined);
     }

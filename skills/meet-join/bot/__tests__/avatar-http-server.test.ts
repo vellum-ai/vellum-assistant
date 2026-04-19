@@ -464,4 +464,246 @@ describe("avatar HTTP routes", () => {
       expect(second.stopCount).toBe(0);
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Camera-toggle wiring
+  //
+  // `/avatar/enable` and `/avatar/disable` call into the optional `camera`
+  // field on `HttpServerAvatarOptions` AFTER starting the renderer (enable)
+  // and BEFORE tearing it down (disable) — so Meet's camera reflects the
+  // renderer's liveness without a black frame between the two transitions.
+  // ---------------------------------------------------------------------
+
+  describe("camera-toggle integration", () => {
+    test("/avatar/enable calls camera.enableCamera after the renderer starts", async () => {
+      const fake = new FakeAvatarRenderer({ id: "fake" });
+      const device = fakeDeviceHandle();
+      const callOrder: string[] = [];
+
+      // Tag the renderer start + device open so the order against the
+      // camera enable is asserted directly.
+      const openDevice = async (): Promise<VideoDeviceHandle> => {
+        callOrder.push("open-device");
+        return device.handle;
+      };
+      const enableCamera = async (): Promise<{ changed: boolean }> => {
+        callOrder.push("camera-enable");
+        return { changed: true };
+      };
+      let disableCalls = 0;
+      const disableCamera = async (): Promise<{ changed: boolean }> => {
+        disableCalls += 1;
+        return { changed: false };
+      };
+
+      // Wrap the renderer's `start` so we can log the order too.
+      const origStart = fake.start.bind(fake);
+      fake.start = async () => {
+        callOrder.push("renderer-start");
+        await origStart();
+      };
+
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+        openDevice,
+        camera: { enableCamera, disableCamera },
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      const res = await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.active).toBe(true);
+      expect(body.cameraChanged).toBe(true);
+
+      // Order: renderer starts BEFORE the device opens BEFORE the camera
+      // is flipped on. The device must be attached before Meet reads
+      // frames (the camera-on flip is what prompts Meet to start reading),
+      // and the renderer must be running before the device is attached
+      // so the writer has something to pump. disableCamera must NOT be
+      // called on the enable path.
+      expect(callOrder).toEqual([
+        "renderer-start",
+        "open-device",
+        "camera-enable",
+      ]);
+      expect(disableCalls).toBe(0);
+    });
+
+    test("/avatar/enable surfaces camera errors in the response body without failing the renderer", async () => {
+      const fake = new FakeAvatarRenderer({ id: "fake" });
+      const device = fakeDeviceHandle();
+      const enableCamera = async (): Promise<{ changed: boolean }> => {
+        throw new Error("aria-state did not transition to on within 5000ms");
+      };
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+        openDevice: async () => device.handle,
+        camera: {
+          enableCamera,
+          disableCamera: async () => ({ changed: false }),
+        },
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      const res = await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      // Renderer stayed up — the response is still 200 — but the camera
+      // error is surfaced in the body so the daemon can log it.
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.active).toBe(true);
+      expect(body.cameraError).toMatch(/did not transition/);
+      expect(fake.startCount).toBe(1);
+      // No spurious teardown on camera failure.
+      expect(fake.stopCount).toBe(0);
+    });
+
+    test("/avatar/disable calls camera.disableCamera BEFORE tearing down the renderer", async () => {
+      const fake = new FakeAvatarRenderer({ id: "fake" });
+      const device = fakeDeviceHandle();
+      const callOrder: string[] = [];
+      let closedBefore: string[] = [];
+
+      const enableCamera = async (): Promise<{ changed: boolean }> => {
+        callOrder.push("camera-enable");
+        return { changed: true };
+      };
+      const disableCamera = async (): Promise<{ changed: boolean }> => {
+        callOrder.push("camera-disable");
+        closedBefore = [...callOrder];
+        return { changed: true };
+      };
+
+      const origStop = fake.stop.bind(fake);
+      fake.stop = async () => {
+        callOrder.push("renderer-stop");
+        await origStop();
+      };
+      const origClose = device.handle.close.bind(device.handle);
+      device.handle.close = async () => {
+        callOrder.push("device-close");
+        await origClose();
+      };
+
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+        openDevice: async () => device.handle,
+        camera: { enableCamera, disableCamera },
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      const res = await fetch(`${base}/avatar/disable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.disabled).toBe(true);
+      expect(body.wasActive).toBe(true);
+      expect(body.cameraChanged).toBe(true);
+
+      // camera-disable must come before renderer-stop and device-close.
+      // closedBefore snapshots the call order as of when the camera was
+      // disabled — it must only contain the enable-path entries, not the
+      // stop/close entries.
+      expect(closedBefore).not.toContain("renderer-stop");
+      expect(closedBefore).not.toContain("device-close");
+      // Final order sanity-check.
+      expect(callOrder).toEqual([
+        "camera-enable",
+        "camera-disable",
+        "device-close",
+        "renderer-stop",
+      ]);
+    });
+
+    test("/avatar/disable still tears down the renderer when camera.disableCamera throws", async () => {
+      const fake = new FakeAvatarRenderer({ id: "fake" });
+      const device = fakeDeviceHandle();
+      const enableCamera = async (): Promise<{ changed: boolean }> => ({
+        changed: true,
+      });
+      const disableCamera = async (): Promise<{ changed: boolean }> => {
+        throw new Error("extension disconnected");
+      };
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+        openDevice: async () => device.handle,
+        camera: { enableCamera, disableCamera },
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+
+      const res = await fetch(`${base}/avatar/disable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.disabled).toBe(true);
+      expect(body.wasActive).toBe(true);
+      expect(body.cameraError).toContain("extension disconnected");
+      // Renderer + device still torn down — camera failure must not leak
+      // resources.
+      expect(fake.stopCount).toBe(1);
+      expect(device.closed()).toBe(true);
+    });
+
+    test("when `camera` is absent, /avatar/enable + /avatar/disable still work without a toggle call", async () => {
+      // Boot-smoke-test shape: no extension is attached, so no camera
+      // channel is wired. The avatar routes must still run the renderer
+      // + device lifecycle without throwing.
+      const fake = new FakeAvatarRenderer({ id: "fake" });
+      const device = fakeDeviceHandle();
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+        openDevice: async () => device.handle,
+        // `camera` intentionally omitted.
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      const enable = await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      expect(enable.status).toBe(200);
+      const enableBody = await enable.json();
+      // No cameraChanged / cameraError in the body when camera is absent.
+      expect(enableBody.cameraChanged).toBeUndefined();
+      expect(enableBody.cameraError).toBeUndefined();
+
+      const disable = await fetch(`${base}/avatar/disable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      expect(disable.status).toBe(200);
+      const disableBody = await disable.json();
+      expect(disableBody.cameraChanged).toBeUndefined();
+      expect(disableBody.cameraError).toBeUndefined();
+    });
+  });
 });

@@ -203,13 +203,16 @@ export const controlSelectors = {
   /**
    * Camera on/off toggle. Meet switches the aria-label between "Turn on
    * camera" and "Turn off camera" depending on state; we match either so the
-   * selector works in both states.
+   * selector works in both states. Use {@link isCameraOn} to read the
+   * current state from the aria-label (clicking the button is what the
+   * camera feature module does to toggle it).
    */
   CAMERA_TOGGLE:
     'button[aria-label="Turn off camera"], button[aria-label="Turn on camera"]',
 
   /**
    * Microphone on/off toggle. Same dual-aria-label pattern as the camera.
+   * Use {@link isMicOn} to read the current state.
    */
   MIC_TOGGLE:
     'button[aria-label="Turn off microphone"], button[aria-label="Turn on microphone"]',
@@ -292,3 +295,57 @@ export const selectors = {
 } as const;
 
 export type SelectorKey = keyof typeof selectors;
+
+// ---------------------------------------------------------------------------
+// ARIA-state accessors
+// ---------------------------------------------------------------------------
+//
+// Meet's camera/mic toggle buttons report their current state only through
+// the aria-label swap: "Turn off X" when X is currently ON (click to turn
+// off), "Turn on X" when X is currently OFF (click to turn on). There is no
+// `aria-pressed` attribute and no stable class distinguishing the two
+// states. These helpers centralize the label parsing so feature modules
+// don't have to repeat the string match.
+//
+// Each helper returns `null` when the toggle element isn't present in the
+// DOM (e.g. the bot is still in the waiting room, or the toolbar hasn't
+// mounted). Callers distinguish that from the boolean states so they can
+// report a descriptive "camera toggle not found" error instead of a silent
+// false.
+
+/**
+ * Read the Meet camera toggle's current on/off state from its aria-label.
+ * Returns `null` when the toggle button isn't in the DOM.
+ *
+ * The aria-label is the authoritative state bit: "Turn off camera" ⇒
+ * camera is currently ON; "Turn on camera" ⇒ camera is currently OFF. We
+ * match the exact label rather than a prefix because Meet currently does
+ * not decorate this label (unlike the prejoin admission button).
+ */
+export function isCameraOn(doc: Document = document): boolean | null {
+  const btn = doc.querySelector(controlSelectors.CAMERA_TOGGLE);
+  if (!btn) return null;
+  const label = btn.getAttribute("aria-label") ?? "";
+  if (label === "Turn off camera") return true;
+  if (label === "Turn on camera") return false;
+  // Unrecognized label (localized Meet variant, future drift) — treat as
+  // "unknown" so callers fall through to the click + poll path rather than
+  // short-circuiting on bogus state.
+  return null;
+}
+
+/**
+ * Read the Meet microphone toggle's current on/off state from its
+ * aria-label. Returns `null` when the toggle button isn't in the DOM.
+ *
+ * Mirrors {@link isCameraOn} — kept symmetric so a future mic feature
+ * module can consume the same accessor.
+ */
+export function isMicOn(doc: Document = document): boolean | null {
+  const btn = doc.querySelector(controlSelectors.MIC_TOGGLE);
+  if (!btn) return null;
+  const label = btn.getAttribute("aria-label") ?? "";
+  if (label === "Turn off microphone") return true;
+  if (label === "Turn on microphone") return false;
+  return null;
+}
