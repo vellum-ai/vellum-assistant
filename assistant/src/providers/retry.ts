@@ -149,6 +149,17 @@ function normalizeSendMessageOptions(
         nextConfig.thinking = { type: "adaptive" };
       }
     }
+    // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
+    // translate `openrouter.only` into the wire-format `provider: { only: [...] }`
+    // body field on both the OpenAI-compat and Anthropic-compat endpoints.
+    if (
+      providerName === "openrouter" &&
+      nextConfig.openrouter === undefined &&
+      Array.isArray(resolved.openrouter?.only) &&
+      resolved.openrouter.only.length > 0
+    ) {
+      nextConfig.openrouter = { only: resolved.openrouter.only };
+    }
     // `contextWindow` and `provider` are server-side concerns, not provider
     // request parameters: `contextWindow` is consumed by the agent loop's
     // overflow recovery and the conversation manager directly from
@@ -179,6 +190,12 @@ function normalizeSendMessageOptions(
   // speed (fast mode) is Anthropic-specific; strip for other providers
   if (providerName !== "anthropic" && nextConfig.speed !== undefined) {
     delete nextConfig.speed;
+  }
+
+  // `openrouter.only` is OpenRouter-specific routing; strip for other
+  // providers so strict-schema clients don't see an unknown field.
+  if (providerName !== "openrouter" && nextConfig.openrouter !== undefined) {
+    delete nextConfig.openrouter;
   }
 
   return {
