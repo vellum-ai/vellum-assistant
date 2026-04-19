@@ -327,6 +327,14 @@ function collectRemediationHints(
 }
 
 /**
+ * Detect the common extension CDP failure where the active tab is a
+ * restricted Chrome internal page (e.g. `chrome://newtab`).
+ */
+function isRestrictedChromePageProbeError(error: CdpError): boolean {
+  return error.message.toLowerCase().includes("chrome://");
+}
+
+/**
  * Parse browser_mode from input and acquire a CdpClient. Returns
  * either a `{ cdp, browserMode }` pair on success or a pre-formatted
  * `{ errorResult }` on failure (invalid mode or pinned-mode
@@ -2291,6 +2299,29 @@ async function checkExtensionModeStatus(
         proxyBound,
         proxyConnected,
         backendKind: probe.backendKind,
+      },
+    };
+  }
+
+  if (isRestrictedChromePageProbeError(probe.error)) {
+    return {
+      mode: BROWSER_STATUS_MODE.EXTENSION,
+      available: true,
+      verified: "active_probe",
+      autoCandidate,
+      summary:
+        "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
+      userActions: [
+        "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
+      ],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+      details: {
+        proxyBound,
+        proxyConnected,
+        restrictedActiveTab: true,
+        errorCode: probe.error.code,
+        diagnostic: probe.diagnostic,
+        attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
       },
     };
   }

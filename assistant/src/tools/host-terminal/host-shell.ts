@@ -31,6 +31,18 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("host-shell-tool");
 
+const HOST_BASH_PROXY_ENV_KEYS = [
+  // Preserve per-instance routing so nested `assistant` CLI commands invoked
+  // over host_bash proxy target the same daemon/socket as the origin turn.
+  "BASE_DATA_DIR",
+  "VELLUM_WORKSPACE_DIR",
+  // Keep legacy/diagnostic workspace + environment context aligned.
+  "VELLUM_DATA_DIR",
+  "VELLUM_ENVIRONMENT",
+  // Preserve local control-plane routing when nested commands call APIs.
+  "INTERNAL_GATEWAY_BASE_URL",
+] as const;
+
 function buildHostShellEnv(): Record<string, string> {
   const env = buildSanitizedEnv();
   // Ensure ~/.local/bin and ~/.bun/bin are in PATH so `vellum` and `bun` are
@@ -43,6 +55,29 @@ function buildHostShellEnv(): Record<string, string> {
   if (missing.length > 0) {
     env.PATH = [...missing, currentPath].filter(Boolean).join(":");
   }
+  return env;
+}
+
+function buildHostBashProxyEnv(
+  hostLockdownActive: boolean,
+  conversationId: string,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const key of HOST_BASH_PROXY_ENV_KEYS) {
+    const value = process.env[key];
+    if (value != null && value.length > 0) {
+      env[key] = value;
+    }
+  }
+
+  if (hostLockdownActive) {
+    env.VELLUM_UNTRUSTED_SHELL = "1";
+  }
+
+  // Keep nested `assistant` CLI calls in host_bash aligned with the
+  // originating conversation so browser IPC can resolve live proxy context.
+  env.__CONVERSATION_ID = conversationId;
   return env;
 }
 
@@ -150,11 +185,13 @@ class HostShellTool implements Tool {
         1,
         Math.min(rawSec, shellMaxTimeoutSec),
       );
-      // Propagate VELLUM_UNTRUSTED_SHELL to the proxied client so CLI
-      // commands self-deny raw-secret flows even when executed remotely.
-      const proxyEnv: Record<string, string> | undefined = hostLockdownActive
-        ? { VELLUM_UNTRUSTED_SHELL: "1" }
-        : undefined;
+      // Forward instance-routing env vars so nested `assistant` CLI commands
+      // executed on a proxied host machine can still resolve the correct
+      // daemon IPC socket and workspace, plus lockdown marker when required.
+      const proxyEnv = buildHostBashProxyEnv(
+        hostLockdownActive,
+        context.conversationId,
+      );
       return context.hostBashProxy.request(
         {
           command,
@@ -199,6 +236,9 @@ class HostShellTool implements Tool {
       if (hostLockdownActive) {
         hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
       }
+      // Match `bash` tool behavior so nested assistant CLI calls can bind to
+      // the active conversation when running through host_bash.
+      hostEnv.__CONVERSATION_ID = context.conversationId;
 
       const child = spawn("bash", ["-c", "--", command], {
         cwd: workingDir,

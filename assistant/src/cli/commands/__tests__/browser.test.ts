@@ -117,6 +117,8 @@ beforeEach(() => {
     result: { content: "ok", isError: false },
   };
   process.exitCode = 0;
+  delete process.env.__CONVERSATION_ID;
+  delete process.env.__SKILL_CONTEXT_JSON;
 });
 
 // ---------------------------------------------------------------------------
@@ -359,6 +361,34 @@ describe("IPC payload mapping", () => {
   test("default session is 'default'", async () => {
     await runCommand(["browser", "snapshot"]);
     expect(lastIpcCall!.params!.sessionId).toBe("default");
+  });
+
+  test("uses __CONVERSATION_ID for browser_execute when available", async () => {
+    process.env.__CONVERSATION_ID = "conv-from-env";
+
+    await runCommand(["browser", "status"]);
+
+    expect(lastIpcCall!.params!.conversationId).toBe("conv-from-env");
+  });
+
+  test("prefers __SKILL_CONTEXT_JSON.conversationId over __CONVERSATION_ID", async () => {
+    process.env.__CONVERSATION_ID = "conv-fallback";
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-from-skill",
+    });
+
+    await runCommand(["browser", "status"]);
+
+    expect(lastIpcCall!.params!.conversationId).toBe("conv-from-skill");
+  });
+
+  test("falls back to __CONVERSATION_ID when __SKILL_CONTEXT_JSON is invalid", async () => {
+    process.env.__CONVERSATION_ID = "conv-fallback";
+    process.env.__SKILL_CONTEXT_JSON = "{invalid-json";
+
+    await runCommand(["browser", "status"]);
+
+    expect(lastIpcCall!.params!.conversationId).toBe("conv-fallback");
   });
 
   test("--browser-mode injects browser_mode into input", async () => {

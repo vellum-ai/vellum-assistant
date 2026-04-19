@@ -18,6 +18,7 @@ import {
 } from "../../browser/types.js";
 import type { ContentBlock } from "../../providers/types.js";
 import type { IpcRoute } from "../cli-server.js";
+import { resolveBrowserIpcContext } from "./browser-context.js";
 
 // ── Param validation ─────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ const BrowserExecuteParams = z.object({
   operation: z.enum(BROWSER_OPERATIONS as unknown as [string, ...string[]]),
   input: z.record(z.string(), z.unknown()).default({}),
   sessionId: z.string().min(1).default("default"),
+  conversationId: z.string().min(1).optional(),
 });
 
 // ── Conversation key ─────────────────────────────────────────────────
@@ -64,17 +66,22 @@ function extractScreenshots(
 export const browserExecuteRoute: IpcRoute = {
   method: "browser_execute",
   handler: async (params) => {
-    const { operation, input, sessionId } = BrowserExecuteParams.parse(params);
-
-    const conversationId = browserCliConversationKey(sessionId);
+    const { operation, input, sessionId, conversationId } =
+      BrowserExecuteParams.parse(params);
+    const resolvedContext = resolveBrowserIpcContext({
+      requestedConversationId: conversationId,
+      fallbackConversationId: browserCliConversationKey(sessionId),
+    });
 
     const result = await executeBrowserOperation(
       operation as BrowserOperation,
       input,
       {
         workingDir: process.cwd(),
-        conversationId,
-        trustClass: "guardian",
+        conversationId: resolvedContext.conversationId,
+        trustClass: resolvedContext.trustClass,
+        hostBrowserProxy: resolvedContext.hostBrowserProxy,
+        transportInterface: resolvedContext.transportInterface,
       },
     );
 
