@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "build": "bun run scripts/build.ts",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src/__tests__/"
   },
   "devDependencies": {
+    "@types/bun": "1.3.9",
     "@types/chrome": "0.1.40",
     "typescript": "5.9.3"
   }
