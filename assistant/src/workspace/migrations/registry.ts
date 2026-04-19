@@ -41,6 +41,7 @@ import { seedLatencyCallSiteDefaultsMigration } from "./040-seed-latency-callsit
 import { backfillGoogleGmailSettingsScopeMigration } from "./041-backfill-google-gmail-settings-scope.js";
 import { fixBackfillGoogleGmailSettingsScopeMigration } from "./042-fix-backfill-google-gmail-settings-scope.js";
 import { releaseNotesLatexRenderingMigration } from "./043-release-notes-latex-rendering.js";
+import { bumpStaleProviderStreamTimeoutMigration } from "./044-bump-stale-provider-stream-timeout.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -93,4 +94,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillGoogleGmailSettingsScopeMigration,
   fixBackfillGoogleGmailSettingsScopeMigration,
   releaseNotesLatexRenderingMigration,
+  bumpStaleProviderStreamTimeoutMigration,
 ];
