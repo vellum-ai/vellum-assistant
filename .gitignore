@@ -120,3 +120,4 @@ clients/chrome-extension/vellum-browser-relay.zip
 
 # Drizzle migration files — schema is applied via drizzle-kit push at runtime
 gateway/src/db/migrations/
+clients/chrome-extension/vellum-browser-relay.zip

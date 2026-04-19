@@ -82,10 +82,33 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertEqual(parsed["name"] as? String, "com.vellum.daemon")
         XCTAssertEqual(parsed["description"] as? String, "Vellum assistant native messaging host")
         XCTAssertEqual(parsed["type"] as? String, "stdio")
-        XCTAssertEqual(parsed["path"] as? String, helperBinaryUrl.path)
+        XCTAssertEqual(
+            parsed["path"] as? String,
+            NativeMessagingInstaller.launcherScriptPath(under: mockHome).path
+        )
 
         let origins = try XCTUnwrap(parsed["allowed_origins"] as? [String])
         XCTAssertEqual(origins, [placeholderAllowedOrigin])
+    }
+
+    func testInstallWritesLauncherScriptThatExecsHelper() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            vellumEnvironment: "local",
+            homeDirectory: mockHome,
+            fileManager: .default
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: launcherUrl.path),
+            "launcher script should be written alongside the manifest"
+        )
+
+        let contents = try String(contentsOf: launcherUrl, encoding: .utf8)
+        XCTAssertTrue(contents.contains("export VELLUM_ENVIRONMENT='local'"))
+        XCTAssertTrue(contents.contains("exec '\(helperBinaryUrl.path)' \"$@\""))
     }
 
     func testInstallSetsManifestPermissionsTo0o644() throws {
@@ -103,6 +126,20 @@ final class NativeMessagingInstallerTests: XCTestCase {
         let attrs = try FileManager.default.attributesOfItem(atPath: manifestUrl.path)
         let perms = try XCTUnwrap(attrs[.posixPermissions] as? NSNumber)
         XCTAssertEqual(perms.intValue, 0o644)
+    }
+
+    func testInstallSetsLauncherPermissionsTo0o755() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            homeDirectory: mockHome,
+            fileManager: .default
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        let attrs = try FileManager.default.attributesOfItem(atPath: launcherUrl.path)
+        let perms = try XCTUnwrap(attrs[.posixPermissions] as? NSNumber)
+        XCTAssertEqual(perms.intValue, 0o755)
     }
 
     func testInstallCreatesIntermediateNativeMessagingHostsDirectory() throws {
@@ -161,7 +198,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
 
         XCTAssertEqual(
             parsed["path"] as? String,
-            helperBinaryUrl.path,
+            NativeMessagingInstaller.launcherScriptPath(under: mockHome).path,
             "second install should overwrite the stale path"
         )
         XCTAssertEqual(
@@ -274,7 +311,9 @@ final class NativeMessagingInstallerTests: XCTestCase {
         let manifestUrl = NativeMessagingInstaller
             .manifestDirectory(under: mockHome)
             .appendingPathComponent("com.vellum.daemon.json")
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
         XCTAssertTrue(FileManager.default.fileExists(atPath: manifestUrl.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: launcherUrl.path))
 
         try NativeMessagingInstaller.uninstallChromeManifest(
             homeDirectory: mockHome,
@@ -284,6 +323,10 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: manifestUrl.path),
             "manifest should be removed after uninstall"
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: launcherUrl.path),
+            "launcher should be removed after uninstall"
         )
     }
 
