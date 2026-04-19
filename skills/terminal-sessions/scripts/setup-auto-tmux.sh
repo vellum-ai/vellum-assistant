@@ -104,13 +104,16 @@ uninstall() {
 
   # Remove the block between markers (inclusive)
   # Use a temp file for portability (macOS sed -i is different from GNU)
-  local tmp_file
+  local tmp_file orig_mode
   tmp_file="$(mktemp)"
+  # Capture original permissions before overwriting
+  orig_mode="$(stat -f '%Lp' "$rc_file" 2>/dev/null || stat -c '%a' "$rc_file" 2>/dev/null || echo '644')"
   awk "
     /$MARKER_START/{skip=1; next}
     /$MARKER_END/{skip=0; next}
     !skip
   " "$rc_file" > "$tmp_file"
+  chmod "$orig_mode" "$tmp_file"
   mv "$tmp_file" "$rc_file"
 
   echo "✓ Auto-tmux removed from $rc_file"
