@@ -20,6 +20,7 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
+  assembleSlackActiveThreadFocusBlock,
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
@@ -29,6 +30,7 @@ import {
   injectNowScratchpad,
   injectSubagentStatus,
   isGroupChatType,
+  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
@@ -2556,6 +2558,582 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       () => [],
     );
     expect(result).toBeNull();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Active-thread focus block (PR 24)
+  // ───────────────────────────────────────────────────────────────────────
+  //
+  // The focus block is appended (tail) to the FINAL user turn ONLY when
+  // the inbound message lives inside a Slack thread. It surfaces parent +
+  // replies (and reactions targeting them) so the model can orient even
+  // when the channel-wide chronological transcript is long and
+  // interleaved. The block is non-persisted: replays / re-injections strip
+  // any prior `<active_thread>` blocks via `RUNTIME_INJECTION_PREFIXES`.
+
+  // Re-run a Slack-channel turn through the public assembly path with the
+  // active-thread focus block plumbed in (mirrors production wiring in
+  // conversation-agent-loop.ts).
+  async function runSlackChannelAssemblyWithFocus(
+    rows: MessageRow[],
+  ): Promise<{
+    messages: Message[];
+    focusBlock: string | null;
+  }> {
+    const slackChannelCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const slackChronologicalMessages = loadSlackChronologicalMessages(
+      "conv-1",
+      slackChannelCaps,
+      () => rows,
+    );
+    const focusBlock = loadSlackActiveThreadFocusBlock(
+      "conv-1",
+      slackChannelCaps,
+      () => rows,
+    );
+    const lastUserMessage: Message = {
+      role: "user",
+      content: [{ type: "text", text: "current turn" }],
+    };
+    const messages = await applyRuntimeInjections([lastUserMessage], {
+      channelCapabilities: slackChannelCaps,
+      slackChronologicalMessages,
+      slackActiveThreadFocusBlock: focusBlock,
+    });
+    return { messages, focusBlock };
+  }
+
+  test("appends <active_thread> focus block when inbound is a thread reply", async () => {
+    // Channel transcript with two interleaved threads. The latest user row
+    // is a reply in thread A — the focus block must list thread A's parent
+    // and replies, including the new reply, but exclude thread B entirely.
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m1",
+        createdAt: 1700000000_000,
+        text: "Top-level in thread A",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+      userRow({
+        id: "m2",
+        createdAt: 1700000010_000,
+        text: "Top-level in thread B",
+        slackMeta: buildSlackMeta({ channelTs: T1, displayName: "bob" }),
+      }),
+      userRow({
+        id: "m3",
+        createdAt: 1700000015_000,
+        text: "Cross-thread reply in B",
+        slackMeta: buildSlackMeta({
+          channelTs: "1700000015.000001",
+          threadTs: T1,
+          displayName: "bob",
+        }),
+      }),
+      // Inbound (latest user row): reply in thread A.
+      userRow({
+        id: "m4",
+        createdAt: 1700000020_000,
+        text: "New reply in thread A",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+    ];
+
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+    );
+
+    // Block was built and is non-empty.
+    expect(focusBlock).not.toBeNull();
+    expect(focusBlock!).toContain("<active_thread>");
+    expect(focusBlock!).toContain("</active_thread>");
+    // Parent (T0) is included, both by content and via the parent alias.
+    expect(focusBlock!).toContain("Top-level in thread A");
+    // The new reply is included.
+    expect(focusBlock!).toContain("New reply in thread A");
+    expect(focusBlock!).toContain(`→ ${ALIAS_T0}`);
+    // Thread B's content is NOT in the focus block.
+    expect(focusBlock!).not.toContain("Top-level in thread B");
+    expect(focusBlock!).not.toContain("Cross-thread reply in B");
+    expect(focusBlock!).not.toContain(`→ ${ALIAS_T1}`);
+
+    // The focus block is appended to the FINAL user message as a tail
+    // text block — not to any earlier message.
+    const lastMsg = messages[messages.length - 1];
+    expect(lastMsg.role).toBe("user");
+    const lastTexts = lastMsg.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(lastTexts.some((t) => t.startsWith("<active_thread>"))).toBe(true);
+
+    // Earlier rendered messages do NOT carry the focus block.
+    for (let i = 0; i < messages.length - 1; i++) {
+      const earlierTexts = messages[i].content
+        .filter((b): b is { type: "text"; text: string } => b.type === "text")
+        .map((b) => b.text);
+      for (const t of earlierTexts) {
+        expect(t).not.toContain("<active_thread>");
+      }
+    }
+  });
+
+  test("includes reactions on thread messages in the focus block", async () => {
+    // Thread A has a parent + reply; reactions hang off both. The focus
+    // block must list the reactions (rendered by `renderSlackTranscript`'s
+    // existing reaction-line format) so the model sees the engagement.
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m1",
+        createdAt: 1700000000_000,
+        text: "Thread A parent",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+      // Reaction on the parent.
+      userRow({
+        id: "m2",
+        createdAt: 1700000003_000,
+        text: "[reaction]",
+        slackMeta: buildSlackMeta({
+          channelTs: "1700000003.111111",
+          // Reactions live on the channel timeline, not inside a
+          // particular thread; targetChannelTs is the load-bearing field.
+          eventKind: "reaction",
+          displayName: "carol",
+          reaction: {
+            emoji: "thumbsup",
+            targetChannelTs: T0,
+            op: "added",
+          },
+        }),
+      }),
+      // Reply in thread A (this is the inbound — most recent user row).
+      userRow({
+        id: "m3",
+        createdAt: 1700000010_000,
+        text: "Thread A reply",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY1,
+          threadTs: T0,
+          displayName: "bob",
+        }),
+      }),
+      // Reaction on the reply (added AFTER the reply, before the assembly).
+      userRow({
+        id: "m4",
+        createdAt: 1700000012_000,
+        text: "[reaction]",
+        slackMeta: buildSlackMeta({
+          channelTs: "1700000012.222222",
+          eventKind: "reaction",
+          displayName: "dave",
+          reaction: {
+            emoji: "eyes",
+            targetChannelTs: T0_REPLY1,
+            op: "added",
+          },
+        }),
+      }),
+      // The actual inbound user row that triggers the focus — a fresh
+      // reply in the same thread (so detectActiveThreadTs picks T0).
+      userRow({
+        id: "m5",
+        createdAt: 1700000020_000,
+        text: "Another reply in thread A",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+    ];
+
+    const { focusBlock } = await runSlackChannelAssemblyWithFocus(rows);
+    expect(focusBlock).not.toBeNull();
+    // Both reactions surface in the block (parent + reply targets).
+    expect(focusBlock!).toContain("reacted");
+    expect(focusBlock!).toContain("thumbsup");
+    expect(focusBlock!).toContain("eyes");
+    // Reactions reference the parent alias for visual grounding.
+    expect(focusBlock!).toContain(ALIAS_T0);
+  });
+
+  test("no focus block when inbound is a top-level message", async () => {
+    // Latest user row is top-level (no threadTs) — focus block must be
+    // null and applyRuntimeInjections must NOT append `<active_thread>`.
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m1",
+        createdAt: 1700000000_000,
+        text: "Earlier top-level",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+      userRow({
+        id: "m2",
+        createdAt: 1700000030_000,
+        text: "Brand-new top-level (the inbound)",
+        slackMeta: buildSlackMeta({ channelTs: T2, displayName: "carol" }),
+      }),
+    ];
+
+    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
+      rows,
+    );
+    expect(focusBlock).toBeNull();
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("<active_thread>");
+  });
+
+  test("focus blocks are stripped from prior turns on rebuild (no accumulation)", async () => {
+    // Simulate a multi-turn exchange: turn 1 yields a user message that
+    // already carries an `<active_thread>` block (because the previous
+    // turn's assembly appended it). The compaction-stripping pipeline must
+    // remove the focus block so it does not persist into the next turn's
+    // history.
+    const userMessageWithStaleFocus: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "actual user content from prior turn" },
+        {
+          type: "text",
+          text: "<active_thread>\n[14:25 @alice]: old focus\n</active_thread>",
+        },
+      ],
+    };
+    const stripped = stripInjectionsForCompaction([userMessageWithStaleFocus]);
+    expect(stripped.length).toBe(1);
+    const remainingTexts = stripped[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    expect(remainingTexts).toContain("actual user content from prior turn");
+    for (const t of remainingTexts) {
+      expect(t).not.toContain("<active_thread>");
+    }
+  });
+
+  test("focus block is dropped when injection is replayed (rebuilds re-derive it)", async () => {
+    // Defensive: the `<active_thread>` block is a per-turn injection. When
+    // overflow recovery / compaction re-runs `applyRuntimeInjections` on
+    // already-injected messages, prior `<active_thread>` blocks must be
+    // stripped so the rebuild's freshly-derived block is the only one
+    // present. We simulate by building a Slack channel turn, then
+    // running the strip pipeline + applying injections again with a
+    // different focus block to confirm no duplication occurs.
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m1",
+        createdAt: 1700000000_000,
+        text: "Thread A parent",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+      userRow({
+        id: "m2",
+        createdAt: 1700000020_000,
+        text: "Reply in thread A",
+        slackMeta: buildSlackMeta({
+          channelTs: T0_REPLY2,
+          threadTs: T0,
+          displayName: "alice",
+        }),
+      }),
+    ];
+
+    const { messages: firstPassMessages } =
+      await runSlackChannelAssemblyWithFocus(rows);
+
+    // Strip injected blocks (this is what the overflow / compaction path
+    // does between rebuilds).
+    const stripped = stripInjectionsForCompaction(firstPassMessages);
+    const strippedTexts = stripped
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(strippedTexts).not.toContain("<active_thread>");
+
+    // Re-run injection with a fresh focus block — only ONE
+    // `<active_thread>` block must end up in the result.
+    const slackChannelCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const newFocus = "<active_thread>\nnewly built\n</active_thread>";
+    const reInjected = await applyRuntimeInjections(stripped, {
+      channelCapabilities: slackChannelCaps,
+      slackActiveThreadFocusBlock: newFocus,
+    });
+    const reInjectedTexts = reInjected
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text);
+    const blockCount = reInjectedTexts.filter((t) =>
+      t.startsWith("<active_thread>"),
+    ).length;
+    expect(blockCount).toBe(1);
+    expect(
+      reInjectedTexts.find((t) => t.startsWith("<active_thread>")),
+    ).toContain("newly built");
+  });
+
+  test("non-slack conversations ignore slackActiveThreadFocusBlock", async () => {
+    // Defensive: the focus injection is gated on `slackChannel` (i.e.
+    // `isSlackChannelConversation`). Even if a caller mistakenly forwards
+    // a focus block on a non-Slack channel, it must NOT be appended.
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
+      {
+        channelCapabilities: {
+          channel: "vellum",
+          dashboardCapable: true,
+          supportsDynamicUi: true,
+          supportsVoiceInput: true,
+        },
+        slackActiveThreadFocusBlock:
+          "<active_thread>\nbogus\n</active_thread>",
+      },
+    );
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("<active_thread>");
+    expect(allText).toContain("vellum question");
+  });
+
+  test("slack DMs ignore slackActiveThreadFocusBlock", async () => {
+    // Same as above but for Slack DMs (chatType === "im"). The focus
+    // injection is keyed on `isSlackChannelConversation` which excludes
+    // DMs, so the block must not appear.
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
+      {
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        slackActiveThreadFocusBlock:
+          "<active_thread>\nbogus\n</active_thread>",
+      },
+    );
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("<active_thread>");
+    expect(allText).toContain("DM question");
+  });
+
+  test("loadSlackActiveThreadFocusBlock returns null for non-slack channels", () => {
+    const result = loadSlackActiveThreadFocusBlock(
+      "conv-1",
+      {
+        channel: "telegram",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "private",
+      },
+      () => [],
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleSlackActiveThreadFocusBlock — pure assembly entrypoint
+// ---------------------------------------------------------------------------
+
+describe("assembleSlackActiveThreadFocusBlock", () => {
+  const SLACK_CHANNEL_ID = "C0FOCUS";
+  const PARENT_TS = "1700000000.000001";
+  const REPLY_TS = "1700000010.000002";
+
+  const SLACK_CAPS: ChannelCapabilities = {
+    channel: "slack",
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
+    chatType: "channel",
+  };
+
+  function buildMeta(
+    overrides: Partial<SlackMessageMetadata>,
+  ): SlackMessageMetadata {
+    return {
+      source: "slack",
+      channelId: SLACK_CHANNEL_ID,
+      channelTs: overrides.channelTs ?? PARENT_TS,
+      eventKind: "message",
+      ...overrides,
+    } as SlackMessageMetadata;
+  }
+
+  function envelope(meta: SlackMessageMetadata | null): string {
+    const outer: Record<string, unknown> = {};
+    if (meta) outer.slackMeta = writeSlackMetadata(meta);
+    return JSON.stringify(outer);
+  }
+
+  function buildRow(
+    role: "user" | "assistant",
+    text: string,
+    createdAt: number,
+    meta: SlackMessageMetadata | null,
+  ): SlackTranscriptInputRow {
+    return {
+      role,
+      content: JSON.stringify([{ type: "text", text }]),
+      createdAt,
+      metadata: meta ? envelope(meta) : null,
+    };
+  }
+
+  test("returns null when channel is not Slack", () => {
+    const result = assembleSlackActiveThreadFocusBlock([], {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "private",
+    });
+    expect(result).toBeNull();
+  });
+
+  test("returns null when no rows have slackMeta", () => {
+    const result = assembleSlackActiveThreadFocusBlock(
+      [buildRow("user", "legacy", 1_000, null)],
+      SLACK_CAPS,
+    );
+    expect(result).toBeNull();
+  });
+
+  test("returns null when latest user row is top-level (no threadTs)", () => {
+    // Active thread detection scans newest-to-oldest user rows and stops
+    // at the first one with slackMeta — if it's top-level, no focus
+    // block is built.
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "older thread reply",
+        1_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+      buildRow(
+        "user",
+        "fresh top-level",
+        2_000,
+        buildMeta({ channelTs: "1700000099.000001", displayName: "@bob" }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).toBeNull();
+  });
+
+  test("collects parent + replies + reactions on the active thread", () => {
+    const rows: SlackTranscriptInputRow[] = [
+      // Parent of the active thread.
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      // Top-level message in a SIBLING thread (must NOT appear in the block).
+      buildRow(
+        "user",
+        "Sibling top-level",
+        1_500,
+        buildMeta({
+          channelTs: "1700000005.999999",
+          displayName: "@bob",
+        }),
+      ),
+      // Reaction on parent (must appear).
+      buildRow(
+        "user",
+        "[reaction]",
+        1_800,
+        buildMeta({
+          channelTs: "1700000008.111111",
+          eventKind: "reaction",
+          displayName: "@carol",
+          reaction: {
+            emoji: "tada",
+            targetChannelTs: PARENT_TS,
+            op: "added",
+          },
+        }),
+      ),
+      // Inbound: reply in active thread (latest user row).
+      buildRow(
+        "user",
+        "Reply",
+        2_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("<active_thread>");
+    expect(result!).toContain("</active_thread>");
+    expect(result!).toContain("Parent");
+    expect(result!).toContain("Reply");
+    expect(result!).toContain("tada");
+    // Sibling content is NOT pulled in.
+    expect(result!).not.toContain("Sibling top-level");
+  });
+
+  test("emits a block even when the parent has not been backfilled yet", () => {
+    // The inbound reply detects an `activeThreadTs` from its own
+    // `threadTs`, but the parent (`channelTs === activeThreadTs`) has not
+    // landed in storage yet (backfill pending). The block must still emit
+    // — the reply itself is a member (its own threadTs matches) so the
+    // renderer has at least one line to write.
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Lone reply",
+        1_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("Lone reply");
+    expect(result!).toContain("<active_thread>");
   });
 });
 

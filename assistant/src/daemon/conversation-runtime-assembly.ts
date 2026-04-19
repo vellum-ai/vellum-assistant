@@ -1329,6 +1329,149 @@ export function loadSlackChronologicalMessages(
   return assembleSlackChronologicalMessages(rows, capabilities);
 }
 
+// ---------------------------------------------------------------------------
+// Active-thread focus block (non-persisted; appended to current user turn)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the "active" Slack thread ts for the current turn.
+ *
+ * The active thread is the thread the current inbound user message belongs
+ * to: scan from newest to oldest and return the `slackMeta.threadTs` of the
+ * most recent user row that carries one. Returns `null` when no recent user
+ * row sits inside a thread (e.g. the inbound was a top-level channel post,
+ * or the conversation has no Slack-tagged user rows yet).
+ *
+ * Pure: takes pre-mapped renderable rows and returns the ts string only.
+ */
+function detectActiveThreadTs(
+  rows: RenderableSlackMessage[],
+): string | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row.role !== "user") continue;
+    const meta = row.metadata;
+    if (!meta) continue;
+    if (meta.eventKind !== "message") continue;
+    if (typeof meta.threadTs === "string" && meta.threadTs.length > 0) {
+      return meta.threadTs;
+    }
+    // First non-thread user row wins: the inbound is top-level, no active
+    // thread to focus on.
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Build a focus block listing every message belonging to the active thread:
+ * the parent (whose `channelTs` equals `activeThreadTs`) plus every reply
+ * (whose `threadTs` equals `activeThreadTs`). Reactions targeting any of
+ * those messages are also pulled in via their `targetChannelTs`. Edits and
+ * deletions surface through the existing renderer markers.
+ *
+ * Returns `null` when no rows match (e.g. parent backfill hasn't run yet
+ * AND the thread has no replies in storage either) so the caller can skip
+ * the empty block. Otherwise returns the rendered XML block ready to append
+ * to the user's tail message.
+ *
+ * Pure: takes pre-mapped renderable rows + a thread ts, returns text only.
+ */
+function buildActiveThreadBlockFromRenderable(
+  rows: RenderableSlackMessage[],
+  activeThreadTs: string,
+): string | null {
+  const members: RenderableSlackMessage[] = [];
+  for (const row of rows) {
+    const meta = row.metadata;
+    if (!meta) continue;
+    if (meta.eventKind === "message") {
+      if (
+        meta.channelTs === activeThreadTs ||
+        meta.threadTs === activeThreadTs
+      ) {
+        members.push(row);
+      }
+      continue;
+    }
+    if (
+      meta.eventKind === "reaction" &&
+      meta.reaction &&
+      meta.reaction.targetChannelTs === activeThreadTs
+    ) {
+      members.push(row);
+      continue;
+    }
+    // Reactions targeting a reply within the thread also belong in the
+    // focus block — collect them by checking the reaction target against
+    // any thread reply's channelTs we've already accepted. We do this in a
+    // second pass below to avoid an O(n^2) inner scan here.
+  }
+
+  // Second pass: pull in reactions whose target is one of the already-
+  // collected reply messages. Using a Set keeps this O(n).
+  const memberChannelTs = new Set(
+    members
+      .map((m) => m.metadata?.channelTs)
+      .filter((v): v is string => typeof v === "string"),
+  );
+  for (const row of rows) {
+    const meta = row.metadata;
+    if (!meta || meta.eventKind !== "reaction" || !meta.reaction) continue;
+    if (meta.reaction.targetChannelTs === activeThreadTs) continue; // already added
+    if (memberChannelTs.has(meta.reaction.targetChannelTs)) {
+      members.push(row);
+    }
+  }
+
+  if (members.length === 0) return null;
+
+  const rendered = renderSlackTranscript(members);
+  if (rendered.length === 0) return null;
+  const lines = rendered.map((r) => r.content).join("\n");
+  return `<active_thread>\n${lines}\n</active_thread>`;
+}
+
+/**
+ * Build the Slack active-thread focus block from raw rows.
+ *
+ * Pure assembly entrypoint mirroring `assembleSlackChronologicalMessages`.
+ * Returns the rendered `<active_thread>` block as a string, or `null` when:
+ *   - the channel is not Slack, OR
+ *   - the latest user row is top-level (not in a thread), OR
+ *   - no rows belong to the active thread.
+ */
+export function assembleSlackActiveThreadFocusBlock(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+): string | null {
+  if (capabilities.channel !== "slack") return null;
+  const renderable = rows.map(rowToRenderable);
+  const activeThreadTs = detectActiveThreadTs(renderable);
+  if (!activeThreadTs) return null;
+  return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);
+}
+
+/**
+ * Loader convenience over `assembleSlackActiveThreadFocusBlock` mirroring
+ * `loadSlackChronologicalMessages`. Returns `null` when the channel is not
+ * Slack so callers can skip the injection entirely.
+ */
+export function loadSlackActiveThreadFocusBlock(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  loader: (id: string) => MessageRow[] = defaultGetMessages,
+): string | null {
+  if (capabilities.channel !== "slack") return null;
+  const rows: SlackTranscriptInputRow[] = loader(conversationId).map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
+  return assembleSlackActiveThreadFocusBlock(rows, capabilities);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
@@ -1360,6 +1503,10 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>",
   "<system_reminder>",
   "<transport_hints>",
+  // The Slack active-thread focus block is non-persisted and injected on
+  // the FINAL user turn only. Strip it here so re-assembly during compaction
+  // and overflow recovery does not duplicate it across turns.
+  "<active_thread>",
   "<system_notice>One or more tool calls returned an error.",
 ];
 
@@ -1470,6 +1617,21 @@ export async function applyRuntimeInjections(
      * and remains easy to test.
      */
     slackChronologicalMessages?: Message[] | null;
+    /**
+     * Pre-rendered `<active_thread>` focus block listing the messages of
+     * the thread the current inbound user message belongs to.
+     *
+     * Appended (tail-block) to the FINAL user message ONLY when
+     * `channelCapabilities` describes a Slack non-DM channel. The block is
+     * non-persisted: history rebuilds re-derive it from storage on each
+     * turn, and `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>`
+     * blocks from prior turns so they do not accumulate.
+     *
+     * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
+     * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
+     * `undefined` when the inbound is a top-level (non-thread) post.
+     */
+    slackActiveThreadFocusBlock?: string | null;
     mode?: InjectionMode;
   },
 ): Promise<Message[]> {
@@ -1670,6 +1832,35 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectTransportHints(userTail, options.transportHints),
+      ];
+    }
+  }
+
+  // Slack active-thread focus block: when the inbound user message lives
+  // inside a thread, append a non-persisted `<active_thread>` tail block
+  // listing that thread's parent + replies so the model can orient even
+  // when the channel-wide chronological transcript is long and
+  // interleaved. Stripped on subsequent rebuilds via the
+  // `RUNTIME_INJECTION_PREFIXES` list so focus blocks never accumulate.
+  if (
+    slackChannel &&
+    typeof options.slackActiveThreadFocusBlock === "string" &&
+    options.slackActiveThreadFocusBlock.length > 0
+  ) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content,
+            {
+              type: "text" as const,
+              text: options.slackActiveThreadFocusBlock,
+            },
+          ],
+        },
       ];
     }
   }

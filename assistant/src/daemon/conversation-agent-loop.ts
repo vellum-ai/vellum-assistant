@@ -124,6 +124,7 @@ import {
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   isSlackChannelConversation,
+  loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
   readNowScratchpad,
   readPkbContext,
@@ -907,6 +908,20 @@ export async function runAgentLoopImpl(
         )
       : null;
 
+    // Active-thread focus block: when the inbound user message belongs to
+    // a Slack thread, append a non-persisted `<active_thread>` tail block
+    // to the final user turn listing the thread's parent + replies. Helps
+    // the model orient when the channel transcript is long and
+    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
+    const slackActiveThreadFocusBlock = isSlackChannelConversation(
+      ctx.channelCapabilities,
+    )
+      ? loadSlackActiveThreadFocusBlock(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+        )
+      : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -931,6 +946,7 @@ export async function runAgentLoopImpl(
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
       slackChronologicalMessages,
+      slackActiveThreadFocusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
