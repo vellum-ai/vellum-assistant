@@ -456,6 +456,28 @@ export function createHttpServer(
       const controller = new AbortController();
       activeStreams.set(streamId, { controller, handle });
 
+      // PR 9: wire the playback-timestamp stream into the active
+      // avatar renderer so viseme-driven renderers (TalkingHead.js)
+      // can align their frame emission to actual audio playback time
+      // instead of to viseme-arrival time. Non-viseme renderers
+      // (Simli/HeyGen/Tavus/SadTalker/MuseTalk) leave
+      // `notifyPlaybackTimestamp` undefined on the interface, so the
+      // wiring is a no-op for them — this timing fix is inert for
+      // hosted / GPU-sidecar backends whose audio-to-motion timing is
+      // owned server-side.
+      const renderer = avatarRenderer;
+      let unsubscribePlaybackTimestamp: (() => void) | null = null;
+      if (
+        renderer !== null &&
+        renderer.capabilities.needsVisemes &&
+        typeof renderer.notifyPlaybackTimestamp === "function"
+      ) {
+        const notify = renderer.notifyPlaybackTimestamp.bind(renderer);
+        unsubscribePlaybackTimestamp = handle.onPlaybackTimestamp((ts) => {
+          notify(ts);
+        });
+      }
+
       // Observability hook — invoked fire-and-forget so slow callbacks don't
       // stall the audio pipeline.
       void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
@@ -470,6 +492,7 @@ export function createHttpServer(
         } catch {
           // Best-effort; silence is cosmetic.
         }
+        unsubscribePlaybackTimestamp?.();
         return c.json({ streamId, bytes: 0 }, 200);
       }
 
@@ -538,6 +561,10 @@ export function createHttpServer(
         } catch {
           // Best-effort.
         }
+        // Drop the playback→renderer bridge so a stale closure doesn't
+        // keep a reference to a renderer that might be torn down by a
+        // concurrent /avatar/disable.
+        unsubscribePlaybackTimestamp?.();
       }
 
       if (writeError) {

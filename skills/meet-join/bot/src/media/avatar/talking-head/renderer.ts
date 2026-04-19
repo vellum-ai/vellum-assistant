@@ -40,16 +40,19 @@
  * TalkingHead.js lip-syncs from discrete viseme events. This renderer
  * advertises `{ needsVisemes: true, needsAudio: true }`:
  *
- * - When viseme events flow in via `pushViseme`, they're forwarded
- *   directly (the renderer is a thin transport shim — TalkingHead.js
- *   owns the blend-shape math inside the avatar tab).
- * - `pushAudio` is accepted so the renderer can derive an amplitude
- *   fallback when no upstream viseme stream is active. For v1 we
- *   don't synthesize amplitude visemes inside the renderer — PR 9
- *   (audio-playback alignment) will add that path. For now
- *   `pushAudio` is a no-op on the wire; we still accept it to keep
- *   the capability surface stable and avoid changing the shape in a
- *   follow-up PR.
+ * - Incoming viseme events are BUFFERED by the renderer and only
+ *   forwarded to the extension once the audio-playback clock catches
+ *   up to each viseme's declared `timestamp`. This removes visible
+ *   drift caused by network jitter between the daemon and the bot:
+ *   a viseme that arrives 100ms before its audio lands is held until
+ *   the audio actually plays, then released.
+ * - `notifyPlaybackTimestamp(ts)` advances the internal playback
+ *   clock. The bot's HTTP server wires the audio-playback handle's
+ *   `onPlaybackTimestamp` stream to this method so every PCM write
+ *   into `bot_out` bumps the renderer's clock forward.
+ * - `pushAudio` is accepted for interface conformance but is a no-op.
+ *   The renderer derives all timing information from the
+ *   playback-timestamp stream, not from direct audio chunks.
  *
  * ## Frame transcoding
  *
@@ -206,6 +209,23 @@ export class TalkingHeadRenderer implements AvatarRenderer {
 
   private subscribers: Array<(frame: Y4MFrame) => void> = [];
 
+  /**
+   * Visemes held back until the audio-playback clock catches up to
+   * their `timestamp`. Stored in arrival order — the flush step
+   * preserves input order while only releasing events whose timestamp
+   * is `<= currentPlaybackTimestamp`. A small per-speech burst (say
+   * 50-100 visemes at 20 fps over a 2-5 s utterance) keeps this
+   * array's working set trivially small; we don't need a heap.
+   */
+  private readonly visemeBuffer: VisemeEvent[] = [];
+
+  /**
+   * The latest playback timestamp observed from the audio-playback
+   * stream. `-Infinity` means "no audio has been queued yet" — every
+   * viseme is held until the first notification arrives.
+   */
+  private currentPlaybackTimestamp = Number.NEGATIVE_INFINITY;
+
   constructor(opts: TalkingHeadRendererOptions) {
     if (!opts.nativeMessaging) {
       throw new AvatarRendererUnavailableError(
@@ -328,27 +348,88 @@ export class TalkingHeadRenderer implements AvatarRenderer {
     }
     this.inFlightTranscodes.clear();
 
+    // Drop any buffered visemes that never made it out. They belonged
+    // to a now-stopped session; replaying them against a future
+    // renderer would be meaningless.
+    this.visemeBuffer.length = 0;
+
     // Drop every subscriber so late frames (which should not arrive
     // after dispose, but defensively) cannot dispatch.
     this.subscribers = [];
   }
 
   pushAudio(_pcm: Uint8Array, _ts: number): void {
-    // v1: no-op. PR 9 will synthesize amplitude-envelope visemes from
-    // the audio stream when no upstream viseme stream is active.
+    // The renderer derives timing information from the playback-
+    // timestamp stream (see `notifyPlaybackTimestamp`), not from the
+    // raw PCM chunks the daemon pushes. This method remains callable
+    // for interface conformance but is a deliberate no-op.
   }
 
   pushViseme(event: VisemeEvent): void {
     if (!this.channel || this.stopped) return;
-    try {
-      this.channel.pushViseme(event);
-    } catch (err) {
-      // A disconnected socket is a symptom, not a fatal — the meeting
-      // should continue even if lip-sync is dropped.
-      this.logger?.warn?.("talking-head: pushViseme dispatch failed", {
-        error: err instanceof Error ? err.message : String(err),
-        phoneme: event.phoneme,
-      });
+    // Hold every viseme until the audio-playback clock catches up to
+    // its timestamp. If the audio is already ahead (e.g. the viseme
+    // arrived late or the clock was already advanced by an earlier
+    // flush), the buffer flush immediately below will drain it
+    // synchronously.
+    this.visemeBuffer.push(event);
+    this.flushBufferedVisemes();
+  }
+
+  /**
+   * Advance the renderer's playback clock. Called by the audio-
+   * playback handle's `onPlaybackTimestamp` stream (wired up by the
+   * bot's HTTP server when a playback stream is active). Any buffered
+   * visemes whose `timestamp <= ts` are forwarded to the extension in
+   * arrival order; the rest remain held until the next notification.
+   *
+   * This method is safe to call before `start()` (it will only buffer
+   * the clock advance) and after `stop()` (no-op — the channel is
+   * gone). It is a no-op when `ts` is not greater than the current
+   * timestamp, so repeated identical notifications are idempotent.
+   */
+  notifyPlaybackTimestamp(ts: number): void {
+    if (this.stopped) return;
+    if (ts <= this.currentPlaybackTimestamp) return;
+    this.currentPlaybackTimestamp = ts;
+    this.flushBufferedVisemes();
+  }
+
+  /**
+   * Drain every buffered viseme whose declared `timestamp` is
+   * `<= currentPlaybackTimestamp`, forwarding each to the extension in
+   * arrival order. Buffered visemes that remain in the future relative
+   * to the playback clock stay in place.
+   *
+   * Kept in a single helper so `pushViseme` and
+   * `notifyPlaybackTimestamp` share exactly one dispatch path — making
+   * it impossible for the two entry points to diverge on ordering.
+   */
+  private flushBufferedVisemes(): void {
+    if (!this.channel || this.stopped) return;
+    if (this.visemeBuffer.length === 0) return;
+
+    // We release from the head of the buffer in arrival order; as
+    // soon as we hit a viseme that's still in the future we stop.
+    // Visemes with out-of-order timestamps (which the daemon SHOULD
+    // never produce, but we guard anyway) are released as soon as
+    // they reach the head of the queue — we trust the daemon's
+    // ordering over raw timestamp comparison because the extension
+    // expects events in the order they were intended to play.
+    while (this.visemeBuffer.length > 0) {
+      const next = this.visemeBuffer[0]!;
+      if (next.timestamp > this.currentPlaybackTimestamp) break;
+      this.visemeBuffer.shift();
+      try {
+        this.channel.pushViseme(next);
+      } catch (err) {
+        // A disconnected socket is a symptom, not a fatal — the
+        // meeting should continue even if lip-sync is dropped.
+        this.logger?.warn?.("talking-head: pushViseme dispatch failed", {
+          error: err instanceof Error ? err.message : String(err),
+          phoneme: next.phoneme,
+        });
+      }
     }
   }
 

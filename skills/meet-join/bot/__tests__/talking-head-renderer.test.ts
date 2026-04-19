@@ -259,7 +259,7 @@ describe("TalkingHeadRenderer", () => {
     ).toHaveLength(1);
   });
 
-  test("pushViseme forwards as avatar.push_viseme", async () => {
+  test("pushViseme forwards as avatar.push_viseme once the playback clock catches up", async () => {
     const nativeMessaging = new FakeNativeMessaging();
     const r = new TalkingHeadRenderer({
       nativeMessaging,
@@ -269,8 +269,13 @@ describe("TalkingHeadRenderer", () => {
     nativeMessaging.emit({ type: "avatar.started" });
     await startPromise;
 
+    // PR 9: visemes are held until the audio-playback clock catches
+    // up to their declared timestamp. Advance the clock past both
+    // visemes' timestamps so the buffer drains and the extension sees
+    // both events in arrival order.
     r.pushViseme({ phoneme: "ah", weight: 0.8, timestamp: 500 });
     r.pushViseme({ phoneme: "ee", weight: 0.4, timestamp: 550 });
+    r.notifyPlaybackTimestamp(550);
 
     const pushed = nativeMessaging.sent.filter(
       (m) => m.type === "avatar.push_viseme",
