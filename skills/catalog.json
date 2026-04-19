@@ -30,6 +30,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "chatgpt-import",
+      "name": "chatgpt-import",
+      "description": "Import conversation history from ChatGPT into Vellum",
+      "metadata": {
+        "emoji": "📥",
+        "vellum": {
+          "display-name": "ChatGPT Import"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "cli-discover",
       "name": "cli-discover",
       "description": "Discover which CLI tools are installed, their versions, and authentication status",

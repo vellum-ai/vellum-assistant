@@ -22,8 +22,6 @@ import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
-// ── chatgpt-import ─────────────────────────────────────────────────────────────
-import * as chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
 // ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
@@ -147,9 +145,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
-
-  // chatgpt-import
-  ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],
 
   // computer-use
   ["computer-use:tools/computer-use-observe.ts", computerUseObserve],
