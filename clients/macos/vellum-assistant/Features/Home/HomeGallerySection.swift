@@ -18,6 +18,51 @@ struct HomeGallerySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
 
+            // MARK: - MeetStatusPanel
+
+            if filter == nil || filter == "meetStatusPanel" {
+                GallerySectionHeader(
+                    title: "MeetStatusPanel",
+                    description: "Top-of-gallery banner that reflects live Meet bot state via meet.* SSE events. Idle state returns EmptyView."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Joining")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        MeetStatusPanel(
+                            viewModel: MeetStatusPanelGalleryFixture.joining()
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("In meeting")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        MeetStatusPanel(
+                            viewModel: MeetStatusPanelGalleryFixture.joined()
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Error")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        MeetStatusPanel(
+                            viewModel: MeetStatusPanelGalleryFixture.error()
+                        )
+                    }
+                }
+
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+            }
+
             // MARK: - RecapPillView
 
             if filter == nil || filter == "recapPill" {
@@ -284,6 +329,7 @@ extension HomeGallerySection {
     @ViewBuilder
     static func componentPage(_ id: String) -> some View {
         switch id {
+        case "meetStatusPanel": HomeGallerySection(filter: "meetStatusPanel")
         case "recapPill": HomeGallerySection(filter: "recapPill")
         case "homeAuthCard": HomeGallerySection(filter: "homeAuthCard")
         case "homePermissionCard": HomeGallerySection(filter: "homePermissionCard")
@@ -295,6 +341,61 @@ extension HomeGallerySection {
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
         default: EmptyView()
         }
+    }
+}
+
+// MARK: - Gallery Fixtures
+
+/// Builds `MeetStatusViewModel` instances in each presentation state so the
+/// gallery can render the panel without a live SSE stream. Lives here rather
+/// than on the view model itself so the production target stays free of
+/// test/gallery-only wiring.
+@MainActor
+private enum MeetStatusPanelGalleryFixture {
+    private static func empty() -> AsyncStream<ServerMessage> {
+        AsyncStream<ServerMessage> { _ in }
+    }
+
+    static func joining() -> MeetStatusViewModel {
+        let vm = MeetStatusViewModel(messageStream: empty())
+        vm.handle(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "demo-joining",
+                url: "https://meet.google.com/demo-joining"
+            )
+        ))
+        return vm
+    }
+
+    static func joined() -> MeetStatusViewModel {
+        let vm = MeetStatusViewModel(
+            messageStream: empty(),
+            clock: { Date(timeIntervalSinceNow: -73) }
+        )
+        vm.handle(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "demo-joined",
+                url: "https://meet.google.com/demo-joined"
+            )
+        ))
+        vm.handle(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "demo-joined")
+        ))
+        return vm
+    }
+
+    static func error() -> MeetStatusViewModel {
+        let vm = MeetStatusViewModel(messageStream: empty())
+        vm.handle(.meetError(
+            MeetErrorMessage(
+                type: "meet.error",
+                meetingId: "demo-error",
+                detail: "Bot container exited unexpectedly"
+            )
+        ))
+        return vm
     }
 }
 #endif

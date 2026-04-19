@@ -1718,6 +1718,170 @@ public struct HostBrowserCancelRequest: Decodable, Sendable {
     public let requestId: String
 }
 
+// MARK: - Meet (live meeting state)
+
+/// A single participant in a meeting as broadcast by the Meet-bot.
+public struct MeetParticipant: Decodable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let isHost: Bool?
+    public let isSelf: Bool?
+
+    public init(id: String, name: String, isHost: Bool? = nil, isSelf: Bool? = nil) {
+        self.id = id
+        self.name = name
+        self.isHost = isHost
+        self.isSelf = isSelf
+    }
+}
+
+/// The bot has started attempting to join a meeting.
+public struct MeetJoiningMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let url: String
+
+    public init(type: String, meetingId: String, url: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.url = url
+    }
+}
+
+/// The bot has successfully joined and is live in the meeting.
+public struct MeetJoinedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+
+    public init(type: String, meetingId: String) {
+        self.type = type
+        self.meetingId = meetingId
+    }
+}
+
+/// Participants joined and/or left the meeting since the last snapshot.
+public struct MeetParticipantChangedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let joined: [MeetParticipant]
+    public let left: [MeetParticipant]
+
+    public init(type: String, meetingId: String, joined: [MeetParticipant], left: [MeetParticipant]) {
+        self.type = type
+        self.meetingId = meetingId
+        self.joined = joined
+        self.left = left
+    }
+}
+
+/// The active speaker in the meeting changed.
+public struct MeetSpeakerChangedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let speakerId: String
+    public let speakerName: String
+
+    public init(type: String, meetingId: String, speakerId: String, speakerName: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.speakerId = speakerId
+        self.speakerName = speakerName
+    }
+}
+
+/// A finalized chunk of transcribed speech.
+public struct MeetTranscriptChunkMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let text: String
+    public let speakerLabel: String?
+    public let speakerId: String?
+    public let confidence: Double?
+
+    public init(
+        type: String,
+        meetingId: String,
+        text: String,
+        speakerLabel: String? = nil,
+        speakerId: String? = nil,
+        confidence: Double? = nil
+    ) {
+        self.type = type
+        self.meetingId = meetingId
+        self.text = text
+        self.speakerLabel = speakerLabel
+        self.speakerId = speakerId
+        self.confidence = confidence
+    }
+}
+
+/// The bot has left the meeting.
+public struct MeetLeftMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let reason: String
+
+    public init(type: String, meetingId: String, reason: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.reason = reason
+    }
+}
+
+/// Assistant posted a chat message into the meeting.
+public struct MeetChatSentMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let text: String
+
+    public init(type: String, meetingId: String, text: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.text = text
+    }
+}
+
+/// The bot hit a non-recoverable error (container crash, join failure, etc.).
+public struct MeetErrorMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let detail: String
+
+    public init(type: String, meetingId: String, detail: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.detail = detail
+    }
+}
+
+/// Assistant began speaking into the meeting via TTS.
+public struct MeetSpeakingStartedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let streamId: String
+
+    public init(type: String, meetingId: String, streamId: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.streamId = streamId
+    }
+}
+
+/// Assistant finished (or cancelled) a TTS playback stream.
+public struct MeetSpeakingEndedMessage: Decodable, Sendable, Equatable {
+    public let type: String
+    public let meetingId: String
+    public let streamId: String
+    public let reason: String
+
+    public init(type: String, meetingId: String, streamId: String, reason: String) {
+        self.type = type
+        self.meetingId = meetingId
+        self.streamId = streamId
+        self.reason = reason
+    }
+}
+
 /// Payload posted back to the daemon with the result of a host CU action execution.
 public struct HostCuResultPayload: Codable, Sendable {
     public let requestId: String
@@ -2434,6 +2598,16 @@ public enum ServerMessage: Decodable, Sendable {
     case hostCuCancel(HostCuCancelRequest)
     case hostBrowserRequest(HostBrowserRequest)
     case hostBrowserCancel(HostBrowserCancelRequest)
+    case meetJoining(MeetJoiningMessage)
+    case meetJoined(MeetJoinedMessage)
+    case meetParticipantChanged(MeetParticipantChangedMessage)
+    case meetSpeakerChanged(MeetSpeakerChangedMessage)
+    case meetTranscriptChunk(MeetTranscriptChunkMessage)
+    case meetLeft(MeetLeftMessage)
+    case meetChatSent(MeetChatSentMessage)
+    case meetError(MeetErrorMessage)
+    case meetSpeakingStarted(MeetSpeakingStartedMessage)
+    case meetSpeakingEnded(MeetSpeakingEndedMessage)
     case usageUpdate(UsageUpdate)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
@@ -2927,6 +3101,36 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)
+        case "meet.joining":
+            let message = try MeetJoiningMessage(from: decoder)
+            self = .meetJoining(message)
+        case "meet.joined":
+            let message = try MeetJoinedMessage(from: decoder)
+            self = .meetJoined(message)
+        case "meet.participant_changed":
+            let message = try MeetParticipantChangedMessage(from: decoder)
+            self = .meetParticipantChanged(message)
+        case "meet.speaker_changed":
+            let message = try MeetSpeakerChangedMessage(from: decoder)
+            self = .meetSpeakerChanged(message)
+        case "meet.transcript_chunk":
+            let message = try MeetTranscriptChunkMessage(from: decoder)
+            self = .meetTranscriptChunk(message)
+        case "meet.left":
+            let message = try MeetLeftMessage(from: decoder)
+            self = .meetLeft(message)
+        case "meet.chat_sent":
+            let message = try MeetChatSentMessage(from: decoder)
+            self = .meetChatSent(message)
+        case "meet.error":
+            let message = try MeetErrorMessage(from: decoder)
+            self = .meetError(message)
+        case "meet.speaking_started":
+            let message = try MeetSpeakingStartedMessage(from: decoder)
+            self = .meetSpeakingStarted(message)
+        case "meet.speaking_ended":
+            let message = try MeetSpeakingEndedMessage(from: decoder)
+            self = .meetSpeakingEnded(message)
         case "relationship_state_updated":
             let payloadContainer = try decoder.container(keyedBy: InlinePayloadKeys.self)
             let updatedAt = try payloadContainer.decode(String.self, forKey: .updatedAt)

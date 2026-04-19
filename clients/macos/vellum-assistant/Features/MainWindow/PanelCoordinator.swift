@@ -163,6 +163,7 @@ extension MainWindowView {
         HomePageView(
             store: homeStore,
             feedStore: feedStore,
+            meetStatusViewModel: meetStatusViewModel,
             onPrimaryCTA: { capability in
                 let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
                 conversationManager.openConversation(message: seed, forceNew: true)
