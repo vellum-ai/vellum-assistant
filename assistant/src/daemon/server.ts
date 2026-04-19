@@ -836,44 +836,17 @@ export class DaemonServer {
 
     // Install the interactive UI resolver so skills and IPC handlers can
     // present ad-hoc UI surfaces (confirmations, forms) to the user via
-    // `requestInteractiveUi()`. The resolver uses a two-step lookup:
-    //   Step A: use the in-memory conversation when present.
-    //   Step B: if absent (evicted), check persistent storage and hydrate
-    //           via getOrCreateConversation when the conversation exists
-    //           in the DB.
-    // When the conversation does not exist at all, the resolver returns
-    // `status: "cancelled"` with `cancellationReason: "conversation_not_found"`
-    // so callers can distinguish not-found from other fail-closed outcomes.
+    // `requestInteractiveUi()`. Interactive UI requires a client to be
+    // actively connected to the conversation (via SSE), which means the
+    // conversation must be in the in-memory map. If the conversation was
+    // evicted from memory the client is definitely disconnected, so
+    // hydration from persistent storage is pointless — the hydrated
+    // conversation would have hasNoClient=true, causing
+    // canShowInteractiveUi() to return false and the surface to be
+    // cancelled with no_interactive_surface. We skip that wasted work
+    // and return conversation_not_found directly.
     registerInteractiveUiResolver(async (request) => {
-      // Step A: fast path — in-memory conversation
-      let conversation = this.conversations.get(request.conversationId);
-
-      // Step B: conversation was evicted from memory — check persistent
-      // storage and hydrate if the conversation exists in the DB.
-      if (!conversation) {
-        const persisted = getConversation(request.conversationId);
-        if (persisted) {
-          try {
-            conversation = await this.getOrCreateConversation(
-              request.conversationId,
-            );
-          } catch (err) {
-            log.warn(
-              {
-                err,
-                conversationId: request.conversationId,
-                surfaceType: request.surfaceType,
-              },
-              "interactive-ui resolver: failed to hydrate persisted conversation; failing closed",
-            );
-            return {
-              status: "cancelled" as const,
-              surfaceId: `ui-resolver-${Date.now()}`,
-              cancellationReason: "resolver_error" as const,
-            };
-          }
-        }
-      }
+      const conversation = this.conversations.get(request.conversationId);
 
       if (!conversation) {
         log.warn(
@@ -881,7 +854,7 @@ export class DaemonServer {
             conversationId: request.conversationId,
             surfaceType: request.surfaceType,
           },
-          "interactive-ui resolver: conversation not found; failing closed",
+          "interactive-ui resolver: conversation not in memory (client not connected); failing closed",
         );
         return {
           status: "cancelled" as const,
