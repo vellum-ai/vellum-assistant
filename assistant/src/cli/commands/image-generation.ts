@@ -132,6 +132,18 @@ Examples:
     const variants: number = Math.max(1, Math.min(opts.variants ?? 1, 4));
     const outputDir: string = opts.outputDir ?? os.tmpdir();
 
+    // --- Validate edit mode requires --source ---
+    if (mode === "edit" && (!sourcePaths || sourcePaths.length === 0)) {
+      const msg = "Edit mode requires at least one --source image file.";
+      if (jsonOutput) {
+        process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
+      } else {
+        log.error(msg);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
     // --- Resolve credentials ---
     const config = getConfig();
     const imageGenMode = config.services["image-generation"].mode;
@@ -253,6 +265,7 @@ Examples:
       // --- Output ---
       if (jsonOutput) {
         const output: Record<string, unknown> = {
+          ok: true,
           images: imageOutputs,
           model: result.resolvedModel,
         };

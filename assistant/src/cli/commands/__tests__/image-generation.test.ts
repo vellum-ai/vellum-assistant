@@ -432,6 +432,7 @@ describe("generate mode", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
     expect(parsed.model).toBe("gemini-3.1-flash-image-preview");
     expect(parsed.text).toBe("A beautiful sunset");
     expect(parsed.images).toHaveLength(1);
@@ -447,6 +448,27 @@ describe("generate mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("edit mode", () => {
+  test("exits with code 1 when --mode edit is used without --source", async () => {
+    mockProviderKey = "test-key";
+
+    const { exitCode, stdout } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Remove background",
+      "--mode",
+      "edit",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe(
+      "Edit mode requires at least one --source image file.",
+    );
+  });
+
   test("passes source images to generateImage in edit mode", async () => {
     mockProviderKey = "test-key";
 

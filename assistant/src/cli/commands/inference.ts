@@ -57,7 +57,9 @@ Examples:
         ) {
           const msg = "Invalid --max-tokens value. Must be a positive integer.";
           if (jsonOutput) {
-            process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
           } else {
             log.error(msg);
           }
@@ -80,7 +82,9 @@ Examples:
           const msg =
             "No message provided. Pass a message as an argument or pipe via stdin.";
           if (jsonOutput) {
-            process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
           } else {
             log.error(msg);
           }
@@ -94,7 +98,9 @@ Examples:
           const msg =
             "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.";
           if (jsonOutput) {
-            process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
           } else {
             log.error(msg);
           }
@@ -121,6 +127,7 @@ Examples:
           if (jsonOutput) {
             process.stdout.write(
               JSON.stringify({
+                ok: true,
                 response: text,
                 model: response.model,
                 usage: {
@@ -136,7 +143,9 @@ Examples:
           const msg =
             err instanceof Error ? err.message : "Unknown error occurred";
           if (jsonOutput) {
-            process.stdout.write(JSON.stringify({ error: msg }) + "\n");
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
           } else {
             log.error(msg);
           }
