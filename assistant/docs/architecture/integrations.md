@@ -31,7 +31,7 @@ graph TB
         SHARED["shared.ts<br/>resolveProvider + getProviderConnection"]
     end
 
-    subgraph "Slack Skill (bundled-skills/slack/)"
+    subgraph "Slack Skill (skills/slack/)"
         SLACK_SKILL_MD["SKILL.md<br/>agent instructions"]
         SLACK_WEB_API["Web API via bash<br/>(network_mode: proxied)"]
     end
