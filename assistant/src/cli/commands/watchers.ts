@@ -29,7 +29,7 @@ interface WatcherRecord {
 interface WatcherEvent {
   id: string;
   watcherId: string;
-  type: string;
+  eventType: string;
   summary: string | null;
   createdAt: number;
 }
