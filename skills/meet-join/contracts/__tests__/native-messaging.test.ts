@@ -88,7 +88,10 @@ describe("ExtensionReadyMessageSchema", () => {
 
   test("rejects empty extensionVersion", () => {
     expect(() =>
-      ExtensionReadyMessageSchema.parse({ type: "ready", extensionVersion: "" }),
+      ExtensionReadyMessageSchema.parse({
+        type: "ready",
+        extensionVersion: "",
+      }),
     ).toThrow();
   });
 });

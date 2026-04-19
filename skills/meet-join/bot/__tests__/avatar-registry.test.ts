@@ -148,7 +148,10 @@ describe("resolveAvatarRenderer", () => {
 
   test("unknown-id error lists available ids for diagnostics", () => {
     registerAvatarRenderer("fake", () => new FakeAvatarRenderer());
-    registerAvatarRenderer("other", () => new FakeAvatarRenderer({ id: "other" }));
+    registerAvatarRenderer(
+      "other",
+      () => new FakeAvatarRenderer({ id: "other" }),
+    );
 
     let err: unknown;
     try {
@@ -221,9 +224,18 @@ describe("registerAvatarRenderer", () => {
   });
 
   test("listRegisteredAvatarRenderers returns sorted ids", () => {
-    registerAvatarRenderer("simli", () => new FakeAvatarRenderer({ id: "simli" }));
-    registerAvatarRenderer("noop", () => new FakeAvatarRenderer({ id: "noop" }));
-    registerAvatarRenderer("alpha", () => new FakeAvatarRenderer({ id: "alpha" }));
+    registerAvatarRenderer(
+      "simli",
+      () => new FakeAvatarRenderer({ id: "simli" }),
+    );
+    registerAvatarRenderer(
+      "noop",
+      () => new FakeAvatarRenderer({ id: "noop" }),
+    );
+    registerAvatarRenderer(
+      "alpha",
+      () => new FakeAvatarRenderer({ id: "alpha" }),
+    );
     expect(listRegisteredAvatarRenderers()).toEqual(["alpha", "noop", "simli"]);
   });
 });

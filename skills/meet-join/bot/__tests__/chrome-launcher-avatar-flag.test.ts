@@ -173,9 +173,7 @@ describe("launchChrome avatarEnabled flag", () => {
     // `--use-fake-ui-for-media-stream`. This gives the reviewer a
     // deterministic string they can grep for across logs.
     const fakeUiIdx = args.indexOf("--use-fake-ui-for-media-stream");
-    const fakeDeviceIdx = args.indexOf(
-      "--use-fake-device-for-media-stream",
-    );
+    const fakeDeviceIdx = args.indexOf("--use-fake-device-for-media-stream");
     const fakeFileIdx = args.indexOf(
       `--use-file-for-fake-video-capture=${DEFAULT_AVATAR_DEVICE_PATH}`,
     );
@@ -239,9 +237,7 @@ describe("launchChrome avatarEnabled flag", () => {
     });
 
     const { args } = fake.calls[0]!;
-    expect(args).toContain(
-      "--use-file-for-fake-video-capture=/dev/video11",
-    );
+    expect(args).toContain("--use-file-for-fake-video-capture=/dev/video11");
     // Default path must NOT appear when an override is provided.
     expect(args).not.toContain(
       `--use-file-for-fake-video-capture=${DEFAULT_AVATAR_DEVICE_PATH}`,

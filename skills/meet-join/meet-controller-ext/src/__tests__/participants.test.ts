@@ -23,7 +23,13 @@ import type { ParticipantChangeEvent } from "../../../contracts/events.js";
 
 import { startParticipantScraper } from "../features/participants.js";
 
-const FIXTURE_DIR = joinPath(import.meta.dir, "..", "dom", "__tests__", "fixtures");
+const FIXTURE_DIR = joinPath(
+  import.meta.dir,
+  "..",
+  "dom",
+  "__tests__",
+  "fixtures",
+);
 
 interface InstalledDom {
   dom: JSDOM;
@@ -146,7 +152,9 @@ async function drainMicrotasks(): Promise<void> {
  * `participant.change`. The `ExtensionToBotMessage` union includes other
  * variants for future use, so we cast at the point of assertion.
  */
-function asParticipantChange(msg: ExtensionToBotMessage): ParticipantChangeEvent {
+function asParticipantChange(
+  msg: ExtensionToBotMessage,
+): ParticipantChangeEvent {
   if (msg.type !== "participant.change") {
     throw new Error(`expected participant.change event, got ${msg.type}`);
   }

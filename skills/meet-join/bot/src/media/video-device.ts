@@ -67,9 +67,7 @@ export interface SpawnedV4l2Ctl {
   exited: Promise<number>;
 }
 
-export type V4l2CtlSpawnFactory = (
-  argv: readonly string[],
-) => SpawnedV4l2Ctl;
+export type V4l2CtlSpawnFactory = (argv: readonly string[]) => SpawnedV4l2Ctl;
 
 /**
  * Injectable opener for the underlying device node. Defaults to
@@ -264,9 +262,7 @@ export async function openVideoDevice(
   //    incompatible format and silently drop frames.
   const argv = buildV4l2CtlArgv(devicePath, width, height, pixelFormat);
   const proc = spawn(argv);
-  const stderrText = proc.stderr
-    ? await new Response(proc.stderr).text()
-    : "";
+  const stderrText = proc.stderr ? await new Response(proc.stderr).text() : "";
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     const trimmed = stderrText.trim();

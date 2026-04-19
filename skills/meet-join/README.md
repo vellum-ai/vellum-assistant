@@ -42,10 +42,10 @@ reports per-run CSV plus mean / median / p95 for two intervals:
 
 ### Baseline numbers
 
-*To be filled in after a live smoke-test run on the reference dev
+_To be filled in after a live smoke-test run on the reference dev
 hardware (Apple Silicon M-series under macOS Docker Desktop with
 qemu-user-static). Expect order-of-magnitude overhead on `booted_delta`
-vs. a native amd64 host and 3–5× on `ready_delta`.*
+vs. a native amd64 host and 3–5× on `ready_delta`._
 
 ```
 # image=vellum-meet-bot:<tag> iterations=<n> meet_url=<test-room>

@@ -22,10 +22,7 @@
  * process via Chrome Native Messaging; it does NOT depend on CDP.
  */
 
-import {
-  spawn as nodeSpawn,
-  type ChildProcess,
-} from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 
 export interface ChromeLauncherLogger {
   info: (message: string) => void;

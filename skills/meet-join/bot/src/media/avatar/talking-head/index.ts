@@ -54,9 +54,11 @@ export {
  * Permissive shape so the bot package doesn't have to import the
  * daemon's config schema — we validate each field we read.
  */
-function readTalkingHeadSubConfig(
-  config: AvatarConfig,
-): Partial<{ modelUrl: string; targetFps: number; startedAckTimeoutMs: number }> {
+function readTalkingHeadSubConfig(config: AvatarConfig): Partial<{
+  modelUrl: string;
+  targetFps: number;
+  startedAckTimeoutMs: number;
+}> {
   const raw = (config as Record<string, unknown>).talkingHead;
   if (!raw || typeof raw !== "object") return {};
   const sub = raw as Record<string, unknown>;

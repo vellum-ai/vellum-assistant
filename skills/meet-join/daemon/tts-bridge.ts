@@ -451,8 +451,7 @@ export class MeetTtsBridge {
     // byte-windowed RMS is accurate regardless of the provider's native
     // output format). The amplitude fallback only runs when there is at
     // least one viseme subscriber — otherwise we skip the extra work.
-    const providerSupportsAlignment =
-      provider.capabilities.alignment === true;
+    const providerSupportsAlignment = provider.capabilities.alignment === true;
     const hasVisemeSubscribers = this.visemeListeners.size > 0;
     const useAmplitudeFallback =
       !providerSupportsAlignment && hasVisemeSubscribers;
@@ -469,16 +468,17 @@ export class MeetTtsBridge {
       voiceId: input.voice,
       signal: abort.signal,
     };
-    const onAlignment = providerSupportsAlignment && hasVisemeSubscribers
-      ? (event: TtsAlignmentEvent) => {
-          if (abort.signal.aborted) return;
-          this.emitVisemeEvent({
-            phoneme: event.phoneme,
-            weight: clamp01(event.weight),
-            timestamp: event.timestamp,
-          });
-        }
-      : undefined;
+    const onAlignment =
+      providerSupportsAlignment && hasVisemeSubscribers
+        ? (event: TtsAlignmentEvent) => {
+            if (abort.signal.aborted) return;
+            this.emitVisemeEvent({
+              phoneme: event.phoneme,
+              weight: clamp01(event.weight),
+              timestamp: event.timestamp,
+            });
+          }
+        : undefined;
     const synthesisPromise = provider
       .synthesizeStream(
         synthesisRequest,

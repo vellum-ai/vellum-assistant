@@ -83,9 +83,7 @@ export interface CameraChannel {
  * Registers a single listener for `camera_result` frames; subsequent
  * dispatches pipe through the same listener without re-registering.
  */
-export function createCameraChannel(
-  opts: CameraChannelOptions,
-): CameraChannel {
+export function createCameraChannel(opts: CameraChannelOptions): CameraChannel {
   const { sendToExtension, onExtensionMessage } = opts;
   const generateRequestId =
     opts.generateRequestId ?? (() => crypto.randomUUID());
@@ -160,7 +158,9 @@ export function createCameraChannel(
       for (const [requestId, req] of pending.entries()) {
         clearTimeout(req.timer);
         req.reject(
-          new Error(`camera toggle aborted: ${reason} (requestId=${requestId})`),
+          new Error(
+            `camera toggle aborted: ${reason} (requestId=${requestId})`,
+          ),
         );
       }
       pending.clear();

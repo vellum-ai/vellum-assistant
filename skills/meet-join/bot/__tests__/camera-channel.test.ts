@@ -132,7 +132,9 @@ describe("createCameraChannel", () => {
       timeoutMs: 50,
     });
 
-    await expect(channel.enableCamera()).rejects.toThrow(/did not reply within/);
+    await expect(channel.enableCamera()).rejects.toThrow(
+      /did not reply within/,
+    );
   });
 
   test("ignores a camera_result for an unknown requestId (late reply after timeout)", async () => {
@@ -210,7 +212,9 @@ describe("createCameraChannel", () => {
       generateRequestId: () => "req-1",
     });
 
-    await expect(channel.enableCamera()).rejects.toThrow(/socket not connected/);
+    await expect(channel.enableCamera()).rejects.toThrow(
+      /socket not connected/,
+    );
   });
 
   test("DEFAULT_CAMERA_CHANNEL_TIMEOUT_MS is generous enough for the 5s extension poll", () => {

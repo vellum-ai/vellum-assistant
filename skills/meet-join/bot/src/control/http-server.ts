@@ -136,9 +136,7 @@ export interface HttpServerAvatarOptions {
    * a `FakeAvatarRenderer` so the HTTP flow can be exercised without
    * registering a real backend.
    */
-  resolveRenderer?: (
-    config: AvatarConfig,
-  ) => AvatarRenderer | null;
+  resolveRenderer?: (config: AvatarConfig) => AvatarRenderer | null;
   /**
    * Native-messaging surface forwarded to the renderer factory's
    * `deps.nativeMessaging`. Renderers that drive an extension-hosted

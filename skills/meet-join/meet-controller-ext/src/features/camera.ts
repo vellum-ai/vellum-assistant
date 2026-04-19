@@ -194,7 +194,7 @@ async function toggleCameraTo(
   if (opts.onEvent) {
     try {
       const rect = toggle.getBoundingClientRect();
-      const win = opts.window ?? (doc.defaultView ?? globalThis);
+      const win = opts.window ?? doc.defaultView ?? globalThis;
       const chromeOffsetY = Math.max(
         0,
         (win as typeof globalThis).outerHeight -
@@ -234,9 +234,7 @@ async function toggleCameraTo(
     if (now === desired) {
       return { changed: true };
     }
-    await new Promise<void>((resolve) =>
-      setTimeout(resolve, pollIntervalMs),
-    );
+    await new Promise<void>((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
   // Final check at the deadline boundary so a transition that lands

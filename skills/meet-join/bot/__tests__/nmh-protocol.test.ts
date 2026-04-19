@@ -72,7 +72,8 @@ describe("nmh-protocol", () => {
     const frame = encodeFrame(obj);
     // Split mid-payload (after header + half of payload).
     const payloadStart = 4;
-    const mid = payloadStart + Math.floor((frame.byteLength - payloadStart) / 2);
+    const mid =
+      payloadStart + Math.floor((frame.byteLength - payloadStart) / 2);
     const first = frame.subarray(0, mid);
     const second = frame.subarray(mid);
 

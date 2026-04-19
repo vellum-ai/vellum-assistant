@@ -49,7 +49,7 @@ criteria, and what to capture when something goes wrong.
   Tail with `tail -F ~/.vellum/workspace/logs/daemon-stderr.log`.
 - **Bot container logs**: `docker logs meet-bot-<meetingId>`. In
   Docker-in-Docker mode (assistant itself running in a container) the bot
-  containers are nested — run `docker logs` from *inside* the assistant
+  containers are nested — run `docker logs` from _inside_ the assistant
   container: `docker exec <assistant-container> docker logs meet-bot-<id>`.
   The meeting id is the last path segment of the Meet URL, dashes stripped
   in the container name. `docker ps --format '{{.Names}}' | rg meet-bot`
@@ -115,7 +115,7 @@ persisted artifacts.
 - `segments.jsonl` contains at least three closed spans, with
   `speakerName` values covering both Alice and Bob. The span before the
   first `speaker.change` is not persisted — the writer only closes a span
-  on the *next* change (see `closeOpenSegmentAt`), so the first
+  on the _next_ change (see `closeOpenSegmentAt`), so the first
   `speaker.change` after join opens segment #1.
   ```bash
   jq -r '.speakerName' ~/.vellum/workspace/meets/<id>/segments.jsonl | sort -u
@@ -254,12 +254,14 @@ and the bot's HTTP server receives `DELETE /play_audio/:streamId`.
 
 1. Start a solo Meet meeting; ask the assistant to join; admit.
 2. Once joined, ask the assistant to say aloud:
+
    > "Please say this verbatim: 'I am now going to read a very long
    > sentence that will take at least six or seven seconds to finish
    > speaking so we have a large window of time to interrupt the
    > assistant mid-utterance for the barge-in test.'"
 
    That phrase is deliberately ~7s at normal synth rate.
+
 3. ~2s into the assistant's speech, unmute and say "Stop" (or any
    short utterance) loudly enough that your mic's VAD picks it up.
 4. Observe:
@@ -377,7 +379,7 @@ Exact phrase to speak aloud, clearly:
 1. New meeting, same setup.
 2. After the bot joins and the STT session is up
    (`"MeetAudioIngest: bot connected"` visible), speak the phrase.
-3. The transcript path requires a *final* chunk (interims are skipped —
+3. The transcript path requires a _final_ chunk (interims are skipped —
    see `consent-monitor.ts:351`). Expect the leave to start within
    ~3–5s of finishing the phrase (Deepgram final latency +
    `LLM_CHECK_DEBOUNCE_MS` up to 8s in the worst case).

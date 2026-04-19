@@ -235,7 +235,9 @@ export async function sendChat(
     );
   }
 
-  const input = document.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
+  const input = document.querySelector<HTMLTextAreaElement>(
+    chatSelectors.INPUT,
+  );
   if (!input) {
     throw new Error(
       `sendChat: chat input not found (selector: ${chatSelectors.INPUT})`,
@@ -393,9 +395,7 @@ export async function postConsentMessage(
  * silently — `sendChat` will surface its own "chat input not found"
  * diagnostic, which is what the join flow's `try/catch` already handles.
  */
-async function ensurePanelOpen(
-  opts?: EnsurePanelOpenOptions,
-): Promise<void> {
+async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
   if (document.querySelector(chatSelectors.MESSAGE_LIST)) return;
   const toggle = document.querySelector<HTMLButtonElement>(
     chatSelectors.PANEL_BUTTON,

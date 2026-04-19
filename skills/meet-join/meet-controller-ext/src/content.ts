@@ -34,15 +34,8 @@ import type {
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
-import {
-  disableCamera,
-  enableCamera,
-} from "./features/camera.js";
-import {
-  type ChatReader,
-  sendChat,
-  startChatReader,
-} from "./features/chat.js";
+import { disableCamera, enableCamera } from "./features/camera.js";
+import { type ChatReader, sendChat, startChatReader } from "./features/chat.js";
 import { runJoinFlow } from "./features/join.js";
 import {
   startParticipantScraper,
@@ -367,8 +360,7 @@ async function handleCameraToggle(
 
   let reply: ExtensionCameraResultMessage;
   try {
-    const run =
-      cmd.type === "camera.enable" ? enableCamera : disableCamera;
+    const run = cmd.type === "camera.enable" ? enableCamera : disableCamera;
     const result = await run({
       onEvent: sendToBot,
       // Pass the live `window` so the camera feature can compute screen-

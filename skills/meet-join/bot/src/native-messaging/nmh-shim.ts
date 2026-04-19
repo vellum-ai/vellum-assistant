@@ -99,7 +99,8 @@ async function connectWithRetries(
       }
     }
   }
-  const reason = lastError instanceof Error ? lastError.message : String(lastError);
+  const reason =
+    lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `could not connect to native-messaging socket at ${socketPath} after ${retries} attempt(s): ${reason}`,
   );
@@ -118,9 +119,14 @@ export async function runShim(opts: RunShimOptions): Promise<void> {
   const stdin: NodeJS.ReadableStream = opts.stdin ?? process.stdin;
   const stdout: NodeJS.WritableStream = opts.stdout ?? process.stdout;
   const retries = opts.connectRetries ?? DEFAULT_CONNECT_RETRIES;
-  const retryDelayMs = opts.connectRetryDelayMs ?? DEFAULT_CONNECT_RETRY_DELAY_MS;
+  const retryDelayMs =
+    opts.connectRetryDelayMs ?? DEFAULT_CONNECT_RETRY_DELAY_MS;
 
-  const socket = await connectWithRetries(opts.socketPath, retries, retryDelayMs);
+  const socket = await connectWithRetries(
+    opts.socketPath,
+    retries,
+    retryDelayMs,
+  );
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -139,13 +145,16 @@ export async function runShim(opts: RunShimOptions): Promise<void> {
     // ----------------------- Chrome stdin → socket -----------------------
     const frameReader = createFrameReader();
     stdin.on("data", (chunk: Buffer | string) => {
-      const buf = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+      const buf =
+        typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
       let frames: unknown[];
       try {
         frames = frameReader.push(buf);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`nmh-shim: failed to parse Chrome frame: ${msg}\n`);
+        process.stderr.write(
+          `nmh-shim: failed to parse Chrome frame: ${msg}\n`,
+        );
         settle(err instanceof Error ? err : new Error(msg));
         return;
       }

@@ -124,9 +124,7 @@ export function waitForAny(
         if (settled) return;
         settled = true;
         observer.disconnect();
-        reject(
-          new Error("timeout waiting for any of " + selectors.join(", ")),
-        );
+        reject(new Error("timeout waiting for any of " + selectors.join(", ")));
       }, timeoutMs);
 
       observer.observe(doc, {

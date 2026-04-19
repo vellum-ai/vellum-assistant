@@ -171,9 +171,7 @@ describe("startChatReader", () => {
       reader = null;
     }
     if (installed) {
-      (
-        installed.dom as unknown as { __restore: () => void }
-      ).__restore();
+      (installed.dom as unknown as { __restore: () => void }).__restore();
       installed = null;
     }
   });
@@ -406,9 +404,7 @@ describe("sendChat", () => {
 
   afterEach(() => {
     if (installed) {
-      (
-        installed.dom as unknown as { __restore: () => void }
-      ).__restore();
+      (installed.dom as unknown as { __restore: () => void }).__restore();
       installed = null;
     }
   });
@@ -646,9 +642,7 @@ describe("postConsentMessage", () => {
 
   afterEach(() => {
     if (installed) {
-      (
-        installed.dom as unknown as { __restore: () => void }
-      ).__restore();
+      (installed.dom as unknown as { __restore: () => void }).__restore();
       installed = null;
     }
   });
@@ -742,9 +736,7 @@ describe("postConsentMessage", () => {
 
     const trustedClicks = events.filter(
       (e) => e.type === "trusted_click",
-    ) as Array<
-      Extract<ExtensionToBotMessage, { type: "trusted_click" }>
-    >;
+    ) as Array<Extract<ExtensionToBotMessage, { type: "trusted_click" }>>;
     // TWO trusted_clicks now: toggle (from ensurePanelOpen) then send (from
     // sendChat). Asserting the order catches any regression where sendChat
     // stops receiving `opts` or the order inverts.
@@ -795,9 +787,7 @@ describe("postConsentMessage", () => {
 
     const trustedClicks = events.filter(
       (e) => e.type === "trusted_click",
-    ) as Array<
-      Extract<ExtensionToBotMessage, { type: "trusted_click" }>
-    >;
+    ) as Array<Extract<ExtensionToBotMessage, { type: "trusted_click" }>>;
     expect(trustedClicks.length).toBe(1);
     expect(trustedClicks[0]!.x).toBe(1330);
     expect(trustedClicks[0]!.y).toBe(820);

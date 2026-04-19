@@ -16,13 +16,7 @@
  * inspects the `chrome.runtime.sendMessage` call log for the expected
  * event sequence.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join as pathJoin } from "node:path";
 import { JSDOM } from "jsdom";
@@ -246,9 +240,7 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     // Composer value must also be populated via the native-setter path so
     // the JS fallback still works for jsdom and any Meet build that does
     // not enforce isTrusted on the composer.
-    const input = doc.querySelector<HTMLTextAreaElement>(
-      chatSelectors.INPUT,
-    )!;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
     expect(input.value).toBe("hello from runtime tool");
   });
 
@@ -258,9 +250,7 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     // the error is captured and a send_chat_result(ok=false) is emitted
     // with the correct requestId and a descriptive error message.
     const doc = harness!.dom.window.document;
-    doc
-      .querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)
-      ?.remove();
+    doc.querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)?.remove();
 
     await handleSendChat!({
       type: "send_chat",

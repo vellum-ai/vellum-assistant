@@ -271,10 +271,11 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // before changing it.
   // ---------------------------------------------------------------------
   const rect = (admissionBtn as HTMLElement).getBoundingClientRect();
-  const win = opts.window ?? (doc.defaultView ?? globalThis);
+  const win = opts.window ?? doc.defaultView ?? globalThis;
   const chromeOffsetY = Math.max(
     0,
-    (win as typeof globalThis).outerHeight - (win as typeof globalThis).innerHeight,
+    (win as typeof globalThis).outerHeight -
+      (win as typeof globalThis).innerHeight,
   );
   const screenX = Math.round(
     ((win as typeof globalThis).screenX ?? 0) + rect.left + rect.width / 2,
@@ -325,7 +326,7 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   try {
     await postConsentMessage(consentMessage, {
       onEvent,
-      window: opts.window ?? (doc.defaultView ?? globalThis),
+      window: opts.window ?? doc.defaultView ?? globalThis,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

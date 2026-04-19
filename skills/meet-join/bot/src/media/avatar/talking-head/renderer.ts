@@ -199,13 +199,11 @@ export class TalkingHeadRenderer implements AvatarRenderer {
   private readonly inFlightTranscodes = new Set<{ kill: () => void }>();
 
   /** Pending `avatar.started` waiter resolver. Null when not waiting. */
-  private startedWaiter:
-    | {
-        resolve: () => void;
-        reject: (err: Error) => void;
-        timer: ReturnType<typeof setTimeout>;
-      }
-    | null = null;
+  private startedWaiter: {
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
 
   private subscribers: Array<(frame: Y4MFrame) => void> = [];
 
@@ -577,7 +575,9 @@ function defaultSpawnJpegToY4m(jpegBytes: Uint8Array): {
 
   const readY4m = async (): Promise<Uint8Array> => {
     // Bun.spawn's `stdout` is a ReadableStream of Uint8Array chunks.
-    const reader = (proc.stdout as unknown as ReadableStream<Uint8Array>).getReader();
+    const reader = (
+      proc.stdout as unknown as ReadableStream<Uint8Array>
+    ).getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
     while (true) {

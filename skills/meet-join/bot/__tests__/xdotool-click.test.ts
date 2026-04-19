@@ -109,7 +109,12 @@ describe("xdotoolClick", () => {
   test("resolves cleanly on exit code 0", async () => {
     const child = makeFakeChild();
     const fake = makeFakeSpawn(child);
-    const pending = xdotoolClick({ x: 5, y: 5, display: ":99", spawn: fake.spawn });
+    const pending = xdotoolClick({
+      x: 5,
+      y: 5,
+      display: ":99",
+      spawn: fake.spawn,
+    });
     child.__simulateExit(0);
     await expect(pending).resolves.toBeUndefined();
   });

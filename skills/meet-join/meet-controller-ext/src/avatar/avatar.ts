@@ -90,10 +90,7 @@ interface TalkingHeadInstance {
  * back to a static canvas.
  */
 interface TalkingHeadConstructor {
-  new (
-    el: HTMLElement,
-    opts?: Record<string, unknown>,
-  ): TalkingHeadInstance;
+  new (el: HTMLElement, opts?: Record<string, unknown>): TalkingHeadInstance;
 }
 
 /**
@@ -116,7 +113,9 @@ async function loadTalkingHeadCtor(): Promise<TalkingHeadConstructor | null> {
     // happy — the module's runtime shape matches our structural
     // narrow above.
     const specifier = "@met4citizen/talkinghead";
-    const mod = (await import(/* @vite-ignore */ specifier as string)) as unknown as {
+    const mod = (await import(
+      /* @vite-ignore */ specifier as string
+    )) as unknown as {
       TalkingHead?: TalkingHeadConstructor;
       default?: TalkingHeadConstructor;
     };

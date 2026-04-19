@@ -229,7 +229,11 @@ export interface BotDeps {
    * clear Meet's `event.isTrusted` gate on the prejoin admission button.
    * See `browser/xdotool-click.ts` for rationale.
    */
-  xdotoolClick: (opts: { x: number; y: number; display: string }) => Promise<void>;
+  xdotoolClick: (opts: {
+    x: number;
+    y: number;
+    display: string;
+  }) => Promise<void>;
   /**
    * Type text via real X-server keystrokes into whatever is currently
    * focused on the Xvfb display. Used as belt-and-suspenders for the
@@ -545,9 +549,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       //      gets delivered).
       await stopSafely(
         "http server",
-        subsystems.httpServer
-          ? () => subsystems.httpServer!.stop()
-          : null,
+        subsystems.httpServer ? () => subsystems.httpServer!.stop() : null,
       );
       // Abort any in-flight camera round-trips so HTTP handlers awaiting
       // enableCamera / disableCamera don't hang for the full 7s channel
@@ -589,9 +591,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       );
       await stopSafely(
         "audio capture",
-        subsystems.audioCapture
-          ? () => subsystems.audioCapture!.stop()
-          : null,
+        subsystems.audioCapture ? () => subsystems.audioCapture!.stop() : null,
       );
       await stopSafely(
         "xvfb",
@@ -599,9 +599,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       );
       await stopSafely(
         "socket server",
-        subsystems.socketServer
-          ? () => subsystems.socketServer!.stop()
-          : null,
+        subsystems.socketServer ? () => subsystems.socketServer!.stop() : null,
       );
 
       publishLifecycle(
@@ -613,9 +611,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       );
       await stopSafely(
         "daemon client",
-        subsystems.daemonClient
-          ? () => subsystems.daemonClient!.stop()
-          : null,
+        subsystems.daemonClient ? () => subsystems.daemonClient!.stop() : null,
       );
 
       BotState.setPhase(finalState);
@@ -754,13 +750,14 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // the bot has decided to shut down, we escalate to an error shutdown.
     void subsystems.chrome.exitPromise.then((code) => {
       if (shutdownInProgress) return;
-      void shutdown("error", `chrome exited unexpectedly with code ${code}`).then(
-        () => {
-          detachSigterm();
-          detachSigint();
-          deps.exit(1);
-        },
-      );
+      void shutdown(
+        "error",
+        `chrome exited unexpectedly with code ${code}`,
+      ).then(() => {
+        detachSigterm();
+        detachSigint();
+        deps.exit(1);
+      });
     });
 
     // ---------------------------------------------------------------------
@@ -887,7 +884,9 @@ export async function runBot(deps: BotDeps): Promise<void> {
   function handleExtensionMessage(msg: ExtensionToBotMessage): void {
     switch (msg.type) {
       case "ready":
-        deps.logInfo(`meet-bot: extension ready (version=${msg.extensionVersion})`);
+        deps.logInfo(
+          `meet-bot: extension ready (version=${msg.extensionVersion})`,
+        );
         return;
       case "lifecycle": {
         const state: LifecycleState = msg.state;

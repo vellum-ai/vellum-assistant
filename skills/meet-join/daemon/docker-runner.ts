@@ -569,11 +569,7 @@ export class DockerRunner {
     }
     const query = params.length > 0 ? `?${params.join("&")}` : "";
     const path = `/${DOCKER_API_VERSION}/containers/json${query}`;
-    const entries = await this.request<ContainerListEntry[]>(
-      "GET",
-      path,
-      null,
-    );
+    const entries = await this.request<ContainerListEntry[]>("GET", path, null);
     return entries ?? [];
   }
 

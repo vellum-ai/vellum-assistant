@@ -15,20 +15,20 @@ BOT_IMAGE=vellum-meet-bot:latest \
 
 ### Arguments
 
-| Position | Name         | Default | Description                                    |
-|----------|--------------|---------|------------------------------------------------|
-| `$1`     | `MEET_URL`   | —       | Full Google Meet URL. Required.                |
-| `$2`     | `ITERATIONS` | `5`     | Number of bot runs to average.                 |
+| Position | Name         | Default | Description                     |
+| -------- | ------------ | ------- | ------------------------------- |
+| `$1`     | `MEET_URL`   | —       | Full Google Meet URL. Required. |
+| `$2`     | `ITERATIONS` | `5`     | Number of bot runs to average.  |
 
 ### Environment
 
-| Variable        | Default                | Description                                                                                                                                                                                         |
-|-----------------|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `BOT_IMAGE`     | —                      | Container image reference. Required.                                                                                                                                                                |
-| `MEETING_ID`    | generated per run      | Override the per-run meeting id. Normally the bench generates a fresh UUID per iteration so sessions don't collide.                                                                                 |
-| `JOIN_NAME`     | `Bench Bot`            | Display name the bot presents in the prejoin UI.                                                                                                                                                    |
-| `BENCH_TIMEOUT` | `120`                  | Per-iteration timeout in seconds. Covers worst-case cold-cache qemu boot + Chromium launch.                                                                                                         |
-| `DAEMON_URL`    | `http://127.0.0.1:1/`  | Bot ingress URL. Intentionally defaulted to an unreachable address — the bench doesn't need events to land, only the bot to boot and dispatch the join. A real daemon would make the bench noisier. |
+| Variable        | Default               | Description                                                                                                                                                                                         |
+| --------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BOT_IMAGE`     | —                     | Container image reference. Required.                                                                                                                                                                |
+| `MEETING_ID`    | generated per run     | Override the per-run meeting id. Normally the bench generates a fresh UUID per iteration so sessions don't collide.                                                                                 |
+| `JOIN_NAME`     | `Bench Bot`           | Display name the bot presents in the prejoin UI.                                                                                                                                                    |
+| `BENCH_TIMEOUT` | `120`                 | Per-iteration timeout in seconds. Covers worst-case cold-cache qemu boot + Chromium launch.                                                                                                         |
+| `DAEMON_URL`    | `http://127.0.0.1:1/` | Bot ingress URL. Intentionally defaulted to an unreachable address — the bench doesn't need events to land, only the bot to boot and dispatch the join. A real daemon would make the bench noisier. |
 
 ## Output
 
@@ -58,10 +58,10 @@ shipped to the daemon over HTTP rather than logged to stderr. For a
 standalone bench where no daemon is running, we anchor on two stdout
 lines the bot prints unconditionally:
 
-| Marker string                      | Phase                                                                                                                                                                                       |
-|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `meet-bot booted`                  | PulseAudio is up. Pre-Xvfb, pre-Chromium.                                                                                                                                                   |
-| `meet-bot ready (meetingId=…)`     | Extension loaded, HTTP server started, join command dispatched to the extension. Closest stdout proxy for "about to hit the admission button". Strictly earlier than `lifecycle:joined`.  |
+| Marker string                  | Phase                                                                                                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `meet-bot booted`              | PulseAudio is up. Pre-Xvfb, pre-Chromium.                                                                                                                                                |
+| `meet-bot ready (meetingId=…)` | Extension loaded, HTTP server started, join command dispatched to the extension. Closest stdout proxy for "about to hit the admission button". Strictly earlier than `lifecycle:joined`. |
 
 If you instrument a real daemon receiving the bot's HTTP pipe and want
 a true `start` → `lifecycle:joined` measurement, you'll want to extend

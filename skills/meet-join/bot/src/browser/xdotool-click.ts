@@ -21,10 +21,7 @@
  * before emitting the `trusted_click` native-messaging frame).
  */
 
-import {
-  spawn as nodeSpawn,
-  type ChildProcess,
-} from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 
 /** Logger shape matching the one used by `chrome-launcher`. */
 export interface XdotoolClickLogger {

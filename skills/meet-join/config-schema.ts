@@ -119,8 +119,7 @@ const SimliAvatarOptionsSchema = z
   .object({
     apiKeyCredentialId: z
       .string({
-        error:
-          "services.meet.avatar.simli.apiKeyCredentialId must be a string",
+        error: "services.meet.avatar.simli.apiKeyCredentialId must be a string",
       })
       .optional()
       .describe(
@@ -159,8 +158,7 @@ const TavusAvatarOptionsSchema = z
   .object({
     apiKeyCredentialId: z
       .string({
-        error:
-          "services.meet.avatar.tavus.apiKeyCredentialId must be a string",
+        error: "services.meet.avatar.tavus.apiKeyCredentialId must be a string",
       })
       .optional(),
     replicaId: z

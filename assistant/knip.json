@@ -10,7 +10,11 @@
     "../skills/meet-join/**/*.test.ts",
     "../skills/meet-join/**/__tests__/**/*.ts",
     "!../skills/meet-join/bot/**",
-    "../skills/meet-join/contracts/**/__tests__/**/*.ts"
+    "../skills/meet-join/contracts/**/__tests__/**/*.ts",
+    "../skills/meet-join/meet-controller-ext/scripts/build.ts",
+    "../skills/meet-join/meet-controller-ext/src/background.ts",
+    "../skills/meet-join/meet-controller-ext/src/avatar/avatar.ts",
+    "../skills/meet-join/meet-controller-ext/src/messaging/content-bridge.ts"
   ],
   "project": [
     "src/**/*.ts",

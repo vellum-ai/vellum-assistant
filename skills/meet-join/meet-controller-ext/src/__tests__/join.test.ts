@@ -12,7 +12,15 @@
  * plus an admission-timeout case. The bot-side test is scheduled for deletion
  * in PR 15 once the content-script flow fully replaces it.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { readFileSync } from "node:fs";
 import { join as pathJoin } from "node:path";
 import { JSDOM } from "jsdom";
@@ -679,9 +687,7 @@ describe("runJoinFlow (content-script port)", () => {
       restore();
     }
 
-    expect(modalClicks).toEqual([
-      selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON,
-    ]);
+    expect(modalClicks).toEqual([selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON]);
     expect(joinClicks).toEqual([selectors.PREJOIN_JOIN_NOW_BUTTON]);
   });
 
@@ -856,9 +862,7 @@ describe("runJoinFlow (content-script port)", () => {
     }
 
     // Sanity-check: the mic toggle came in via the ingame fixture.
-    expect(
-      doc.querySelector(selectors.INGAME_READY_INDICATOR),
-    ).not.toBeNull();
+    expect(doc.querySelector(selectors.INGAME_READY_INDICATOR)).not.toBeNull();
 
     // And no error diagnostics fired — step 5 resolved cleanly.
     const errorDiagnostics = events.filter(

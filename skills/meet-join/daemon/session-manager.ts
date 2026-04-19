@@ -237,7 +237,12 @@ export class MeetBotAvatarError extends Error {
   readonly name = "MeetBotAvatarError";
   readonly status: number;
 
-  constructor(meetingId: string, endpoint: string, status: number, detail: string) {
+  constructor(
+    meetingId: string,
+    endpoint: string,
+    status: number,
+    detail: string,
+  ) {
     super(
       `Meet bot ${endpoint} returned ${status} for meetingId=${meetingId}: ${detail}`,
     );
@@ -495,13 +500,7 @@ export interface MeetSessionManagerDeps {
   /** Factory for the Docker runner — swapped in tests. */
   dockerRunnerFactory?: () => Pick<
     DockerRunner,
-    | "run"
-    | "stop"
-    | "remove"
-    | "inspect"
-    | "logs"
-    | "kill"
-    | "listContainers"
+    "run" | "stop" | "remove" | "inspect" | "logs" | "kill" | "listContainers"
   >;
   /** Override the function that fetches credentials. */
   getProviderKey?: (provider: string) => Promise<string | undefined>;
@@ -693,8 +692,7 @@ class MeetSessionManagerImpl {
         deps.chatOpportunityDetectorFactory ??
         defaultChatOpportunityDetectorFactory,
       ttsBridgeFactory: deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
-      ttsLipsyncFactory:
-        deps.ttsLipsyncFactory ?? defaultTtsLipsyncFactory,
+      ttsLipsyncFactory: deps.ttsLipsyncFactory ?? defaultTtsLipsyncFactory,
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,

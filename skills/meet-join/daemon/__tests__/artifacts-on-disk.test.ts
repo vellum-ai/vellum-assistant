@@ -22,7 +22,13 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -343,7 +349,9 @@ describe("Meet artifacts on disk (integration)", () => {
       // Push in a few chunks to simulate streaming.
       const CHUNK = 4096;
       for (let offset = 0; offset < silent.length; offset += CHUNK) {
-        pcm.push(silent.subarray(offset, Math.min(offset + CHUNK, silent.length)));
+        pcm.push(
+          silent.subarray(offset, Math.min(offset + CHUNK, silent.length)),
+        );
       }
 
       // Emit lifecycle:left — this closes ffmpeg's stdin, which causes

@@ -29,15 +29,12 @@ mock.module("../../../assistant/src/tools/registry.js", () => ({
   },
 }));
 
-mock.module(
-  "../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
-    },
-  }),
-);
+mock.module("../../../assistant/src/config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) => {
+    if (key === "meet") return flagEnabled;
+    return true;
+  },
+}));
 
 mock.module("../../../assistant/src/config/loader.js", () => ({
   getConfig: () => ({}),

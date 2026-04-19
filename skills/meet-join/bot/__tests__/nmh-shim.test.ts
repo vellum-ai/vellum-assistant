@@ -150,7 +150,12 @@ describe("nmh-shim", () => {
     // Wait for the server to see a connection.
     await handle.onClient;
 
-    const frameA = encodeFrame({ type: "join", meetingUrl: "https://meet", displayName: "Bot", consentMessage: "hi" });
+    const frameA = encodeFrame({
+      type: "join",
+      meetingUrl: "https://meet",
+      displayName: "Bot",
+      consentMessage: "hi",
+    });
     const frameB = encodeFrame({ type: "leave", reason: "done" });
     stdin.feed(Buffer.concat([frameA, frameB]));
 
@@ -259,7 +264,9 @@ describe("nmh-shim", () => {
     const elapsed = Date.now() - start;
 
     expect(caughtError).toBeInstanceOf(Error);
-    expect(String((caughtError as Error).message)).toMatch(/could not connect/i);
+    expect(String((caughtError as Error).message)).toMatch(
+      /could not connect/i,
+    );
     // 2 retries * 30ms delay + tcp/connect overhead — generous upper bound.
     expect(elapsed).toBeLessThan(1500);
   });

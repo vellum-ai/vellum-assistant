@@ -171,26 +171,24 @@ export function startAvatarFeature(
    * `avatar.started` and `avatar.frame` — other message types are
    * ignored because they belong to the content-bridge router.
    */
-  runtime.onMessage.addListener(
-    (raw, _sender, _sendResponse): boolean => {
-      if (stopped) return false;
-      const parsed = ExtensionToBotMessageSchema.safeParse(raw);
-      if (!parsed.success) return false;
-      const msg: ExtensionToBotMessage = parsed.data;
-      if (msg.type !== "avatar.started" && msg.type !== "avatar.frame") {
-        return false;
-      }
-      try {
-        port.post(msg);
-      } catch (err) {
-        log.warn("failed to forward avatar message to native port", {
-          type: msg.type,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+  runtime.onMessage.addListener((raw, _sender, _sendResponse): boolean => {
+    if (stopped) return false;
+    const parsed = ExtensionToBotMessageSchema.safeParse(raw);
+    if (!parsed.success) return false;
+    const msg: ExtensionToBotMessage = parsed.data;
+    if (msg.type !== "avatar.started" && msg.type !== "avatar.frame") {
       return false;
-    },
-  );
+    }
+    try {
+      port.post(msg);
+    } catch (err) {
+      log.warn("failed to forward avatar message to native port", {
+        type: msg.type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return false;
+  });
 
   async function openAvatarTab(modelUrl: string | undefined): Promise<void> {
     const base = runtime.getURL(AVATAR_PAGE_PATH);

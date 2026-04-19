@@ -80,8 +80,7 @@ function ensureTalkingHeadRegistered(): void {
         nativeMessaging: deps.nativeMessaging,
       };
       if (typeof sub.modelUrl === "string") opts.modelUrl = sub.modelUrl;
-      else if (typeof sub.modelPath === "string")
-        opts.modelUrl = sub.modelPath;
+      else if (typeof sub.modelPath === "string") opts.modelUrl = sub.modelPath;
       if (typeof sub.targetFps === "number") opts.targetFps = sub.targetFps;
       if (typeof sub.startedAckTimeoutMs === "number")
         opts.startedAckTimeoutMs = sub.startedAckTimeoutMs;

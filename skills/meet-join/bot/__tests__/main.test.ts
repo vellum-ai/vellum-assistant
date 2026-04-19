@@ -19,10 +19,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type {
-  LifecycleEvent,
-  MeetBotEvent,
-} from "../../contracts/index.js";
+import type { LifecycleEvent, MeetBotEvent } from "../../contracts/index.js";
 import type {
   BotToExtensionMessage,
   ExtensionToBotMessage,
@@ -459,7 +456,9 @@ describe("runBot — boot sequence", () => {
     expect(indexOf("socket.waitForReady")).toBeGreaterThan(
       indexOf("chrome.launch"),
     );
-    expect(indexOf("socket.send")).toBeGreaterThan(indexOf("socket.waitForReady"));
+    expect(indexOf("socket.send")).toBeGreaterThan(
+      indexOf("socket.waitForReady"),
+    );
     expect(indexOf("audio.start")).toBeGreaterThan(indexOf("socket.send"));
     expect(indexOf("http.create")).toBeGreaterThan(indexOf("audio.start"));
     expect(indexOf("http.start")).toBeGreaterThan(indexOf("http.create"));
@@ -476,9 +475,7 @@ describe("runBot — boot sequence", () => {
     if (join && join.type === "join") {
       expect(join.meetingUrl).toBe("https://meet.google.com/abc-defg-hij");
       expect(join.displayName).toBe("Vellum Bot");
-      expect(join.consentMessage).toBe(
-        "Hi, I'm an AI assistant listening in.",
-      );
+      expect(join.consentMessage).toBe("Hi, I'm an AI assistant listening in.");
     }
   });
 
@@ -598,7 +595,9 @@ describe("runBot — extension message routing", () => {
     expect(clickCall!.display).toBe(":99");
     // Success should surface via logInfo.
     expect(
-      handles.infos.some((m) => m.includes("trusted_click dispatched at (1014,536)")),
+      handles.infos.some((m) =>
+        m.includes("trusted_click dispatched at (1014,536)"),
+      ),
     ).toBe(true);
   });
 
@@ -844,9 +843,7 @@ describe("runBot — shutdown", () => {
     expect(httpStop).toBeGreaterThanOrEqual(0);
 
     // A leave send message appears between http.stop and chrome.stop.
-    const leaveSendIdx = shutdownOrder.findIndex(
-      (k) => k === "socket.send",
-    );
+    const leaveSendIdx = shutdownOrder.findIndex((k) => k === "socket.send");
     expect(leaveSendIdx).toBeGreaterThan(httpStop);
 
     const chromeStop = shutdownOrder.indexOf("chrome.stop");
@@ -1257,7 +1254,8 @@ describe("runBot — Gap B: extension-joined deadline", () => {
 describe("runBot — Gap C: error detail forwarding", () => {
   test("waitForReady rejection forwards the underlying error message to daemon", async () => {
     BotState.__resetForTests();
-    const specific = "timed out after 1234ms waiting for extension ready handshake";
+    const specific =
+      "timed out after 1234ms waiting for extension ready handshake";
     const { deps, handles } = makeDeps({
       extensionReadyError: new Error(specific),
     });

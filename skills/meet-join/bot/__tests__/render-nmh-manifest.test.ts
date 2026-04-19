@@ -82,7 +82,10 @@ describe("renderManifest", () => {
       name: "com.vellum.meet",
       allowed_origins: ["chrome-extension://{{EXT_ID}}/"],
     });
-    const rendered = renderManifest(template, "abcdefghijklmnopabcdefghijklmnop");
+    const rendered = renderManifest(
+      template,
+      "abcdefghijklmnopabcdefghijklmnop",
+    );
     const parsed = JSON.parse(rendered) as { allowed_origins: string[] };
     expect(parsed.allowed_origins).toEqual([
       "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
@@ -90,8 +93,7 @@ describe("renderManifest", () => {
   });
 
   test("replaces every occurrence of the placeholder", () => {
-    const template =
-      "{{EXT_ID}} and again {{EXT_ID}} and yet again {{EXT_ID}}";
+    const template = "{{EXT_ID}} and again {{EXT_ID}} and yet again {{EXT_ID}}";
     const rendered = renderManifest(template, "ID");
     expect(rendered).toBe("ID and again ID and yet again ID");
   });
@@ -118,9 +120,9 @@ describe("render integration", () => {
       "manifest.json",
     );
     const template = await readFile(templatePath, "utf8");
-    const extManifest = JSON.parse(
-      await readFile(extManifestPath, "utf8"),
-    ) as { key: string };
+    const extManifest = JSON.parse(await readFile(extManifestPath, "utf8")) as {
+      key: string;
+    };
     const extId = computeExtensionId(extManifest.key);
     const rendered = renderManifest(template, extId);
     const parsed = JSON.parse(rendered) as {
@@ -132,8 +134,6 @@ describe("render integration", () => {
     expect(parsed.name).toBe("com.vellum.meet");
     expect(parsed.type).toBe("stdio");
     expect(parsed.path).toBe("/app/bot/src/native-messaging/nmh-shim.ts");
-    expect(parsed.allowed_origins).toEqual([
-      `chrome-extension://${extId}/`,
-    ]);
+    expect(parsed.allowed_origins).toEqual([`chrome-extension://${extId}/`]);
   });
 });

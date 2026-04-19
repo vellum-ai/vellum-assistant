@@ -72,7 +72,10 @@ async function sleep(ms: number): Promise<void> {
  */
 async function waitFor(
   predicate: () => boolean,
-  { timeoutMs = 2000, intervalMs = 5 }: { timeoutMs?: number; intervalMs?: number } = {},
+  {
+    timeoutMs = 2000,
+    intervalMs = 5,
+  }: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -320,9 +323,9 @@ describe("createNmhSocketServer — defensive parsing", () => {
 
     await waitFor(() => received.length === 1);
     expect(received[0]!.type).toBe("ready");
-    expect(
-      logger.warnMessages.some((m) => m.includes("schema-invalid")),
-    ).toBe(true);
+    expect(logger.warnMessages.some((m) => m.includes("schema-invalid"))).toBe(
+      true,
+    );
   });
 
   test("drops malformed JSON and keeps serving", async () => {
@@ -343,9 +346,9 @@ describe("createNmhSocketServer — defensive parsing", () => {
 
     await waitFor(() => received.length === 1);
     expect(received[0]!.type).toBe("ready");
-    expect(
-      logger.warnMessages.some((m) => m.includes("malformed JSON")),
-    ).toBe(true);
+    expect(logger.warnMessages.some((m) => m.includes("malformed JSON"))).toBe(
+      true,
+    );
   });
 });
 

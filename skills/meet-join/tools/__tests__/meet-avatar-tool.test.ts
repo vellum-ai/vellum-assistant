@@ -102,9 +102,8 @@ mock.module("../../../../assistant/src/util/logger.js", () => ({
     }),
 }));
 
-const { meetEnableAvatarTool, meetDisableAvatarTool } = await import(
-  "../meet-avatar-tool.js"
-);
+const { meetEnableAvatarTool, meetDisableAvatarTool } =
+  await import("../meet-avatar-tool.js");
 
 import type { ToolContext } from "../../../../assistant/src/tools/types.js";
 
