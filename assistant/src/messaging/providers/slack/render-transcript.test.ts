@@ -129,12 +129,73 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
+  test("edited marker uses editedAt time, not channelTs", () => {
+    // channelTs at 14:25 (original send time), edited later at 14:32.
+    // The opening time bracket must reflect 14:25 and the suffix must
+    // reflect 14:32 — derived from editedAt, not from channelTs.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "v2", { editedAt: MS_14_32 }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice, edited 14:32]: v2" },
+    ]);
+  });
+
+  test("edited message in a thread renders both arrow and edit suffix", () => {
+    const out = renderSlackTranscript([
+      userMsg(TS_14_28, "@bob", "got it (edit)", {
+        threadTs: TS_14_25,
+        editedAt: MS_14_30,
+      }),
+    ]);
+    const alias = parentAlias(TS_14_25);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: `[14:28 @bob → ${alias}, edited 14:30]: got it (edit)`,
+      },
+    ]);
+  });
+
   test("renders deleted message with deletedAt — content elided", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "(removed)", { deletedAt: MS_14_32 }),
     ]);
     expect(out).toEqual([
       { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+    ]);
+  });
+
+  test("delete takes precedence over edit (delete wins)", () => {
+    // A message that was edited at 14:30 and then deleted at 14:32
+    // should render as deleted, not edited — and content must be elided.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "edited body", {
+        editedAt: MS_14_30,
+        deletedAt: MS_14_32,
+      }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+    ]);
+    // No "edited" suffix should leak through.
+    expect(out[0].content.includes("edited")).toBe(false);
+    // Content body must not appear.
+    expect(out[0].content.includes("edited body")).toBe(false);
+  });
+
+  test("deleted message preserves chronological ordering", () => {
+    // A deleted message in the middle of a transcript should still occupy
+    // its chronological slot — only the body is elided.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "first"),
+      userMsg(TS_14_28, "@bob", "(removed)", { deletedAt: MS_14_30 }),
+      userMsg(TS_14_30, "@carol", "third"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: first",
+      "[14:28 @bob — deleted 14:30]",
+      "[14:30 @carol]: third",
     ]);
   });
 
@@ -155,6 +216,67 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     expect(out).toEqual([
       { role: "user", content: `[14:28 @bob removed 👍 from ${alias}]` },
+    ]);
+  });
+});
+
+// ── edited marker ────────────────────────────────────────────────────────────
+
+describe("renderSlackTranscript — edited marker", () => {
+  test("deleted takes precedence over edited (no edit suffix on deleted line)", () => {
+    // A row may carry both editedAt and deletedAt if it was edited before
+    // being deleted. The deleted form takes precedence and the edited
+    // suffix must not appear.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "(removed)", {
+        editedAt: MS_14_30,
+        deletedAt: MS_14_32,
+      }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+    ]);
+    expect(out[0].content.includes("edited")).toBe(false);
+  });
+
+  test("reaction rows do not render the edited marker even if metadata has editedAt", () => {
+    // The renderer must never apply the edited suffix to a reaction-kind row.
+    // We construct a reaction with an editedAt field set in metadata to
+    // confirm the reaction code path ignores it.
+    const reaction: RenderableSlackMessage = {
+      role: "user",
+      content: "",
+      senderLabel: "@bob",
+      createdAt: Number.parseFloat(TS_14_28) * 1000,
+      metadata: {
+        source: "slack",
+        channelId: CHANNEL,
+        channelTs: TS_14_28,
+        eventKind: "reaction",
+        reaction: {
+          emoji: "👍",
+          targetChannelTs: TS_14_25,
+          op: "added",
+        },
+        editedAt: MS_14_30,
+      },
+    };
+    const out = renderSlackTranscript([reaction]);
+    const alias = parentAlias(TS_14_25);
+    expect(out).toEqual([
+      { role: "user", content: `[14:28 @bob reacted 👍 to ${alias}]` },
+    ]);
+    expect(out[0].content.includes("edited")).toBe(false);
+  });
+
+  test("editedAt of 0 (epoch) still renders as 00:00 marker", () => {
+    // Defensive: 0 is a valid (if unusual) timestamp and must not be
+    // skipped by a truthy check.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "v2", { editedAt: 0 }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice, edited 00:00]: v2" },
     ]);
   });
 });
@@ -243,6 +365,51 @@ describe("renderSlackTranscript — reaction cap", () => {
     // 2 messages + 4 reactions, no trailers.
     expect(out.length).toBe(6);
     expect(out.some((r) => r.content.includes("more reactions"))).toBe(false);
+  });
+});
+
+// ── mixed message + reaction chronology ─────────────────────────────────────
+
+describe("renderSlackTranscript — mixed message + reaction chronology", () => {
+  test("reaction renders inline at correct chronological position", () => {
+    // Order of events as they happened in time:
+    //   14:25 — alice posts the parent
+    //   14:26 — bob posts a follow-up message
+    //   14:28 — carol reacts to alice's parent
+    //   14:30 — dan posts another message
+    // Inputs are intentionally shuffled so the renderer must sort.
+    const aliasParent = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      reactionMsg(TS_14_28, "@carol", "👍", TS_14_25, "added"),
+      userMsg(TS_14_30, "@dan", "later"),
+      userMsg(TS_14_25, "@alice", "lunch?"),
+      userMsg(TS_14_26, "@bob", "yes"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: lunch?",
+      "[14:26 @bob]: yes",
+      `[14:28 @carol reacted 👍 to ${aliasParent}]`,
+      "[14:30 @dan]: later",
+    ]);
+  });
+
+  test("removed reactions interleave with messages by their own ts", () => {
+    // A reaction is added at 14:26 then removed at 14:30; bob posts a message
+    // at 14:28 in between. The "removed" line must land between bob's message
+    // and dan's later message, not collapsed beside the "added" line.
+    const aliasParent = parentAlias(TS_14_25);
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "lunch?"),
+      reactionMsg("1699971960.000010", "@carol", "👍", TS_14_25, "added"),
+      userMsg(TS_14_28, "@bob", "yes"),
+      reactionMsg(TS_14_30, "@carol", "👍", TS_14_25, "removed"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: lunch?",
+      `[14:26 @carol reacted 👍 to ${aliasParent}]`,
+      "[14:28 @bob]: yes",
+      `[14:30 @carol removed 👍 from ${aliasParent}]`,
+    ]);
   });
 });
 

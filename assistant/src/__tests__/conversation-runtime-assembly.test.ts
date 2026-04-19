@@ -15,11 +15,12 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type {
   ChannelCapabilities,
+  SlackTranscriptInputRow,
   UnifiedTurnContextOptions,
 } from "../daemon/conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
-  applySlackChannelChronologicalRender,
+  assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
@@ -28,7 +29,7 @@ import {
   injectNowScratchpad,
   injectSubagentStatus,
   isGroupChatType,
-  loadSlackChannelRenderableHistory,
+  loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
   stripInjectionsForCompaction,
@@ -2057,9 +2058,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
         },
       ],
     };
-    const postCompactionMessages = stripInjectionsForCompaction(
-      initialResult,
-    );
+    const postCompactionMessages = stripInjectionsForCompaction(initialResult);
 
     // 3. Re-inject with the new conversation — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
@@ -2086,10 +2085,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PR 17 — Slack channel chronological rendering
+// Slack channel chronological rendering (multi-thread)
 // ---------------------------------------------------------------------------
 
-describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRender", () => {
+describe("Slack channel chronological rendering — multi-thread", () => {
   // Slack ts values are seconds-since-epoch with microsecond precision.
   // Pick a few stable anchors so thread aliases (sha-derived) stay
   // predictable across the scenarios.
@@ -2157,15 +2156,9 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
 
   // Helper: assemble a Slack-channel turn through the public assembly path
   // so the tests exercise the same code the daemon uses.
-  async function runSlackChannelAssembly(rows: MessageRow[]): Promise<Message[]> {
-    const slackChannelHistory = loadSlackChannelRenderableHistory(
-      "conv-1",
-      () => rows,
-    );
-    const lastUserMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: "current turn" }],
-    };
+  async function runSlackChannelAssembly(
+    rows: MessageRow[],
+  ): Promise<Message[]> {
     const slackChannelCaps: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,
@@ -2173,9 +2166,18 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
       supportsVoiceInput: false,
       chatType: "channel",
     };
+    const slackChronologicalMessages = loadSlackChronologicalMessages(
+      "conv-1",
+      slackChannelCaps,
+      () => rows,
+    );
+    const lastUserMessage: Message = {
+      role: "user",
+      content: [{ type: "text", text: "current turn" }],
+    };
     return applyRuntimeInjections([lastUserMessage], {
       channelCapabilities: slackChannelCaps,
-      slackChannelHistory,
+      slackChronologicalMessages,
     });
   }
 
@@ -2405,10 +2407,11 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
     expect(lines[1]).not.toContain("→ M");
     // Post-upgrade row carries its thread tag.
     expect(lines[2]).toContain(`→ ${ALIAS_T0}`);
-    // Sender labels: legacy user pulls displayName from outer metadata,
-    // legacy assistant uses the role label.
-    expect(lines[0]).toContain("legacy_alice");
-    expect(lines[1]).toContain("assistant");
+    // Sender labels: legacy users fall back to "@user" (the row mapper
+    // intentionally does not mine outer metadata for displayName hints —
+    // the renderer's flat fallback handles them uniformly).
+    expect(lines[0]).toContain("@user");
+    expect(lines[1]).toContain("@assistant");
   });
 
   // ── Branch isolation: non-Slack channels untouched ───────────────────
@@ -2424,15 +2427,12 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
         supportsDynamicUi: true,
         supportsVoiceInput: true,
       },
-      // Even if we accidentally pass slack history, the branch must be a
-      // no-op for non-slack channels.
-      slackChannelHistory: [
+      // Even if we accidentally pass a chronological transcript, the
+      // branch must be a no-op for non-slack channels.
+      slackChronologicalMessages: [
         {
           role: "user",
-          content: "should not appear",
-          metadata: null,
-          senderLabel: "ghost",
-          createdAt: 1700000000_000,
+          content: [{ type: "text", text: "should not appear" }],
         },
       ],
     });
@@ -2445,8 +2445,11 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
     expect(allText).not.toContain("should not appear");
   });
 
-  // ── Branch isolation: DMs (chatType === "im") use the existing path ──
-  test("slack DMs (chatType im) bypass chronological rendering — wired in PR 21", async () => {
+  // ── Branch isolation: DMs (chatType === "im") bypass channel rendering ──
+  // The runtime-assembly hook keys the override on `isSlackChannelConversation`
+  // (channel === slack AND chatType !== im), so DMs intentionally fall
+  // through even when the caller passes a chronological transcript.
+  test("slack DMs (chatType im) bypass channel chronological rendering", async () => {
     const lastUserMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
@@ -2459,13 +2462,10 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
         supportsVoiceInput: false,
         chatType: "im",
       },
-      slackChannelHistory: [
+      slackChronologicalMessages: [
         {
           role: "user",
-          content: "should not appear in DM",
-          metadata: null,
-          senderLabel: "ghost",
-          createdAt: 1700000000_000,
+          content: [{ type: "text", text: "should not appear in DM" }],
         },
       ],
     });
@@ -2495,8 +2495,9 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
         slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
       }),
     ];
-    const slackChannelHistory = loadSlackChannelRenderableHistory(
+    const slackChronologicalMessages = loadSlackChronologicalMessages(
       "conv-1",
+      slackChannelCaps,
       () => rows,
     );
 
@@ -2504,7 +2505,7 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
       {
         channelCapabilities: slackChannelCaps,
-        slackChannelHistory,
+        slackChronologicalMessages,
         transportHints: ["thread context: ..."],
       },
     );
@@ -2541,12 +2542,236 @@ describe("loadSlackChannelRenderableHistory + applySlackChannelChronologicalRend
     expect(allText).toContain("please answer concisely");
   });
 
-  // ── Helper: pure render function dropped to a no-op when history empty ─
-  test("applySlackChannelChronologicalRender is a no-op when history is empty", () => {
-    const original: Message[] = [
-      { role: "user", content: [{ type: "text", text: "hello" }] },
+  // ── loadSlackChronologicalMessages returns null for non-slack channels ─
+  test("loadSlackChronologicalMessages returns null for non-slack channels", () => {
+    const result = loadSlackChronologicalMessages(
+      "conv-1",
+      {
+        channel: "telegram",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "private",
+      },
+      () => [],
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleSlackChronologicalMessages — DM chronological rendering
+// ---------------------------------------------------------------------------
+
+describe("assembleSlackChronologicalMessages", () => {
+  // Anchor times mirror the renderer's HH:MM (UTC) output.
+  // 14:25:00 UTC on 2023-11-14 = epoch second 1699971900.
+  const TS_14_25 = "1699971900.000100"; // 14:25 UTC
+  const TS_14_28 = "1699972080.000300"; // 14:28 UTC
+  const MS_14_25 = 1699971900_000;
+  const MS_14_26 = 1699971960_000;
+  const MS_14_28 = 1699972080_000;
+  const MS_14_30 = 1699972200_000;
+
+  const DM_CHANNEL_ID = "D0DM0001";
+  const DM_CAPS: ChannelCapabilities = {
+    channel: "slack",
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
+    chatType: "im",
+  };
+
+  /**
+   * Build the persisted-row metadata JSON envelope. `slackMeta` is stored as
+   * a JSON string sub-key inside the outer metadata object, mirroring the
+   * production write path in `conversation-messaging.ts`.
+   */
+  function metadataEnvelope(slackMeta: SlackMessageMetadata | null): string {
+    const envelope: Record<string, unknown> = {
+      userMessageChannel: "slack",
+      assistantMessageChannel: "slack",
+    };
+    if (slackMeta) {
+      envelope.slackMeta = writeSlackMetadata(slackMeta);
+    }
+    return JSON.stringify(envelope);
+  }
+
+  /** Build a row that mirrors how `addMessage` persists user/assistant content. */
+  function row(
+    role: "user" | "assistant",
+    text: string,
+    createdAt: number,
+    metadata: string | null,
+  ): SlackTranscriptInputRow {
+    return {
+      role,
+      content: JSON.stringify([{ type: "text", text }]),
+      createdAt,
+      metadata,
+    };
+  }
+
+  test("returns null when channel is not Slack", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "private",
+    };
+    const result = assembleSlackChronologicalMessages([], caps);
+    expect(result).toBeNull();
+  });
+
+  test("renders for Slack channels (chatType !== 'im')", () => {
+    // The channel branch and the DM branch share this assembler. The
+    // wiring in `applyRuntimeInjections` decides whether to actually
+    // override `runMessages` based on `isSlackChannelConversation`; the
+    // assembler itself returns rendered messages for any Slack channel.
+    const channelCaps: ChannelCapabilities = {
+      ...DM_CAPS,
+      chatType: "channel",
+    };
+    const result = assembleSlackChronologicalMessages([], channelCaps);
+    expect(result).toEqual([]);
+  });
+
+  test("renders when chatType is missing entirely", () => {
+    // The assembler treats a missing chatType as a non-DM Slack channel
+    // (it does not infer DM from absence). Callers can still gate via
+    // `isSlackChannelConversation` if they need stricter handling.
+    const looseCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+    const result = assembleSlackChronologicalMessages([], looseCaps);
+    expect(result).toEqual([]);
+  });
+
+  test("DM-only fixture: pure chronological render with no thread tags", () => {
+    // Two-turn DM: user → assistant → user. All rows carry slackMeta but
+    // none have threadTs (DMs never have threadTs). Output must be a flat
+    // chronological transcript with no `→ Mxxxxxx` parent-alias arrows.
+    const userMeta1: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    const userMeta2: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    // Outbound assistant rows in production lack channelTs (filled in by a
+    // later reconciliation PR), so they go through the legacy fallback path.
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "hi assistant", MS_14_25, metadataEnvelope(userMeta1)),
+      row("assistant", "hi back!", MS_14_26, metadataEnvelope(null)),
+      row("user", "another one", MS_14_28, metadataEnvelope(userMeta2)),
     ];
-    const result = applySlackChannelChronologicalRender(original, []);
-    expect(result).toBe(original);
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @alice]: hi assistant" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[14:26 @assistant]: hi back!" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:28 @alice]: another one" }],
+      },
+    ]);
+    // Sanity: no thread-tag arrow ever appears in DM output.
+    for (const msg of result!) {
+      const text = (msg.content[0] as { type: "text"; text: string }).text;
+      expect(text).not.toMatch(/→ M[0-9a-f]{6}/);
+    }
+  });
+
+  test("legacy-DM fixture: pre-upgrade rows (no slackMeta) interleave with post-upgrade rows", () => {
+    // Mix:
+    //  - Two pre-upgrade rows (created before PR 16 wired slackMeta into
+    //    DM persistence). Their metadata column has no slackMeta sub-key —
+    //    the renderer's flat fallback orders them by createdAt.
+    //  - One post-upgrade user row with slackMeta.
+    //  - One assistant row that lacks slackMeta entirely (no metadata
+    //    column at all — also goes through the legacy fallback).
+    //
+    // All four rows must appear in the output, sorted chronologically.
+    const postUpgradeUserMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+
+    const rows: SlackTranscriptInputRow[] = [
+      // Pre-upgrade user row from before slackMeta was persisted on DMs.
+      row("user", "old hi", MS_14_25, metadataEnvelope(null)),
+      // Pre-upgrade assistant row.
+      row("assistant", "old reply", MS_14_26, metadataEnvelope(null)),
+      // Post-upgrade user row with slackMeta.
+      row("user", "fresh hi", MS_14_28, metadataEnvelope(postUpgradeUserMeta)),
+      // Assistant row with no metadata column at all (defensive: null
+      // metadata must still survive the assembly path).
+      row("assistant", "fresh reply", MS_14_30, null),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
+      [
+        "[14:25 @user]: old hi",
+        "[14:26 @assistant]: old reply",
+        "[14:28 @alice]: fresh hi",
+        "[14:30 @assistant]: fresh reply",
+      ],
+    );
+    expect(result!.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+  });
+
+  test("malformed slackMeta sub-key falls back to legacy flat render", () => {
+    // Defensive: if the slackMeta sub-key is present but isn't a valid
+    // serialized SlackMessageMetadata, the row is treated as legacy rather
+    // than dropped from context.
+    const badEnvelope = JSON.stringify({
+      userMessageChannel: "slack",
+      slackMeta: "not valid json {{{",
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "hello", MS_14_25, badEnvelope),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @user]: hello" }],
+      },
+    ]);
+  });
+
+  test("empty rows yields an empty array (Slack DM with no history)", () => {
+    const result = assembleSlackChronologicalMessages([], DM_CAPS);
+    expect(result).toEqual([]);
   });
 });

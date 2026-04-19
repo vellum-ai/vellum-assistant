@@ -124,7 +124,7 @@ import {
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
   isSlackChannelConversation,
-  loadSlackChannelRenderableHistory,
+  loadSlackChronologicalMessages,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -894,13 +894,17 @@ export async function runAgentLoopImpl(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
 
-    // For Slack non-DM channels, load the stored thread metadata once per
-    // turn so the assembly path can replace the in-memory message array
-    // with a chronological transcript that exposes sibling threads.
-    const slackChannelHistory = isSlackChannelConversation(
+    // For Slack non-DM channels, build a chronological transcript from
+    // the persisted message rows so the model sees one channel-wide view
+    // (sibling threads included) instead of the gateway's per-turn
+    // active-thread hint.
+    const slackChronologicalMessages = isSlackChannelConversation(
       ctx.channelCapabilities,
     )
-      ? loadSlackChannelRenderableHistory(ctx.conversationId)
+      ? loadSlackChronologicalMessages(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+        )
       : null;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
@@ -926,7 +930,7 @@ export async function runAgentLoopImpl(
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
-      slackChannelHistory,
+      slackChronologicalMessages,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";

@@ -28,7 +28,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({    
+  getConfig: () => ({
     llm: {
       default: {
         provider: "mock-provider",
@@ -228,8 +228,9 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
     "threads.md",
     "buffer.md",
   ],
-  loadSlackChannelRenderableHistory: () => [],
-  applySlackChannelChronologicalRender: (msgs: Message[]) => msgs,
+  isSlackChannelConversation: () => false,
+  loadSlackChronologicalMessages: () => null,
+  assembleSlackChronologicalMessages: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -478,7 +479,12 @@ function makeCtx(
 
     graphMemory: {
       onCompacted: () => {},
-      prepareMemory: async () => ({ runMessages: [], injectedTokens: 0, latencyMs: 0, mode: "none" as const }),
+      prepareMemory: async () => ({
+        runMessages: [],
+        injectedTokens: 0,
+        latencyMs: 0,
+        mode: "none" as const,
+      }),
       reinjectCachedMemory: (messages: Message[]) => ({
         runMessages: messages,
         injectedTokens: 0,
