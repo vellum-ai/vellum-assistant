@@ -9,7 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "lib": ["ES2022", "DOM"],
-    "types": ["chrome"],
+    "types": ["bun", "chrome"],
     "outDir": "./dist",
     "rootDir": "."
   },

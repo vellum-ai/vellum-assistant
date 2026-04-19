@@ -2,10 +2,19 @@
  * Centralized Google Meet DOM selectors.
  *
  * This module is the single source of truth for every CSS/attribute selector
- * the meet-bot uses to interact with Google Meet's web UI. Consolidating them
- * here means that when Meet's DOM drifts (which happens frequently, often
- * without warning) we only need to patch this one file and refresh the HTML
- * fixtures under `__tests__/fixtures/`.
+ * the meet-controller extension uses to interact with Google Meet's web UI.
+ * Consolidating them here means that when Meet's DOM drifts (which happens
+ * frequently, often without warning) we only need to patch this one file and
+ * refresh the HTML fixtures under `__tests__/fixtures/`.
+ *
+ * ## Consumers
+ *
+ * The selectors are consumed by the extension's content script (`src/content.ts`
+ * and the `src/features/*` modules), which runs in Meet's page world and reads
+ * the live DOM directly via `document.querySelector*`. This replaces the
+ * previous Playwright-driven browser-side helpers that lived in the meet-bot
+ * package — those helpers and their selectors have been retired in favor of a
+ * Manifest V3 content script that operates on the same page in-process.
  *
  * ## Conventions
  *
@@ -17,19 +26,20 @@
  *   selector and tag the constant with `// TODO(meet-dom)`. These are the
  *   candidates most likely to break on the next Meet refresh and should be
  *   re-verified each time fixtures are recaptured.
- * - Every selector MUST be exercised by a fixture in `dom-selectors.test.ts`.
+ * - Every selector MUST be exercised by a fixture in `__tests__/selectors.test.ts`.
  *   If a new selector is added without a matching fixture assertion, the test
  *   suite will fail.
  *
- * ## Downstream consumers
+ * ## Downstream consumers (inside this package)
  *
- * - PR 11 — join flow (prejoin selectors)
- * - PR 12 — participant scraper (participant selectors)
- * - PR 13 — speaker scraper (active-speaker selector)
- * - PR 14 — chat reader (chat selectors)
+ * - `src/features/join.ts` — prejoin surface selectors
+ * - `src/features/participants.ts` — participant panel selectors
+ * - `src/features/speaker.ts` — active-speaker indicator
+ * - `src/features/chat.ts` — chat panel selectors
  *
- * See `README.md` § "Refreshing Meet DOM fixtures" for the manual refresh
- * process.
+ * See `skills/meet-join/bot/README.md` § "Refreshing Meet DOM fixtures" for
+ * the manual refresh process. (That documentation will relocate alongside the
+ * extension when the bot's README is rewritten later in the migration.)
  */
 
 /**

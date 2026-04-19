@@ -11,7 +11,7 @@ import {
   participantSelectors,
   prejoinSelectors,
   selectors,
-} from "../src/browser/dom-selectors.js";
+} from "../selectors.js";
 
 /**
  * Verifies every selector exported from `dom-selectors.ts` resolves against

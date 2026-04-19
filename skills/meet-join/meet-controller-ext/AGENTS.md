@@ -46,3 +46,18 @@ the sibling bot's `src/`. It is the browser-side peer of the bot and
 communicates with the bot only through the Native Messaging port, using
 message shapes defined in `../contracts/`. Treat contracts as the sole
 shared surface between bot and extension.
+
+## Google Meet DOM selectors
+
+The centralized selector module lives at `src/dom/selectors.ts` and is the
+single source of truth for every CSS/attribute selector the content script
+uses against Google Meet's web UI. Matching HTML fixtures live under
+`src/dom/__tests__/fixtures/` and are exercised by
+`src/dom/__tests__/selectors.test.ts` — if a selector is added without a
+matching fixture assertion, CI fails.
+
+When Meet's DOM drifts, refresh the fixtures and bump
+`GOOGLE_MEET_SELECTOR_VERSION` in `selectors.ts`. The step-by-step refresh
+procedure is documented in `skills/meet-join/bot/README.md` §
+"Refreshing Meet DOM fixtures" for now; that README will relocate alongside
+this package later in the migration.
