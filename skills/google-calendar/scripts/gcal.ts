@@ -242,6 +242,7 @@ async function rsvp(argv: string[]): Promise<void> {
     | "tentative";
   const calendarId = optionalArg(args, "calendar-id") ?? "primary";
   const account = optionalArg(args, "account");
+  const skipConfirm = args["skip-confirm"] === true;
 
   // Validate response value
   const validResponses = ["accepted", "declined", "tentative"];
@@ -278,6 +279,27 @@ async function rsvp(argv: string[]): Promise<void> {
     return;
   }
 
+  // Gate on user confirmation unless explicitly skipped
+  if (!skipConfirm) {
+    const currentStatus = selfAttendee.responseStatus ?? "needsAction";
+    const messageParts = [
+      `Event: ${event.summary ?? eventId}`,
+      `Current status: ${currentStatus}`,
+      `New response: ${responseStatus}`,
+    ];
+
+    const confirmed = await requestConfirmation({
+      title: "RSVP to calendar event",
+      message: messageParts.join("\n"),
+      confirmLabel: "RSVP",
+    });
+
+    if (!confirmed) {
+      printError("RSVP cancelled by user.");
+      return;
+    }
+  }
+
   // Update the attendee's response status
   const updatedAttendees = event.attendees!.map((a: EventAttendee) =>
     a.self ? { ...a, responseStatus } : a,
@@ -287,7 +309,7 @@ async function rsvp(argv: string[]): Promise<void> {
     eventId,
     { attendees: updatedAttendees },
     calendarId,
-    undefined,
+    "all",
     account,
   );
 
