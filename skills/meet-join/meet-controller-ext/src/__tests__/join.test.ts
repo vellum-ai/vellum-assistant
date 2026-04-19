@@ -299,6 +299,67 @@ describe("runJoinFlow (content-script port)", () => {
     expect(leave).not.toBeNull();
   });
 
+  test("emits a trusted_click message with computed screen coords before clicking", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLeaveButton(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    // Stub the admission button's geometry so the coordinate math is
+    // deterministic — jsdom returns zero rects by default.
+    const btn = doc.querySelector(
+      selectors.PREJOIN_JOIN_NOW_BUTTON,
+    ) as HTMLElement;
+    btn.getBoundingClientRect = () =>
+      ({
+        left: 900,
+        top: 500,
+        width: 200,
+        height: 40,
+        right: 1100,
+        bottom: 540,
+        x: 900,
+        y: 500,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+
+    const events: unknown[] = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-click-coords",
+        onEvent: (e) => events.push(e),
+        doc,
+        // window with explicit chrome offset: chrome=100px tall, at screen
+        // origin (0,0). Expected screen coords = center of the stubbed rect
+        // plus chrome offset: x = 900+100 = 1000, y = 500+100+20 = 620.
+        window: {
+          screenX: 0,
+          screenY: 0,
+          outerHeight: 820,
+          innerHeight: 720,
+        },
+      });
+    } finally {
+      restore();
+    }
+
+    const trustedClick = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "trusted_click",
+    ) as { type: string; x: number; y: number } | undefined;
+    expect(trustedClick).toBeDefined();
+    expect(trustedClick!.x).toBe(1000);
+    expect(trustedClick!.y).toBe(620);
+  });
+
   test("falls back to Ask to join when Join now is absent", async () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);

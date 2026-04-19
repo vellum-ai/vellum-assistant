@@ -122,6 +122,34 @@ export type ExtensionDiagnosticMessage = z.infer<
 >;
 
 /**
+ * Ask the bot to dispatch a REAL X-server mouse click at the given screen
+ * coordinates (via xdotool inside the bot container). Google Meet gates
+ * several critical buttons (the prejoin admission button in particular)
+ * on `event.isTrusted === true`, which JS `.click()` from a content script
+ * cannot produce — only X-server-originated events carry that flag. The
+ * extension emits this message when it needs a trusted click; the bot
+ * runs xdotool and the extension confirms success by observing the DOM
+ * transition (no separate response message — the DOM is the source of
+ * truth and avoids an otherwise-unused correlation path).
+ *
+ * Coordinates are **screen-space** (absolute pixels on Xvfb's virtual
+ * display), NOT viewport-relative — the extension is responsible for
+ * translating `clientX/clientY` using `window.screenX/screenY` plus the
+ * Chromium chrome offset (`outerHeight - innerHeight`). The bot performs
+ * NO coordinate translation; it passes the values straight to xdotool.
+ */
+export const ExtensionTrustedClickMessageSchema = z.object({
+  type: z.literal("trusted_click"),
+  /** Screen-space X coordinate on the Xvfb virtual display. */
+  x: z.number().int().min(0).max(10_000),
+  /** Screen-space Y coordinate on the Xvfb virtual display. */
+  y: z.number().int().min(0).max(10_000),
+});
+export type ExtensionTrustedClickMessage = z.infer<
+  typeof ExtensionTrustedClickMessageSchema
+>;
+
+/**
  * Result of a prior `send_chat` command, correlated by `requestId`.
  *
  * `ok: false` payloads should set `error` to a human-readable string so the
@@ -152,6 +180,7 @@ export const ExtensionToBotMessageSchema = z.discriminatedUnion("type", [
   ExtensionSpeakerChangeMessageSchema,
   ExtensionInboundChatMessageSchema,
   ExtensionDiagnosticMessageSchema,
+  ExtensionTrustedClickMessageSchema,
   ExtensionSendChatResultMessageSchema,
 ]);
 export type ExtensionToBotMessage = z.infer<typeof ExtensionToBotMessageSchema>;
@@ -164,6 +193,7 @@ export const EXTENSION_TO_BOT_MESSAGE_TYPES = [
   "speaker.change",
   "chat.inbound",
   "diagnostic",
+  "trusted_click",
   "send_chat_result",
 ] as const;
 

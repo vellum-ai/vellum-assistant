@@ -81,6 +81,18 @@ export interface RunJoinFlowOptions {
    * it through; tests override with a JSDOM-backed document.
    */
   doc?: Document;
+  /**
+   * Window used to compute screen-space coordinates for `trusted_click`.
+   * Production uses the live `window`; tests override with a JSDOM window
+   * (which has `screenX=0`, `screenY=0`, and `outerHeight === innerHeight`
+   * so the click coords resolve to plain client coords).
+   */
+  window?: {
+    screenX: number;
+    screenY: number;
+    outerHeight: number;
+    innerHeight: number;
+  };
 }
 
 /**
@@ -207,18 +219,43 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
     );
   }
   const btnLabel = admissionBtn.getAttribute("aria-label") ?? "";
-  // NOTE: Meet gates the prejoin admission button on `event.isTrusted`, so a
-  // programmatic `.click()` from a content script is silently ignored by the
-  // real Meet UI — admission requires an X-server mouse click (handled by
-  // a separate trusted-click bridge to the bot process). We still dispatch
-  // the JS click here because (a) it's free, (b) the jsdom test harness
-  // exercises this path, and (c) any Meet build that ever relaxes the
-  // `isTrusted` check would start working again automatically.
+  // Meet gates the prejoin admission button on `event.isTrusted`, so a
+  // programmatic `.click()` from a content script is silently ignored by
+  // the real Meet UI. Admission requires a REAL X-server mouse click,
+  // which the bot dispatches via xdotool when it receives this
+  // `trusted_click` message. We compute screen coordinates locally here
+  // because the bot has no DOM access; the math is:
+  //
+  //   screenX = window.screenX + clientX
+  //   screenY = window.screenY + (outerHeight - innerHeight) + clientY
+  //
+  // `outerHeight - innerHeight` is the browser-chrome vertical offset
+  // (address bar + tab strip + any info-bar) that sits above the viewport.
+  // We still dispatch the JS `.click()` afterwards because (a) it's free,
+  // (b) the jsdom test harness exercises that path, and (c) any Meet build
+  // that ever relaxes the `isTrusted` check would start working again
+  // automatically.
+  const rect = (admissionBtn as HTMLElement).getBoundingClientRect();
+  const win = opts.window ?? (doc.defaultView ?? globalThis);
+  const chromeOffsetY = Math.max(
+    0,
+    (win as typeof globalThis).outerHeight - (win as typeof globalThis).innerHeight,
+  );
+  const screenX = Math.round(
+    ((win as typeof globalThis).screenX ?? 0) + rect.left + rect.width / 2,
+  );
+  const screenY = Math.round(
+    ((win as typeof globalThis).screenY ?? 0) +
+      chromeOffsetY +
+      rect.top +
+      rect.height / 2,
+  );
+  onEvent({ type: "trusted_click", x: screenX, y: screenY });
   (admissionBtn as HTMLElement).click();
   onEvent({
     type: "diagnostic",
     level: "info",
-    message: `meet-ext: clicked admission button aria-label="${btnLabel}"`,
+    message: `meet-ext: clicked admission button aria-label="${btnLabel}" screen=(${screenX},${screenY})`,
   });
 
   // Step 5 — wait for the in-meeting UI. The "Leave call" button only mounts

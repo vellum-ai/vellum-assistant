@@ -64,6 +64,7 @@ import {
   type ChromeProcessHandle,
   type LaunchChromeOptions,
 } from "./browser/chrome-launcher.js";
+import { xdotoolClick } from "./browser/xdotool-click.js";
 import { startXvfb, stopXvfb, type XvfbHandle } from "./browser/xvfb.js";
 import { DaemonClient } from "./control/daemon-client.js";
 import {
@@ -152,8 +153,14 @@ export interface BotDeps {
   stopXvfb: (handle: XvfbHandle) => Promise<void>;
   /** Create (but do not start) the NMH socket server. */
   createNmhSocketServer: (opts: NmhSocketServerOptions) => NmhSocketServer;
-  /** Spawn google-chrome-stable. Returns a handle with exitPromise + stop. */
+  /** Spawn chromium. Returns a handle with exitPromise + stop. */
   launchChrome: (opts: LaunchChromeOptions) => Promise<ChromeProcessHandle>;
+  /**
+   * Dispatch a real X-server click at the given screen coordinates. Used to
+   * clear Meet's `event.isTrusted` gate on the prejoin admission button.
+   * See `browser/xdotool-click.ts` for rationale.
+   */
+  xdotoolClick: (opts: { x: number; y: number; display: string }) => Promise<void>;
   startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   createDaemonClient: (opts: {
     daemonUrl: string;
@@ -225,6 +232,7 @@ export function defaultDeps(): BotDeps {
     stopXvfb,
     createNmhSocketServer: (opts) => createNmhSocketServer(opts),
     launchChrome: (opts) => launchChrome(opts),
+    xdotoolClick: (opts) => xdotoolClick(opts),
     startAudioCapture,
     createDaemonClient: (opts) =>
       new DaemonClient({
@@ -784,6 +792,28 @@ export async function runBot(deps: BotDeps): Promise<void> {
         if (msg.level === "error") deps.logError(`[ext] ${msg.message}`);
         else deps.logInfo(`[ext] ${msg.message}`);
         return;
+      case "trusted_click": {
+        // Fire-and-forget: the extension confirms success by observing the
+        // subsequent DOM transition (waitForSelector on the in-meeting UI).
+        // We surface any xdotool failure as a logError so operators see
+        // them even though the extension can't synchronously react.
+        deps
+          .xdotoolClick({
+            x: msg.x,
+            y: msg.y,
+            display: env.xvfbDisplay,
+          })
+          .then(() =>
+            deps.logInfo(
+              `meet-bot: trusted_click dispatched at (${msg.x},${msg.y})`,
+            ),
+          )
+          .catch((err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            deps.logError(`meet-bot: trusted_click failed: ${detail}`);
+          });
+        return;
+      }
       case "send_chat_result": {
         const pending = pendingSendChat.get(msg.requestId);
         if (!pending) {

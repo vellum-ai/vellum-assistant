@@ -92,6 +92,8 @@ interface MakeDepsOpts {
   pulseError?: Error;
   /** Force `launchChrome` to reject. */
   chromeLaunchError?: Error;
+  /** Force `xdotoolClick` to reject. */
+  xdotoolClickError?: Error;
   /** Force `startXvfb` to reject. */
   xvfbError?: Error;
   /** Short-circuit `waitForReady` to reject with this error. */
@@ -248,6 +250,15 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         },
         exitPromise: chromeExitPromise,
       };
+    },
+    xdotoolClick: async (clickOpts) => {
+      calls.push({
+        kind: "xdotool.click",
+        x: clickOpts.x,
+        y: clickOpts.y,
+        display: clickOpts.display,
+      });
+      if (opts.xdotoolClickError) throw opts.xdotoolClickError;
     },
     startAudioCapture: async (audioOpts) => {
       calls.push({ kind: "audio.start", socketPath: audioOpts.socketPath });
@@ -547,6 +558,52 @@ describe("runBot — extension message routing", () => {
       "speaker.change",
       "chat.inbound",
     ]);
+  });
+
+  test("trusted_click invokes xdotoolClick with the screen coords + configured display", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_click",
+      x: 1014,
+      y: 536,
+    });
+    // xdotoolClick is fire-and-forget (no promise surface here), so give
+    // it one microtask to settle and the logInfo to land.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const clickCall = handles.calls.find((c) => c.kind === "xdotool.click");
+    expect(clickCall).toBeDefined();
+    expect(clickCall!.x).toBe(1014);
+    expect(clickCall!.y).toBe(536);
+    expect(clickCall!.display).toBe(":99");
+    // Success should surface via logInfo.
+    expect(
+      handles.infos.some((m) => m.includes("trusted_click dispatched at (1014,536)")),
+    ).toBe(true);
+  });
+
+  test("trusted_click xdotool failures surface via logError but don't shut down", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      xdotoolClickError: new Error("xdotool exit code 1"),
+    });
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({ type: "trusted_click", x: 5, y: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(
+      handles.errors.some((m) =>
+        m.includes("trusted_click failed: xdotool exit code 1"),
+      ),
+    ).toBe(true);
+    // Bot stays alive — no shutdown triggered.
+    const counts = handles.stopCounts();
+    expect(counts.chrome).toBe(0);
+    expect(counts.xvfb).toBe(0);
   });
 
   test("diagnostic messages go through the logger, not the daemon", async () => {

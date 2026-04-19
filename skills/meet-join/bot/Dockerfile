@@ -44,6 +44,10 @@ FROM oven/bun:1.3.11@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4
 #   ffmpeg:            audio/video encoding for transcript + recording paths.
 #   fonts-liberation/libvulkan1/xdg-utils: chromium runtime deps.
 #   libnss3/libgbm1/libasound2: Chromium shared-library dependencies.
+#   xdotool:           posts trusted X-server mouse events for buttons that
+#                      Meet gates on `event.isTrusted` (the prejoin admission
+#                      button is the main one — JS `.click()` from the
+#                      extension is silently ignored).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     dbus-x11 \
@@ -56,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pulseaudio \
     pulseaudio-utils \
     xdg-utils \
+    xdotool \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
