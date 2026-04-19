@@ -231,11 +231,7 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
       return meta!.channelTs;
     });
     expect(new Set(persistedTs)).toEqual(
-      new Set([
-        "1700000000.000001",
-        "1700000000.000002",
-        "1700000000.000003",
-      ]),
+      new Set(["1700000000.000001", "1700000000.000002", "1700000000.000003"]),
     );
 
     // Backfilled rows preserve their original text content so the renderer

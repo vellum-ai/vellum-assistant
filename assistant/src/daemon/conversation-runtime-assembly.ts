@@ -10,6 +10,10 @@ import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import {
+  getMessages as defaultGetMessages,
+  type MessageRow,
+} from "../memory/conversation-crud.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -1165,6 +1169,22 @@ export function stripTransportHints(messages: Message[]): Message[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * True when the channel capabilities describe a Slack non-DM channel: a
+ * group/channel/mpim where the assistant renders context across all
+ * threads instead of relying on per-turn `<transport_hints>` from the
+ * gateway. DMs (`chatType === "im"`) are intentionally excluded so the
+ * renderer does not emit thread tags for one-on-one conversations.
+ */
+export function isSlackChannelConversation(
+  channelCapabilities?: ChannelCapabilities | null,
+): boolean {
+  return (
+    channelCapabilities?.channel === "slack" &&
+    channelCapabilities.chatType !== "im"
+  );
+}
+
+/**
  * Minimal structural shape of a persisted message row used by the Slack
  * chronological-transcript assembly path. Decouples the assembly logic from
  * the DB-row type so it can be unit-tested with plain literals.
@@ -1250,26 +1270,26 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
 }
 
 /**
- * Build a chronological Slack transcript for Slack DM conversations and
- * project it onto the LLM-facing `Message[]` shape.
+ * Build a chronological Slack transcript for Slack conversations (both DMs
+ * and group/channel/mpim) and project it onto the LLM-facing `Message[]`
+ * shape.
  *
- * Returns `null` when the channel is not a Slack DM (caller should fall
- * through to the default message history). Legacy pre-upgrade rows without
+ * Returns `null` when the channel is not Slack (caller should fall through
+ * to the default message history). Legacy pre-upgrade rows without
  * `slackMeta` are tolerated: the renderer's flat fallback orders them by
  * `createdAt` alongside post-upgrade rows.
  *
- * NOTE on transport hints: PR 21 deliberately does NOT remove DM
- * transport-hint injection here — that cleanup happens in PR 25 once the
+ * For non-DM Slack channels, `<transport_hints>` injection is suppressed
+ * by `applyRuntimeInjections` so the model sees one consistent
+ * channel-wide chronological view instead of a duplicated active-thread
+ * hint. DM transport-hint injection cleanup happens in a later PR once the
  * gateway stops sending Slack hints altogether.
  */
 export function assembleSlackChronologicalMessages(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,
 ): Message[] | null {
-  // PR 21 handles DMs only. PR 17 adds the symmetric channel branch
-  // (`chatType !== "im"`) — keep the guard tight so the channel path never
-  // accidentally runs through the DM-only renderer wiring.
-  if (capabilities.channel !== "slack" || capabilities.chatType !== "im") {
+  if (capabilities.channel !== "slack") {
     return null;
   }
   const renderable = rows.map(rowToRenderable);
@@ -1278,6 +1298,35 @@ export function assembleSlackChronologicalMessages(
     role: r.role,
     content: [{ type: "text" as const, text: r.content }],
   }));
+}
+
+/**
+ * Load DB rows for a Slack conversation and project them onto the
+ * chronological transcript shape.
+ *
+ * Convenience wrapper over `getMessages` + `assembleSlackChronologicalMessages`.
+ * The loader is exposed as a parameter so tests can substitute a stub. In
+ * production it defaults to `getMessages` from `conversation-crud.ts`.
+ *
+ * Returns `null` when the channel is not Slack — callers should fall
+ * through to the default in-memory message history.
+ */
+export function loadSlackChronologicalMessages(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  loader: (id: string) => MessageRow[] = defaultGetMessages,
+): Message[] | null {
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  // Coerce MessageRow.role (string) to the structural row's stricter union.
+  const rows: SlackTranscriptInputRow[] = loader(conversationId).map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
+  return assembleSlackChronologicalMessages(rows, capabilities);
 }
 
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
@@ -1405,11 +1454,35 @@ export async function applyRuntimeInjections(
     subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
+    /**
+     * Pre-rendered Slack chronological transcript that replaces the
+     * default `runMessages` history for Slack non-DM channels.
+     *
+     * When `channelCapabilities` describes a Slack non-DM channel and this
+     * array is non-empty, it overrides `runMessages` so the model sees one
+     * chronologically-ordered transcript built from the stored Slack
+     * metadata. The `transportHints` pipeline is skipped in that case so
+     * the channel-wide view isn't duplicated by the active-thread hint.
+     *
+     * Callers build this via `loadSlackChronologicalMessages` (or the
+     * underlying `assembleSlackChronologicalMessages`) before invoking
+     * this function so the assembly path stays free of direct DB calls
+     * and remains easy to test.
+     */
+    slackChronologicalMessages?: Message[] | null;
     mode?: InjectionMode;
   },
 ): Promise<Message[]> {
   const mode = options.mode ?? "full";
+  const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   let result = runMessages;
+  if (
+    slackChannel &&
+    options.slackChronologicalMessages &&
+    options.slackChronologicalMessages.length > 0
+  ) {
+    result = options.slackChronologicalMessages;
+  }
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
@@ -1580,8 +1653,15 @@ export async function applyRuntimeInjections(
     }
   }
 
+  // Slack channel conversations build their own chronological transcript
+  // (see `applySlackChannelChronologicalRender` above) and intentionally
+  // do not receive the per-turn `<transport_hints>` block — the rendered
+  // history already covers the active thread, so duplicating it would
+  // confuse the model. Other channels (DMs, telegram, email, etc.) keep
+  // the existing injection.
   if (
     mode === "full" &&
+    !slackChannel &&
     options.transportHints &&
     options.transportHints.length > 0
   ) {

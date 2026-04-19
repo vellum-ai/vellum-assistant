@@ -192,10 +192,7 @@ export async function handleChannelInbound(
   // incorrect. We mark the stored row as deleted in slackMeta but leave
   // `content` untouched for audit purposes — rendering elides based on
   // the deletedAt marker.
-  if (
-    sourceChannel === "slack" &&
-    body.callbackData === "message_deleted"
-  ) {
+  if (sourceChannel === "slack" && body.callbackData === "message_deleted") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
@@ -908,10 +905,9 @@ export async function handleChannelInbound(
               channelId: conversationExternalId,
               channelTs: sourceMessageId ?? externalMessageId,
               ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
-              ...(body.actorDisplayName ?? body.actorUsername
+              ...((body.actorDisplayName ?? body.actorUsername)
                 ? {
-                    displayName:
-                      body.actorDisplayName ?? body.actorUsername!,
+                    displayName: body.actorDisplayName ?? body.actorUsername!,
                   }
                 : {}),
             }
@@ -1034,7 +1030,10 @@ async function persistSlackReactionAsMessage(params: {
   const parsed = parseSlackReactionCallbackData(params.callbackData);
   if (!parsed) {
     log.debug(
-      { conversationId: params.conversationId, callbackData: params.callbackData },
+      {
+        conversationId: params.conversationId,
+        callbackData: params.callbackData,
+      },
       "Skipping reaction persistence: unparseable callbackData",
     );
     return;
@@ -1046,7 +1045,9 @@ async function persistSlackReactionAsMessage(params: {
     channelTs: params.reactedMessageTs,
     eventKind: "reaction",
     ...(params.threadTs ? { threadTs: params.threadTs } : {}),
-    ...(params.actorDisplayName ? { displayName: params.actorDisplayName } : {}),
+    ...(params.actorDisplayName
+      ? { displayName: params.actorDisplayName }
+      : {}),
     reaction: {
       emoji: parsed.emoji,
       targetChannelTs: params.reactedMessageTs,
@@ -1242,7 +1243,11 @@ async function tryBackfillSlackDmIfCold(params: {
     );
   } catch (err) {
     log.warn(
-      { err, conversationId: params.conversationId, channelId: params.channelId },
+      {
+        err,
+        conversationId: params.conversationId,
+        channelId: params.channelId,
+      },
       "DM cold-start backfill failed; proceeding without history",
     );
   }

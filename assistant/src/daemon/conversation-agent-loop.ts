@@ -123,6 +123,8 @@ import {
   getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
+  isSlackChannelConversation,
+  loadSlackChronologicalMessages,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -892,6 +894,19 @@ export async function runAgentLoopImpl(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
 
+    // For Slack non-DM channels, build a chronological transcript from
+    // the persisted message rows so the model sees one channel-wide view
+    // (sibling threads included) instead of the gateway's per-turn
+    // active-thread hint.
+    const slackChronologicalMessages = isSlackChannelConversation(
+      ctx.channelCapabilities,
+    )
+      ? loadSlackChronologicalMessages(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+        )
+      : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -915,6 +930,7 @@ export async function runAgentLoopImpl(
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
+      slackChronologicalMessages,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
