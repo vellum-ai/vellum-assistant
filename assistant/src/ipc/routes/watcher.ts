@@ -31,7 +31,7 @@ const WatcherCreateParams = z.object({
   provider: z.string().min(1),
   action_prompt: z.string().min(1),
   poll_interval_ms: z.number().int().min(15000).optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   credential_service: z.string().optional(),
 });
 
@@ -46,7 +46,7 @@ const WatcherUpdateParams = z.object({
   action_prompt: z.string().optional(),
   poll_interval_ms: z.number().int().min(15000).optional(),
   enabled: z.boolean().optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 const WatcherDeleteParams = z.object({
