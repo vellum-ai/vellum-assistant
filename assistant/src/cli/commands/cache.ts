@@ -30,11 +30,17 @@ const TTL_MULTIPLIERS: Record<string, number> = {
 
 /**
  * Parse a human-friendly duration string (e.g. `"30s"`, `"5m"`, `"2h"`)
- * into milliseconds. Returns `undefined` when the input is falsy.
- * Throws on malformed input so the CLI can surface actionable errors.
+ * into milliseconds. Returns `undefined` when the input is `undefined`.
+ * Throws on empty/whitespace-only or malformed input so the CLI can
+ * surface actionable errors.
  */
 function parseTtl(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
+  if (raw === undefined) return undefined;
+  if (!raw.trim()) {
+    throw new Error(
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "30s", "5m", "2h").`,
+    );
+  }
   const match = TTL_PATTERN.exec(raw.trim());
   if (!match) {
     throw new Error(
