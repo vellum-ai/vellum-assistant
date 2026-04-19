@@ -777,12 +777,14 @@ export async function handleMessageComplete(
   };
 
   // When the assistant is replying through Slack, stamp a `slackMeta`
-  // sub-object so PR 17's transcript-rendering / thread-aware-context
-  // lookup can identify this row's thread without joining tables.
+  // sub-object so the transcript-rendering / thread-aware-context lookup
+  // can identify this row's thread without joining tables.
   // Persistence happens BEFORE the Slack adapter sends the message, so
   // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
-  // intentionally omitted here. A later PR (PR 21) reconciles `channelTs`
-  // by writing it back once the send response returns.
+  // intentionally omitted here. The post-send reconciliation step in
+  // `deliverReplyViaCallback` writes `channelTs` back into this row once
+  // the gateway returns the Slack-assigned ts, restoring a fully-formed
+  // metadata envelope before any subsequent turn reads the row.
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
@@ -794,8 +796,9 @@ export async function handleMessageComplete(
         ...(threadTs ? { threadTs } : {}),
       };
       assistantChannelMetadata.slackMeta = writeSlackMetadata(
-        // `channelTs` is filled in by the post-send reconciliation step in a
-        // later PR; cast through the Partial to satisfy the writer's type.
+        // `channelTs` is filled in by the post-send reconciliation step in
+        // `deliverReplyViaCallback`; cast through the Partial to satisfy
+        // the writer's type at this pre-send boundary.
         partialSlackMeta as SlackMessageMetadata,
       );
     }
