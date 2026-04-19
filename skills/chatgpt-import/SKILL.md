@@ -19,8 +19,10 @@ When a user wants to import their ChatGPT conversations:
 3. **Run the import.** Once you have the ZIP file path, run:
 
 ```bash
-assistant conversations import <path-to-zip> --json
+bun run scripts/parse-export.ts --file "$ZIP_PATH" | assistant conversations import --json
 ```
+
+The `parse-export.ts` script parses the ChatGPT ZIP and converts it to the standard import format. The `assistant conversations import` command reads the JSON from stdin and creates the conversations.
 
 The command returns JSON:
 
