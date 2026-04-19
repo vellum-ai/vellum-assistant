@@ -42,8 +42,17 @@ FROM oven/bun:1.3.11@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4
 #                      at runtime.
 #   dbus-x11:          required at runtime by Chromium.
 #   ffmpeg:            audio/video encoding for transcript + recording paths.
+#                      Also used to convert the avatar renderer's output frames
+#                      into Y4M / YU12 for the v4l2loopback virtual camera.
 #   fonts-liberation/libvulkan1/xdg-utils: chromium runtime deps.
 #   libnss3/libgbm1/libasound2: Chromium shared-library dependencies.
+#   v4l2loopback-utils: ships `v4l2-ctl`, used by `src/media/video-device.ts`
+#                      to configure the virtual camera's pixel format when the
+#                      avatar feature is enabled. The kernel module itself is
+#                      loaded on the HOST (see README "Avatar (v4l2loopback)
+#                      host setup") — the container only needs the userspace
+#                      tooling so it can talk to the bind-mounted
+#                      `/dev/video10` node.
 #   xdotool:           posts trusted X-server mouse events for buttons that
 #                      Meet gates on `event.isTrusted` (the prejoin admission
 #                      button is the main one — JS `.click()` from the
@@ -59,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libvulkan1 \
     pulseaudio \
     pulseaudio-utils \
+    v4l2loopback-utils \
     xdg-utils \
     xdotool \
     xvfb \

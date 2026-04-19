@@ -410,6 +410,44 @@ describe("buildCreateBody", () => {
     // workspace-mount vocabulary.
     expect(hc.Mounts).toBeUndefined();
   });
+
+  test("omits HostConfig.Devices when avatarDevicePath is not set", () => {
+    const body = buildCreateBody({ image: "x:y" });
+    const hc = body.HostConfig as Record<string, unknown>;
+    expect(hc.Devices).toBeUndefined();
+  });
+
+  test("emits HostConfig.Devices when avatarDevicePath is set (same in bare-metal + DinD)", () => {
+    const body = buildCreateBody({
+      image: "x:y",
+      avatarDevicePath: "/dev/video10",
+    });
+    const hc = body.HostConfig as Record<string, unknown>;
+    // Docker Engine API's Devices field corresponds to `docker run --device`.
+    // The cgroup perms must be `rwm` (read/write/mknod) to match CLI defaults.
+    expect(hc.Devices).toEqual([
+      {
+        PathOnHost: "/dev/video10",
+        PathInContainer: "/dev/video10",
+        CgroupPermissions: "rwm",
+      },
+    ]);
+  });
+
+  test("supports custom device paths (e.g. /dev/video11 when video_nr=11 was used)", () => {
+    const body = buildCreateBody({
+      image: "x:y",
+      avatarDevicePath: "/dev/video11",
+    });
+    const hc = body.HostConfig as Record<string, unknown>;
+    expect(hc.Devices).toEqual([
+      {
+        PathOnHost: "/dev/video11",
+        PathInContainer: "/dev/video11",
+        CgroupPermissions: "rwm",
+      },
+    ]);
+  });
 });
 
 describe("resolveWorkspaceSubpath", () => {
