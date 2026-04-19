@@ -26,6 +26,8 @@ import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
+import { registerImageGenerationCommand } from "./commands/image-generation.js";
+import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
@@ -36,6 +38,7 @@ import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUiCommand } from "./commands/ui.js";
@@ -98,10 +101,14 @@ Examples:
   registerSkillsCommand(program);
   registerUsageCommand(program);
 
+  registerImageGenerationCommand(program);
   registerUiCommand(program);
 
   registerShotgunCommand(program);
   registerSequenceCommand(program);
+  registerSttCommand(program);
+
+  registerInferenceCommand(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.

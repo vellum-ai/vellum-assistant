@@ -21,20 +21,56 @@ let mockOperationCalls: Array<{
   operation: string;
   input: Record<string, unknown>;
   conversationId: string;
+  trustClass?: string;
+  hostBrowserProxy?: unknown;
+  transportInterface?: string;
+}> = [];
+let mockResolvedContext: {
+  conversationId: string;
+  trustClass: string;
+  hostBrowserProxy?: unknown;
+  transportInterface?: string;
+} | null = null;
+let mockResolverCalls: Array<{
+  requestedConversationId?: string;
+  fallbackConversationId: string;
 }> = [];
 
 mock.module("../../browser/operations.js", () => ({
   executeBrowserOperation: async (
     operation: string,
     input: Record<string, unknown>,
-    context: { conversationId: string },
+    context: {
+      conversationId: string;
+      trustClass?: string;
+      hostBrowserProxy?: unknown;
+      transportInterface?: string;
+    },
   ) => {
     mockOperationCalls.push({
       operation,
       input,
       conversationId: context.conversationId,
+      trustClass: context.trustClass,
+      hostBrowserProxy: context.hostBrowserProxy,
+      transportInterface: context.transportInterface,
     });
     return mockOperationResult;
+  },
+}));
+
+mock.module("../routes/browser-context.js", () => ({
+  resolveBrowserIpcContext: (params: {
+    requestedConversationId?: string;
+    fallbackConversationId: string;
+  }) => {
+    mockResolverCalls.push(params);
+    return (
+      mockResolvedContext ?? {
+        conversationId: params.fallbackConversationId,
+        trustClass: "guardian",
+      }
+    );
   },
 }));
 
@@ -49,6 +85,8 @@ const { browserExecuteRoute, browserCliConversationKey } =
 afterEach(() => {
   mockOperationResult = { content: "ok", isError: false };
   mockOperationCalls = [];
+  mockResolvedContext = null;
+  mockResolverCalls = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -120,6 +158,46 @@ describe("browser_execute IPC route", () => {
 
     expect(mockOperationCalls).toHaveLength(1);
     expect(mockOperationCalls[0].conversationId).toBe("browser-cli:default");
+  });
+
+  test("passes requested conversationId to context resolver", async () => {
+    await browserExecuteRoute.handler({
+      operation: "status",
+      input: {},
+      sessionId: "s1",
+      conversationId: "conv-live-123",
+    });
+
+    expect(mockResolverCalls).toHaveLength(1);
+    expect(mockResolverCalls[0]).toEqual({
+      requestedConversationId: "conv-live-123",
+      fallbackConversationId: "browser-cli:s1",
+    });
+  });
+
+  test("uses resolved context fields when resolver returns live conversation context", async () => {
+    const fakeProxy = { isAvailable: () => true };
+    mockResolvedContext = {
+      conversationId: "conv-live-456",
+      trustClass: "trusted",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "chrome-extension",
+    };
+
+    await browserExecuteRoute.handler({
+      operation: "status",
+      input: {},
+      sessionId: "unused",
+      conversationId: "conv-live-456",
+    });
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0]).toMatchObject({
+      conversationId: "conv-live-456",
+      trustClass: "trusted",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "chrome-extension",
+    });
   });
 
   test("same sessionId produces same conversation key", () => {

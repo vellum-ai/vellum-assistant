@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import type { ToolContext } from "../../tools/types.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import type { IpcRoute } from "../cli-server.js";
 
 // ── Minimal tool context ──────────────────────────────────────────────
@@ -22,7 +23,7 @@ import type { IpcRoute } from "../cli-server.js";
  */
 function queueToolContext(): ToolContext {
   return {
-    workingDir: process.cwd(),
+    workingDir: getWorkspaceDir(),
     conversationId: "",
     trustClass: "guardian",
   };
