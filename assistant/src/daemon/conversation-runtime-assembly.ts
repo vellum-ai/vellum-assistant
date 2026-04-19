@@ -577,7 +577,7 @@ export function injectNowScratchpad(
 ): Message {
   const scratchpadBlock = {
     type: "text" as const,
-    text: `<NOW.md Always keep this up to date>\n${content}\n</NOW.md>`,
+    text: `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`,
   };
 
   // Find insertion point: skip any leading injected-context text blocks
@@ -606,7 +606,9 @@ export function injectNowScratchpad(
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
-    "<NOW.md Always keep this up to date>",
+    // Shared prefix catches both the current tag and any pre-line-limit
+    // variant that may linger in in-flight histories during a rolling deploy.
+    "<NOW.md Always keep this up to date",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
 }
@@ -1513,7 +1515,9 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<NOW.md Always keep this up to date>",
+  // Shared prefix catches both the current NOW.md tag and any pre-line-limit
+  // variant that may linger in in-flight histories during a rolling deploy.
+  "<NOW.md Always keep this up to date",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<pkb>",
   "<system_reminder>",
@@ -1542,16 +1546,23 @@ export function stripInjectionsForCompaction(messages: Message[]): Message[] {
  * Returns null if no NOW.md injection is found.
  */
 export function findLastInjectedNowContent(messages: Message[]): string | null {
-  const prefix = "<NOW.md Always keep this up to date>\n";
+  // Matches every NOW.md opening tag we emit (the tag text may evolve over
+  // time, e.g. adding a line-limit hint), so in-flight histories with older
+  // tag variants remain discoverable during a rolling deploy.
+  const openTagPrefix = "<NOW.md Always keep this up to date";
   const suffix = "\n</NOW.md>";
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "user") continue;
     for (const block of msg.content) {
-      if (block.type === "text" && block.text.startsWith(prefix)) {
-        const end = block.text.lastIndexOf(suffix);
-        if (end > prefix.length) return block.text.slice(prefix.length, end);
+      if (block.type !== "text" || !block.text.startsWith(openTagPrefix)) {
+        continue;
       }
+      const tagEnd = block.text.indexOf(">\n");
+      if (tagEnd < 0) continue;
+      const contentStart = tagEnd + ">\n".length;
+      const end = block.text.lastIndexOf(suffix);
+      if (end > contentStart) return block.text.slice(contentStart, end);
     }
   }
   return null;

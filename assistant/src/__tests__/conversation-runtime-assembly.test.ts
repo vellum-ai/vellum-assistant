@@ -754,7 +754,7 @@ describe("injectNowScratchpad", () => {
     expect(injected.type).toBe("text");
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toBe(
-      "<NOW.md Always keep this up to date>\nCurrent focus: shipping PR 3\n</NOW.md>",
+      "<NOW.md Always keep this up to date; keep under 10 lines>\nCurrent focus: shipping PR 3\n</NOW.md>",
     );
     // Original content comes last
     expect((result.content[1] as { type: "text"; text: string }).text).toBe(
