@@ -111,6 +111,57 @@ final class NativeMessagingInstallerTests: XCTestCase {
         XCTAssertTrue(contents.contains("exec '\(helperBinaryUrl.path)' \"$@\""))
     }
 
+    func testInstallDefaultsLauncherEnvironmentToDevWhenUnset() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            vellumEnvironment: nil,
+            processEnvironment: [:],
+            homeDirectory: mockHome,
+            fileManager: .default
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        let contents = try String(contentsOf: launcherUrl, encoding: .utf8)
+        XCTAssertTrue(contents.contains("export VELLUM_ENVIRONMENT='dev'"))
+    }
+
+    func testInstallDefaultsLauncherEnvironmentToLocalWhenUsingLoopbackOverrides() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            vellumEnvironment: nil,
+            processEnvironment: [
+                "VELLUM_PLATFORM_URL": "http://localhost:8000",
+                "VELLUM_WEB_URL": "http://localhost:3000",
+            ],
+            homeDirectory: mockHome,
+            fileManager: .default
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        let contents = try String(contentsOf: launcherUrl, encoding: .utf8)
+        XCTAssertTrue(contents.contains("export VELLUM_ENVIRONMENT='local'"))
+    }
+
+    func testInstallExplicitEnvironmentOverridesLoopbackHeuristic() throws {
+        try NativeMessagingInstaller.installChromeManifest(
+            helperBinaryPath: helperBinaryUrl,
+            extensionIds: [placeholderExtensionId],
+            vellumEnvironment: "staging",
+            processEnvironment: [
+                "VELLUM_PLATFORM_URL": "http://localhost:8000",
+                "VELLUM_WEB_URL": "http://localhost:3000",
+            ],
+            homeDirectory: mockHome,
+            fileManager: .default
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        let contents = try String(contentsOf: launcherUrl, encoding: .utf8)
+        XCTAssertTrue(contents.contains("export VELLUM_ENVIRONMENT='staging'"))
+    }
+
     func testInstallSetsManifestPermissionsTo0o644() throws {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
@@ -243,6 +294,7 @@ final class NativeMessagingInstallerTests: XCTestCase {
         try NativeMessagingInstaller.installChromeManifest(
             helperBinaryPath: helperBinaryUrl,
             extensionIds: [placeholderExtensionId],
+            processEnvironment: [:],
             homeDirectory: mockHome,
             fileManager: .default,
             gatekeeperAssessment: { _ in false }
@@ -257,45 +309,65 @@ final class NativeMessagingInstallerTests: XCTestCase {
         )
     }
 
-    func testInstallPreservesExistingManifestWhenGatekeeperRejectsHelper() throws {
-        // First install a working manifest (e.g. from a prior manual
-        // setup pointing at a sh-wrapper that Gatekeeper trusts).
-        try NativeMessagingInstaller.installChromeManifest(
-            helperBinaryPath: helperBinaryUrl,
-            extensionIds: [placeholderExtensionId],
-            homeDirectory: mockHome,
-            fileManager: .default,
-            gatekeeperAssessment: { _ in true }
-        )
-
-        let manifestUrl = NativeMessagingInstaller
-            .manifestDirectory(under: mockHome)
-            .appendingPathComponent("com.vellum.daemon.json")
-        let originalData = try Data(contentsOf: manifestUrl)
-
-        // A later install whose bundled helper is Gatekeeper-rejected
-        // (e.g. a local dev build of the macOS app on top of a manual
-        // install) must not clobber the working manifest.
-        let rejectedBinary = tempDir.appendingPathComponent("rejected-binary")
+    func testInstallReusesExistingHelperPathWhenGatekeeperRejectsNewHelper() throws {
+        let trustedHelper = tempDir.appendingPathComponent("trusted-host")
         FileManager.default.createFile(
-            atPath: rejectedBinary.path,
+            atPath: trustedHelper.path,
             contents: Data("#!/bin/sh\nexit 0\n".utf8),
             attributes: [.posixPermissions: NSNumber(value: 0o755)]
         )
+
+        let manifestDir = NativeMessagingInstaller.manifestDirectory(under: mockHome)
+        try FileManager.default.createDirectory(
+            at: manifestDir,
+            withIntermediateDirectories: true
+        )
+        let manifestUrl = manifestDir.appendingPathComponent("com.vellum.daemon.json")
+        let preexisting: [String: Any] = [
+            "name": "com.vellum.daemon",
+            "description": "Vellum assistant native messaging host",
+            "path": trustedHelper.path,
+            "type": "stdio",
+            "allowed_origins": [placeholderAllowedOrigin],
+        ]
+        let preexistingData = try JSONSerialization.data(
+            withJSONObject: preexisting,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try preexistingData.write(to: manifestUrl, options: .atomic)
+
         try NativeMessagingInstaller.installChromeManifest(
-            helperBinaryPath: rejectedBinary,
+            helperBinaryPath: helperBinaryUrl,
             extensionIds: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+            vellumEnvironment: nil,
+            processEnvironment: [:],
             homeDirectory: mockHome,
             fileManager: .default,
             gatekeeperAssessment: { _ in false }
         )
 
-        let afterData = try Data(contentsOf: manifestUrl)
-        XCTAssertEqual(
-            originalData,
-            afterData,
-            "existing manifest must be left untouched when Gatekeeper rejects the new helper"
+        let data = try Data(contentsOf: manifestUrl)
+        let parsed = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
+        XCTAssertEqual(
+            parsed["path"] as? String,
+            NativeMessagingInstaller.launcherScriptPath(under: mockHome).path
+        )
+        XCTAssertEqual(
+            parsed["vellum_helper_path"] as? String,
+            trustedHelper.path,
+            "installer should carry forward the existing trusted helper path"
+        )
+        XCTAssertEqual(
+            parsed["allowed_origins"] as? [String],
+            ["chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/"],
+            "manifest metadata should still refresh while reusing helper path"
+        )
+
+        let launcherUrl = NativeMessagingInstaller.launcherScriptPath(under: mockHome)
+        let contents = try String(contentsOf: launcherUrl, encoding: .utf8)
+        XCTAssertTrue(contents.contains("exec '\(trustedHelper.path)' \"$@\""))
     }
 
     // MARK: - uninstall

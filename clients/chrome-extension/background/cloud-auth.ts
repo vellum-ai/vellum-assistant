@@ -48,6 +48,24 @@ export interface StoredCloudToken {
   guardianId: string;
 }
 
+export interface CloudAuthCandidateFailure {
+  candidateIndex: number;
+  baseUrl: string;
+  error: string;
+}
+
+export class CloudAuthFlowError extends Error {
+  readonly traceId: string;
+  readonly debugDetails: string;
+
+  constructor(message: string, traceId: string, debugDetails: string) {
+    super(message);
+    this.name = 'CloudAuthFlowError';
+    this.traceId = traceId;
+    this.debugDetails = debugDetails;
+  }
+}
+
 /**
  * Window (ms) before `expiresAt` inside which we treat the stored token as
  * "stale" and proactively refresh it. 60 seconds gives us enough headroom
@@ -373,6 +391,37 @@ function sanitizeResponseUrlForLog(responseUrl: string): string {
   }
 }
 
+function formatCloudAuthDebugDetails(
+  traceId: string,
+  interactive: boolean,
+  failures: CloudAuthCandidateFailure[],
+): string {
+  const header = [
+    `trace_id=${traceId}`,
+    `interactive=${interactive}`,
+    `failure_count=${failures.length}`,
+  ].join(" ");
+
+  const body = failures.map(
+    (failure) =>
+      `candidate[${failure.candidateIndex}] base=${failure.baseUrl} error=${failure.error}`,
+  );
+
+  return [header, ...body].join("\n");
+}
+
+function toCloudAuthFlowError(
+  err: unknown,
+  traceId: string,
+  interactive: boolean,
+  failures: CloudAuthCandidateFailure[],
+): CloudAuthFlowError {
+  const baseMessage = err instanceof Error ? err.message : String(err);
+  const messageWithTrace = `${baseMessage} [trace=${traceId}]`;
+  const debugDetails = formatCloudAuthDebugDetails(traceId, interactive, failures);
+  return new CloudAuthFlowError(messageWithTrace, traceId, debugDetails);
+}
+
 async function launchWebAuthFlowWithFallback(
   assistantId: string,
   config: CloudAuthConfig,
@@ -381,6 +430,7 @@ async function launchWebAuthFlowWithFallback(
   const traceId = createAuthTraceId();
   const candidates = buildAuthUrlCandidates(config, assistantId, traceId);
   let lastError: unknown = null;
+  const failures: CloudAuthCandidateFailure[] = [];
   console.info(
     `[vellum-cloud-auth] launching web auth flow trace=${traceId} interactive=${interactive} candidates=${candidates.length}`,
   );
@@ -409,6 +459,11 @@ async function launchWebAuthFlowWithFallback(
       lastError = err;
       const hasNext = i < candidates.length - 1;
       const message = err instanceof Error ? err.message : String(err);
+      failures.push({
+        candidateIndex: candidate.candidateIndex,
+        baseUrl: candidate.baseUrl,
+        error: message,
+      });
       console.warn(
         `[vellum-cloud-auth] candidate failed trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl} error=${message}`,
       );
@@ -421,11 +476,13 @@ async function launchWebAuthFlowWithFallback(
         );
         continue;
       }
-      throw err;
+      throw toCloudAuthFlowError(err, traceId, interactive, failures);
     }
   }
 
-  if (lastError) throw lastError;
+  if (lastError) {
+    throw toCloudAuthFlowError(lastError, traceId, interactive, failures);
+  }
   return undefined;
 }
 

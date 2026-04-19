@@ -273,7 +273,13 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 | `staging` | QA against staging platform before production rollout. Default for release branch builds. |
 | `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
 
-**Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+**Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
+- `test` command => `test`
+- `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
+- all other local build commands (`run`, plain build, etc.) => `dev`
+- if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host (for example `vel up`), default to `local` regardless of command
+
+CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 
 **Reading the value at runtime** (Swift):
 ```swift

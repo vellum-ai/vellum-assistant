@@ -41,6 +41,7 @@ import {
   validateCloudToken,
   isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
+  CloudAuthFlowError,
   LEGACY_CLOUD_STORAGE_KEY,
   type CloudAuthConfig,
   type StoredCloudToken,
@@ -150,6 +151,7 @@ interface RelayAuthError {
   message: string;
   mode: 'cloud' | 'self-hosted';
   at: number;
+  debugDetails?: string;
 }
 
 async function setRelayAuthError(error: RelayAuthError): Promise<void> {
@@ -166,6 +168,21 @@ async function clearRelayAuthError(): Promise<void> {
   } catch (err) {
     console.warn('[vellum-relay] Failed to clear relay auth error', err);
   }
+}
+
+function serializeWorkerError(err: unknown): {
+  error: string;
+  debugDetails?: string;
+} {
+  if (err instanceof CloudAuthFlowError) {
+    return {
+      error: err.message,
+      debugDetails: err.debugDetails,
+    };
+  }
+  return {
+    error: err instanceof Error ? err.message : String(err),
+  };
 }
 
 /**
@@ -1185,7 +1202,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // must not leave the flag set, otherwise the next bootstrap
         // would retry a doomed connect.
         await setAutoConnect(false);
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const serializedError = serializeWorkerError(err);
+        const errorMessage = serializedError.error;
         // Classify the failure: auth-related errors (MissingTokenError)
         // surface as `auth_required`; everything else is a generic `error`.
         if (err instanceof MissingTokenError) {
@@ -1197,7 +1215,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
             lastErrorMessage: errorMessage,
           });
         }
-        sendResponseFn({ ok: false, error: errorMessage });
+        sendResponseFn({ ok: false, ...serializedError });
       });
     return true; // async
   }
@@ -1255,7 +1273,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         return signInCloud(resolvedId, config);
       })
       .then((stored: StoredCloudToken) => sendResponseFn({ ok: true, token: stored }))
-      .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      .catch((err) => sendResponseFn({ ok: false, ...serializeWorkerError(err) }));
     return true; // async
   }
   if (message.type === 'self-hosted-pair') {

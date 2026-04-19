@@ -84,6 +84,7 @@ public enum NativeMessagingInstaller {
             helperBinaryPath: helperBinaryPath,
             extensionIds: extensionIds,
             vellumEnvironment: ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"],
+            processEnvironment: ProcessInfo.processInfo.environment,
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             fileManager: FileManager.default,
             gatekeeperAssessment: Self.runGatekeeperAssessment(at:)
@@ -108,26 +109,13 @@ public enum NativeMessagingInstaller {
         helperBinaryPath: URL,
         extensionIds: [String],
         vellumEnvironment: String? = nil,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: URL,
         fileManager: FileManager,
         gatekeeperAssessment: (String) -> Bool = { _ in true }
     ) throws {
         guard fileManager.fileExists(atPath: helperBinaryPath.path) else {
             throw InstallError.helperBinaryMissing(helperBinaryPath)
-        }
-
-        // Chrome refuses to launch a native messaging host that
-        // Gatekeeper rejects, so installing a manifest that points at a
-        // rejected helper leaves the extension permanently unable to
-        // connect — and worse, clobbers any working manually-installed
-        // manifest on every app launch. Skip the install in that case
-        // and let the developer fall back to the manual setup documented
-        // in clients/chrome-extension/README.md.
-        guard gatekeeperAssessment(helperBinaryPath.path) else {
-            log.warning(
-                "Skipping Chrome native messaging manifest install: bundled helper at \(helperBinaryPath.path, privacy: .public) is not accepted by Gatekeeper (expected for local dev builds with a self-signed helper). Follow the manual setup in clients/chrome-extension/README.md to install the extension bridge."
-            )
-            return
         }
 
         let targetDir = manifestDirectory(under: homeDirectory)
@@ -139,9 +127,34 @@ public enum NativeMessagingInstaller {
 
         let manifestUrl = targetDir.appendingPathComponent("\(hostName).json")
         let launcherUrl = launcherScriptPath(under: homeDirectory)
+        let helperPathForLauncher = resolveHelperPathForLauncher(
+            bundledHelperPath: helperBinaryPath.path,
+            manifestUrl: manifestUrl,
+            launcherUrl: launcherUrl,
+            fileManager: fileManager,
+            gatekeeperAssessment: gatekeeperAssessment
+        )
+        guard let helperPathForLauncher else {
+            // Chrome refuses to launch a native messaging host that
+            // Gatekeeper rejects, so installing a manifest that points at a
+            // rejected helper leaves the extension permanently unable to
+            // connect — and worse, clobbers any working manually-installed
+            // manifest on every app launch. Skip the install in that case
+            // and let the developer fall back to the manual setup documented
+            // in clients/chrome-extension/README.md.
+            log.warning(
+                "Skipping Chrome native messaging manifest install: bundled helper at \(helperBinaryPath.path, privacy: .public) is not accepted by Gatekeeper (expected for local dev builds with a self-signed helper), and no existing trusted helper path could be reused. Follow the manual setup in clients/chrome-extension/README.md to install the extension bridge."
+            )
+            return
+        }
+
+        let resolvedEnvironment = resolvedLauncherEnvironment(
+            vellumEnvironment: vellumEnvironment,
+            processEnvironment: processEnvironment
+        )
         let launcherContents = buildLauncherScriptContents(
-            helperBinaryPath: helperBinaryPath.path,
-            vellumEnvironment: vellumEnvironment
+            helperBinaryPath: helperPathForLauncher,
+            vellumEnvironment: resolvedEnvironment
         )
         try launcherContents.write(to: launcherUrl, atomically: true, encoding: .utf8)
         try fileManager.setAttributes(
@@ -163,6 +176,9 @@ public enum NativeMessagingInstaller {
             "path": launcherUrl.path,
             "type": "stdio",
             "allowed_origins": extensionIds.map { "chrome-extension://\($0)/" },
+            // Metadata for Vellum's installer fallback logic. Chrome ignores
+            // unknown keys in native host manifests.
+            "vellum_helper_path": helperPathForLauncher,
         ]
 
         let data = try JSONSerialization.data(
@@ -223,26 +239,123 @@ public enum NativeMessagingInstaller {
             .appendingPathComponent("\(hostName)-launcher.sh")
     }
 
+    internal static func resolvedLauncherEnvironment(
+        vellumEnvironment: String?,
+        processEnvironment: [String: String]
+    ) -> String {
+        if let resolved = normalizeEnvironmentName(vellumEnvironment) {
+            return resolved
+        }
+        if shouldDefaultToLocalEnvironment(processEnvironment: processEnvironment) {
+            return "local"
+        }
+        // Local source builds default to dev so developers hit the dev cloud
+        // stack unless they explicitly opt into local full-stack behavior.
+        return "dev"
+    }
+
     internal static func buildLauncherScriptContents(
         helperBinaryPath: String,
-        vellumEnvironment: String?
+        vellumEnvironment: String
     ) -> String {
         let escapedBinaryPath = shellSingleQuote(helperBinaryPath)
-        let envLine: String
-        if let rawEnv = vellumEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !rawEnv.isEmpty {
-            let escapedEnv = shellSingleQuote(rawEnv)
-            envLine = "if [ -z \"${VELLUM_ENVIRONMENT:-}\" ]; then export VELLUM_ENVIRONMENT=\(escapedEnv); fi"
-        } else {
-            envLine = ":"
-        }
+        let escapedEnv = shellSingleQuote(vellumEnvironment)
 
         return """
 #!/bin/sh
 set -e
-\(envLine)
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then export VELLUM_ENVIRONMENT=\(escapedEnv); fi
 exec \(escapedBinaryPath) "$@"
 """
+    }
+
+    private static func normalizeEnvironmentName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        switch trimmed {
+        case "local", "dev", "test", "staging", "production":
+            return trimmed
+        default:
+            return nil
+        }
+    }
+
+    private static func shouldDefaultToLocalEnvironment(
+        processEnvironment: [String: String]
+    ) -> Bool {
+        isLoopbackHttpURL(processEnvironment["VELLUM_PLATFORM_URL"]) ||
+        isLoopbackHttpURL(processEnvironment["VELLUM_WEB_URL"])
+    }
+
+    private static func isLoopbackHttpURL(_ raw: String?) -> Bool {
+        guard let raw,
+              let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http",
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".localhost")
+    }
+
+    private static func resolveHelperPathForLauncher(
+        bundledHelperPath: String,
+        manifestUrl: URL,
+        launcherUrl: URL,
+        fileManager: FileManager,
+        gatekeeperAssessment: (String) -> Bool
+    ) -> String? {
+        if gatekeeperAssessment(bundledHelperPath) {
+            return bundledHelperPath
+        }
+
+        // Local dev helper binaries are often unsigned/self-signed and fail
+        // Gatekeeper checks. In that case, fall back to an already-installed
+        // trusted helper path when available so we can still update launcher
+        // env wiring (for example, flipping from production -> local lockfile
+        // scope) without breaking native-host launchability.
+        if let fallbackPath = readExistingHelperPath(
+            manifestUrl: manifestUrl,
+            launcherUrl: launcherUrl,
+            fileManager: fileManager
+        ) {
+            log.warning(
+                "Bundled native helper at \(bundledHelperPath, privacy: .public) is not accepted by Gatekeeper; reusing existing helper path \(fallbackPath, privacy: .public)"
+            )
+            return fallbackPath
+        }
+        return nil
+    }
+
+    private static func readExistingHelperPath(
+        manifestUrl: URL,
+        launcherUrl: URL,
+        fileManager: FileManager
+    ) -> String? {
+        guard let data = try? Data(contentsOf: manifestUrl),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let explicitHelperPath = parsed["vellum_helper_path"] as? String {
+            let trimmed = explicitHelperPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && fileManager.fileExists(atPath: trimmed) {
+                return trimmed
+            }
+        }
+
+        if let manifestPath = parsed["path"] as? String {
+            let trimmed = manifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty,
+               trimmed != launcherUrl.path,
+               fileManager.fileExists(atPath: trimmed) {
+                return trimmed
+            }
+        }
+
+        return nil
     }
 
     private static func shellSingleQuote(_ value: String) -> String {

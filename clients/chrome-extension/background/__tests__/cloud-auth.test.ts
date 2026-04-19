@@ -171,9 +171,14 @@ describe('signInCloud', () => {
       throw new Error('Authorization page could not be loaded.');
     };
 
-    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow(
-      'Authorization page could not be loaded.',
-    );
+    let capturedMessage = '';
+    try {
+      await signInCloud(ASSISTANT_A, config);
+    } catch (err) {
+      capturedMessage = err instanceof Error ? err.message : String(err);
+    }
+    expect(capturedMessage).toContain('Authorization page could not be loaded.');
+    expect(capturedMessage).toContain('[trace=');
 
     expect(seenUrls.length).toBe(1);
     expect(seenUrls[0]).toContain(`assistant_id=${ASSISTANT_A}`);
@@ -191,7 +196,7 @@ describe('signInCloud', () => {
         ...config,
         runtimeBaseUrl: 'https://platform.vellum.ai',
       }),
-    ).rejects.toThrow('Authorization page could not be loaded.');
+    ).rejects.toThrow(/Authorization page could not be loaded\./);
 
     // platform.vellum.ai remaps to www.vellum.ai and dedupes to a
     // single candidate URL.
