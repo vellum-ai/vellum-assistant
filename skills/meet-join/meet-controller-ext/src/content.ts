@@ -8,11 +8,11 @@
  *
  * ## Meeting session lifecycle
  *
- * `startMeetingSession` owns the in-page feature handles (speaker
- * scraper, chat reader today; participant scraper in a follow-up PR).
- * The returned `stop()` disposes every handle. We intentionally keep
- * this local-in-module-scope so parallel PRs can extend the factory
- * without touching the listener wiring.
+ * `startMeetingSession` owns the in-page feature handles (participant
+ * scraper, speaker scraper, chat reader). The returned `stop()` disposes
+ * every handle. We intentionally keep this local-in-module-scope so
+ * parallel PRs can extend the factory without touching the listener
+ * wiring.
  */
 import type {
   BotSendChatCommand,
@@ -27,6 +27,10 @@ import {
   sendChat,
   startChatReader,
 } from "./features/chat.js";
+import {
+  startParticipantScraper,
+  type ParticipantScraperHandle,
+} from "./features/participants.js";
 import {
   startSpeakerScraper,
   type SpeakerScraperHandle,
@@ -56,8 +60,8 @@ interface MeetingSessionHandle {
 
 /**
  * Options carried through to the session factory. `displayName` comes
- * from the bot's `join` command so the chat reader can self-filter the
- * bot's own outbound messages.
+ * from the bot's `join` command so the chat reader and participant
+ * scraper can self-filter the bot's own outbound activity.
  */
 interface MeetingSessionOptions {
   meetingId: string;
@@ -68,9 +72,9 @@ interface MeetingSessionOptions {
  * Start all per-meeting scrapers + bridges for a freshly-joined meeting.
  *
  * Called from the bot→extension `join` handler below, after any join
- * flow completes successfully. Additional features (participants) will
- * layer into the returned handle in subsequent PRs — extend this factory
- * rather than the listener wiring so session teardown stays in one place.
+ * flow completes successfully. Additional features layer into the
+ * returned handle — extend this factory rather than the listener wiring
+ * so session teardown stays in one place.
  */
 function startMeetingSession(
   opts: MeetingSessionOptions,
@@ -86,6 +90,13 @@ function startMeetingSession(
       console.warn("[meet-ext] sendMessage failed:", err);
     }
   };
+
+  const participants: ParticipantScraperHandle = startParticipantScraper({
+    meetingId: opts.meetingId,
+    selfName: opts.displayName,
+    onEvent: sendToBot,
+  });
+  handles.push(participants);
 
   const speaker: SpeakerScraperHandle = startSpeakerScraper({
     meetingId: opts.meetingId,
@@ -148,9 +159,9 @@ chrome.runtime.onMessage.addListener(
       // NOTE: PR 9 will run the actual join flow (fill name, click
       // join now, wait for leave button) before we start the session.
       // For now we wire the scrapers directly against the current DOM
-      // so PR 11's speaker scraper is exercised end-to-end once PR 9
-      // lands. Leaving this as a single call makes the PR-9 insertion
-      // a local edit.
+      // so the participant/speaker/chat features are exercised end-to-end
+      // once PR 9 lands. Leaving this as a single call makes the PR-9
+      // insertion a local edit.
       activeSession = startMeetingSession({
         meetingId,
         displayName: msg.displayName,
