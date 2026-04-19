@@ -36,6 +36,7 @@ import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerSttCommand } from "./commands/stt.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
@@ -100,6 +101,7 @@ Examples:
 
   registerShotgunCommand(program);
   registerSequenceCommand(program);
+  registerSttCommand(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.
