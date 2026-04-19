@@ -43,8 +43,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -82,8 +81,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -121,8 +119,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -178,8 +175,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Check OpenAPI spec is up to date
         run: bun run generate:openapi -- --check
