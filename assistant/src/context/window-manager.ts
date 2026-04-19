@@ -31,6 +31,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
+  "Thread anchors: when a compacted message is the parent of a thread whose replies survive in the retained context, preserve the parent's text verbatim — do not summarize or paraphrase it. Reactions on such anchors may be aggregated (e.g., \"three users reacted\").",
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
