@@ -1,20 +1,32 @@
 import { join } from "node:path";
 
+import type {
+  ScopedTrustRule,
+  TrustRuleBase,
+} from "@vellumai/ces-contracts";
+import {
+  MANAGED_SKILL_TOOLS,
+  SKILL_LOAD_TOOL,
+} from "@vellumai/ces-contracts";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getBundledSkillsDir } from "../config/skills.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-export interface DefaultRuleTemplate {
-  id: string;
-  tool: string;
-  pattern: string;
-  scope: string;
-  decision: "allow" | "deny" | "ask";
-  priority: number;
+/**
+ * A default rule template is structurally identical to TrustRuleBase
+ * minus `createdAt` (set at backfill time) and `userModifiedAt` (set
+ * when users explicitly override defaults), plus the optional
+ * `allowHighRisk` field that some tool families support.
+ */
+export type DefaultRuleTemplate = Omit<
+  TrustRuleBase,
+  "createdAt" | "userModifiedAt"
+> & {
   allowHighRisk?: boolean;
-}
+};
 
 /**
  * Escape minimatch metacharacters so a literal path is matched literally when
@@ -26,7 +38,7 @@ function escapeMinimatchPath(p: string): string {
   return p.replace(/[?*[\]{}()!|\\]/g, "\\$&");
 }
 
-const HOST_FILE_TOOLS = [
+const HOST_FILE_TOOLS: readonly ScopedTrustRule["tool"][] = [
   "host_file_read",
   "host_file_write",
   "host_file_edit",
@@ -110,10 +122,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
 
   // Managed skill authoring tools — scaffold and delete modify ~/.vellum/workspace/skills/
   // and should require explicit user approval.
-  const MANAGED_SKILL_TOOLS = [
-    "scaffold_managed_skill",
-    "delete_managed_skill",
-  ] as const;
   const managedSkillRules = MANAGED_SKILL_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-global`,
     tool,
@@ -133,7 +141,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     "BOOTSTRAP.md",
     "UPDATES.md",
   ] as const;
-  const WORKSPACE_FILE_TOOLS = [
+  const WORKSPACE_FILE_TOOLS: readonly ScopedTrustRule["tool"][] = [
     "file_read",
     "file_write",
     "file_edit",
@@ -211,7 +219,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     "/",
   );
   const bundledSkillsDir = getBundledSkillsDir().replaceAll("\\", "/");
-  const SKILL_MUTATION_TOOLS = ["file_write", "file_edit"] as const;
+  const SKILL_MUTATION_TOOLS: readonly ScopedTrustRule["tool"][] = [
+    "file_write",
+    "file_edit",
+  ] as const;
   const skillDirs: { dir: string; label: string }[] = [
     { dir: managedSkillsDir, label: "managed" },
     { dir: bundledSkillsDir, label: "bundled" },
@@ -247,7 +258,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // priority ensures this rule wins when both could match.
   const skillLoadDynamicRule: DefaultRuleTemplate = {
     id: "default:ask-skill_load_dynamic-global",
-    tool: "skill_load",
+    tool: SKILL_LOAD_TOOL,
     pattern: "skill_load_dynamic:*",
     scope: "everywhere",
     decision: "ask",
@@ -256,7 +267,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
 
   const skillLoadRule: DefaultRuleTemplate = {
     id: "default:allow-skill_load-global",
-    tool: "skill_load",
+    tool: SKILL_LOAD_TOOL,
     pattern: "skill_load:*",
     scope: "everywhere",
     decision: "allow",

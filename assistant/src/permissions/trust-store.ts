@@ -251,21 +251,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
-      // Default rules may carry allowHighRisk (e.g. bash container rules).
-      // Build as GenericTrustRule to accommodate all optional fields.
-      const rule: TrustRule = {
-        id: template.id,
-        tool: template.tool,
-        pattern: template.pattern,
-        scope: template.scope,
-        decision: template.decision,
-        priority: template.priority,
+      // Canonicalize through parseTrustRule so family-specific field
+      // validation is applied (consistent with fileAddRule/fileUpdateRule).
+      const { rule } = parseTrustRule({
+        ...template,
         createdAt: Date.now(),
-        ...(template.allowHighRisk != null
-          ? { allowHighRisk: template.allowHighRisk }
-          : {}),
-      };
-      rules.push(rule);
+      });
+      rules.push(rule as TrustRule);
       changed = true;
       log.info({ ruleId: template.id }, "Backfilled default trust rule");
     }
