@@ -23,6 +23,7 @@ import {
   ExtensionSendChatResultMessageSchema,
   ExtensionSpeakerChangeMessageSchema,
   ExtensionToBotMessageSchema,
+  ExtensionTrustedTypeMessageSchema,
   type BotToExtensionMessage,
   type ExtensionToBotMessage,
 } from "../index.js";
@@ -41,6 +42,8 @@ describe("EXTENSION_TO_BOT_MESSAGE_TYPES", () => {
         "speaker.change",
         "chat.inbound",
         "diagnostic",
+        "trusted_click",
+        "trusted_type",
         "send_chat_result",
       ]),
     );
@@ -186,6 +189,84 @@ describe("ExtensionDiagnosticMessageSchema", () => {
   });
 });
 
+describe("ExtensionTrustedTypeMessageSchema", () => {
+  test("parses a valid trusted_type message without delayMs", () => {
+    const input = {
+      type: "trusted_type" as const,
+      text: "hello meet",
+    };
+    const parsed = ExtensionTrustedTypeMessageSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("parses a valid trusted_type message with delayMs", () => {
+    const input = {
+      type: "trusted_type" as const,
+      text: "hello meet",
+      delayMs: 12,
+    };
+    const parsed = ExtensionTrustedTypeMessageSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("rejects empty text", () => {
+    expect(() =>
+      ExtensionTrustedTypeMessageSchema.parse({
+        type: "trusted_type",
+        text: "",
+      }),
+    ).toThrow();
+  });
+
+  test("rejects text longer than 2000 chars", () => {
+    expect(() =>
+      ExtensionTrustedTypeMessageSchema.parse({
+        type: "trusted_type",
+        text: "a".repeat(2001),
+      }),
+    ).toThrow();
+  });
+
+  test("accepts text exactly 2000 chars", () => {
+    const input = {
+      type: "trusted_type" as const,
+      text: "a".repeat(2000),
+    };
+    const parsed = ExtensionTrustedTypeMessageSchema.parse(input);
+    expect(parsed.text.length).toBe(2000);
+  });
+
+  test("rejects delayMs > 500", () => {
+    expect(() =>
+      ExtensionTrustedTypeMessageSchema.parse({
+        type: "trusted_type",
+        text: "hi",
+        delayMs: 501,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects negative delayMs", () => {
+    expect(() =>
+      ExtensionTrustedTypeMessageSchema.parse({
+        type: "trusted_type",
+        text: "hi",
+        delayMs: -1,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects non-integer delayMs", () => {
+    expect(() =>
+      ExtensionTrustedTypeMessageSchema.parse({
+        type: "trusted_type",
+        text: "hi",
+        delayMs: 12.5,
+      }),
+    ).toThrow();
+  });
+});
+
 describe("ExtensionSendChatResultMessageSchema", () => {
   test("parses an ok result without error", () => {
     const input = {
@@ -267,6 +348,15 @@ describe("ExtensionToBotMessageSchema", () => {
         message: "attached to call",
       },
       {
+        type: "trusted_type",
+        text: "hi bot",
+      },
+      {
+        type: "trusted_type",
+        text: "hi bot",
+        delayMs: 20,
+      },
+      {
         type: "send_chat_result",
         requestId: "req-1",
         ok: true,
@@ -304,6 +394,14 @@ describe("ExtensionToBotMessageSchema", () => {
         timestamp: "2026-04-15T00:00:00Z",
       }),
     ).toThrow();
+  });
+
+  test("narrows on trusted_type via the discriminated union", () => {
+    const parsed = ExtensionToBotMessageSchema.parse({
+      type: "trusted_type",
+      text: "hi",
+    });
+    expect(parsed.type).toBe("trusted_type");
   });
 });
 
