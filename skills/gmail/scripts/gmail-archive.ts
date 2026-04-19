@@ -130,7 +130,6 @@ async function collectMessageIds(
     const ids = (resp.data.messages ?? []).map((m) => m.id);
     if (ids.length === 0) break;
 
-    const remaining = MAX_MESSAGES - allIds.length;
     allIds.push(...ids.slice(0, remaining));
 
     pageToken = resp.data.nextPageToken ?? undefined;
