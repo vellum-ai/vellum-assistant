@@ -213,6 +213,21 @@ When a user asks to declutter, clean up, or organize their email - start scannin
 
 **CRITICAL**: Never archive, unsubscribe, or take similar bulk actions unless the user has explicitly confirmed for that specific batch. Each batch of results requires its own explicit user confirmation. If the user says "keep going" or "keep decluttering," that means scan and present new results - NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup batch, run `bun run scripts/gmail-prefs.ts --action add-safelist` with those sender emails. Before building the next cleanup table, run `bun run scripts/gmail-prefs.ts --action list` and exclude safelisted senders from the table — the user already indicated they want to keep those.
 
+### Inbox Recon (run before cleanup passes)
+
+Before starting category-specific cleanup, understand the inbox:
+
+1. **Broad scan**: Run `bun run scripts/gmail-scan.ts sender-digest --query "in:inbox"` with `--max-senders 75`. This surfaces the top senders across ALL categories — not just promotions.
+2. **Identify cleanup buckets**: Group the results mentally:
+   - Newsletters/promotions (`hasUnsubscribe: true`) → handle in promotions pass
+   - Mailing lists / automated forwards (group addresses like `devops@`, `alerts@`, `noreply@`) → handle in general noise pass
+   - Reminder chains (DocuSign, GCP, Auth0 — same sender, many messages) → handle in general noise pass
+   - Automated receipts (Brex, Stripe, OpenAI credits) → handle in general noise pass
+   - Cold outreach (unfamiliar senders, no unsubscribe) → handle in outreach pass
+   - Real correspondence → skip
+3. **Design passes**: Use the recon results to decide which passes to run and in what order. If 80% of the inbox is promotions, start there. If the biggest bucket is mailing-list forwards, start with a targeted query for that address.
+4. **General noise pass**: After promotions and before outreach, run `bun run scripts/gmail-scan.ts sender-digest --query "in:inbox -category:promotions -category:personal"` to catch mailing lists, reminder chains, and automated notifications that aren't categorized as promotions. Present as a table following the same pattern as the promotions pass. Pre-select automated/noise senders, deselect anything that looks like real correspondence.
+
 ### Workflow
 
 1. **Scan**: Run `bun run scripts/gmail-scan.ts sender-digest`. Default query targets promotions currently in the inbox from the last 90 days (`in:inbox category:promotions newer_than:90d`). The script returns a `cache_key` plus a lightweight sender summary (counts, unsubscribe availability, sample subjects). Message IDs are stored in the assistant's cache — do NOT ask for them unless needed for archiving. Counts shown in the table reflect only what is currently in the inbox — these are the emails that will be archived.
@@ -295,6 +310,16 @@ The `gmail-prefs.ts` script persists sender preferences across cleanup sessions:
 2. **After archiving**: Run `bun run scripts/gmail-prefs.ts --action add-blocklist` with the archived sender emails to persist them for future sessions.
 3. **After user deselects**: When the user deselects senders from a cleanup table, run `bun run scripts/gmail-prefs.ts --action add-safelist` with the deselected sender emails.
 4. **User overrides**: If the user asks to stop blocking or stop keeping a sender, use `remove-blocklist` or `remove-safelist` accordingly.
+
+### Company-Domain Sender Handling
+
+When scan results include senders from the user's own company domain (e.g., `@vellum.ai`):
+
+- **Protect individual colleagues**: Cofounders, direct reports, teammates sending from their personal work address (e.g., `akash@company.com`, `aaron@company.com`) — deselect these from cleanup tables.
+- **Archive mailing lists and group addresses**: Addresses like `devops@`, `alerts@`, `noreply@`, `security@`, `billing@` at the company domain are automated forwards, not personal correspondence. These are archivable by default — pre-select them in the cleanup table.
+- **When uncertain**: If a company-domain sender could be either a colleague or a mailing list (e.g., `team@company.com`), check sample subjects. Automated alerts, CI notifications, and vendor forwards → archivable. Direct messages with personal context → protect.
+
+Do not blanket-protect an entire domain. The user's company domain often generates more automated noise than any external sender.
 
 ## Scan Operations
 
