@@ -30,7 +30,10 @@ import * as deliveryCrud from "../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../memory/delivery-status.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
-import { backfillDm } from "../../messaging/providers/slack/backfill.js";
+import {
+  backfillDm,
+  backfillThread,
+} from "../../messaging/providers/slack/backfill.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
@@ -931,6 +934,21 @@ export async function handleChannelInbound(
         });
       }
 
+      // ── Thread-ancestor backfill ──
+      // When a Slack reply arrives for a thread the daemon never saw the
+      // parent of, fetch the thread's recent history from Slack and persist
+      // the missing messages so the chronological renderer (PR 18) has the
+      // full conversation. Fire-and-forget: failures are swallowed and
+      // never block the agent loop, the outbound HTTP response, or message
+      // dispatch.
+      if (slackThreadTs) {
+        void triggerSlackThreadBackfillIfNeeded({
+          conversationId: result.conversationId,
+          channelId: conversationExternalId,
+          threadTs: slackThreadTs,
+        });
+      }
+
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
       // The onEvent callback in processMessage registers pending interactions, and
@@ -1114,9 +1132,9 @@ function countSlackMetaMessages(conversationId: string): number {
 
 /**
  * Build the set of `slackMeta.channelTs` values already stored on a
- * conversation. Used to dedupe backfilled rows so a partial prior backfill
- * (or a single message that was already persisted via the live ingress
- * path) does not double-write.
+ * conversation. Used by both DM cold-start backfill and thread-ancestor
+ * backfill to dedupe rows so a partial prior backfill (or a single message
+ * that was already persisted via the live ingress path) does not double-write.
  */
 function readStoredSlackChannelTs(conversationId: string): Set<string> {
   const seen = new Set<string>();
@@ -1144,13 +1162,12 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
  * Persist a single backfilled Slack message as a `messages` row with a
  * `slackMeta` envelope.
  *
- * This is the shared insertion point for any path that hydrates history
- * lazily (DM cold-start backfill in this PR; thread gap backfill in a
- * follow-up PR can route through the same helper). Backfilled rows are
- * always recorded with role `"user"` — the renderer reads `slackMeta` to
- * format author / timestamp / thread context, so the role distinction is
- * not used for display. Caller is responsible for dedup checks before
- * invoking; this helper performs no idempotency check itself.
+ * Shared insertion point for both DM cold-start backfill and thread-ancestor
+ * backfill. Backfilled rows are always recorded with role `"user"` — the
+ * renderer reads `slackMeta` to format author / timestamp / thread context,
+ * so the role distinction is not used for display. Caller is responsible
+ * for dedup checks before invoking; this helper performs no idempotency
+ * check itself.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
@@ -1164,7 +1181,7 @@ async function persistBackfilledSlackMessage(params: {
     channelTs: message.id,
     eventKind: "message",
     ...(message.threadId ? { threadTs: message.threadId } : {}),
-    ...(message.sender.name ? { displayName: message.sender.name } : {}),
+    ...(message.sender?.name ? { displayName: message.sender.name } : {}),
   };
   await addMessage(params.conversationId, "user", message.text ?? "", {
     slackMeta: writeSlackMetadata(slackMeta),
@@ -1244,6 +1261,159 @@ async function tryBackfillSlackDmIfCold(params: {
     log.warn(
       { err, conversationId: params.conversationId, channelId: params.channelId },
       "DM cold-start backfill failed; proceeding without history",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Slack thread backfill on gap detection
+// ---------------------------------------------------------------------------
+
+/**
+ * In-memory TTL cache keyed by `<conversationId>:<threadTs>`. Tracks recent
+ * thread-backfill triggers so a burst of replies inside the same Slack
+ * thread (e.g. a guardian rapidly typing several lines) does not re-fetch
+ * the same parent messages from Slack repeatedly. Entries naturally fall
+ * out after the TTL — if the thread is still active later, a fresh
+ * backfill becomes a cheap "are the parents already stored?" DB lookup
+ * that short-circuits before the Slack API is touched.
+ *
+ * Exported only for tests; production callers should use
+ * {@link triggerSlackThreadBackfillIfNeeded}.
+ */
+export const _backfillTriggerCache = new Map<string, number>();
+
+const BACKFILL_TRIGGER_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const BACKFILL_TRIGGER_CACHE_MAX = 1_000;
+
+function pruneBackfillCacheIfNeeded(): void {
+  if (_backfillTriggerCache.size < BACKFILL_TRIGGER_CACHE_MAX) return;
+  const now = Date.now();
+  for (const [key, ts] of _backfillTriggerCache) {
+    if (now - ts >= BACKFILL_TRIGGER_TTL_MS) {
+      _backfillTriggerCache.delete(key);
+    }
+  }
+  // If still over the cap after TTL sweep, drop the oldest entries (LRU-ish).
+  if (_backfillTriggerCache.size >= BACKFILL_TRIGGER_CACHE_MAX) {
+    const entries = [..._backfillTriggerCache.entries()].sort(
+      (a, b) => a[1] - b[1],
+    );
+    const toRemove = entries.slice(
+      0,
+      entries.length - BACKFILL_TRIGGER_CACHE_MAX + 1,
+    );
+    for (const [key] of toRemove) {
+      _backfillTriggerCache.delete(key);
+    }
+  }
+}
+
+function isBackfillRecentlyTriggered(cacheKey: string): boolean {
+  const ts = _backfillTriggerCache.get(cacheKey);
+  if (ts === undefined) return false;
+  if (Date.now() - ts >= BACKFILL_TRIGGER_TTL_MS) {
+    _backfillTriggerCache.delete(cacheKey);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Lazily backfill missing Slack thread ancestors for an inbound thread reply.
+ *
+ * When a reply arrives for a thread the daemon has never seen (e.g. the bot
+ * was just added to the channel, or the parent message pre-dates the
+ * conversation), the daemon fetches the thread's recent history via
+ * {@link backfillThread}, persists each unseen message as a `messages` row
+ * with a `slackMeta` envelope, and skips duplicates whose `ts` already
+ * appears in the conversation.
+ *
+ * Behavior contracts:
+ * - **No-op when the parent is already stored.** Looks up the conversation's
+ *   messages and short-circuits if any row has `slackMeta.channelTs ===
+ *   threadTs`. This keeps subsequent replies in the same thread cheap.
+ * - **TTL idempotency cache.** A 10-minute in-memory cache prevents bursts
+ *   of replies in the same thread from re-running the DB lookup or the
+ *   Slack API call.
+ * - **Failure-tolerant.** Any error (Slack API failure, DB error, malformed
+ *   payload) is logged at `warn` and swallowed — the inbound turn must
+ *   never block on backfill.
+ */
+export async function triggerSlackThreadBackfillIfNeeded(params: {
+  conversationId: string;
+  channelId: string;
+  threadTs: string;
+}): Promise<void> {
+  const { conversationId, channelId, threadTs } = params;
+  const cacheKey = `${conversationId}:${threadTs}`;
+
+  try {
+    if (isBackfillRecentlyTriggered(cacheKey)) {
+      return;
+    }
+
+    const storedChannelTs = readStoredSlackChannelTs(conversationId);
+    if (storedChannelTs.has(threadTs)) {
+      // Parent is already in the conversation; mark the cache so a burst of
+      // replies in this thread does not redo the DB scan for each one.
+      _backfillTriggerCache.set(cacheKey, Date.now());
+      pruneBackfillCacheIfNeeded();
+      return;
+    }
+
+    // Mark the trigger before issuing the network call. Doing this first
+    // means a second concurrent reply in the same thread short-circuits
+    // immediately even while the first call is still awaiting the Slack
+    // API. The cost is a slightly larger window where a transient Slack
+    // failure suppresses a retry, which the next reply outside the TTL
+    // (or a daemon restart) will re-attempt anyway.
+    _backfillTriggerCache.set(cacheKey, Date.now());
+    pruneBackfillCacheIfNeeded();
+
+    const fetched = await backfillThread(channelId, threadTs);
+    if (fetched.length === 0) {
+      log.debug(
+        { conversationId, channelId, threadTs },
+        "Slack thread backfill returned no messages",
+      );
+      return;
+    }
+
+    let persisted = 0;
+    for (const message of fetched) {
+      if (!message.id) continue;
+      if (storedChannelTs.has(message.id)) continue;
+      try {
+        await persistBackfilledSlackMessage({
+          conversationId,
+          channelId,
+          message,
+        });
+        storedChannelTs.add(message.id);
+        persisted++;
+      } catch (err) {
+        log.warn(
+          { err, conversationId, channelId, threadTs, channelTs: message.id },
+          "Failed to persist backfilled Slack thread message",
+        );
+      }
+    }
+
+    log.info(
+      {
+        conversationId,
+        channelId,
+        threadTs,
+        persisted,
+        fetched: fetched.length,
+      },
+      "Slack thread backfill persisted ancestor messages",
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId, channelId, threadTs },
+      "Slack thread backfill failed; proceeding without it",
     );
   }
 }
