@@ -59,6 +59,20 @@ extension ChatBubble {
 
             // Inline image previews from completed tool calls (e.g. image generation)
             inlineToolCallImages(from: message.toolCalls)
+
+            // When all tools are complete but the assistant is still streaming
+            // without any text content yet, show a typing indicator below the
+            // progress card so the user knows content is on the way.
+            if message.isStreaming && !hasText
+                && !message.toolCalls.isEmpty
+                && message.toolCalls.allSatisfy({ $0.isComplete }) {
+                HStack(spacing: 0) {
+                    TypingIndicatorView()
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, VSpacing.xxs)
+                .transition(.opacity)
+            }
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
             // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
