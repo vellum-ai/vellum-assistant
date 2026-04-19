@@ -52,7 +52,7 @@ jobs:
 
       - name: Install nested package dependencies
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
@@ -828,7 +828,7 @@ jobs:
       - name: Install nested package dependencies
         working-directory: .
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
