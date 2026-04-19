@@ -587,9 +587,6 @@ function buildStandaloneSurfaceData(
     // of top-level `fields` may omit the latter entirely.
     const raw = request.data as Record<string, unknown>;
     const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
-
-    // Ensure `fields` is always a valid array — callers that supply `pages`
-    // instead of top-level `fields` may omit the latter entirely.
     const fields: FormSurfaceData["fields"] = hasFields
       ? (raw.fields as FormSurfaceData["fields"])
       : [];
