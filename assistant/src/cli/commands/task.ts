@@ -3,7 +3,7 @@
  *
  * Subcommands for task template management (save, list, run, delete) and
  * work queue operations (queue show/add/update/remove/run). All commands
- * are thin wrappers over the daemon's task IPC routes.
+ * are thin wrappers over the assistant's task IPC routes.
  */
 
 import type { Command } from "commander";
@@ -60,19 +60,6 @@ export function registerTaskCommand(program: Command): void {
 Task templates define reusable work items that the assistant can execute.
 The work queue holds pending, in-progress, and completed work items
 derived from task templates.
-
-Template commands:
-  save     Save the current conversation as a task template
-  list     List all saved task templates
-  run      Run a task template by ID or name
-  delete   Delete one or more task templates
-
-Queue commands:
-  queue show     Show work items in the queue
-  queue add      Add a work item to the queue
-  queue update   Update work items in the queue
-  queue remove   Remove work items from the queue
-  queue run      Run the next work item from the queue
 
 Examples:
   $ assistant task list
@@ -200,8 +187,14 @@ Examples:
   task
     .command("run")
     .description("Run a task template by ID or name")
-    .option("--id <id>", "Task template ID to run.")
-    .option("--name <name>", "Task template name to run.")
+    .option(
+      "--id <id>",
+      "Task template ID to run -- run 'assistant task list' to find it.",
+    )
+    .option(
+      "--name <name>",
+      "Task template name to run -- run 'assistant task list' to find it.",
+    )
     .option("--inputs <json>", "JSON string of inputs for the task.")
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -225,8 +218,8 @@ Examples:
         json?: boolean;
       }) => {
         const params: Record<string, unknown> = {};
-        if (opts.id) params.id = opts.id;
-        if (opts.name) params.name = opts.name;
+        if (opts.id) params.task_id = opts.id;
+        if (opts.name) params.task_name = opts.name;
         if (opts.inputs) {
           try {
             params.inputs = JSON.parse(opts.inputs);
@@ -289,7 +282,7 @@ Examples:
   $ assistant task delete task_abc123 --json`,
     )
     .action(async (ids: string[], opts: { json?: boolean }) => {
-      const result = await cliIpcCall("task/delete", { ids });
+      const result = await cliIpcCall("task/delete", { task_ids: ids });
 
       if (!result.ok) {
         if (opts.json) {
@@ -353,7 +346,10 @@ Examples:
       const params: Record<string, unknown> = {};
       if (opts.status) params.status = opts.status;
 
-      const result = await cliIpcCall("task/queue/show", params);
+      const result = await cliIpcCall<{ content: string; isError?: boolean }>(
+        "task/queue/show",
+        params,
+      );
 
       if (!result.ok) {
         if (opts.json) {
@@ -362,6 +358,18 @@ Examples:
           );
         } else {
           log.error(`Error: ${result.error}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      if (result.result?.isError) {
+        if (opts.json) {
+          process.stdout.write(
+            JSON.stringify({ ok: false, error: result.result.content }) + "\n",
+          );
+        } else {
+          log.error(`Error: ${result.result.content}`);
         }
         process.exitCode = 1;
         return;
@@ -382,8 +390,14 @@ Examples:
     .command("add")
     .description("Add a work item to the queue")
     .option("--title <title>", "Title for the work item.")
-    .option("--id <id>", "Task template ID.")
-    .option("--name <name>", "Task template name.")
+    .option(
+      "--id <id>",
+      "Task template ID -- run 'assistant task list' to find it.",
+    )
+    .option(
+      "--name <name>",
+      "Task template name -- run 'assistant task list' to find it.",
+    )
     .option(
       "--execution-prompt <prompt>",
       "Execution prompt for the work item.",
@@ -406,7 +420,7 @@ Examples:
 Adds a new work item to the queue, optionally linked to a task template.
 
 --required-tools accepts a comma-separated string of tool names, which is
-split into an array before sending to the daemon.
+split into an array before sending to the assistant.
 
 --if-exists controls behavior when a matching item already exists:
   create_duplicate   Create a new item regardless (default)
@@ -434,12 +448,12 @@ Examples:
       }) => {
         const params: Record<string, unknown> = {};
         if (opts.title) params.title = opts.title;
-        if (opts.id) params.id = opts.id;
-        if (opts.name) params.name = opts.name;
+        if (opts.id) params.task_id = opts.id;
+        if (opts.name) params.task_name = opts.name;
         if (opts.executionPrompt)
           params.execution_prompt = opts.executionPrompt;
         if (opts.notes) params.notes = opts.notes;
-        if (opts.priority !== undefined) params.priority = opts.priority;
+        if (opts.priority !== undefined) params.priority_tier = opts.priority;
         if (opts.sortIndex !== undefined) params.sort_index = opts.sortIndex;
         if (opts.ifExists) params.if_exists = opts.ifExists;
         if (opts.requiredTools) {
@@ -449,7 +463,10 @@ Examples:
             .filter(Boolean);
         }
 
-        const result = await cliIpcCall("task/queue/add", params);
+        const result = await cliIpcCall<{
+          content: string;
+          isError?: boolean;
+        }>("task/queue/add", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -458,6 +475,19 @@ Examples:
             );
           } else {
             log.error(`Error: ${result.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (result.result?.isError) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: result.result.content }) +
+                "\n",
+            );
+          } else {
+            log.error(`Error: ${result.result.content}`);
           }
           process.exitCode = 1;
           return;
@@ -478,15 +508,28 @@ Examples:
   queue
     .command("update")
     .description("Update work items in the queue")
-    .option("--work-item-id <id>", "Work item ID to update.")
-    .option("--task-id <id>", "Task template ID filter.")
-    .option("--task-name <name>", "Task template name filter.")
+    .option(
+      "--work-item-id <id>",
+      "Work item ID to update -- run 'assistant task queue show' to find it.",
+    )
+    .option(
+      "--task-id <id>",
+      "Task template ID filter -- run 'assistant task list' to find it.",
+    )
+    .option(
+      "--task-name <name>",
+      "Task template name filter -- run 'assistant task list' to find it.",
+    )
     .option("--title <title>", "New title for the work item.")
-    .option("--priority <tier>", "New priority tier.")
+    .option("--priority <tier>", "New priority tier (number).", parseInt)
     .option("--notes <notes>", "New notes for the work item.")
     .option("--status <status>", "New status for the work item.")
     .option("--sort-index <n>", "New sort index (number).", parseInt)
-    .option("--filter-priority <tier>", "Filter by priority tier.")
+    .option(
+      "--filter-priority <tier>",
+      "Filter by priority tier (number).",
+      parseInt,
+    )
     .option("--filter-status <status>", "Filter by status.")
     .option(
       "--created-order <n>",
@@ -512,11 +555,11 @@ Examples:
         taskId?: string;
         taskName?: string;
         title?: string;
-        priority?: string;
+        priority?: number;
         notes?: string;
         status?: string;
         sortIndex?: number;
-        filterPriority?: string;
+        filterPriority?: number;
         filterStatus?: string;
         createdOrder?: number;
         json?: boolean;
@@ -526,16 +569,20 @@ Examples:
         if (opts.taskId) params.task_id = opts.taskId;
         if (opts.taskName) params.task_name = opts.taskName;
         if (opts.title) params.title = opts.title;
-        if (opts.priority) params.priority = opts.priority;
+        if (opts.priority !== undefined) params.priority_tier = opts.priority;
         if (opts.notes) params.notes = opts.notes;
         if (opts.status) params.status = opts.status;
         if (opts.sortIndex !== undefined) params.sort_index = opts.sortIndex;
-        if (opts.filterPriority) params.filter_priority = opts.filterPriority;
+        if (opts.filterPriority !== undefined)
+          params.filter_priority_tier = opts.filterPriority;
         if (opts.filterStatus) params.filter_status = opts.filterStatus;
         if (opts.createdOrder !== undefined)
           params.created_order = opts.createdOrder;
 
-        const result = await cliIpcCall("task/queue/update", params);
+        const result = await cliIpcCall<{
+          content: string;
+          isError?: boolean;
+        }>("task/queue/update", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -544,6 +591,19 @@ Examples:
             );
           } else {
             log.error(`Error: ${result.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (result.result?.isError) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: result.result.content }) +
+                "\n",
+            );
+          } else {
+            log.error(`Error: ${result.result.content}`);
           }
           process.exitCode = 1;
           return;
@@ -564,11 +624,20 @@ Examples:
   queue
     .command("remove")
     .description("Remove work items from the queue")
-    .option("--work-item-id <id>", "Work item ID to remove.")
-    .option("--task-id <id>", "Task template ID filter.")
-    .option("--task-name <name>", "Task template name filter.")
+    .option(
+      "--work-item-id <id>",
+      "Work item ID to remove -- run 'assistant task queue show' to find it.",
+    )
+    .option(
+      "--task-id <id>",
+      "Task template ID filter -- run 'assistant task list' to find it.",
+    )
+    .option(
+      "--task-name <name>",
+      "Task template name filter -- run 'assistant task list' to find it.",
+    )
     .option("--title <title>", "Title filter.")
-    .option("--priority <tier>", "Priority tier filter.")
+    .option("--priority <tier>", "Priority tier filter (number).", parseInt)
     .option("--status <status>", "Status filter.")
     .option("--created-order <n>", "Creation order filter (number).", parseInt)
     .option("--json", "Output result as machine-readable JSON.")
@@ -589,7 +658,7 @@ Examples:
         taskId?: string;
         taskName?: string;
         title?: string;
-        priority?: string;
+        priority?: number;
         status?: string;
         createdOrder?: number;
         json?: boolean;
@@ -599,12 +668,15 @@ Examples:
         if (opts.taskId) params.task_id = opts.taskId;
         if (opts.taskName) params.task_name = opts.taskName;
         if (opts.title) params.title = opts.title;
-        if (opts.priority) params.priority = opts.priority;
+        if (opts.priority !== undefined) params.priority_tier = opts.priority;
         if (opts.status) params.status = opts.status;
         if (opts.createdOrder !== undefined)
           params.created_order = opts.createdOrder;
 
-        const result = await cliIpcCall("task/queue/remove", params);
+        const result = await cliIpcCall<{
+          content: string;
+          isError?: boolean;
+        }>("task/queue/remove", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -613,6 +685,19 @@ Examples:
             );
           } else {
             log.error(`Error: ${result.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (result.result?.isError) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: result.result.content }) +
+                "\n",
+            );
+          } else {
+            log.error(`Error: ${result.result.content}`);
           }
           process.exitCode = 1;
           return;
@@ -633,8 +718,14 @@ Examples:
   queue
     .command("run")
     .description("Run the next work item from the queue")
-    .option("--work-item-id <id>", "Specific work item ID to run.")
-    .option("--task-name <name>", "Task template name filter.")
+    .option(
+      "--work-item-id <id>",
+      "Specific work item ID to run -- run 'assistant task queue show' to find it.",
+    )
+    .option(
+      "--task-name <name>",
+      "Task template name filter -- run 'assistant task list' to find it.",
+    )
     .option("--title <title>", "Title filter.")
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -662,7 +753,10 @@ Examples:
         if (opts.taskName) params.task_name = opts.taskName;
         if (opts.title) params.title = opts.title;
 
-        const result = await cliIpcCall("task/queue/run", params);
+        const result = await cliIpcCall<{
+          content: string;
+          isError?: boolean;
+        }>("task/queue/run", params);
 
         if (!result.ok) {
           if (opts.json) {
@@ -671,6 +765,19 @@ Examples:
             );
           } else {
             log.error(`Error: ${result.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (result.result?.isError) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: result.result.content }) +
+                "\n",
+            );
+          } else {
+            log.error(`Error: ${result.result.content}`);
           }
           process.exitCode = 1;
           return;
