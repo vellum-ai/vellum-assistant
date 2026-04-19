@@ -1,5 +1,5 @@
 ---
-name: browser
+name: vellum-browser-use
 description: Browse the web using `assistant browser` CLI commands
 compatibility: "Designed for Vellum personal assistants"
 metadata:
@@ -33,9 +33,54 @@ Use this skill to browse the web. All browser operations are executed through th
 | `assistant browser close` | Close the browser page |
 | `assistant browser status` | Diagnose browser backend readiness and setup steps |
 
-## Capabilities
+## Getting Started — Check Browser Readiness
 
-This browser runs **full Chromium with JavaScript enabled**. It can handle SPAs, React/Vue/Angular apps, dynamic content, date pickers, booking systems, reservation flows, and any JavaScript-heavy interactive site. Never tell the user you "can't handle interactive JavaScript" - you can.
+Before using any browser commands, run `assistant browser --json status` first to check which browser backends are available. The status command returns JSON with readiness information for each backend mode:
+
+```bash
+assistant browser --json status
+```
+
+The response includes:
+- `recommendedMode` — the best available backend (use this)
+- `modes[]` — per-mode status with `available`, `summary`, and `userActions` (remediation steps)
+
+## Browser Modes
+
+Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the browser backend:
+
+| Value | Backend | Description |
+|---|---|---|
+| `auto` | Automatic | Default. Picks the best available backend based on context. |
+| `extension` | Chrome extension | Routes through the user's Chrome browser via the extension debugger. |
+| `cdp-inspect` | CDP inspect | Connects to an already-running Chrome instance via DevTools Protocol. |
+| `local` | Playwright | Drives a dedicated Playwright-managed Chromium instance. |
+
+```bash
+assistant browser --browser-mode extension navigate --url http://www.example.com
+```
+
+### Prefer the Chrome Extension
+
+The **Chrome extension** (`extension` mode) is the preferred browser backend. It is:
+- More secure than Chrome's native remote debugging
+- Uses the user's real browser profile (cookies, sessions, saved logins)
+- Best experience for interacting with the user's actual browsing context
+
+If the status check shows the extension is **not available**, encourage the user to install and pair it:
+
+1. Install the **Vellum Assistant Chrome Extension** from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+2. Open the extension in Chrome and pair it with the assistant.
+
+The status response's `userActions` array for the `extension` mode provides these same steps when the extension is not connected.
+
+### Fallback Modes
+
+If the user declines to install the extension:
+- **`cdp-inspect`** — Connects to an already-running Chrome instance via DevTools Protocol (Chrome 146+). Requires enabling remote debugging in Chrome settings.
+- **`local`** — Drives a dedicated Playwright-managed Chromium instance. Last resort — does not use the user's browser profile.
+
+Only fall back to these if the user explicitly indicates they do not want to install the extension. Prefer `cdp-inspect` over `local`.
 
 ## Session Management
 
@@ -83,37 +128,16 @@ assistant browser --json screenshot
 
 The response includes a `screenshots` array with `mediaType` and `data` (base64) fields.
 
-## Browser Mode
-
-Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the browser backend:
-
-| Value | Backend | Description |
-|---|---|---|
-| `auto` | Automatic | Default. Picks the best available backend based on context. |
-| `extension` | Chrome extension | Routes through the user's Chrome browser via the extension debugger. |
-| `cdp-inspect` | CDP inspect | Connects to an already-running Chrome instance via DevTools Protocol. |
-| `local` | Playwright | Drives a dedicated Playwright-managed Chromium instance. |
-
-```bash
-assistant browser --browser-mode local navigate --url http://localhost:3000
-```
-
-**When to use `auto`**: Prefer `auto` (or omit `--browser-mode` entirely) unless you have a specific reason to pin. The automatic backend selection handles extension availability, fallback, and session reuse.
-
-**When to pin a mode**: Pin explicitly when:
-- The user requests interaction with their own browser (use `extension` or `cdp-inspect`).
-- A command only works on a specific backend (e.g. `wait-for-download` requires `local`).
-- You want to avoid fallback behavior for diagnostic clarity.
 
 ## Typical Workflow
 
-1. (Optional) `assistant browser status` to diagnose backend availability
-2. (Optional) `assistant browser attach` to establish the debugger session (extension path)
+1. `assistant browser --json status` to check backend readiness — if the extension is not available, help the user install it
+2. (Optional) `assistant browser attach` to establish the session
 3. `assistant browser navigate --url <url>` to load a page
 4. `assistant browser snapshot` to discover interactive elements
 5. Use `click`, `type`, `press-key`, `scroll`, `select-option`, or `hover` to interact
 6. `assistant browser extract` or `assistant browser screenshot --output <path>` to capture results
-7. `assistant browser detach` to end the session, or `assistant browser close` to close the page
+7. **Always** `assistant browser detach` when you are done — this releases the debugger so the user can browse freely
 
 ## Interaction Strategies
 

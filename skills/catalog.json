@@ -11,7 +11,7 @@
         "vellum": {
           "display-name": "Amazon",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -252,7 +252,7 @@
         "vellum": {
           "display-name": "Influencer Research",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -393,7 +393,7 @@
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -627,7 +627,7 @@
         "vellum": {
           "display-name": "Vercel Token Setup",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },

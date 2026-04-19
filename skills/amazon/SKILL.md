@@ -6,7 +6,7 @@ metadata:
   emoji: "🛒"
   vellum:
     display-name: "Amazon"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
 Use browser automation for all Amazon actions. All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`. Use helper scripts with `host_bash` to normalize extraction results and decide the next step.
