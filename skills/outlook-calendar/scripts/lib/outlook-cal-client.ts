@@ -435,9 +435,7 @@ export async function listCalendars(
 }
 
 /** Get the current user's email address (needed for availability auto-resolve). */
-export async function getMyEmail(
-  account?: string,
-): Promise<string> {
+export async function getMyEmail(account?: string): Promise<string> {
   const resp = await graphGet<{ mail?: string; userPrincipalName?: string }>(
     "/v1.0/me",
     { $select: "mail,userPrincipalName" },

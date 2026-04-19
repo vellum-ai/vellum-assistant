@@ -75,8 +75,7 @@ async function list(argv: string[]): Promise<void> {
     250,
   );
   const query = optionalArg(args, "query");
-  const singleEvents =
-    optionalArg(args, "single-events") !== "false";
+  const singleEvents = optionalArg(args, "single-events") !== "false";
   const orderBy = optionalArg(args, "order-by");
   const account = optionalArg(args, "account");
 
@@ -101,7 +100,7 @@ async function list(argv: string[]): Promise<void> {
     return;
   }
 
-  ok(JSON.stringify(result, null, 2));
+  ok(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +120,7 @@ async function get(argv: string[]): Promise<void> {
     return;
   }
 
-  ok(JSON.stringify(response.data, null, 2));
+  ok(response.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +225,7 @@ async function availability(argv: string[]): Promise<void> {
     return;
   }
 
-  ok(JSON.stringify(response.data, null, 2));
+  ok(response.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -262,9 +261,7 @@ async function rsvp(argv: string[]): Promise<void> {
   }
 
   const event = eventResponse.data;
-  const selfAttendee = event.attendees?.find(
-    (a: EventAttendee) => a.self,
-  );
+  const selfAttendee = event.attendees?.find((a: EventAttendee) => a.self);
 
   if (!selfAttendee) {
     // If the user is the organizer and not in the attendees list,

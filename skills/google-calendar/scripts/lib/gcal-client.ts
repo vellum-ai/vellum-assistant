@@ -384,5 +384,9 @@ export async function freeBusy(
 export async function listCalendars(
   account?: string,
 ): Promise<GcalResponse<CalendarListResponse>> {
-  return gcalGet<CalendarListResponse>("/users/me/calendarList", undefined, account);
+  return gcalGet<CalendarListResponse>(
+    "/users/me/calendarList",
+    undefined,
+    account,
+  );
 }

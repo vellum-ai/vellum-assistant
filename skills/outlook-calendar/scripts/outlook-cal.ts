@@ -100,7 +100,8 @@ Options:
   }
 
   const calendarId = optionalArg(args, "calendar-id");
-  const timeMin = optionalArg(args, "start-date-time") ?? new Date().toISOString();
+  const timeMin =
+    optionalArg(args, "start-date-time") ?? new Date().toISOString();
   const timeMax = optionalArg(args, "end-date-time");
   const maxResults = Math.min(
     parseInt(optionalArg(args, "max-results") ?? "25", 10),
@@ -140,7 +141,7 @@ Options:
     return;
   }
 
-  ok(JSON.stringify(result.data, null, 2));
+  ok(result.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +170,7 @@ Options:
     return;
   }
 
-  ok(JSON.stringify(result.data, null, 2));
+  ok(result.data);
 }
 
 // ---------------------------------------------------------------------------
@@ -290,9 +291,7 @@ Options:
   }
 
   const event = result.data;
-  const webLink = event.webLink
-    ? ` View it here: ${event.webLink}`
-    : "";
+  const webLink = event.webLink ? ` View it here: ${event.webLink}` : "";
   ok(`Event created (ID: ${event.id}).${webLink}`);
 }
 
@@ -355,7 +354,7 @@ Options:
     return;
   }
 
-  ok(JSON.stringify(result.data, null, 2));
+  ok(result.data);
 }
 
 // ---------------------------------------------------------------------------
