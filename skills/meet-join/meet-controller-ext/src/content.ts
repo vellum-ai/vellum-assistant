@@ -279,11 +279,39 @@ async function handleJoin(
  * {@link ExtensionSendChatResultMessage} back to the background. Errors
  * are caught and surfaced via `ok: false` so the bot can correlate the
  * failure with the originating request.
+ *
+ * Threads an `onEvent` sink + `window` reference through to
+ * {@link sendChat} so the runtime `meet_send_chat` tool path emits
+ * `trusted_type` (for the composer) and `trusted_click` (for the send
+ * button) just like the consent-post path does inside `runJoinFlow`.
+ * Without this, Meet's `isTrusted` gate silently swallows both the
+ * synthetic composer input and the JS `.click()` on the send button —
+ * every post-admission send would no-op on production Meet builds that
+ * enforce the gate.
  */
 async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
+  const sendToBot = (event: ExtensionToBotMessage): void => {
+    try {
+      void chrome.runtime.sendMessage(event);
+    } catch (err) {
+      console.warn("[meet-ext] sendMessage failed:", err);
+    }
+  };
+
   let reply: ExtensionSendChatResultMessage;
   try {
-    await sendChat(cmd.text);
+    await sendChat(cmd.text, {
+      onEvent: sendToBot,
+      // Pass the live `window` so `sendChat` can compute screen-space
+      // coordinates for the send button's `trusted_click`. Mirrors the
+      // fallback that `postConsentMessage` relies on in `features/join.ts`.
+      window: globalThis as unknown as {
+        screenX: number;
+        screenY: number;
+        outerHeight: number;
+        innerHeight: number;
+      },
+    });
     reply = {
       type: "send_chat_result",
       requestId: cmd.requestId,
@@ -304,3 +332,11 @@ async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
     console.warn("[meet-ext] failed to send send_chat_result:", err);
   }
 }
+
+// Export the send-chat handler for unit testing. It is wired into
+// `chrome.runtime.onMessage` above when the script loads; the test
+// imports it directly to drive the `meet_send_chat` tool path end-to-end
+// without needing to fake the chrome.runtime.onMessage dispatcher. Not
+// part of the extension's public surface — the background SW never
+// imports content.ts.
+export { handleSendChat as __handleSendChat };
