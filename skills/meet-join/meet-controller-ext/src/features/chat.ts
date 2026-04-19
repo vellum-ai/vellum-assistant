@@ -212,6 +212,34 @@ export async function sendChat(text: string): Promise<void> {
 }
 
 /**
+ * Optional inputs accepted by {@link postConsentMessage} / {@link ensurePanelOpen}
+ * so the join flow can forward its `onEvent` sink and `window` metadata
+ * through. When omitted, `ensurePanelOpen` falls back to a JS `.click()`
+ * alone — adequate for the jsdom test harness and any Meet build that does
+ * not enforce `isTrusted` on the toggle.
+ */
+interface EnsurePanelOpenOptions {
+  /**
+   * Sink for extension→bot events. When provided, `ensurePanelOpen` emits a
+   * `trusted_click` with screen-space coordinates for the toggle so the bot
+   * can dispatch a real X-server click via xdotool (Meet gates the toggle
+   * on `event.isTrusted`, so a bare JS `.click()` is silently ignored).
+   */
+  onEvent?: (msg: ExtensionToBotMessage) => void;
+  /**
+   * Window used to compute screen-space coordinates. Mirrors the shape in
+   * {@link "../features/join.js"}'s `RunJoinFlowOptions.window`. Defaults to
+   * the live `window` when omitted.
+   */
+  window?: {
+    screenX: number;
+    screenY: number;
+    outerHeight: number;
+    innerHeight: number;
+  };
+}
+
+/**
  * Ensure the chat panel is open and then call {@link sendChat}.
  *
  * Invoked by the join flow to drop the consent notice once the bot is in
@@ -219,8 +247,11 @@ export async function sendChat(text: string): Promise<void> {
  * already visible, we skip the panel-toggle click (clicking again would
  * close the panel).
  */
-export async function postConsentMessage(text: string): Promise<void> {
-  ensurePanelOpen();
+export async function postConsentMessage(
+  text: string,
+  opts?: EnsurePanelOpenOptions,
+): Promise<void> {
+  ensurePanelOpen(opts);
   await sendChat(text);
 }
 
@@ -228,19 +259,58 @@ export async function postConsentMessage(text: string): Promise<void> {
  * Click the chat toggle once if the panel isn't already open. Detects open
  * state via the message-list container (mounted even when empty), not
  * individual message nodes which require at least one message to exist.
+ *
+ * When `opts.onEvent` is provided and the panel is closed, emits a
+ * `trusted_click` for the toggle button's screen coordinates before
+ * attempting the JS `.click()` fallback. This mirrors the admission-button
+ * fix in `features/join.ts` — Meet gates the chat panel toggle on
+ * `event.isTrusted`, so a programmatic `.click()` from a content script
+ * silently no-ops. Without the trusted click, the panel never opens, the
+ * composer never mounts, and `sendChat` throws "chat input not found"
+ * (swallowed by the caller as a diagnostic).
  */
-function ensurePanelOpen(): void {
+function ensurePanelOpen(opts?: EnsurePanelOpenOptions): void {
   if (document.querySelector(chatSelectors.MESSAGE_LIST)) return;
   const toggle = document.querySelector<HTMLButtonElement>(
     chatSelectors.PANEL_BUTTON,
   );
-  if (toggle) {
+  if (!toggle) return;
+
+  // Compute screen coords and emit the xdotool hint before the JS click.
+  // Math matches `features/join.ts`'s admission-button block — see the long
+  // comment there for the assumptions about screenX/Y, chrome offsets, and
+  // DPI. Production Xvfb pins the window to (0,0) with no bottom chrome, so
+  // the `outerHeight - innerHeight` delta is the top chrome offset.
+  if (opts?.onEvent) {
     try {
-      toggle.click();
+      const rect = toggle.getBoundingClientRect();
+      const win = opts.window ?? (globalThis as typeof globalThis);
+      const chromeOffsetY = Math.max(
+        0,
+        (win as typeof globalThis).outerHeight -
+          (win as typeof globalThis).innerHeight,
+      );
+      const screenX = Math.round(
+        ((win as typeof globalThis).screenX ?? 0) + rect.left + rect.width / 2,
+      );
+      const screenY = Math.round(
+        ((win as typeof globalThis).screenY ?? 0) +
+          chromeOffsetY +
+          rect.top +
+          rect.height / 2,
+      );
+      opts.onEvent({ type: "trusted_click", x: screenX, y: screenY });
     } catch {
-      // Click can fail if the button is detached mid-flight; let the caller
-      // surface the downstream selector error when the composer isn't
-      // findable.
+      // If the rect or window shape is bogus, fall through to the JS click
+      // fallback rather than swallowing the whole panel-open attempt.
     }
+  }
+
+  try {
+    toggle.click();
+  } catch {
+    // Click can fail if the button is detached mid-flight; let the caller
+    // surface the downstream selector error when the composer isn't
+    // findable.
   }
 }
