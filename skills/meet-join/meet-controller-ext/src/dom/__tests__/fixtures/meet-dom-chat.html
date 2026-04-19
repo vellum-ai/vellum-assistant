@@ -27,14 +27,18 @@
           </div>
         </div>
 
-        <!-- Composer. -->
+        <!-- Composer. Live Meet decorates the aria-label with "to everyone"
+             (and similar context qualifiers) — see selectors.ts § chatSelectors
+             for the prefix-match selector rationale. -->
         <div class="chat-composer" role="group">
           <textarea
-            aria-label="Send a message"
-            placeholder="Send a message"
+            aria-label="Send a message to everyone"
+            placeholder="Send a message to everyone"
             rows="1"
           ></textarea>
-          <button type="button" aria-label="Send a message">Send</button>
+          <button type="button" aria-label="Send a message to everyone">
+            Send
+          </button>
         </div>
       </aside>
     </div>

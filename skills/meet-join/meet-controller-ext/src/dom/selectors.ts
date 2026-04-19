@@ -50,7 +50,7 @@
  * lets us trace any fixture vs. production mismatch to a concrete date and
  * decide whether to recapture.
  */
-export const GOOGLE_MEET_SELECTOR_VERSION = "2026-04-15";
+export const GOOGLE_MEET_SELECTOR_VERSION = "2026-04-19";
 
 /**
  * Prejoin-surface selectors — the "Ready to join?" screen shown before the bot
@@ -106,11 +106,32 @@ export const chatSelectors = {
   /** Toggle button in the meeting toolbar that opens the chat side panel. */
   PANEL_BUTTON: 'button[aria-label="Chat with everyone"]',
 
-  /** Textarea for composing an outgoing chat message. */
-  INPUT: 'textarea[aria-label="Send a message"]',
+  /**
+   * Composer for outgoing chat messages. Matches by aria-label prefix because
+   * Meet decorates the label with context — e.g. `aria-label="Send a message
+   * to everyone"` when the chat is broadcast to all participants. The `^=`
+   * prefix match covers both the bare and decorated forms, mirroring the
+   * approach used for `ASK_TO_JOIN_BUTTON`.
+   *
+   * We also accept `div[contenteditable="true"]` variants since some Meet
+   * builds render the composer as a contenteditable div rather than a
+   * textarea. Note that `chat.ts` currently writes via `.value`, which is a
+   * textarea-only affordance — if Meet has migrated to contenteditable, the
+   * selector will resolve but `sendChat` will silently no-op. That's a
+   * follow-up (tracked in the PR body) and out of scope for this selector
+   * drift fix.
+   */
+  // TODO(meet-dom): aria-label is localized. Future versions may need to
+  // match multiple locales or fall back to role=textbox + placeholder.
+  INPUT:
+    'textarea[aria-label^="Send a message"], div[contenteditable="true"][aria-label^="Send a message"]',
 
-  /** Send button adjacent to the chat composer. */
-  SEND_BUTTON: 'button[aria-label="Send a message"]',
+  /**
+   * Send button adjacent to the chat composer. Prefix match handles Meet's
+   * decorated labels (e.g. "Send a message to everyone") the same way INPUT
+   * does.
+   */
+  SEND_BUTTON: 'button[aria-label^="Send a message"]',
 
   /**
    * Container that holds the list of chat messages. Used to detect whether the
