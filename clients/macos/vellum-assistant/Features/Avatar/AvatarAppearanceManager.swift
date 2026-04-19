@@ -149,7 +149,25 @@ final class AvatarAppearanceManager {
 
     // MARK: - Avatar Fetch via Gateway
 
-    /// Fetches the avatar image via HTTP through the gateway.
+    /// Delay before retrying an avatar fetch that failed with a transient error.
+    /// Long enough for in-flight token refresh to complete, short enough that the
+    /// user sees the right avatar before the UI settles.
+    private static let transientRetryDelayNs: UInt64 = 2_000_000_000 // 2s
+
+    /// Whether a non-success response represents an authoritative "no avatar
+    /// exists" signal (404) as opposed to a transient failure (401, 5xx,
+    /// transport/network error). Authoritative absence clears cached state;
+    /// transient failures preserve it so a brief auth-race during bootstrap
+    /// does not replace a previously-good avatar with the bundled fallback.
+    static func isAuthoritativeAbsence(statusCode: Int) -> Bool {
+        return statusCode == 404
+    }
+
+    /// Fetches the avatar image via HTTP through the gateway. On transient
+    /// failure (401, 5xx, transport error) the existing cached image is
+    /// preserved and one retry is scheduled; only an authoritative 404 clears
+    /// it. Guarded by `avatarRetryInFlight` so repeated transient failures
+    /// don't stack retries.
     private func fetchAvatarViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
@@ -157,24 +175,30 @@ final class AvatarAppearanceManager {
                 params: ["path": "data/avatar/avatar-image.png"],
                 timeout: 10
             )
-            guard response.isSuccess, !response.data.isEmpty else {
+            if response.isSuccess, !response.data.isEmpty {
+                cachedChatAvatar = nil
+                customAvatarImage = NSImage(data: response.data)
+                updateDockIcon()
+                return
+            }
+            if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
                 if customAvatarImage != nil { customAvatarImage = nil }
                 cachedChatAvatar = nil
                 updateDockIcon()
                 return
             }
-            cachedChatAvatar = nil
-            customAvatarImage = NSImage(data: response.data)
-            updateDockIcon()
+            log.warning("Transient avatar fetch failure (HTTP \(response.statusCode)) — preserving cached image and scheduling retry")
+            scheduleAvatarRetry()
         } catch {
-            log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
-            if customAvatarImage != nil { customAvatarImage = nil }
-            cachedChatAvatar = nil
-            updateDockIcon()
+            log.warning("Transport failure fetching avatar — preserving cached image and scheduling retry: \(error.localizedDescription)")
+            scheduleAvatarRetry()
         }
     }
 
-    /// Fetches character-traits.json via HTTP through the gateway.
+    /// Fetches character-traits.json via HTTP through the gateway. Same
+    /// transient-vs-authoritative policy as the avatar image: 404 clears the
+    /// cached traits, 401/5xx/transport errors preserve them and schedule one
+    /// retry.
     private func fetchTraitsViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
@@ -182,38 +206,64 @@ final class AvatarAppearanceManager {
                 params: ["path": "data/avatar/character-traits.json"],
                 timeout: 10
             )
-            guard response.isSuccess, !response.data.isEmpty else {
+            if response.isSuccess, !response.data.isEmpty {
+                guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
+                    return
+                }
+                characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
+                characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
+                characterColor = AvatarColor(rawValue: components.color)
+                // Character traits loaded — the PNG is just a daemon rendering
+                // of the character, not a user upload. Clear it so the animated
+                // path is used.
+                customAvatarImage = nil
+                cachedChatAvatar = nil
+                cachedFallbackAvatar = nil
+                cachedFullFallbackAvatar = nil
+                updateDockIcon()
+                return
+            }
+            if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
                 if characterBodyShape != nil { characterBodyShape = nil }
                 if characterEyeStyle != nil { characterEyeStyle = nil }
                 if characterColor != nil { characterColor = nil }
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
-
                 updateDockIcon()
                 return
             }
-            guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
-                return
-            }
-            characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
-            characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
-            characterColor = AvatarColor(rawValue: components.color)
-            // Character traits loaded — the PNG is just a daemon rendering
-            // of the character, not a user upload. Clear it so the animated
-            // path is used.
-            customAvatarImage = nil
-            cachedChatAvatar = nil
-            cachedFallbackAvatar = nil
-            cachedFullFallbackAvatar = nil
-            updateDockIcon()
+            log.warning("Transient traits fetch failure (HTTP \(response.statusCode)) — preserving cached traits and scheduling retry")
+            scheduleTraitsRetry()
         } catch {
-            log.warning("Failed to fetch character traits via HTTP: \(error.localizedDescription)")
-            if characterBodyShape != nil { characterBodyShape = nil }
-            if characterEyeStyle != nil { characterEyeStyle = nil }
-            if characterColor != nil { characterColor = nil }
-            cachedFallbackAvatar = nil
-            cachedFullFallbackAvatar = nil
-            updateDockIcon()
+            log.warning("Transport failure fetching character traits — preserving cached traits and scheduling retry: \(error.localizedDescription)")
+            scheduleTraitsRetry()
+        }
+    }
+
+    /// Guards against stacking overlapping retries when repeated transient
+    /// failures arrive before the first retry has completed.
+    @ObservationIgnored private var avatarRetryInFlight = false
+    @ObservationIgnored private var traitsRetryInFlight = false
+
+    private func scheduleAvatarRetry() {
+        guard !avatarRetryInFlight else { return }
+        avatarRetryInFlight = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
+            guard let self else { return }
+            await self.fetchAvatarViaHTTP()
+            self.avatarRetryInFlight = false
+        }
+    }
+
+    private func scheduleTraitsRetry() {
+        guard !traitsRetryInFlight else { return }
+        traitsRetryInFlight = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
+            guard let self else { return }
+            await self.fetchTraitsViaHTTP()
+            self.traitsRetryInFlight = false
         }
     }
 
