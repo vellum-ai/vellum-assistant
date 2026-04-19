@@ -41,6 +41,22 @@ import type {
   ExtensionToBotMessage,
 } from "../../../contracts/native-messaging.js";
 import { chatSelectors } from "../dom/selectors.js";
+import { waitForSelector } from "../dom/wait.js";
+
+/**
+ * How long {@link ensurePanelOpen} waits for the chat message list to mount
+ * after clicking the toggle before giving up.
+ *
+ * Sized for Meet's production latency: the xdotool `trusted_click` is a
+ * fire-and-forget native-messaging emit to the bot, which then drives an
+ * X-server click via xdotool against the Xvfb display. Measured end-to-end
+ * latency (emit → bot dispatch → click event arrives at Chromium →
+ * React re-render mounting the panel) is typically 50–400ms under load, so
+ * 2000ms gives the tail plenty of slack without making chat-post failures
+ * slow to surface when the panel genuinely never opens (e.g. the toggle is
+ * disabled because the meeting host restricted chat).
+ */
+const ENSURE_PANEL_OPEN_TIMEOUT_MS = 2000;
 
 /**
  * Meet's chat composer enforces a 2000-character cap server-side. We mirror
@@ -83,7 +99,16 @@ export interface ChatReader {
  * list is not mounted and the observer has nothing to watch).
  */
 export function startChatReader(opts: ChatReaderOptions): ChatReader {
-  ensurePanelOpen();
+  // Fire-and-forget: the reader only needs the panel open so the
+  // MutationObserver below has something to watch. The JS `.click()`
+  // fallback inside `ensurePanelOpen` (plus the optional `trusted_click`
+  // hint when `onEvent` is wired) runs synchronously; the async wait for
+  // the message list to mount is irrelevant to the observer, which will
+  // pick up the list insertion as a regular DOM mutation whenever it
+  // lands. If the click is silently swallowed (isTrusted gate on a Meet
+  // build that we're not signaling to the bot), the observer just stays
+  // idle — the same failure mode as before this helper went async.
+  void ensurePanelOpen();
 
   // Bot-side dedupe keyed on the rendered `data-message-id`. The in-page
   // seen set is reset every time the panel close/reopens and the observer
@@ -324,14 +349,22 @@ export async function postConsentMessage(
   text: string,
   opts?: EnsurePanelOpenOptions,
 ): Promise<void> {
-  ensurePanelOpen(opts);
+  // Awaiting here is load-bearing: the panel-toggle `trusted_click` is a
+  // fire-and-forget native-messaging emit that races xdotool's X-server
+  // click against `sendChat`'s synchronous INPUT query. In production, the
+  // JS `.click()` fallback is rejected by Meet's isTrusted gate, so the
+  // composer only mounts after xdotool's click lands tens of ms later.
+  // Without the await, `sendChat` threw `"chat input not found"` before
+  // the panel had a chance to open.
+  await ensurePanelOpen(opts);
   await sendChat(text, opts);
 }
 
 /**
- * Click the chat toggle once if the panel isn't already open. Detects open
- * state via the message-list container (mounted even when empty), not
- * individual message nodes which require at least one message to exist.
+ * Click the chat toggle once if the panel isn't already open and wait for
+ * the message-list container to mount. Detects open state via the
+ * message-list container (mounted even when empty), not individual message
+ * nodes which require at least one message to exist.
  *
  * When `opts.onEvent` is provided and the panel is closed, emits a
  * `trusted_click` for the toggle button's screen coordinates before
@@ -341,8 +374,28 @@ export async function postConsentMessage(
  * silently no-ops. Without the trusted click, the panel never opens, the
  * composer never mounts, and `sendChat` throws "chat input not found"
  * (swallowed by the caller as a diagnostic).
+ *
+ * ## Why this is async
+ *
+ * The `trusted_click` emit is fire-and-forget: the native-messaging frame
+ * is queued into the bot's stdin and xdotool dispatches the X-server click
+ * tens of ms later. Returning synchronously after the emit would let
+ * {@link postConsentMessage} race the async panel-open against
+ * {@link sendChat}'s synchronous INPUT query — in production (where the
+ * isTrusted gate rejects the JS `.click()` fallback) the composer hasn't
+ * mounted yet and `sendChat` throws immediately.
+ *
+ * To close the race we poll for {@link chatSelectors.MESSAGE_LIST} with a
+ * short deadline ({@link ENSURE_PANEL_OPEN_TIMEOUT_MS}) via
+ * {@link waitForSelector}. When the panel was already open on entry the
+ * initial `document.querySelector` returns synchronously, so the poll is
+ * a no-op on the fast path. If the deadline expires we fall through
+ * silently — `sendChat` will surface its own "chat input not found"
+ * diagnostic, which is what the join flow's `try/catch` already handles.
  */
-function ensurePanelOpen(opts?: EnsurePanelOpenOptions): void {
+async function ensurePanelOpen(
+  opts?: EnsurePanelOpenOptions,
+): Promise<void> {
   if (document.querySelector(chatSelectors.MESSAGE_LIST)) return;
   const toggle = document.querySelector<HTMLButtonElement>(
     chatSelectors.PANEL_BUTTON,
@@ -385,5 +438,23 @@ function ensurePanelOpen(opts?: EnsurePanelOpenOptions): void {
     // Click can fail if the button is detached mid-flight; let the caller
     // surface the downstream selector error when the composer isn't
     // findable.
+  }
+
+  // Wait for the message list to mount. In jsdom tests the JS `.click()`
+  // fallback mounts the list synchronously before we reach this line, so
+  // `waitForSelector`'s synchronous first check resolves without ever
+  // attaching a MutationObserver. In production Meet the click is queued
+  // through xdotool and the list mounts a beat later; the observer catches
+  // that mutation and resolves before the deadline. If the list never
+  // appears (e.g. host-restricted chat), swallow the timeout — `sendChat`
+  // will surface its own "chat input not found" error through the join
+  // flow's diagnostic wrapper.
+  try {
+    await waitForSelector(
+      chatSelectors.MESSAGE_LIST,
+      ENSURE_PANEL_OPEN_TIMEOUT_MS,
+    );
+  } catch {
+    // timeout — handled by downstream sendChat
   }
 }

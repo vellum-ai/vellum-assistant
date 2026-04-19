@@ -804,4 +804,92 @@ describe("postConsentMessage", () => {
     // Toggle was never clicked because the panel was already open.
     expect(installed!.panelToggleClicks()).toBe(0);
   });
+
+  test("awaits the panel to mount before querying the chat input (xdotool race)", async () => {
+    // Regression: in production, Meet's isTrusted gate rejects the JS
+    // `.click()` fallback on the panel toggle, so the MESSAGE_LIST only
+    // mounts after the bot's xdotool-driven X-server click lands (tens of
+    // ms later). Before this fix, `postConsentMessage` called the sync
+    // version of `ensurePanelOpen` and then IMMEDIATELY queried
+    // `chatSelectors.INPUT` inside `sendChat` — which threw
+    // `"chat input not found"` because the composer hadn't mounted yet.
+    //
+    // We simulate that race by:
+    //   1. Replacing the default toggle (whose jsdom handler synchronously
+    //      mounts the MESSAGE_LIST on click) with a fresh toggle whose
+    //      click handler is a no-op — i.e. the isTrusted gate rejects the
+    //      click, matching production behavior.
+    //   2. Closing the panel (removing MESSAGE_LIST + composer) so
+    //      `ensurePanelOpen` takes the click path.
+    //   3. Scheduling an async mount of MESSAGE_LIST + composer + send
+    //      button at +50ms, mimicking xdotool's end-to-end latency.
+    //
+    // The test asserts that `postConsentMessage` does NOT throw and that
+    // the composer is populated — which is only possible if
+    // `ensurePanelOpen` awaits the mount before handing control to
+    // `sendChat`.
+    const doc = installed!.dom.window.document;
+
+    // Remove everything the chat fixture provides so the composer genuinely
+    // has to be mounted asynchronously — including the existing send button
+    // and composer textarea.
+    doc.querySelector(chatSelectors.MESSAGE_LIST)?.remove();
+    doc.querySelector(chatSelectors.INPUT)?.remove();
+    doc.querySelector(chatSelectors.SEND_BUTTON)?.remove();
+
+    // Replace the toggle with a fresh button that does nothing on click —
+    // simulating Meet's isTrusted gate rejecting the JS click. The
+    // original toggle (which synchronously re-mounts the list) is removed.
+    doc.querySelector(chatSelectors.PANEL_BUTTON)?.remove();
+    const toggle = doc.createElement("button");
+    toggle.setAttribute("type", "button");
+    toggle.setAttribute("aria-label", "Chat with everyone");
+    toggle.textContent = "Chat";
+    doc.body.appendChild(toggle);
+    let toggleClickCount = 0;
+    toggle.addEventListener("click", () => {
+      toggleClickCount += 1;
+      // Intentionally NO re-mount here — simulating Meet's isTrusted gate.
+    });
+
+    // Schedule the async mount to land after a short delay, mimicking the
+    // xdotool-driven X-server click arriving at Chromium and React
+    // re-rendering the panel. 50ms is well under the
+    // ENSURE_PANEL_OPEN_TIMEOUT_MS (2000ms) deadline, so the poll must
+    // resolve before the timeout fires.
+    setTimeout(() => {
+      const list = doc.createElement("div");
+      list.setAttribute("role", "list");
+      list.setAttribute("aria-label", "Chat messages");
+      doc.body.appendChild(list);
+
+      const input = doc.createElement("textarea");
+      input.setAttribute("aria-label", "Send a message");
+      doc.body.appendChild(input);
+
+      const sendButton = doc.createElement("button");
+      sendButton.setAttribute("type", "button");
+      sendButton.setAttribute("aria-label", "Send a message");
+      sendButton.textContent = "Send";
+      doc.body.appendChild(sendButton);
+    }, 50);
+
+    // Record when `sendChat` queries the INPUT vs. when the mount happens,
+    // so a regression (sync path) would throw and fail the await below
+    // instead of flakily passing.
+    await postConsentMessage("hi there");
+
+    // The toggle was clicked exactly once (via the JS `.click()` fallback).
+    expect(toggleClickCount).toBe(1);
+
+    // The composer now carries the message — only possible if
+    // `ensurePanelOpen` awaited the mount.
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe("hi there");
+
+    // And the list is mounted now, proving the async mount fired before
+    // the chat post completed.
+    expect(doc.querySelector(chatSelectors.MESSAGE_LIST)).not.toBeNull();
+  });
 });
