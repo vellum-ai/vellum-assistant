@@ -45,6 +45,12 @@ interface InboundEventBase<C extends InboundChannelId> {
     updateId: string;
     messageId?: string;
     chatType?: string;
+    /**
+     * Thread/conversation-group identifier, when the source channel carries one
+     * (e.g. Slack `thread_ts`). Channel-agnostic name so other channels (email
+     * `In-Reply-To`, etc.) can reuse the field later.
+     */
+    threadId?: string;
   };
   raw: Record<string, unknown>;
 }

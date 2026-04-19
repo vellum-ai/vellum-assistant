@@ -5,11 +5,13 @@ import {
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
+  normalizeSlackMessageEdit,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
+  type SlackMessageChangedEvent,
   type SlackFile,
 } from "./normalize.js";
 import type { GatewayConfig } from "../config.js";
@@ -586,6 +588,150 @@ describe("attachment extraction in normalize functions", () => {
       });
       expect(result!.slackFiles).toBeDefined();
       expect(result!.slackFiles!.get("F020")!.id).toBe("F020");
+    });
+  });
+});
+
+// --- source.threadId propagation ---
+//
+// Asserts that PR 2's new `source.threadId` field is populated on every
+// Slack normalizer that has thread info, and absent for top-level messages
+// without a thread.
+
+function makeMessageChangedEvent(
+  overrides?: Partial<{
+    channel: string;
+    channelType: "im" | "channel" | "group" | "mpim";
+    ts: string;
+    messageTs: string;
+    user: string;
+    text: string;
+    threadTs: string;
+  }>,
+): SlackMessageChangedEvent {
+  return {
+    type: "message",
+    subtype: "message_changed",
+    channel: overrides?.channel ?? "C456",
+    channel_type: overrides?.channelType ?? "channel",
+    ts: overrides?.ts ?? "1700000001.000000",
+    message: {
+      user: overrides?.user ?? "U123",
+      text: overrides?.text ?? "edited content",
+      ts: overrides?.messageTs ?? "1700000000.000000",
+      ...(overrides?.threadTs ? { thread_ts: overrides.threadTs } : {}),
+    },
+  };
+}
+
+describe("source.threadId propagation", () => {
+  describe("normalizeSlackDirectMessage", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({ thread_ts: "1700000000.111111" });
+      const result = normalizeSlackDirectMessage(event, "evt-tid-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.111111");
+    });
+
+    it("omits source.threadId when thread_ts is absent", () => {
+      const config = makeConfig();
+      const event = makeDmEvent();
+      const result = normalizeSlackDirectMessage(event, "evt-tid-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackChannelMessage", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({ thread_ts: "1700000000.222222" });
+      const result = normalizeSlackChannelMessage(event, "evt-tid-3", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.222222");
+    });
+
+    it("omits source.threadId when thread_ts is absent (top-level channel message)", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent();
+      const result = normalizeSlackChannelMessage(event, "evt-tid-4", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackAppMention", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({ thread_ts: "1700000000.333333" });
+      const result = normalizeSlackAppMention(event, "evt-tid-5", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.333333");
+    });
+
+    it("omits source.threadId when thread_ts is absent", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent();
+      const result = normalizeSlackAppMention(event, "evt-tid-6", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackReactionAdded", () => {
+    it("populates source.threadId with the reacted message's ts", () => {
+      const config = makeConfig();
+      const event = makeReactionAddedEvent({
+        messageTs: "1700000000.444444",
+      });
+      const result = normalizeSlackReactionAdded(event, "evt-tid-7", config);
+
+      expect(result).not.toBeNull();
+      // Reactions route replies against the reacted message, so threadId
+      // mirrors the wrapper's threadTs (which equals item.ts).
+      expect(result!.event.source.threadId).toBe("1700000000.444444");
+      expect(result!.threadTs).toBe("1700000000.444444");
+    });
+  });
+
+  describe("normalizeSlackMessageEdit", () => {
+    it("populates source.threadId for channel edits inside a thread", () => {
+      const config = makeConfig();
+      const event = makeMessageChangedEvent({
+        threadTs: "1700000000.555555",
+      });
+      const result = normalizeSlackMessageEdit(event, "evt-tid-8", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.555555");
+    });
+
+    it("omits source.threadId for channel edits with no thread", () => {
+      const config = makeConfig();
+      const event = makeMessageChangedEvent();
+      const result = normalizeSlackMessageEdit(event, "evt-tid-9", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+
+    it("omits source.threadId for DM edits with no thread", () => {
+      const config = makeConfig();
+      const event = makeMessageChangedEvent({
+        channel: "D789",
+        channelType: "im",
+      });
+      const result = normalizeSlackMessageEdit(event, "evt-tid-10", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
     });
   });
 });
