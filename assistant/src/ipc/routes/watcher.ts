@@ -99,7 +99,7 @@ function handleWatcherCreate(params?: Record<string, unknown>): unknown {
 
 function handleWatcherList(params?: Record<string, unknown>): unknown {
   const { watcher_id: watcherId, enabled_only: enabledOnly } =
-    WatcherListParams.parse(params);
+    WatcherListParams.parse(params ?? {});
 
   if (watcherId) {
     const watcher = getWatcher(watcherId);
@@ -173,7 +173,7 @@ function handleWatcherDigest(params?: Record<string, unknown>): unknown {
     watcher_id: watcherId,
     hours,
     limit,
-  } = WatcherDigestParams.parse(params);
+  } = WatcherDigestParams.parse(params ?? {});
 
   const since = Date.now() - hours * 3_600_000;
   const events = listWatcherEvents({ watcherId, limit, since });
