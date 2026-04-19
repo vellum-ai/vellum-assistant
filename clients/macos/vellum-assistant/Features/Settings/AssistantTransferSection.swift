@@ -282,7 +282,7 @@ struct AssistantTransferSection: View {
             currentStep = "Importing data..."
             let importResponse = try await GatewayHTTPClient.withAssistant(resolvedLocal.assistantId) {
                 try await GatewayHTTPClient.post(
-                    path: "assistants/{assistantId}/migrations/import",
+                    path: "migrations/import",
                     body: bundleData,
                     contentType: "application/octet-stream",
                     timeout: 120
@@ -329,7 +329,7 @@ struct AssistantTransferSection: View {
     /// Exports the local assistant's data as a `.vbundle` binary archive.
     private func exportAssistantBundle() async throws -> Data {
         let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/migrations/export",
+            path: "migrations/export",
             timeout: 60
         )
         guard response.isSuccess else {

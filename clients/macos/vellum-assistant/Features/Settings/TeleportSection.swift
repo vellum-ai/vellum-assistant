@@ -479,7 +479,7 @@ struct TeleportSection: View {
         phase = .transferring(step: "Importing data to Docker...")
         let importResponse = try await GatewayHTTPClient.withAssistant(resolvedDocker.assistantId) {
             try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/migrations/import",
+                path: "migrations/import",
                 body: bundleData,
                 contentType: "application/octet-stream",
                 timeout: 120
@@ -625,13 +625,13 @@ struct TeleportSection: View {
         let response: GatewayHTTPClient.Response
         if let onProgress {
             response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/migrations/export",
+                path: "migrations/export",
                 timeout: 60,
                 onProgress: onProgress
             )
         } else {
             response = try await GatewayHTTPClient.post(
-                path: "assistants/{assistantId}/migrations/export",
+                path: "migrations/export",
                 timeout: 60
             )
         }
