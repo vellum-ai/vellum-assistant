@@ -670,7 +670,7 @@ describe("watchers digest", () => {
           {
             id: "e-1",
             watcherId: "w-1",
-            type: "issue_created",
+            eventType: "issue_created",
             summary: "New bug",
             createdAt: 1700000000000,
           },
