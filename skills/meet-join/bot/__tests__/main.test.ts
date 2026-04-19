@@ -159,6 +159,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     nmhSocketPath: "/run/nmh.sock",
     xvfbDisplay: ":99",
     chromeUserDataRoot: "/tmp/chrome-profile",
+    avatarEnabled: false,
   };
 
   const daemonClient: DaemonClientLike = {
