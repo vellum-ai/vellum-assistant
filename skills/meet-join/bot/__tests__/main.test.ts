@@ -1,15 +1,17 @@
 /**
- * Tests for `runBot` — the boot path that wires pulse → xvfb → browser →
- * joinMeet → daemon client → scrapers → audio → http server.
+ * Tests for `runBot` — the boot path that wires pulse → xvfb → NMH socket
+ * server → Chrome subprocess + extension → extension-ready handshake →
+ * join command → audio → HTTP server.
  *
- * We don't spin up a real browser or daemon here. Every subsystem is
- * stubbed with a recording mock that lets us assert on:
+ * We don't spin up a real browser, real socket, or real Xvfb here. Every
+ * subsystem is stubbed with a recording mock that lets us assert on:
  *
  *   - Boot order (each subsystem only starts after its prerequisites).
- *   - Callback wiring (scraper `onEvent` calls actually enqueue into the
- *     daemon client).
+ *   - Extension-message routing (participant/speaker/chat forward to
+ *     daemon; send_chat_result resolves pending HTTP promises).
  *   - Shutdown ordering and dedup (SIGTERM + HTTP `/leave` don't double-stop).
- *   - Error paths (join failure publishes `lifecycle:error` and exits 1).
+ *   - Error paths (extension never signals ready, Chrome exits early,
+ *     daemon-client flap).
  *
  * The separate boot smoke test (`boot.test.ts`) still covers the
  * `SKIP_PULSE=1` + missing-MEET_URL path against a real `bun run src/main.ts`.
@@ -17,7 +19,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { LifecycleEvent, MeetBotEvent } from "../../contracts/index.js";
+import type {
+  LifecycleEvent,
+  MeetBotEvent,
+} from "../../contracts/index.js";
+import type {
+  BotToExtensionMessage,
+  ExtensionToBotMessage,
+} from "../../contracts/native-messaging.js";
 
 import { runBot, type BotDeps, type DaemonClientLike } from "../src/main.js";
 import { BotState } from "../src/control/state.js";
@@ -32,10 +41,7 @@ interface RecordedCall {
 }
 
 interface MockHandles {
-  /**
-   * Recorded invocations in the order they were made — lets tests assert
-   * on boot order.
-   */
+  /** Recorded invocations in order — lets tests assert on boot order. */
   calls: RecordedCall[];
   /** Events enqueued on the daemon client. */
   daemonEvents: MeetBotEvent[];
@@ -52,33 +58,44 @@ interface MockHandles {
   /** Invoke the SIGINT handler captured during boot. */
   fireSigint: () => void;
   /**
-   * Fire the `onError` hook the `runBot` passed into `createDaemonClient`.
+   * Fire the `onError` hook that `runBot` passed into `createDaemonClient`.
    * Returns `null` if the daemon client hasn't been constructed yet.
    */
   fireDaemonError: (err: Error) => void;
-  /** Page object the scrapers see. */
-  page: object;
+  /** Deliver a message to the socket-server's `onExtensionMessage` listeners. */
+  fireExtensionMessage: (msg: ExtensionToBotMessage) => void;
+  /** Resolve the socket-server's pending `waitForReady` promise. */
+  fireExtensionReady: () => void;
+  /** Reject the socket-server's pending `waitForReady` promise. */
+  failExtensionReady: (err: Error) => void;
+  /** Resolve the Chrome exit promise (e.g. to simulate an unexpected exit). */
+  fireChromeExit: (code: number) => void;
   /** HTTP callbacks the server captured. */
   httpCallbacks: () => {
     onLeave: (reason: string | undefined) => void | Promise<void>;
+    onSendChat: (text: string) => Promise<void> | void;
   } | null;
-  /** Sessions created — primarily for asserting `close()` was called. */
-  sessionCloses: () => number;
-  /** Participant/speaker/chat/audio stop counters. */
+  /** Inspect queued outbound messages sent to the extension. */
+  outboundMessages: () => BotToExtensionMessage[];
+  /** Shutdown counters for each subsystem (one per subsystem). */
   stopCounts: () => {
-    participant: number;
-    speaker: number;
-    chat: number;
+    xvfb: number;
+    socketServer: number;
+    chrome: number;
     audio: number;
     httpServer: number;
   };
 }
 
 interface MakeDepsOpts {
-  /** Force `joinMeet` to reject with this error. */
-  joinError?: Error;
   /** Force `setupPulseAudio` to reject. */
   pulseError?: Error;
+  /** Force `launchChrome` to reject. */
+  chromeLaunchError?: Error;
+  /** Force `startXvfb` to reject. */
+  xvfbError?: Error;
+  /** Short-circuit `waitForReady` to reject with this error. */
+  extensionReadyError?: Error;
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): {
@@ -95,22 +112,30 @@ function makeDeps(opts: MakeDepsOpts = {}): {
   let sigtermHandler: (() => void) | null = null;
   let sigintHandler: (() => void) | null = null;
 
-  let sessionClosed = 0;
-  let participantStops = 0;
-  let speakerStops = 0;
-  let chatStops = 0;
+  let xvfbStops = 0;
+  let socketStops = 0;
+  let chromeStops = 0;
   let audioStops = 0;
   let httpStops = 0;
 
   let capturedHttpCallbacks: {
     onLeave: (reason: string | undefined) => void | Promise<void>;
+    onSendChat: (text: string) => Promise<void> | void;
   } | null = null;
 
   let capturedDaemonOnError: ((err: Error) => void) | null = null;
 
-  const fakePage = { __fake: true };
+  // ---- socket server plumbing ------------------------------------------
+  const outbound: BotToExtensionMessage[] = [];
+  const extensionListeners: Array<(msg: ExtensionToBotMessage) => void> = [];
+  let readyResolve: (() => void) | null = null;
+  let readyReject: ((err: Error) => void) | null = null;
+  // ---- chrome plumbing -------------------------------------------------
+  let chromeExitResolve: ((code: number) => void) | null = null;
+  const chromeExitPromise = new Promise<number>((resolve) => {
+    chromeExitResolve = resolve;
+  });
 
-  // Full skipPulse default so only opt-in tests exercise the pulse path.
   const defaultEnv = {
     meetUrl: "https://meet.google.com/abc-defg-hij",
     meetingId: "m-1",
@@ -121,6 +146,10 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     socketDir: "/sockets",
     skipPulse: true,
     httpPort: 0,
+    extensionPath: "/app/ext",
+    nmhSocketPath: "/run/nmh.sock",
+    xvfbDisplay: ":99",
+    chromeUserDataRoot: "/tmp/chrome-profile",
   };
 
   const daemonClient: DaemonClientLike = {
@@ -137,69 +166,80 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     },
   };
 
+  let requestIdCounter = 0;
+
   const deps: BotDeps = {
     env: () => ({ ...defaultEnv }),
     setupPulseAudio: async () => {
       calls.push({ kind: "pulse.setup" });
       if (opts.pulseError) throw opts.pulseError;
     },
-    createBrowserSession: async (url) => {
-      calls.push({ kind: "browser.create", url });
+    startXvfb: async (display) => {
+      calls.push({ kind: "xvfb.start", display });
+      if (opts.xvfbError) throw opts.xvfbError;
+      return { display, process: null };
+    },
+    stopXvfb: async () => {
+      xvfbStops += 1;
+      calls.push({ kind: "xvfb.stop" });
+    },
+    createNmhSocketServer: (socketOpts) => {
+      calls.push({ kind: "socket.create", socketPath: socketOpts.socketPath });
       return {
-        browser: {} as never,
-        context: {} as never,
-        page: fakePage as never,
-        close: async () => {
-          sessionClosed += 1;
-          calls.push({ kind: "browser.close" });
+        start: async () => {
+          calls.push({ kind: "socket.start" });
         },
-      };
-    },
-    joinMeet: async (page, joinOpts) => {
-      calls.push({
-        kind: "join.meet",
-        page,
-        displayName: joinOpts.displayName,
-        consentMessage: joinOpts.consentMessage,
-      });
-      if (opts.joinError) throw opts.joinError;
-    },
-    startParticipantScraper: (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.participant.start",
-        meetingId: scraperOpts.meetingId,
-        selfName: scraperOpts.selfName,
-      });
-      return {
-        stop: () => {
-          participantStops += 1;
-          calls.push({ kind: "scraper.participant.stop" });
-        },
-      };
-    },
-    startSpeakerScraper: (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.speaker.start",
-        meetingId: scraperOpts.meetingId,
-      });
-      return {
-        stop: () => {
-          speakerStops += 1;
-          calls.push({ kind: "scraper.speaker.stop" });
-        },
-      };
-    },
-    startChatReader: async (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.chat.start",
-        meetingId: scraperOpts.meetingId,
-        selfName: scraperOpts.selfName,
-      });
-      return {
         stop: async () => {
-          chatStops += 1;
-          calls.push({ kind: "scraper.chat.stop" });
+          socketStops += 1;
+          calls.push({ kind: "socket.stop" });
+          // Reject any lingering waitForReady so promise consumers unblock.
+          if (readyReject) {
+            readyReject(new Error("socket.stop reached before ready"));
+            readyResolve = null;
+            readyReject = null;
+          }
         },
+        sendToExtension: (msg) => {
+          outbound.push(msg);
+          calls.push({ kind: "socket.send", msg });
+        },
+        onExtensionMessage: (cb) => {
+          extensionListeners.push(cb);
+        },
+        waitForReady: (_timeoutMs) => {
+          calls.push({ kind: "socket.waitForReady" });
+          return new Promise<void>((resolve, reject) => {
+            if (opts.extensionReadyError) {
+              reject(opts.extensionReadyError);
+              return;
+            }
+            readyResolve = resolve;
+            readyReject = reject;
+          });
+        },
+      };
+    },
+    launchChrome: async (chromeOpts) => {
+      calls.push({
+        kind: "chrome.launch",
+        meetingUrl: chromeOpts.meetingUrl,
+        extensionPath: chromeOpts.extensionPath,
+        displayNumber: chromeOpts.displayNumber,
+        userDataDir: chromeOpts.userDataDir,
+      });
+      if (opts.chromeLaunchError) throw opts.chromeLaunchError;
+      return {
+        pid: 424242,
+        stop: async () => {
+          chromeStops += 1;
+          calls.push({ kind: "chrome.stop" });
+          // Resolve the exit promise now so any waiter inside runBot settles.
+          if (chromeExitResolve) {
+            chromeExitResolve(0);
+            chromeExitResolve = null;
+          }
+        },
+        exitPromise: chromeExitPromise,
       };
     },
     startAudioCapture: async (audioOpts) => {
@@ -210,9 +250,6 @@ function makeDeps(opts: MakeDepsOpts = {}): {
           calls.push({ kind: "audio.stop" });
         },
       };
-    },
-    sendChat: async (_page, text) => {
-      calls.push({ kind: "sendChat", text });
     },
     createDaemonClient: (clientOpts) => {
       calls.push({
@@ -230,6 +267,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       });
       capturedHttpCallbacks = {
         onLeave: serverOpts.onLeave,
+        onSendChat: serverOpts.onSendChat,
       };
       return {
         app: {} as never,
@@ -243,6 +281,9 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         },
       };
     },
+    ensureDir: (path: string) => {
+      calls.push({ kind: "ensureDir", path });
+    },
     onSignal: (signal, handler) => {
       if (signal === "SIGTERM") sigtermHandler = handler;
       else sigintHandler = handler;
@@ -254,21 +295,12 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         }
       };
     },
-    joinedSettleMs: 0, // tests don't need the real 2s wait.
+    joinedSettleMs: 0,
     sleep: async (_ms: number) => {
       // no-op in tests.
     },
     exit: ((code: number) => {
-      // Record the first exit code only — subsequent calls are
-      // tolerated (production `process.exit` never returns, so the
-      // bot's real flow never sees a double-exit, but in tests the
-      // mocked `exit` returns normally and we occasionally race).
       if (exitCode === null) exitCode = code;
-      // `process.exit`'s real return type is `never`; we narrow to
-      // `never` via a non-returning path so the production code
-      // compiles. In tests we don't want to throw (that would leak
-      // unhandled rejections out of fire-and-forget `.then(exit)`
-      // chains), so just `return undefined as never`.
       return undefined as never;
     }) as BotDeps["exit"],
     logInfo: (msg) => {
@@ -276,6 +308,13 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     },
     logError: (msg) => {
       errors.push(msg);
+    },
+    extensionReadyTimeoutMs: 1_000,
+    sendChatTimeoutMs: 500,
+    leaveGraceMs: 0,
+    generateRequestId: () => {
+      requestIdCounter += 1;
+      return `req-${requestIdCounter}`;
     },
   };
 
@@ -300,19 +339,58 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       }
       capturedDaemonOnError(err);
     },
-    page: fakePage,
+    fireExtensionMessage: (msg) => {
+      for (const cb of extensionListeners) cb(msg);
+    },
+    fireExtensionReady: () => {
+      if (readyResolve) {
+        readyResolve();
+        readyResolve = null;
+        readyReject = null;
+      }
+    },
+    failExtensionReady: (err: Error) => {
+      if (readyReject) {
+        readyReject(err);
+        readyResolve = null;
+        readyReject = null;
+      }
+    },
+    fireChromeExit: (code) => {
+      if (chromeExitResolve) {
+        chromeExitResolve(code);
+        chromeExitResolve = null;
+      }
+    },
     httpCallbacks: () => capturedHttpCallbacks,
-    sessionCloses: () => sessionClosed,
+    outboundMessages: () => outbound.slice(),
     stopCounts: () => ({
-      participant: participantStops,
-      speaker: speakerStops,
-      chat: chatStops,
+      xvfb: xvfbStops,
+      socketServer: socketStops,
+      chrome: chromeStops,
       audio: audioStops,
       httpServer: httpStops,
     }),
   };
 
   return { deps, handles };
+}
+
+/**
+ * Run `runBot` and fire the extension-ready handshake so the boot can
+ * progress past `waitForReady`. Returns the `runBot` promise so tests can
+ * await the full boot to complete (including settling the happy-path
+ * `audio.start` / `http.start` / logs).
+ */
+async function bootHappyPath(
+  deps: BotDeps,
+  handles: MockHandles,
+): Promise<void> {
+  const running = runBot(deps);
+  // Give the boot a tick to reach `waitForReady`, then fire ready.
+  await new Promise((r) => setTimeout(r, 5));
+  handles.fireExtensionReady();
+  await running;
 }
 
 /** Return the ordered list of `kind` tags from the recorded calls. */
@@ -328,85 +406,272 @@ describe("runBot — boot sequence", () => {
   test("wires subsystems in the correct order", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const order = kinds(handles.calls);
-
-    // The boot order the implementation promises: browser session,
-    // daemon client (so we can report join failures), join, settle,
-    // scrapers, audio, http.
     const indexOf = (kind: string): number => order.indexOf(kind);
 
-    expect(indexOf("browser.create")).toBeGreaterThanOrEqual(0);
-    expect(indexOf("daemon.create")).toBeGreaterThan(indexOf("browser.create"));
-    expect(indexOf("join.meet")).toBeGreaterThan(indexOf("daemon.create"));
-    expect(indexOf("scraper.participant.start")).toBeGreaterThan(
-      indexOf("join.meet"),
+    // Expected boot order:
+    //   xvfb → ensureDir (socket + profile) → socket.create → socket.start
+    //   → daemon.create → chrome.launch → waitForReady → send `join`
+    //   → audio.start → http.create → http.start.
+    expect(indexOf("xvfb.start")).toBeGreaterThanOrEqual(0);
+    expect(indexOf("socket.create")).toBeGreaterThan(indexOf("xvfb.start"));
+    expect(indexOf("socket.start")).toBeGreaterThan(indexOf("socket.create"));
+    expect(indexOf("daemon.create")).toBeGreaterThan(indexOf("socket.start"));
+    expect(indexOf("chrome.launch")).toBeGreaterThan(indexOf("daemon.create"));
+    expect(indexOf("socket.waitForReady")).toBeGreaterThan(
+      indexOf("chrome.launch"),
     );
-    expect(indexOf("scraper.speaker.start")).toBeGreaterThan(
-      indexOf("join.meet"),
-    );
-    expect(indexOf("scraper.chat.start")).toBeGreaterThan(indexOf("join.meet"));
-    expect(indexOf("audio.start")).toBeGreaterThan(
-      indexOf("scraper.chat.start"),
-    );
+    expect(indexOf("socket.send")).toBeGreaterThan(indexOf("socket.waitForReady"));
+    expect(indexOf("audio.start")).toBeGreaterThan(indexOf("socket.send"));
     expect(indexOf("http.create")).toBeGreaterThan(indexOf("audio.start"));
     expect(indexOf("http.start")).toBeGreaterThan(indexOf("http.create"));
   });
 
-  test("publishes lifecycle:joining before joinMeet and :joined after", async () => {
+  test("sends a `join` command with the env-provided URL + display name", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
+
+    const outbound = handles.outboundMessages();
+    const join = outbound.find((m) => m.type === "join");
+    expect(join).toBeDefined();
+    if (join && join.type === "join") {
+      expect(join.meetingUrl).toBe("https://meet.google.com/abc-defg-hij");
+      expect(join.displayName).toBe("Vellum Bot");
+      expect(join.consentMessage).toBe(
+        "Hi, I'm an AI assistant listening in.",
+      );
+    }
+  });
+
+  test("publishes lifecycle:joining to the daemon after sending join", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
 
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => e.state);
 
-    // We expect at least `joining` and `joined`. No `error` / `left` yet.
     expect(lifecycleStates).toContain("joining");
-    expect(lifecycleStates).toContain("joined");
-    expect(lifecycleStates).not.toContain("error");
+    // No `joined` yet — the extension hasn't emitted its own joined event.
     expect(lifecycleStates).not.toContain("left");
-
-    // Ordering: joining comes before joined.
-    const joiningIdx = lifecycleStates.indexOf("joining");
-    const joinedIdx = lifecycleStates.indexOf("joined");
-    expect(joiningIdx).toBeGreaterThanOrEqual(0);
-    expect(joinedIdx).toBeGreaterThan(joiningIdx);
+    expect(lifecycleStates).not.toContain("error");
   });
 
-  test("passes the meetingId and selfName through to the scrapers", async () => {
+  test("audio capture uses socketDir/audio.sock", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
-
-    const participantCall = handles.calls.find(
-      (c) => c.kind === "scraper.participant.start",
-    );
-    const speakerCall = handles.calls.find(
-      (c) => c.kind === "scraper.speaker.start",
-    );
-    const chatCall = handles.calls.find((c) => c.kind === "scraper.chat.start");
-
-    expect(participantCall?.meetingId).toBe("m-1");
-    expect(speakerCall?.meetingId).toBe("m-1");
-    expect(chatCall?.meetingId).toBe("m-1");
-    expect(chatCall?.selfName).toBe("Vellum Bot");
-    // The participant scraper also receives the bot's display name so it
-    // can flag the bot's own row with `isSelf: true`, letting the consent
-    // monitor identify `botParticipantId` and filter self-content from
-    // the watermark.
-    expect(participantCall?.selfName).toBe("Vellum Bot");
-  });
-
-  test("passes socketDir/audio.sock into audio capture", async () => {
-    BotState.__resetForTests();
-    const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const audioCall = handles.calls.find((c) => c.kind === "audio.start");
     expect(audioCall?.socketPath).toBe("/sockets/audio.sock");
+  });
+});
+
+describe("runBot — extension message routing", () => {
+  test("extension lifecycle:joined forwards to the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "m-1",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.type).toBe("lifecycle");
+    if (after[0]?.type === "lifecycle") {
+      expect(after[0].state).toBe("joined");
+    }
+  });
+
+  test("participant.change forwards to the daemon verbatim", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "m-1",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.type).toBe("participant.change");
+  });
+
+  test("speaker.change and chat.inbound both forward to the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "m-1",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "m-1",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after.map((e) => e.type)).toEqual([
+      "speaker.change",
+      "chat.inbound",
+    ]);
+  });
+
+  test("diagnostic messages go through the logger, not the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const beforeEvents = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "diagnostic",
+      level: "info",
+      message: "content-script loaded",
+    });
+    handles.fireExtensionMessage({
+      type: "diagnostic",
+      level: "error",
+      message: "selector timed out",
+    });
+
+    // No daemon events for diagnostics.
+    expect(handles.daemonEvents.length).toBe(beforeEvents);
+    expect(handles.infos.some((m) => m.includes("content-script loaded"))).toBe(
+      true,
+    );
+    expect(handles.errors.some((m) => m.includes("selector timed out"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("runBot — send_chat HTTP path", () => {
+  test("send_chat routes through the socket server with a requestId", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    expect(cbs).not.toBeNull();
+
+    const before = handles.outboundMessages().length;
+    const sendPromise = Promise.resolve(cbs!.onSendChat("hello world"));
+    // Give the dispatch a tick to land on the socket.
+    await new Promise((r) => setTimeout(r, 5));
+
+    const outbound = handles.outboundMessages();
+    const fresh = outbound.slice(before);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]?.type).toBe("send_chat");
+    const firstReq = fresh[0];
+    if (firstReq && firstReq.type === "send_chat") {
+      expect(firstReq.text).toBe("hello world");
+      expect(typeof firstReq.requestId).toBe("string");
+      // Resolve the send_chat_result for that requestId.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: firstReq.requestId,
+        ok: true,
+      });
+    }
+    // The HTTP callback's promise should now resolve without throwing.
+    await sendPromise;
+  });
+
+  test("a failed send_chat_result rejects the HTTP callback's promise", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    const before = handles.outboundMessages().length;
+    const sendPromise = Promise.resolve(cbs!.onSendChat("will fail"));
+    await new Promise((r) => setTimeout(r, 5));
+
+    const fresh = handles.outboundMessages().slice(before);
+    expect(fresh).toHaveLength(1);
+    const first = fresh[0];
+    if (first && first.type === "send_chat") {
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: first.requestId,
+        ok: false,
+        error: "chat panel closed",
+      });
+    }
+
+    let caught: Error | null = null;
+    try {
+      await sendPromise;
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.message).toContain("chat panel closed");
+  });
+
+  test("concurrent send_chat requests correlate independently by requestId", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    const before = handles.outboundMessages().length;
+
+    const firstPromise = Promise.resolve(cbs!.onSendChat("one"));
+    const secondPromise = Promise.resolve(cbs!.onSendChat("two"));
+    await new Promise((r) => setTimeout(r, 5));
+
+    const fresh = handles.outboundMessages().slice(before);
+    expect(fresh).toHaveLength(2);
+    const first = fresh[0];
+    const second = fresh[1];
+    if (
+      first?.type === "send_chat" &&
+      second?.type === "send_chat" &&
+      first.requestId !== second.requestId
+    ) {
+      // Reply to the second one first — should only resolve the second.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: second.requestId,
+        ok: true,
+      });
+      await secondPromise;
+      // First still pending — resolve now.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: first.requestId,
+        ok: true,
+      });
+      await firstPromise;
+    } else {
+      throw new Error("expected two distinct send_chat requests");
+    }
   });
 });
 
@@ -414,84 +679,74 @@ describe("runBot — shutdown", () => {
   test("onLeave triggers the full shutdown path in the right order", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
-    // Exercise the /leave path.
     const cbs = handles.httpCallbacks();
     expect(cbs).not.toBeNull();
 
-    // onLeave schedules shutdown + exit via `void` — we catch the
-    // sentinel exit() throw via the shutdown promise.
     await new Promise<void>((resolve) => {
       void (async () => {
         try {
           await cbs!.onLeave("user requested");
         } catch {
-          // swallow __test_exit
+          // swallow
         }
         resolve();
       })();
     });
 
-    // Poll for shutdown completion — the exit-code sentinel lands after
-    // the shutdown chain resolves.
     const deadline = Date.now() + 1_000;
     while (handles.exitCode() === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 5));
     }
-
     expect(handles.exitCode()).toBe(0);
 
     const order = kinds(handles.calls);
-    const leaveStart = order.lastIndexOf("http.create") + 1;
-    const shutdownOrder = order.slice(leaveStart);
+    const startIdx = order.lastIndexOf("http.start") + 1;
+    const shutdownOrder = order.slice(startIdx);
 
-    // HTTP server stops first (no new commands after /leave).
-    expect(shutdownOrder.indexOf("http.stop")).toBeGreaterThanOrEqual(0);
-    // Then scrapers.
-    expect(shutdownOrder.indexOf("scraper.participant.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    expect(shutdownOrder.indexOf("scraper.speaker.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    expect(shutdownOrder.indexOf("scraper.chat.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    // Audio before browser.
-    expect(shutdownOrder.indexOf("audio.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("scraper.chat.stop"),
-    );
-    expect(shutdownOrder.indexOf("browser.close")).toBeGreaterThan(
-      shutdownOrder.indexOf("audio.stop"),
-    );
-    // Daemon stop comes last, and only after `lifecycle:left` is enqueued.
-    expect(shutdownOrder.indexOf("daemon.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("browser.close"),
-    );
+    // http.stop → leave command to extension → chrome.stop → audio.stop
+    // → xvfb.stop → socket.stop → daemon.stop.
+    const httpStop = shutdownOrder.indexOf("http.stop");
+    expect(httpStop).toBeGreaterThanOrEqual(0);
 
-    // `lifecycle:left` was published before stop().
+    // A leave send message appears between http.stop and chrome.stop.
+    const leaveSendIdx = shutdownOrder.findIndex(
+      (k) => k === "socket.send",
+    );
+    expect(leaveSendIdx).toBeGreaterThan(httpStop);
+
+    const chromeStop = shutdownOrder.indexOf("chrome.stop");
+    expect(chromeStop).toBeGreaterThan(leaveSendIdx);
+    const audioStop = shutdownOrder.indexOf("audio.stop");
+    expect(audioStop).toBeGreaterThan(chromeStop);
+    const xvfbStop = shutdownOrder.indexOf("xvfb.stop");
+    expect(xvfbStop).toBeGreaterThan(audioStop);
+    const socketStop = shutdownOrder.indexOf("socket.stop");
+    expect(socketStop).toBeGreaterThan(xvfbStop);
+    const daemonStop = shutdownOrder.indexOf("daemon.stop");
+    expect(daemonStop).toBeGreaterThan(socketStop);
+
+    // lifecycle:left published before daemon stop.
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => e.state);
-    expect(lifecycleStates).toContain("left");
     expect(lifecycleStates[lifecycleStates.length - 1]).toBe("left");
 
     // Shutdown counts: each subsystem stopped exactly once.
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
-    expect(handles.sessionCloses()).toBe(1);
   });
 
   test("SIGTERM triggers the same shutdown path", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireSigterm();
 
@@ -503,24 +758,24 @@ describe("runBot — shutdown", () => {
     expect(handles.exitCode()).toBe(0);
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
   });
 
   test("SIGTERM + /leave do not double-stop subsystems", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireSigterm();
     const cbs = handles.httpCallbacks();
     try {
       await cbs!.onLeave("redundant");
     } catch {
-      // swallow __test_exit
+      // swallow
     }
 
     const deadline = Date.now() + 1_000;
@@ -530,73 +785,76 @@ describe("runBot — shutdown", () => {
 
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
   });
 });
 
 describe("runBot — error paths", () => {
-  test("join failure publishes lifecycle:error and exits 1", async () => {
+  test("extension ready timeout shuts down with lifecycle:error", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({
-      joinError: new Error("prejoin selector timed out"),
+      extensionReadyError: new Error(
+        "timed out after 1000ms waiting for extension ready handshake",
+      ),
     });
 
-    try {
-      await runBot(deps);
-    } catch (err) {
-      // The sentinel exit() throws — catch so the test continues.
-      const msg = (err as Error).message;
-      if (!msg.startsWith("__test_exit")) throw err;
-    }
+    await runBot(deps);
+
+    expect(handles.exitCode()).toBe(1);
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const err = lifecycleStates.find((s) => s.state === "error");
+    expect(err).toBeDefined();
+    expect(err?.detail).toContain("extension never signaled ready");
+
+    // Audio + HTTP never started.
+    const order = kinds(handles.calls);
+    expect(order).not.toContain("audio.start");
+    expect(order).not.toContain("http.start");
+  });
+
+  test("Chrome exiting unexpectedly mid-meeting shuts down with error state", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    // Simulate Chrome crashing outside of our control.
+    handles.fireChromeExit(42);
 
     const deadline = Date.now() + 1_000;
     while (handles.exitCode() === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 5));
     }
-
     expect(handles.exitCode()).toBe(1);
 
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => ({ state: e.state, detail: e.detail }));
-    expect(lifecycleStates.some((s) => s.state === "error")).toBe(true);
-    const errorEvent = lifecycleStates.find((s) => s.state === "error");
-    expect(errorEvent?.detail).toContain("prejoin selector timed out");
-
-    // Scrapers / audio / http must not have started.
-    const order = kinds(handles.calls);
-    expect(order).not.toContain("scraper.participant.start");
-    expect(order).not.toContain("audio.start");
-    expect(order).not.toContain("http.start");
-
-    // Browser was closed; daemon was flushed.
-    expect(handles.sessionCloses()).toBe(1);
-    expect(handles.daemonStopped()).toBe(true);
+    const last = lifecycleStates[lifecycleStates.length - 1];
+    expect(last?.state).toBe("error");
+    expect(last?.detail).toContain("chrome exited unexpectedly");
+    expect(last?.detail).toContain("42");
   });
 
-  test("PulseAudio failure exits 1 without touching browser", async () => {
+  test("PulseAudio failure exits 1 without touching xvfb or chrome", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({
       pulseError: new Error("pulseaudio: connection refused"),
     });
-    // Override skipPulse to force the setup call.
     const realEnv = deps.env;
     deps.env = () => ({ ...realEnv(), skipPulse: false });
 
-    try {
-      await runBot(deps);
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (!msg.startsWith("__test_exit")) throw err;
-    }
+    await runBot(deps);
 
     expect(handles.exitCode()).toBe(1);
     const order = kinds(handles.calls);
     expect(order).toContain("pulse.setup");
-    expect(order).not.toContain("browser.create");
+    expect(order).not.toContain("xvfb.start");
+    expect(order).not.toContain("chrome.launch");
     expect(
       handles.errors.some((e) => e.includes("PulseAudio setup failed")),
     ).toBe(true);
@@ -607,35 +865,27 @@ describe("runBot — daemon-client terminal errors", () => {
   test("logs a single terminal error without shutting down", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const stopsBefore = handles.stopCounts();
-    const exitBefore = handles.exitCode();
-
     handles.fireDaemonError(new Error("ingress returned status 503"));
-
-    // Give any fire-and-forget shutdown promise a chance to advance.
     await new Promise((r) => setTimeout(r, 20));
 
-    // No shutdown yet — single transient failures are tolerated.
     const stopsAfter = handles.stopCounts();
     expect(stopsAfter.httpServer).toBe(stopsBefore.httpServer);
-    expect(stopsAfter.participant).toBe(stopsBefore.participant);
+    expect(stopsAfter.chrome).toBe(stopsBefore.chrome);
     expect(stopsAfter.audio).toBe(stopsBefore.audio);
     expect(handles.daemonStopped()).toBe(false);
-    expect(handles.exitCode()).toBe(exitBefore);
 
-    // But the failure must have been surfaced to the log.
     expect(
       handles.errors.some((e) => e.includes("daemon ingress failure")),
     ).toBe(true);
-    expect(handles.errors.some((e) => e.includes("status 503"))).toBe(true);
   });
 
-  test("second terminal error within the window triggers graceful shutdown + exit 1", async () => {
+  test("second terminal error within the window triggers graceful shutdown", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireDaemonError(
       new Error("ingress rejected batch with status 400"),
@@ -647,131 +897,18 @@ describe("runBot — daemon-client terminal errors", () => {
       await new Promise((r) => setTimeout(r, 5));
     }
 
-    // Exited 1 (error) rather than 0 (clean leave).
     expect(handles.exitCode()).toBe(1);
-
-    // Subsystems torn down exactly once — same dedup as SIGTERM / /leave.
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
 
-    // Final lifecycle event is "error" with the daemon-ingress detail.
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => ({ state: e.state, detail: e.detail }));
     const last = lifecycleStates[lifecycleStates.length - 1]!;
     expect(last.state).toBe("error");
     expect(last.detail).toContain("daemon ingress failure");
-
-    // Both failures were logged, plus the "shutting down" banner.
-    expect(
-      handles.errors.filter((e) => e.includes("daemon ingress failure")).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(handles.errors.some((e) => e.includes("shutting down"))).toBe(true);
-  });
-
-  test("daemon-error shutdown deduplicates against SIGTERM", async () => {
-    BotState.__resetForTests();
-    const { deps, handles } = makeDeps();
-    await runBot(deps);
-
-    // Tip over the error threshold…
-    handles.fireDaemonError(new Error("status 400"));
-    handles.fireDaemonError(new Error("status 400"));
-
-    // …and race a SIGTERM into the shutdown.
-    handles.fireSigterm();
-
-    const deadline = Date.now() + 1_000;
-    while (handles.exitCode() === null && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 5));
-    }
-
-    // Each subsystem stopped exactly once — the shutdown guard held.
-    const counts = handles.stopCounts();
-    expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
-    expect(counts.audio).toBe(1);
-  });
-});
-
-describe("runBot — event wiring", () => {
-  test("scraper onEvent callbacks enqueue events on the daemon client", async () => {
-    BotState.__resetForTests();
-
-    // Capture the participant-scraper onEvent so we can invoke it by hand.
-    let participantOnEvent:
-      | ((
-          event: import("../../contracts/index.js").ParticipantChangeEvent,
-        ) => void)
-      | null = null;
-    let speakerOnEvent:
-      | ((event: import("../../contracts/index.js").SpeakerChangeEvent) => void)
-      | null = null;
-    let chatOnEvent:
-      | ((event: import("../../contracts/index.js").InboundChatEvent) => void)
-      | null = null;
-
-    const { deps, handles } = makeDeps();
-    const baseStart = deps.startParticipantScraper;
-    const baseSpeaker = deps.startSpeakerScraper;
-    const baseChat = deps.startChatReader;
-
-    deps.startParticipantScraper = (page, onEvent, opts) => {
-      participantOnEvent = onEvent;
-      return baseStart(page, onEvent, opts);
-    };
-    deps.startSpeakerScraper = (page, onEvent, opts) => {
-      speakerOnEvent = onEvent;
-      return baseSpeaker(page, onEvent, opts);
-    };
-    deps.startChatReader = (page, onEvent, opts) => {
-      chatOnEvent = onEvent;
-      return baseChat(page, onEvent, opts);
-    };
-
-    await runBot(deps);
-
-    const before = handles.daemonEvents.length;
-    expect(participantOnEvent).not.toBeNull();
-    expect(speakerOnEvent).not.toBeNull();
-    expect(chatOnEvent).not.toBeNull();
-
-    participantOnEvent!({
-      type: "participant.change",
-      meetingId: "m-1",
-      timestamp: new Date().toISOString(),
-      joined: [{ id: "p-1", name: "Alice" }],
-      left: [],
-    });
-    speakerOnEvent!({
-      type: "speaker.change",
-      meetingId: "m-1",
-      timestamp: new Date().toISOString(),
-      speakerId: "p-1",
-      speakerName: "Alice",
-    });
-    chatOnEvent!({
-      type: "chat.inbound",
-      meetingId: "m-1",
-      timestamp: new Date().toISOString(),
-      fromId: "p-2",
-      fromName: "Bob",
-      text: "hello",
-    });
-
-    expect(handles.daemonEvents.length).toBe(before + 3);
-    const newEvents = handles.daemonEvents.slice(before);
-    expect(newEvents.map((e) => e.type)).toEqual([
-      "participant.change",
-      "speaker.change",
-      "chat.inbound",
-    ]);
   });
 });

@@ -83,6 +83,17 @@ RUN bun install --frozen-lockfile
 
 COPY skills/meet-join/bot/src ./src
 
+# Build the Chrome extension and install its dist/ at /app/ext/. The
+# chrome-launcher passes `--load-extension=/app/ext` so Chrome picks it
+# up on startup. We build inside the image (rather than shipping a
+# pre-built dist/ in the repo) so the extension source is the single
+# source of truth. `/app/ext-src` is throwaway; the final artefact is
+# `/app/ext/` which contains manifest.json, background.js, content.js.
+COPY skills/meet-join/meet-controller-ext /app/ext-src
+RUN cd /app/ext-src && bun install --frozen-lockfile && bun run build \
+  && cp -r /app/ext-src/dist /app/ext \
+  && rm -rf /app/ext-src
+
 # Native-messaging host registration: copy the manifest template + renderer
 # script into the image, then render the manifest with the extension's ID
 # baked in (derived from the sibling extension package's public key). The
