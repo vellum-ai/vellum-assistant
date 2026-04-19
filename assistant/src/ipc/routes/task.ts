@@ -30,7 +30,7 @@ const TaskListParams = z.object({}).optional();
 const TaskRunParams = z.object({
   task_name: z.string().min(1).optional(),
   task_id: z.string().min(1).optional(),
-  inputs: z.record(z.string()).optional(),
+  inputs: z.record(z.string(), z.string()).optional(),
 });
 
 const TaskDeleteParams = z.object({
