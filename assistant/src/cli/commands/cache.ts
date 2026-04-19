@@ -53,6 +53,13 @@ function parseTtl(raw: string | undefined): number | undefined {
   if (ms <= 0) {
     throw new Error(`--ttl must resolve to a positive duration, got ${ms}ms.`);
   }
+  if (ms < 1000) {
+    throw new Error(
+      `--ttl must be at least 1s (got ${ms}ms). Sub-second TTLs are not ` +
+        `supported because CLI round-trip overhead would cause entries to ` +
+        `expire before they can be read.`,
+    );
+  }
   return ms;
 }
 
@@ -142,7 +149,7 @@ Examples:
     )
     .option(
       "--ttl <duration>",
-      "Time-to-live with unit: ms, s, m, or h (e.g. 30s, 5m, 2h). Defaults to 30m if omitted.",
+      "Time-to-live (minimum 1s). Units: s, m, h (e.g. 30s, 5m, 2h). Defaults to 30m if omitted.",
     )
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -159,8 +166,8 @@ Arguments:
 
 Options:
   --key <key>       Cache key string. Omit to auto-generate a random hex key.
-  --ttl <duration>  Expiry duration. Accepted units: ms, s, m, h.
-                    Examples: 500ms, 30s, 5m, 2h. Defaults to 30m if omitted.
+  --ttl <duration>  Expiry duration (minimum 1s). Units: s, m, h.
+                    Examples: 30s, 5m, 2h. Defaults to 30m if omitted.
   --json            Output as JSON: { "ok": true, "key": "..." }
 
 Examples:
