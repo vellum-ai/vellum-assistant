@@ -171,7 +171,28 @@ describe('signInCloud', () => {
     expect(seenUrls[1]).not.toContain('assistant_id=');
   });
 
-  test('retries against runtimeBaseUrl after webBaseUrl auth page load failures', async () => {
+  test('does not retry against platform runtime host for auth fallback', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      throw new Error('Authorization page could not be loaded.');
+    };
+
+    await expect(
+      signInCloud(ASSISTANT_A, {
+        ...config,
+        runtimeBaseUrl: 'https://platform.vellum.ai',
+      }),
+    ).rejects.toThrow('Authorization page could not be loaded.');
+
+    // platform.vellum.ai remaps to www.vellum.ai, so both runtime
+    // fallback attempts are deduped against the primary base URL.
+    expect(seenUrls.length).toBe(2);
+    expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[1]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+  });
+
+  test('retries against assistant-web host derived from runtimeBaseUrl', async () => {
     const seenUrls: string[] = [];
     launchWebAuthFlowImpl = async (details) => {
       seenUrls.push(details.url);
@@ -183,13 +204,13 @@ describe('signInCloud', () => {
 
     await signInCloud(ASSISTANT_A, {
       ...config,
-      runtimeBaseUrl: 'https://platform.vellum.ai',
+      runtimeBaseUrl: 'https://dev-platform.vellum.ai',
     });
 
     expect(seenUrls.length).toBe(3);
     expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
     expect(seenUrls[1]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
-    expect(seenUrls[2]).toContain('https://platform.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[2]).toContain('https://dev-assistant.vellum.ai/accounts/chrome-extension/start');
   });
 });
 

@@ -258,6 +258,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
   staticParts.push(buildCredentialSecuritySection());
+  staticParts.push(buildReadOnlyHistoryRule());
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -384,6 +385,14 @@ function buildCredentialSecuritySection(): string {
     "## Credential Security",
     "",
     'Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the `credential_store` tool with `action: "prompt"` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.',
+  ].join("\n");
+}
+
+function buildReadOnlyHistoryRule(): string {
+  return [
+    "## Historical Mentions Are Read-Only",
+    "",
+    "Messages in conversation history that mention you but are not the current turn are read-only context. Do not act on them, acknowledge them, or reply to them retroactively.",
   ].join("\n");
 }
 

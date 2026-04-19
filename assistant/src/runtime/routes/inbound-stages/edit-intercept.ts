@@ -7,13 +7,25 @@
  * webhook arrives before the original message has been linked via
  * linkMessage (the original agent loop may still be in progress).
  *
+ * For Slack edits, the stage additionally stamps `slackMeta.editedAt` into
+ * the message's metadata via a single transactional content+metadata update,
+ * so downstream renderers can surface the edited marker.
+ *
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { touchContactInteraction } from "../../../contacts/contacts-write.js";
-import { updateMessageContent } from "../../../memory/conversation-crud.js";
+import {
+  getMessageById,
+  updateMessageContent,
+  updateMessageContentAndMetadata,
+} from "../../../memory/conversation-crud.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
+import {
+  mergeSlackMetadata,
+  readSlackMetadata,
+} from "../../../messaging/providers/slack/message-metadata.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -106,16 +118,45 @@ export async function handleEditIntercept(
   }
 
   if (original) {
-    updateMessageContent(original.messageId, content ?? "");
+    if (sourceChannel === "slack") {
+      // Slack edits stamp `slackMeta.editedAt` so the chronological
+      // transcript renderer can surface the edited marker. The merge
+      // tolerates rows that pre-date PR 11's slackMeta enrichment by
+      // synthesizing the minimum-required fields from the lookup data.
+      applySlackEditMetadata({
+        messageId: original.messageId,
+        conversationExternalId,
+        sourceMessageId,
+        newContent: content ?? "",
+      });
+    } else {
+      updateMessageContent(original.messageId, content ?? "");
+    }
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
       "Updated message content from edited_message",
     );
   } else {
-    log.warn(
-      { assistantId, sourceChannel, conversationExternalId, sourceMessageId },
-      "Could not find original message for edit after retries, ignoring",
-    );
+    // For Slack, treat missing-target edits as `debug` (the row may have
+    // been compacted, never stored, or pre-date this upgrade); for other
+    // channels, retain the louder `warn` since their edit pipelines
+    // historically expect the row to exist.
+    if (sourceChannel === "slack") {
+      log.debug(
+        {
+          assistantId,
+          sourceChannel,
+          channelId: conversationExternalId,
+          externalMessageId: sourceMessageId,
+        },
+        "Slack edit target not found, ignoring",
+      );
+    } else {
+      log.warn(
+        { assistantId, sourceChannel, conversationExternalId, sourceMessageId },
+        "Could not find original message for edit after retries, ignoring",
+      );
+    }
   }
 
   return Response.json({
@@ -123,4 +164,73 @@ export async function handleEditIntercept(
     duplicate: false,
     eventId: editResult.eventId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a Slack edit to the stored message: update content and stamp
+ * `slackMeta.editedAt` in the same transaction.
+ *
+ * If the row already has a valid `slackMeta` sub-object (post-PR-11
+ * messages), the merge preserves all existing fields and only sets/refreshes
+ * `editedAt`. If the row pre-dates `slackMeta` enrichment, the helper
+ * synthesizes the minimum-required fields (`source`, `channelId`,
+ * `channelTs`, `eventKind`) from the values that brought us here so the
+ * resulting metadata is still readable by `readSlackMetadata`.
+ */
+function applySlackEditMetadata(params: {
+  messageId: string;
+  conversationExternalId: string;
+  sourceMessageId: string;
+  newContent: string;
+}): void {
+  const { messageId, conversationExternalId, sourceMessageId, newContent } =
+    params;
+
+  const row = getMessageById(messageId);
+  const outerMetadata: Record<string, unknown> =
+    row?.metadata != null ? safeParseRecord(row.metadata) : {};
+  const existingSlackMeta =
+    typeof outerMetadata.slackMeta === "string"
+      ? outerMetadata.slackMeta
+      : undefined;
+
+  const editedAt = Date.now();
+  const parsedExisting = readSlackMetadata(existingSlackMeta ?? null);
+
+  // For pre-PR-11 rows (no valid existing slackMeta), `mergeSlackMetadata`
+  // would produce a record missing the required fields and fail subsequent
+  // `readSlackMetadata` calls. Seed defaults from the lookup-derived facts
+  // so the post-merge value is always a valid `SlackMessageMetadata`.
+  const mergedSlackMeta = mergeSlackMetadata(existingSlackMeta ?? null, {
+    ...(parsedExisting
+      ? {}
+      : {
+          source: "slack" as const,
+          channelId: conversationExternalId,
+          channelTs: sourceMessageId,
+          eventKind: "message" as const,
+        }),
+    editedAt,
+  });
+
+  updateMessageContentAndMetadata(messageId, newContent, {
+    slackMeta: mergedSlackMeta,
+  });
+}
+
+/** Tolerant JSON.parse that returns `{}` for invalid or non-object payloads. */
+function safeParseRecord(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }

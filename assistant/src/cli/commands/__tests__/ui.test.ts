@@ -696,3 +696,520 @@ describe("ui request — conversation ID discovery hint", () => {
     expect(parsed.error).toContain("assistant conversations list");
   });
 });
+
+// ---------------------------------------------------------------------------
+// ui request — --actions parsing
+// ---------------------------------------------------------------------------
+
+describe("ui request — --actions parsing", () => {
+  test("valid actions are parsed and included in IPC params", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = [
+      { id: "approve", label: "Approve", variant: "primary" },
+      { id: "reject", label: "Reject", variant: "danger" },
+    ];
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"Choose"}',
+      "--actions",
+      JSON.stringify(actions),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall).toBeDefined();
+    expect(lastIpcCall!.params!.actions).toEqual(actions);
+  });
+
+  test("actions without variant are accepted", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = [{ id: "ok", label: "OK" }];
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toEqual([{ id: "ok", label: "OK" }]);
+  });
+
+  test("actions are omitted from IPC params when --actions is not provided", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toBeUndefined();
+  });
+
+  test("errors when --actions is an empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid JSON in --actions");
+  });
+
+  test("errors on malformed JSON in --actions", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "{not valid json",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid JSON in --actions");
+  });
+
+  test("errors when --actions is not an array", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '{"id":"ok","label":"OK"}',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("must be a JSON array");
+  });
+
+  test("errors when --actions is an empty array", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "[]",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("at least one action");
+  });
+
+  test("errors when action is missing id", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"label":"OK"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"id" is required');
+  });
+
+  test("errors when action id is empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"","label":"OK"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"id" is required');
+  });
+
+  test("errors when action is missing label", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"ok"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"label" is required');
+  });
+
+  test("errors when action label is empty string", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"ok","label":""}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"label" is required');
+  });
+
+  test("errors when action has invalid variant", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"ok","label":"OK","variant":"invalid"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('"variant" must be one of');
+  });
+
+  test("errors when action item is not an object", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '["not-an-object"]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("must be a JSON object");
+  });
+
+  test("accepts all valid variant values", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = [
+      { id: "a", label: "Primary", variant: "primary" },
+      { id: "b", label: "Danger", variant: "danger" },
+      { id: "c", label: "Secondary", variant: "secondary" },
+    ];
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.params!.actions).toEqual(actions);
+  });
+
+  test("action error references the correct array index", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    // Second action is invalid (index 1)
+    const actions = [
+      { id: "ok", label: "OK" },
+      { id: "bad", label: "" },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions[1]");
+  });
+
+  test("action errors output as text when --json is not set", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      "{bad",
+    ]);
+
+    expect(exitCode).toBe(1);
+    // When --json is not set, errors go to log.error (mocked as no-op),
+    // so stdout should be empty and IPC should not have been called
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'selection_changed' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"selection_changed","label":"Select"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "selection_changed" is reserved for internal use',
+    );
+    expect(parsed.error).toContain("Reserved IDs:");
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'content_changed' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"content_changed","label":"Change"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "content_changed" is reserved for internal use',
+    );
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'state_update' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"state_update","label":"Update"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      'id "state_update" is reserved for internal use',
+    );
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("reserved ID error references the correct array index", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    // First action is valid, second uses a reserved ID
+    const actions = [
+      { id: "approve", label: "Approve" },
+      { id: "state_update", label: "Update State" },
+    ];
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--actions[1]");
+    expect(parsed.error).toContain('id "state_update" is reserved');
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'cancel' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"cancel","label":"Cancel"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('id "cancel" is reserved for internal use');
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects 'dismiss' as a reserved action ID", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      '[{"id":"dismiss","label":"Dismiss"}]',
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('id "dismiss" is reserved for internal use');
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("non-reserved IDs are accepted alongside validation", async () => {
+    process.env.__SKILL_CONTEXT_JSON = JSON.stringify({
+      conversationId: "conv-1",
+    });
+
+    const actions = [
+      { id: "approve", label: "Approve" },
+      { id: "reject", label: "Reject" },
+    ];
+
+    const { exitCode } = await runCommand([
+      "ui",
+      "request",
+      "--payload",
+      '{"msg":"test"}',
+      "--actions",
+      JSON.stringify(actions),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall).toBeDefined();
+    expect(lastIpcCall!.params!.actions).toEqual(actions);
+  });
+});

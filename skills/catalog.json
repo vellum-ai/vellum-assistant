@@ -139,6 +139,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "gmail",
+      "name": "gmail",
+      "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📨",
+        "vellum": {
+          "display-name": "Gmail",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
@@ -172,6 +185,32 @@
             "When the user asks to set up email filters to prevent inbox clutter"
           ],
           "avoid-when": [
+            "When the user wants to read, send, or draft a specific email",
+            "When the user is setting up email OAuth or connecting a new provider"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "inbox-management",
+      "name": "inbox-management",
+      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "display-name": "Inbox Management",
+          "includes": [
+            "gmail"
+          ],
+          "activation-hints": [
+            "When the user explicitly asks for ongoing or automatic inbox management",
+            "When the user wants periodic email triage, archiving, or follow-up tracking on a schedule",
+            "When the user says 'manage my inbox automatically' or 'set up inbox management'"
+          ],
+          "avoid-when": [
+            "When the user wants a one-time inbox cleanup (use inbox-cleanup instead)",
+            "When the user wants a quick inbox check, summary, or unread count",
             "When the user wants to read, send, or draft a specific email",
             "When the user is setting up email OAuth or connecting a new provider"
           ]

@@ -54,33 +54,105 @@ public enum GuardianTokenFileReader {
 
     // MARK: - Public API
 
+    /// Outcome of inspecting a guardian-token file on disk. Separates the
+    /// decision (expose to tests) from the keychain side effect (exercised
+    /// only through the public entry point). `importValid` corresponds to
+    /// both tokens still valid; `importAccessExpired` corresponds to an
+    /// access token past its expiry but a refresh token still inside its
+    /// window — the 401 retry interceptor will rotate it on the next
+    /// request, so we import it anyway instead of throwing it away.
+    enum ImportDecision: Equatable {
+        case skipMissingFile
+        case skipUnreadableFile
+        case skipUnparseableJson
+        case skipUnparseableTimestamps
+        case skipRefreshExpired
+        case importValid(ParsedCredentials)
+        case importAccessExpired(ParsedCredentials)
+
+        var isImport: Bool {
+            switch self {
+            case .importValid, .importAccessExpired: return true
+            default: return false
+            }
+        }
+    }
+
+    struct ParsedCredentials: Equatable {
+        let guardianPrincipalId: String
+        let accessToken: String
+        let accessExpiresEpoch: Int
+        let refreshToken: String
+        let refreshExpiresEpoch: Int
+        let refreshAfterEpoch: Int
+    }
+
     /// Attempts to load a CLI-persisted guardian token for the given assistant
     /// and populate `ActorTokenManager` with its credentials.
     ///
     /// Returns `true` if credentials were successfully imported, `false` if the
-    /// file does not exist, is unreadable, or contains expired data.
+    /// file does not exist, is unreadable, or the refresh token is already
+    /// expired.
     public static func importIfAvailable(assistantId: String) -> Bool {
         let path = guardianTokenPath(for: assistantId)
+        let nowMs = Int(Date().timeIntervalSince1970 * 1000)
 
-        guard FileManager.default.fileExists(atPath: path) else {
+        let decision = decideImport(fromPath: path, nowMs: nowMs)
+
+        switch decision {
+        case .skipMissingFile:
             log.info("No guardian token file at \(path, privacy: .public)")
-            return false
+        case .skipUnreadableFile:
+            log.warning("Guardian token file exists but is unreadable: \(path, privacy: .public)")
+        case .skipUnparseableJson:
+            log.error("Failed to decode guardian token file at \(path, privacy: .public)")
+        case .skipUnparseableTimestamps:
+            log.warning("Guardian token file at \(path, privacy: .public) has unparseable timestamps — skipping import")
+        case .skipRefreshExpired:
+            log.info("Guardian token file has expired refresh token — skipping import")
+        case .importValid(let creds):
+            ActorTokenManager.storeCredentials(
+                actorToken: creds.accessToken,
+                actorTokenExpiresAt: creds.accessExpiresEpoch,
+                refreshToken: creds.refreshToken,
+                refreshTokenExpiresAt: creds.refreshExpiresEpoch,
+                refreshAfter: creds.refreshAfterEpoch,
+                guardianPrincipalId: creds.guardianPrincipalId
+            )
+            log.info("Imported guardian token from CLI file for assistant \(assistantId, privacy: .public)")
+        case .importAccessExpired(let creds):
+            ActorTokenManager.storeCredentials(
+                actorToken: creds.accessToken,
+                actorTokenExpiresAt: creds.accessExpiresEpoch,
+                refreshToken: creds.refreshToken,
+                refreshTokenExpiresAt: creds.refreshExpiresEpoch,
+                refreshAfter: creds.refreshAfterEpoch,
+                guardianPrincipalId: creds.guardianPrincipalId
+            )
+            log.info("Imported guardian token from CLI file for assistant \(assistantId, privacy: .public) (access expired; refresh still valid — will rotate on first 401)")
+        }
+
+        return decision.isImport
+    }
+
+    /// Pure decision function used by the public entry point and by tests.
+    /// Reads the token file at `path`, parses it, and returns whether the
+    /// client should import the credentials (and in which mode). Does not
+    /// mutate `ActorTokenManager` or any other process state.
+    static func decideImport(fromPath path: String, nowMs: Int) -> ImportDecision {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .skipMissingFile
         }
 
         guard let data = FileManager.default.contents(atPath: path) else {
-            log.warning("Guardian token file exists but is unreadable: \(path, privacy: .public)")
-            return false
+            return .skipUnreadableFile
         }
 
         let token: GuardianTokenFile
         do {
             token = try JSONDecoder().decode(GuardianTokenFile.self, from: data)
-        } catch let decodingError as DecodingError {
-            log.error("Failed to decode guardian token file at \(path, privacy: .public): \(Self.describeDecodingError(decodingError), privacy: .public)")
-            return false
         } catch {
-            log.error("Failed to read guardian token file at \(path, privacy: .public): \(String(describing: error), privacy: .public)")
-            return false
+            return .skipUnparseableJson
         }
 
         // Convert timestamps to epoch milliseconds for ActorTokenManager.
@@ -88,33 +160,31 @@ public enum GuardianTokenFileReader {
         guard let accessExpiresEpoch = epochMillis(from: token.accessTokenExpiresAt),
               let refreshExpiresEpoch = epochMillis(from: token.refreshTokenExpiresAt),
               let refreshAfterEpoch = epochMillis(from: token.refreshAfter) else {
-            log.warning("""
-                Guardian token file at \(path, privacy: .public) has unparseable timestamps — skipping import. \
-                accessTokenExpiresAt=\(token.accessTokenExpiresAt.stringValue, privacy: .public), \
-                refreshTokenExpiresAt=\(token.refreshTokenExpiresAt.stringValue, privacy: .public), \
-                refreshAfter=\(token.refreshAfter.stringValue, privacy: .public)
-                """)
-            return false
+            return .skipUnparseableTimestamps
         }
 
-        // Skip if the access token is already expired.
-        let nowMs = Int(Date().timeIntervalSince1970 * 1000)
-        if nowMs >= accessExpiresEpoch {
-            log.info("Guardian token file contains expired access token — skipping import")
-            return false
+        // Import as long as the refresh token is still valid. An expired
+        // access token is fine — the 401 retry interceptor will exchange
+        // the refresh token for a fresh access token on the next request.
+        // Skipping the import when only the access token is expired throws
+        // away a still-valid refresh token, leaving the client with no
+        // credentials and no path to recover without a manual re-pair.
+        if nowMs >= refreshExpiresEpoch {
+            return .skipRefreshExpired
         }
 
-        ActorTokenManager.storeCredentials(
-            actorToken: token.accessToken,
-            actorTokenExpiresAt: accessExpiresEpoch,
+        let creds = ParsedCredentials(
+            guardianPrincipalId: token.guardianPrincipalId,
+            accessToken: token.accessToken,
+            accessExpiresEpoch: accessExpiresEpoch,
             refreshToken: token.refreshToken,
-            refreshTokenExpiresAt: refreshExpiresEpoch,
-            refreshAfter: refreshAfterEpoch,
-            guardianPrincipalId: token.guardianPrincipalId
+            refreshExpiresEpoch: refreshExpiresEpoch,
+            refreshAfterEpoch: refreshAfterEpoch
         )
 
-        log.info("Imported guardian token from CLI file for assistant \(assistantId, privacy: .public)")
-        return true
+        return nowMs >= accessExpiresEpoch
+            ? .importAccessExpired(creds)
+            : .importValid(creds)
     }
 
     // MARK: - Path Resolution
@@ -127,33 +197,6 @@ public enum GuardianTokenFileReader {
             .appendingPathComponent(assistantId)
             .appendingPathComponent("guardian-token.json")
             .path
-    }
-
-    // MARK: - Error Descriptions
-
-    /// Produces a human-readable summary of a `DecodingError`, including the
-    /// JSON key path and expected type so schema mismatches are easy to diagnose.
-    private static func describeDecodingError(_ error: DecodingError) -> String {
-        switch error {
-        case .keyNotFound(let key, let context):
-            let path = Self.codingPath(context.codingPath)
-            return "missing key '\(key.stringValue)' at \(path.isEmpty ? "root" : path)"
-        case .typeMismatch(let type, let context):
-            let path = Self.codingPath(context.codingPath)
-            return "type mismatch for \(type) at \(path.isEmpty ? "root" : path): \(context.debugDescription)"
-        case .valueNotFound(let type, let context):
-            let path = Self.codingPath(context.codingPath)
-            return "null value for \(type) at \(path.isEmpty ? "root" : path)"
-        case .dataCorrupted(let context):
-            return "corrupted data: \(context.debugDescription)"
-        @unknown default:
-            return String(describing: error)
-        }
-    }
-
-    /// Joins a coding-key path into a dot-separated string like `"refreshToken.expiresAt"`.
-    private static func codingPath(_ keys: [CodingKey]) -> String {
-        keys.map(\.stringValue).joined(separator: ".")
     }
 
     // MARK: - Timestamp Parsing

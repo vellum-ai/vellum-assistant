@@ -304,6 +304,13 @@ export class ConversationGraphMemory {
     queryVector?: number[];
     /** Optional sparse vector accompanying `queryVector`. */
     sparseVector?: QdrantSparseVector;
+    /**
+     * Dense query vector aligned to the latest user message (PR 3). Surfaced
+     * so callers (PKB hint search) can prefer it over the summary-based
+     * `queryVector`. `undefined` on the per-turn path and when no user-aligned
+     * embed was computed.
+     */
+    userQueryVector?: number[];
   }> {
     this.tracker.advanceTurn();
 
@@ -330,18 +337,13 @@ export class ConversationGraphMemory {
       // Decide which retrieval mode to use
       if (!this.initialized || this.needsReload) {
         const recentSummaries = this.fetchRecentSummaries();
-
-        // Extract the first user message as an additional retrieval signal
-        // so context-load biases toward what the user is asking about
         const firstUserText = extractUserText(lastMessage);
-        if (firstUserText) {
-          recentSummaries.unshift(firstUserText);
-        }
 
         return await this.runContextLoad(
           messages,
           config,
           recentSummaries,
+          firstUserText ?? undefined,
           abortSignal,
           onEvent,
         );
@@ -365,12 +367,14 @@ export class ConversationGraphMemory {
     messages: Message[],
     config: AssistantConfig,
     recentSummaries: string[],
+    userQuery: string | undefined,
     signal: AbortSignal,
     onEvent: (msg: ServerMessage) => void,
   ) {
     const result = await loadContextMemory({
       scopeId: this.scopeId,
       recentSummaries,
+      userQuery,
       config,
       signal,
     });
@@ -391,6 +395,7 @@ export class ConversationGraphMemory {
         metrics: result.metrics,
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
+        userQueryVector: result.userQueryVector,
       };
     }
 
@@ -412,6 +417,7 @@ export class ConversationGraphMemory {
         metrics: result.metrics,
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
+        userQueryVector: result.userQueryVector,
       };
     }
 
@@ -446,6 +452,7 @@ export class ConversationGraphMemory {
       metrics: result.metrics,
       queryVector: result.queryVector,
       sparseVector: result.sparseVector,
+      userQueryVector: result.userQueryVector,
     };
   }
 

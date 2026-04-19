@@ -32,7 +32,10 @@ export interface CloudAuthConfig {
    * Optional runtime/gateway origin for the selected assistant.
    *
    * Used only as a fallback when Chrome reports the primary authorization
-   * page could not be loaded.
+   * page could not be loaded. Platform API hosts (for example
+   * `platform.vellum.ai`) are remapped to their assistant-web hosts
+   * (`www.vellum.ai`) before use so WorkOS redirect URI validation
+   * remains valid.
    */
   runtimeBaseUrl?: string;
   /** OAuth client id registered for the chrome extension. */
@@ -233,6 +236,36 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/$/, '');
 }
 
+function remapPlatformHostnameForWebAuth(hostname: string): string {
+  const host = hostname.toLowerCase();
+  if (host === 'platform.vellum.ai') {
+    return 'www.vellum.ai';
+  }
+  if (host === 'local-platform.vellum.ai') {
+    return 'local-assistant.vellum.ai';
+  }
+  if (host.endsWith('-platform.vellum.ai')) {
+    return host.replace('-platform.vellum.ai', '-assistant.vellum.ai');
+  }
+  return host;
+}
+
+function normalizeRuntimeFallbackBaseUrl(runtimeBaseUrl: string): string {
+  const normalized = normalizeBaseUrl(runtimeBaseUrl);
+  try {
+    const url = new URL(normalized);
+    const remappedHost = remapPlatformHostnameForWebAuth(url.hostname);
+    if (remappedHost !== url.hostname) {
+      url.hostname = remappedHost;
+      return normalizeBaseUrl(url.toString());
+    }
+  } catch {
+    // Ignore malformed runtime URLs and let the caller decide whether
+    // this fallback candidate can be used.
+  }
+  return normalized;
+}
+
 function buildAuthUrl(
   config: CloudAuthConfig,
   assistantId: string,
@@ -261,7 +294,12 @@ interface AuthUrlCandidate {
 }
 
 function buildAuthUrlCandidates(config: CloudAuthConfig, assistantId: string): AuthUrlCandidate[] {
-  const baseCandidates = [config.webBaseUrl, config.runtimeBaseUrl]
+  const runtimeFallbackBaseUrl =
+    typeof config.runtimeBaseUrl === 'string' && config.runtimeBaseUrl.trim().length > 0
+      ? normalizeRuntimeFallbackBaseUrl(config.runtimeBaseUrl)
+      : undefined;
+
+  const baseCandidates = [config.webBaseUrl, runtimeFallbackBaseUrl]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => normalizeBaseUrl(value));
   const baseUrls = Array.from(new Set(baseCandidates));

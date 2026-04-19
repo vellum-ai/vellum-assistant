@@ -45,10 +45,12 @@ function handleCacheGet(
   return getCacheEntry(key);
 }
 
-function handleCacheDelete(params?: Record<string, unknown>): object {
+function handleCacheDelete(params?: Record<string, unknown>): {
+  deleted: boolean;
+} {
   const { key } = CacheKeyParams.parse(params);
-  deleteCacheEntry(key);
-  return {};
+  const deleted = deleteCacheEntry(key);
+  return { deleted };
 }
 
 // ── Route definitions ─────────────────────────────────────────────────

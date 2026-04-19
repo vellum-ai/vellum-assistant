@@ -701,3 +701,335 @@ describe("buildCompletionSummary for standalone surfaces", () => {
     );
   });
 });
+
+// ── Multi-page form payload shapes ───────────────────────────────────
+
+describe("standalone multi-page form payload shapes", () => {
+  test("multi-page form preserves pages and pageLabels in emitted payload", async () => {
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Setup Wizard",
+        data: {
+          description: "Complete the setup steps.",
+          fields: [],
+          pages: [
+            {
+              id: "page-1",
+              title: "Personal Info",
+              description: "Enter your personal details.",
+              fields: [
+                {
+                  id: "name",
+                  type: "text",
+                  label: "Full Name",
+                  required: true,
+                },
+                { id: "email", type: "text", label: "Email", required: true },
+              ],
+            },
+            {
+              id: "page-2",
+              title: "Preferences",
+              fields: [
+                {
+                  id: "theme",
+                  type: "select",
+                  label: "Theme",
+                  options: [
+                    { label: "Light", value: "light" },
+                    { label: "Dark", value: "dark" },
+                  ],
+                },
+                {
+                  id: "notifications",
+                  type: "toggle",
+                  label: "Enable notifications",
+                },
+              ],
+            },
+          ],
+          pageLabels: {
+            next: "Continue",
+            back: "Go Back",
+            submit: "Finish Setup",
+          },
+          submitLabel: "Finish Setup",
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-multipage-1",
+    );
+
+    const showMsg = findByType(ctx.sentMessages, "ui_surface_show");
+    expect(showMsg).toBeDefined();
+
+    // Core wire fields
+    expect(showMsg!.surfaceType).toBe("form");
+    expect(showMsg!.title).toBe("Setup Wizard");
+
+    // data field: FormSurfaceData with pages
+    const data = showMsg!.data as AnyRecord;
+    expect(data.description).toBe("Complete the setup steps.");
+    expect(data.submitLabel).toBe("Finish Setup");
+
+    // pages should be preserved exactly
+    const pages = data.pages as Array<AnyRecord>;
+    expect(pages).toBeDefined();
+    expect(pages).toHaveLength(2);
+    expect(pages[0].id).toBe("page-1");
+    expect(pages[0].title).toBe("Personal Info");
+    expect(pages[0].description).toBe("Enter your personal details.");
+    expect(pages[0].fields as Array<AnyRecord>).toHaveLength(2);
+    expect(pages[1].id).toBe("page-2");
+    expect(pages[1].title).toBe("Preferences");
+    expect(pages[1].fields as Array<AnyRecord>).toHaveLength(2);
+
+    // pageLabels should be preserved exactly
+    const pageLabels = data.pageLabels as AnyRecord;
+    expect(pageLabels).toBeDefined();
+    expect(pageLabels.next).toBe("Continue");
+    expect(pageLabels.back).toBe("Go Back");
+    expect(pageLabels.submit).toBe("Finish Setup");
+
+    // fields should still be a valid array (defensive normalization)
+    expect(Array.isArray(data.fields)).toBe(true);
+
+    // Resolve to avoid dangling timer
+    await handleSurfaceAction(ctx, "payload-surf-multipage-1", "submit", {
+      name: "Alice",
+      email: "alice@example.com",
+      theme: "dark",
+      notifications: true,
+    });
+    await resultPromise;
+  });
+
+  test("pages-only form (no top-level fields) normalizes fields to empty array", async () => {
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Wizard",
+        data: {
+          pages: [
+            {
+              id: "p1",
+              title: "Step 1",
+              fields: [{ id: "x", type: "text", label: "X" }],
+            },
+          ],
+          pageLabels: { next: "Next", submit: "Done" },
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-pages-only",
+    );
+
+    const showMsg = findByType(ctx.sentMessages, "ui_surface_show");
+    const data = showMsg!.data as AnyRecord;
+
+    // pages should be preserved
+    expect(data.pages).toBeDefined();
+    expect(data.pages as Array<AnyRecord>).toHaveLength(1);
+
+    // pageLabels should be preserved
+    expect(data.pageLabels).toEqual({ next: "Next", submit: "Done" });
+
+    // fields should default to empty array (defensive normalization)
+    expect(data.fields).toEqual([]);
+
+    // Resolve to avoid dangling timer
+    await handleSurfaceAction(ctx, "payload-surf-pages-only", "submit", {
+      x: "val",
+    });
+    await resultPromise;
+  });
+
+  test("multi-page form submit resolves correctly end-to-end", async () => {
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Multi-Step",
+        data: {
+          pages: [
+            {
+              id: "p1",
+              title: "Step 1",
+              fields: [{ id: "a", type: "text", label: "A" }],
+            },
+            {
+              id: "p2",
+              title: "Step 2",
+              fields: [{ id: "b", type: "number", label: "B" }],
+            },
+          ],
+          pageLabels: { next: "Next", back: "Previous", submit: "Complete" },
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-multipage-submit",
+    );
+
+    ctx.sentMessages.length = 0;
+
+    await handleSurfaceAction(ctx, "payload-surf-multipage-submit", "submit", {
+      a: "hello",
+      b: 42,
+    });
+    const result = await resultPromise;
+
+    // Result should be submitted with the form data
+    expect(result.status).toBe("submitted");
+    expect(result.submittedData).toEqual({ a: "hello", b: 42 });
+
+    // ui_surface_complete should have been emitted
+    const completeMsg = findByType(ctx.sentMessages, "ui_surface_complete");
+    expect(completeMsg).toBeDefined();
+    expect(completeMsg!.summary).toBe("Submitted");
+    expect(completeMsg!.submittedData).toEqual({ a: "hello", b: 42 });
+  });
+});
+
+// ── Forward-compatible additive keys (regression) ────────────────────
+
+describe("standalone form forward-compatible payload preservation", () => {
+  test("additive keys not in FormSurfaceData are preserved through the pipeline", async () => {
+    // Regression test: the form surface pipeline must preserve all keys from
+    // the input data — including ones not declared in FormSurfaceData (e.g.
+    // keys added in newer protocol versions) — so that forward-compatible
+    // clients can consume them.
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Future Form",
+        data: {
+          description: "A form with future keys.",
+          fields: [{ id: "f1", type: "text", label: "Field 1" }],
+          submitLabel: "Go",
+          // Hypothetical future keys that the protocol may add
+          futureStringField: "hello",
+          futureNumberField: 99,
+          futureBooleanField: true,
+          futureObjectField: { nested: "value", count: 3 },
+          futureArrayField: ["a", "b", "c"],
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-forward-compat",
+    );
+
+    const showMsg = findByType(ctx.sentMessages, "ui_surface_show");
+    const data = showMsg!.data as AnyRecord;
+
+    // Known FormSurfaceData fields should be present
+    expect(data.description).toBe("A form with future keys.");
+    expect(data.submitLabel).toBe("Go");
+    expect(data.fields as Array<AnyRecord>).toHaveLength(1);
+
+    // Future additive keys must NOT be dropped
+    expect(data.futureStringField).toBe("hello");
+    expect(data.futureNumberField).toBe(99);
+    expect(data.futureBooleanField).toBe(true);
+    expect(data.futureObjectField).toEqual({ nested: "value", count: 3 });
+    expect(data.futureArrayField).toEqual(["a", "b", "c"]);
+
+    // Resolve to avoid dangling timer
+    await handleSurfaceAction(ctx, "payload-surf-forward-compat", "submit", {});
+    await resultPromise;
+  });
+
+  test("existing single-page form behavior is unchanged", async () => {
+    // Ensure the refactored code does not regress the basic single-page
+    // form path that existed before the pages/pageLabels fix.
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Simple Form",
+        data: {
+          description: "A basic form.",
+          fields: [
+            { id: "name", type: "text", label: "Name", required: true },
+            { id: "age", type: "number", label: "Age" },
+          ],
+          submitLabel: "Submit",
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-simple-form",
+    );
+
+    const showMsg = findByType(ctx.sentMessages, "ui_surface_show");
+    const data = showMsg!.data as AnyRecord;
+
+    expect(data.description).toBe("A basic form.");
+    expect(data.submitLabel).toBe("Submit");
+    expect(data.fields as Array<AnyRecord>).toHaveLength(2);
+    expect((data.fields as Array<AnyRecord>)[0].id).toBe("name");
+    expect((data.fields as Array<AnyRecord>)[0].required).toBe(true);
+    expect((data.fields as Array<AnyRecord>)[1].id).toBe("age");
+
+    // pages/pageLabels should not be present for single-page forms
+    expect(data.pages).toBeUndefined();
+    expect(data.pageLabels).toBeUndefined();
+
+    // Resolve to avoid dangling timer
+    await handleSurfaceAction(ctx, "payload-surf-simple-form", "submit", {
+      name: "Bob",
+      age: 25,
+    });
+    await resultPromise;
+  });
+
+  test("form with neither fields nor pages normalizes fields to empty array", async () => {
+    // Defensive normalization: an empty/missing form payload should still
+    // produce a valid FormSurfaceData with an empty fields array rather
+    // than undefined or a missing key.
+    const ctx = createMockContext();
+
+    const resultPromise = showStandaloneSurface(
+      ctx,
+      {
+        conversationId: "payload-test-conv",
+        surfaceType: "form",
+        title: "Empty Form",
+        data: {
+          description: "No fields at all.",
+        },
+        timeoutMs: 60_000,
+      },
+      "payload-surf-empty-form",
+    );
+
+    const showMsg = findByType(ctx.sentMessages, "ui_surface_show");
+    const data = showMsg!.data as AnyRecord;
+
+    expect(data.description).toBe("No fields at all.");
+    // fields must always be a valid array — never undefined
+    expect(Array.isArray(data.fields)).toBe(true);
+    expect(data.fields).toEqual([]);
+
+    // Resolve to avoid dangling timer
+    await handleSurfaceAction(ctx, "payload-surf-empty-form", "submit", {});
+    await resultPromise;
+  });
+});

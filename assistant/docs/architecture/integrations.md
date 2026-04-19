@@ -31,23 +31,6 @@ graph TB
         SHARED["shared.ts<br/>resolveProvider + getProviderConnection"]
     end
 
-    subgraph "Gmail Skill (bundled-skills/gmail/)"
-        GMAIL_SKILL_MD["SKILL.md<br/>agent instructions"]
-        GMAIL_ARCHIVE["gmail_archive"]
-        GMAIL_LABEL["gmail_label"]
-        GMAIL_TRASH["gmail_trash"]
-        GMAIL_UNSUB["gmail_unsubscribe"]
-        GMAIL_DRAFT["gmail_draft"]
-        GMAIL_SEND_DRAFT["gmail_send_draft"]
-        GMAIL_ATTACHMENTS["gmail_attachments"]
-        GMAIL_FORWARD["gmail_forward"]
-        GMAIL_FOLLOW_UP["gmail_follow_up"]
-        GMAIL_FILTERS["gmail_filters"]
-        GMAIL_VACATION["gmail_vacation"]
-        GMAIL_SENDER_DIGEST["gmail_sender_digest"]
-        GMAIL_OUTREACH["gmail_outreach_scan"]
-    end
-
     subgraph "Slack Skill (bundled-skills/slack/)"
         SLACK_SKILL_MD["SKILL.md<br/>agent instructions"]
         SLACK_WEB_API["Web API via bash<br/>(network_mode: proxied)"]
@@ -99,7 +82,6 @@ graph TB
     SEARCH --> SHARED
     SEND --> SHARED
     STYLE --> STYLE_ANALYZER
-    GMAIL_ARCHIVE --> GMAIL_ADAPTER
     SLACK_WEB_API --> SLACK_API
 ```
 
@@ -191,7 +173,6 @@ sequenceDiagram
 | `assistant/src/messaging/providers/slack/`       | Slack adapter, client, types                                                                       |
 | `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                       |
 | `assistant/src/config/bundled-skills/messaging/` | Core messaging skill (send, read, search, reply across platforms)                                  |
-| `assistant/src/config/bundled-skills/gmail/`     | Gmail management skill (archive, label, triage, declutter)                                         |
 | `assistant/src/config/bundled-skills/sequences/` | Email sequence management skill (drip campaigns, enrollment, analytics)                            |
 | `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
 | `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |

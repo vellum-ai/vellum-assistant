@@ -123,6 +123,8 @@ import {
   getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
+  loadSlackActiveThreadFocusBlock,
+  loadSlackChronologicalMessages,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -142,6 +144,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -553,6 +556,8 @@ export async function runAgentLoopImpl(
       {
         lastCompactedAt: ctx.contextCompactedAt ?? undefined,
         precomputedEstimate: compactCheck.estimatedTokens,
+        conversationOriginChannel:
+          getConversationOriginChannel(ctx.conversationId) ?? undefined,
       },
     );
     if (compacted.compacted) {
@@ -661,8 +666,13 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
-      pkbQueryVector = graphResult.queryVector;
-      pkbSparseVector = graphResult.sparseVector;
+      pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
+      // Reset sparse vector when the dense vector came from `userQueryVector` —
+      // there is no matching user-query sparse vector today, and pairing a
+      // user-query dense with a summary-aligned sparse is incorrect.
+      pkbSparseVector = graphResult.userQueryVector
+        ? undefined
+        : graphResult.sparseVector;
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -884,6 +894,34 @@ export async function runAgentLoopImpl(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
 
+    // For any Slack conversation (channels and DMs alike), build a
+    // chronological transcript from the persisted message rows so the
+    // model sees one channel-wide view instead of the gateway's per-turn
+    // hints. DMs render as a flat sequence (no thread tags), channels
+    // include sibling threads.
+    const isSlackConversation =
+      ctx.channelCapabilities?.channel === "slack";
+    const slackChronologicalMessages = isSlackConversation
+      ? loadSlackChronologicalMessages(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+        )
+      : null;
+
+    // Active-thread focus block: when the inbound user message belongs to
+    // a Slack thread, append a non-persisted `<active_thread>` tail block
+    // to the final user turn listing the thread's parent + replies. Helps
+    // the model orient when the channel transcript is long and
+    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
+    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
+    // since DMs do not have threads.
+    const slackActiveThreadFocusBlock = isSlackConversation
+      ? loadSlackActiveThreadFocusBlock(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+        )
+      : null;
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
       activeSurface,
@@ -907,6 +945,8 @@ export async function runAgentLoopImpl(
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
+      slackChronologicalMessages,
+      slackActiveThreadFocusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
@@ -1078,6 +1118,20 @@ export async function runAgentLoopImpl(
       runMessages = preRunRepair.messages;
     }
 
+    // Replace historical web_search_tool_result blocks with text summaries.
+    // The opaque `encrypted_content` tokens Anthropic attaches to each result
+    // expire / are route-scoped; replaying a stale token is rejected with
+    // `Invalid encrypted_content in search_result block`. Titles + URLs
+    // preserve enough context for the model on follow-up turns.
+    const webSearchStrip = stripHistoricalWebSearchResults(runMessages);
+    if (webSearchStrip.stats.blocksStripped > 0) {
+      rlog.info(
+        { phase: "pre_run", ...webSearchStrip.stats },
+        "Converted historical web_search_tool_result blocks to text summaries",
+      );
+      runMessages = webSearchStrip.messages;
+    }
+
     let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
@@ -1190,6 +1244,8 @@ export async function runAgentLoopImpl(
           lastCompactedAt: ctx.contextCompactedAt ?? undefined,
           force: true,
           targetInputTokensOverride: preflightBudget,
+          conversationOriginChannel:
+            getConversationOriginChannel(ctx.conversationId) ?? undefined,
         },
       );
       if (midLoopCompact.compacted) {
@@ -1293,7 +1349,9 @@ export async function runAgentLoopImpl(
       );
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
-      preRepairMessages = retryRepair.messages;
+      const retryStrip = stripHistoricalWebSearchResults(runMessages);
+      runMessages = retryStrip.messages;
+      preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;

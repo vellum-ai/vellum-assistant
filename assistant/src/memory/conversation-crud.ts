@@ -1457,6 +1457,39 @@ export function updateMessageMetadata(
 }
 
 /**
+ * Atomically update both `content` and (shallow-merged) `metadata` for a
+ * message. Used by edit-propagation paths that need to update the message
+ * body and stamp metadata (e.g. `slackMeta.editedAt`) in a single
+ * transaction so a partial write cannot leak.
+ *
+ * `metadataUpdates` is shallow-merged into the existing top-level metadata
+ * object. To merge into a nested sub-key (e.g. `slackMeta`), the caller
+ * must compute the merged sub-value first and pass `{ slackMeta: merged }`.
+ */
+export function updateMessageContentAndMetadata(
+  messageId: string,
+  newContent: string,
+  metadataUpdates: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+    tx.update(messages)
+      .set({
+        content: newContent,
+        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+      })
+      .where(eq(messages.id, messageId))
+      .run();
+  });
+}
+
+/**
  * Re-link all attachments from a set of source messages to a target message.
  * Used during message consolidation so that attachments linked to deleted
  * messages survive the ON DELETE CASCADE on message_attachments.

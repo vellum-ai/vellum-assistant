@@ -18,16 +18,18 @@ const HASH_DISPLAY_LENGTH = 12;
  * from triggering Photos, Contacts, Calendar, etc. dialogs during filesystem
  * traversal (e.g. `find ~ -name .git`).
  *
- * Paths are relative to $HOME. Only directories that trigger TCC prompts for
- * non-App-Sandbox apps are listed — ~/Desktop and ~/Documents are
- * TCC-protected only under App Sandbox, which the daemon does not use.
+ * Paths are relative to $HOME. Includes both TCC-protected directories that
+ * trigger prompts for all apps and directories like ~/Desktop and ~/Documents
+ * that are TCC-protected under App Sandbox or Full Disk Access checks.
  */
 export const MACOS_TCC_PROTECTED_PATHS = [
+  "Desktop",
+  "Documents",
   "Pictures/Photos Library.photoslibrary",
   "Library/Photos",
   "Library/Calendars",
   "Library/Reminders",
-  "Library/AddressBook",
+  "Library/Application Support/AddressBook",
   "Library/Messages",
   "Library/Mail",
   "Library/Safari",

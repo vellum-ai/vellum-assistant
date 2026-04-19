@@ -445,6 +445,7 @@ export function showStandaloneSurface(
     return Promise.resolve({
       status: "cancelled" as const,
       surfaceId,
+      cancellationReason: "no_interactive_surface",
     });
   }
 
@@ -455,7 +456,11 @@ export function showStandaloneSurface(
       { conversationId: ctx.conversationId, surfaceType: request.surfaceType },
       "standalone surface: pendingStandaloneSurfaces map missing; failing closed",
     );
-    return Promise.resolve({ status: "cancelled" as const, surfaceId });
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface",
+    });
   }
   const pendingMap = ctx.pendingStandaloneSurfaces;
 
@@ -576,19 +581,20 @@ function buildStandaloneSurfaceData(
   }
 
   if (request.surfaceType === "form") {
+    // Preserve the full form payload (pages, pageLabels, and any future
+    // additive keys) via spreading. Apply defensive normalization so that
+    // `fields` is always a valid array — callers that use `pages` instead
+    // of top-level `fields` may omit the latter entirely.
+    const raw = request.data as Record<string, unknown>;
+    const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
+    const fields: FormSurfaceData["fields"] = hasFields
+      ? (raw.fields as FormSurfaceData["fields"])
+      : [];
+
     return {
-      description:
-        typeof request.data.description === "string"
-          ? request.data.description
-          : undefined,
-      fields: Array.isArray(request.data.fields)
-        ? (request.data.fields as FormSurfaceData["fields"])
-        : [],
-      submitLabel:
-        typeof request.data.submitLabel === "string"
-          ? request.data.submitLabel
-          : undefined,
-    } satisfies FormSurfaceData;
+      ...raw,
+      fields,
+    } as FormSurfaceData;
   }
 
   // Fallback: pass through opaque data
@@ -981,6 +987,9 @@ export async function handleSurfaceAction(
       surfaceId,
       actionId,
       ...(data ? { submittedData: data } : {}),
+      ...(isCancellation
+        ? { cancellationReason: "user_dismissed" as const }
+        : {}),
       summary,
     };
 

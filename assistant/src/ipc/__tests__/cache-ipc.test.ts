@@ -84,7 +84,7 @@ describe("cache IPC routes", () => {
 
   // ── Delete ────────────────────────────────────────────────────────
 
-  test("delete returns empty object and makes later get return null", async () => {
+  test("delete returns deleted: true and makes later get return null", async () => {
     // Store an entry first.
     const setResult = await cliIpcCall<{ key: string }>("cache/set", {
       data: 42,
@@ -93,11 +93,11 @@ describe("cache IPC routes", () => {
     expect(setResult.ok).toBe(true);
 
     // Delete it.
-    const delResult = await cliIpcCall<object>("cache/delete", {
+    const delResult = await cliIpcCall<{ deleted: boolean }>("cache/delete", {
       key: "to-delete",
     });
     expect(delResult.ok).toBe(true);
-    expect(delResult.result).toEqual({});
+    expect(delResult.result).toEqual({ deleted: true });
 
     // Get should now return null.
     const getResult = await cliIpcCall<null>("cache/get", {
@@ -105,6 +105,14 @@ describe("cache IPC routes", () => {
     });
     expect(getResult.ok).toBe(true);
     expect(getResult.result).toBeNull();
+  });
+
+  test("delete on non-existent key returns deleted: false", async () => {
+    const delResult = await cliIpcCall<{ deleted: boolean }>("cache/delete", {
+      key: "never-existed",
+    });
+    expect(delResult.ok).toBe(true);
+    expect(delResult.result).toEqual({ deleted: false });
   });
 
   // ── Get for non-existent key returns null ─────────────────────────
@@ -210,11 +218,11 @@ describe("cache IPC routes", () => {
   test("cache_delete alias works identically to cache/delete", async () => {
     await cliIpcCall("cache/set", { data: "to-remove", key: "cd-alias" });
 
-    const delResult = await cliIpcCall<object>("cache_delete", {
+    const delResult = await cliIpcCall<{ deleted: boolean }>("cache_delete", {
       key: "cd-alias",
     });
     expect(delResult.ok).toBe(true);
-    expect(delResult.result).toEqual({});
+    expect(delResult.result).toEqual({ deleted: true });
 
     const getResult = await cliIpcCall<null>("cache/get", { key: "cd-alias" });
     expect(getResult.ok).toBe(true);

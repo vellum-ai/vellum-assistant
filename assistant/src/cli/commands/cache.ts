@@ -30,15 +30,21 @@ const TTL_MULTIPLIERS: Record<string, number> = {
 
 /**
  * Parse a human-friendly duration string (e.g. `"30s"`, `"5m"`, `"2h"`)
- * into milliseconds. Returns `undefined` when the input is falsy.
- * Throws on malformed input so the CLI can surface actionable errors.
+ * into milliseconds. Returns `undefined` when the input is `undefined`.
+ * Throws on empty/whitespace-only or malformed input so the CLI can
+ * surface actionable errors.
  */
 function parseTtl(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
+  if (raw === undefined) return undefined;
+  if (!raw.trim()) {
+    throw new Error(
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "1000ms", "30s", "5m", "2h"). Minimum 1s.`,
+    );
+  }
   const match = TTL_PATTERN.exec(raw.trim());
   if (!match) {
     throw new Error(
-      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "30s", "5m", "2h").`,
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "1000ms", "30s", "5m", "2h"). Minimum 1s.`,
     );
   }
   const value = Number(match[1]);
@@ -46,6 +52,13 @@ function parseTtl(raw: string | undefined): number | undefined {
   const ms = Math.round(value * TTL_MULTIPLIERS[unit]);
   if (ms <= 0) {
     throw new Error(`--ttl must resolve to a positive duration, got ${ms}ms.`);
+  }
+  if (ms < 1000) {
+    throw new Error(
+      `--ttl must be at least 1s (got ${ms}ms). Sub-second TTLs are not ` +
+        `supported because CLI round-trip overhead would cause entries to ` +
+        `expire before they can be read.`,
+    );
   }
   return ms;
 }
@@ -136,7 +149,7 @@ Examples:
     )
     .option(
       "--ttl <duration>",
-      "Time-to-live with unit: ms, s, m, or h (e.g. 30s, 5m, 2h). Defaults to 30m if omitted.",
+      "Time-to-live (minimum 1s). Units: ms, s, m, h (e.g. 1000ms, 30s, 5m, 2h). Defaults to 30m if omitted.",
     )
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
@@ -153,8 +166,8 @@ Arguments:
 
 Options:
   --key <key>       Cache key string. Omit to auto-generate a random hex key.
-  --ttl <duration>  Expiry duration. Accepted units: ms, s, m, h.
-                    Examples: 500ms, 30s, 5m, 2h. Defaults to 30m if omitted.
+  --ttl <duration>  Expiry duration (minimum 1s). Units: ms, s, m, h.
+                    Examples: 1000ms, 30s, 5m, 2h. Defaults to 30m if omitted.
   --json            Output as JSON: { "ok": true, "key": "..." }
 
 Examples:
@@ -289,15 +302,15 @@ Arguments:
   key   The cache key to remove. Run 'assistant cache get <key>' to
         verify a key exists before deleting.
 
-Removes the entry from the cache. Succeeds silently if the key does not
-exist (idempotent).
+Removes the entry from the cache. Idempotent — exits 0 whether the key
+existed or not, but reports whether an entry was actually removed.
 
 Examples:
   $ assistant cache delete my-key
   $ assistant cache delete my-key --json`,
     )
     .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<Record<string, never>>("cache/delete", {
+      const result = await cliIpcCall<{ deleted: boolean }>("cache/delete", {
         key,
       });
 
@@ -313,10 +326,16 @@ Examples:
         return;
       }
 
+      const deleted = result.result!.deleted;
+
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+        process.stdout.write(JSON.stringify({ ok: true, deleted }) + "\n");
       } else {
-        log.info(`Deleted cache entry "${key}".`);
+        if (deleted) {
+          log.info(`Deleted cache entry "${key}".`);
+        } else {
+          log.info(`No cache entry "${key}" (nothing to delete).`);
+        }
       }
     });
 }
