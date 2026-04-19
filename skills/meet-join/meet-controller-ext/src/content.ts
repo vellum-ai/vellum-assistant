@@ -1,20 +1,18 @@
 /**
- * Content script entry point.
+ * Meet content-script entry.
  *
- * Runs inside every `https://meet.google.com/*` tab (declared in
- * `manifest.json`). Responsible for:
+ * Runs in the Google Meet page world at `document_idle`. Listens for
+ * {@link BotToExtensionMessage} frames forwarded by the background
+ * service worker's native-messaging bridge, and runs per-meeting
+ * feature modules once the bot asks us to join.
  *
- * - Forwarding inbound Meet chat messages to the background service worker
- *   (which relays them over the native-messaging port as
- *   `chat.inbound` events).
- * - Handling `send_chat` commands dispatched from the background and
- *   replying with `send_chat_result`.
+ * ## Meeting session lifecycle
  *
- * The join-flow wiring (PR 9) and participant/speaker scrapers (PRs 10-11)
- * will hook into the same lifecycle path and share this file. Until that
- * lands, the chat reader starts unconditionally on mount — the content
- * script is only injected into Meet pages, so there's no risk of firing
- * outside a meeting context.
+ * `startMeetingSession` owns the in-page feature handles (speaker
+ * scraper, chat reader today; participant scraper in a follow-up PR).
+ * The returned `stop()` disposes every handle. We intentionally keep
+ * this local-in-module-scope so parallel PRs can extend the factory
+ * without touching the listener wiring.
  */
 import type {
   BotSendChatCommand,
@@ -24,78 +22,153 @@ import type {
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
-import { sendChat, startChatReader } from "./features/chat.js";
+import {
+  type ChatReader,
+  sendChat,
+  startChatReader,
+} from "./features/chat.js";
+import {
+  startSpeakerScraper,
+  type SpeakerScraperHandle,
+} from "./features/speaker.js";
 
 console.log("[meet-ext] content script loaded on", location.href);
 
 /**
- * Extract the Meet meeting ID from the current URL.
+ * Extract the meeting id from the current page URL.
  *
- * Meet URLs have the shape `https://meet.google.com/<code>?...`; the code
- * segment is the meeting's opaque identifier. We use it to stamp every
- * outbound event. Falls back to an empty string if the path is somehow
- * unexpected — the contract schemas enforce a non-empty ID so the bot will
- * drop the frame rather than pollute the event stream with bogus IDs.
+ * Google Meet URLs take the form `https://meet.google.com/<id>` where
+ * `<id>` is a short code like `abc-defg-hij`. We strip the leading slash
+ * and any trailing query so downstream consumers get a clean opaque
+ * identifier. Falls back to the full pathname when we cannot find a
+ * segment — the content script would never be injected on a non-meet
+ * URL, so any ambiguity here surfaces as a diagnostic rather than a
+ * silent mismatch.
  */
-function currentMeetingId(): string {
-  // Meet paths: `/<code>` for new meetings, `/<code>?authuser=...`, etc.
-  const segment = location.pathname.split("/").filter(Boolean)[0] ?? "";
-  return segment;
+function deriveMeetingId(): string {
+  const path = location.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  return path || location.pathname;
+}
+
+interface MeetingSessionHandle {
+  stop: () => void;
 }
 
 /**
- * Start the chat reader and keep the handle in module scope. When PR 9
- * lands the join-flow hook, this will move under a `joined` lifecycle
- * transition; until then, firing on content-script mount is safe because
- * the content script is only injected on Meet URLs.
+ * Options carried through to the session factory. `displayName` comes
+ * from the bot's `join` command so the chat reader can self-filter the
+ * bot's own outbound messages.
  */
-const meetingId = currentMeetingId();
-if (meetingId) {
-  startChatReader({
-    meetingId,
-    // TODO(meet-ext): plumb the real bot display name through from the
-    // join command (PR 9). For now, self-filter by an empty string — the
-    // DOM-level `data-is-self="true"` path still handles the common case,
-    // and the name-based fallback kicks in once PR 9 threads the name
-    // through.
-    selfName: "",
-    onEvent: (ev: ExtensionToBotMessage) => {
-      try {
-        chrome.runtime.sendMessage(ev);
-      } catch (err) {
-        console.warn("[meet-ext] failed to forward chat event:", err);
+interface MeetingSessionOptions {
+  meetingId: string;
+  displayName: string;
+}
+
+/**
+ * Start all per-meeting scrapers + bridges for a freshly-joined meeting.
+ *
+ * Called from the bot→extension `join` handler below, after any join
+ * flow completes successfully. Additional features (participants) will
+ * layer into the returned handle in subsequent PRs — extend this factory
+ * rather than the listener wiring so session teardown stays in one place.
+ */
+function startMeetingSession(
+  opts: MeetingSessionOptions,
+): MeetingSessionHandle {
+  const handles: Array<{ stop: () => void }> = [];
+
+  const sendToBot = (event: ExtensionToBotMessage): void => {
+    try {
+      // Fire-and-forget — the background bridge validates and forwards
+      // to the native port. No response expected.
+      void chrome.runtime.sendMessage(event);
+    } catch (err) {
+      console.warn("[meet-ext] sendMessage failed:", err);
+    }
+  };
+
+  const speaker: SpeakerScraperHandle = startSpeakerScraper({
+    meetingId: opts.meetingId,
+    onEvent: sendToBot,
+  });
+  handles.push(speaker);
+
+  const chat: ChatReader = startChatReader({
+    meetingId: opts.meetingId,
+    selfName: opts.displayName,
+    onEvent: sendToBot,
+  });
+  handles.push(chat);
+
+  let stopped = false;
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      for (const handle of handles) {
+        try {
+          handle.stop();
+        } catch (err) {
+          console.warn("[meet-ext] handle.stop threw:", err);
+        }
       }
     },
-  });
+  };
 }
 
 /**
- * Background -> content router. The background fans out validated
- * {@link BotToExtensionMessage} frames to every Meet tab via
- * `chrome.tabs.sendMessage`; this listener validates the frame against
- * the shared schema and dispatches to the feature handler.
+ * Currently-active meeting session, if any. We keep at most one at a
+ * time — a fresh `join` command while a prior session is live tears
+ * down the old handles before installing new ones.
  */
+let activeSession: MeetingSessionHandle | null = null;
+
 chrome.runtime.onMessage.addListener(
   (
     raw: unknown,
     _sender: chrome.runtime.MessageSender,
     _sendResponse: (response?: unknown) => void,
   ): boolean => {
-    const result = BotToExtensionMessageSchema.safeParse(raw);
-    if (!result.success) {
-      // Not for us, or malformed. Either way there's nothing to do — the
-      // background is the validator on the outbound path, so a mismatch
-      // here almost always means the frame is a content-script-only ping
-      // (e.g. a future in-extension message). Log at debug level and drop.
+    const parsed = BotToExtensionMessageSchema.safeParse(raw);
+    if (!parsed.success) {
+      // The background bridge fans out every bot→extension frame to
+      // every Meet tab, including frames intended for sibling tabs. A
+      // parse miss is expected noise; log at debug rather than warn.
+      console.debug(
+        "[meet-ext] ignoring non-bot-command message:",
+        parsed.error.message,
+      );
       return false;
     }
-    const msg = result.data;
+    const msg: BotToExtensionMessage = parsed.data;
+
+    if (msg.type === "join") {
+      const meetingId = deriveMeetingId();
+      activeSession?.stop();
+      // NOTE: PR 9 will run the actual join flow (fill name, click
+      // join now, wait for leave button) before we start the session.
+      // For now we wire the scrapers directly against the current DOM
+      // so PR 11's speaker scraper is exercised end-to-end once PR 9
+      // lands. Leaving this as a single call makes the PR-9 insertion
+      // a local edit.
+      activeSession = startMeetingSession({
+        meetingId,
+        displayName: msg.displayName,
+      });
+      return false;
+    }
+
+    if (msg.type === "leave") {
+      activeSession?.stop();
+      activeSession = null;
+      return false;
+    }
+
     if (msg.type === "send_chat") {
       void handleSendChat(msg);
+      return false;
     }
-    // No synchronous response — all replies go back through
-    // `chrome.runtime.sendMessage` (which routes via the content bridge to
-    // the native port).
+
     return false;
   },
 );

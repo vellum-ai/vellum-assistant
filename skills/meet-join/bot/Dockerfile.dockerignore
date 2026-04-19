@@ -38,3 +38,11 @@ skills/meet-join/bot/__tests__
 skills/meet-join/contracts/node_modules
 skills/meet-join/contracts/dist
 skills/meet-join/contracts/__tests__
+
+# Un-ignore the sibling extension package's manifest.json — the Dockerfile
+# copies it to /tmp at build time so the render script can extract the
+# public key and derive the extension ID that pins `allowed_origins` in the
+# rendered native-messaging host manifest. We only need the manifest
+# itself, not the ext's full source tree.
+!skills/meet-join/meet-controller-ext
+!skills/meet-join/meet-controller-ext/manifest.json
