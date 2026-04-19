@@ -20,6 +20,7 @@ import {
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
 import {
+  addMessage,
   getMessageById,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
@@ -27,7 +28,11 @@ import * as deliveryChannels from "../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../memory/delivery-status.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { mergeSlackMetadata } from "../../messaging/providers/slack/message-metadata.js";
+import {
+  mergeSlackMetadata,
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../../messaging/providers/slack/message-metadata.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -499,6 +504,60 @@ export async function handleChannelInbound(
     });
   }
 
+  // ── Slack reaction persistence ──
+  // Reactions arrive as regular `SlackInboundEvent`s with `callbackData`
+  // prefixed `reaction:` (added) or `reaction_removed:` (removed). Persist
+  // them as `messages` rows so the chronological renderer (PR 18) can
+  // surface them inline. Reactions never trigger an agent response, so we
+  // short-circuit before escalation, approval interception, and agent-loop
+  // dispatch.
+  if (isSlackReactionEvent(body)) {
+    const reactedMessageTs =
+      typeof sourceMetadata?.messageId === "string"
+        ? sourceMetadata.messageId
+        : undefined;
+    if (!reactedMessageTs) {
+      log.debug(
+        { conversationId: result.conversationId, eventId: result.eventId },
+        "Skipping reaction persistence: missing sourceMetadata.messageId",
+      );
+      return Response.json({
+        accepted: result.accepted,
+        duplicate: result.duplicate,
+        eventId: result.eventId,
+      });
+    }
+
+    const threadTs =
+      typeof sourceMetadata?.threadId === "string"
+        ? sourceMetadata.threadId
+        : undefined;
+
+    try {
+      await persistSlackReactionAsMessage({
+        conversationId: result.conversationId,
+        conversationExternalId,
+        eventId: result.eventId,
+        callbackData: body.callbackData!,
+        actorDisplayName: body.actorDisplayName,
+        threadTs,
+        reactedMessageTs,
+        duplicate: result.duplicate,
+      });
+    } catch (err) {
+      log.error(
+        { err, conversationId: result.conversationId, eventId: result.eventId },
+        "Failed to persist Slack reaction event",
+      );
+    }
+
+    return Response.json({
+      accepted: result.accepted,
+      duplicate: result.duplicate,
+      eventId: result.eventId,
+    });
+  }
+
   // ── Ingress escalation ──
   const escalationResponse = handleEscalationIntercept({
     resolvedMember,
@@ -860,4 +919,107 @@ export async function handleChannelInbound(
     duplicate: result.duplicate,
     eventId: result.eventId,
   });
+}
+
+/**
+ * Detect a Slack reaction event by inspecting the inbound payload's
+ * `callbackData` prefix. The gateway encodes reactions as a unified
+ * `SlackInboundEvent` with `callbackData` of the form
+ * `reaction:<emoji>` (added) or `reaction_removed:<emoji>` (removed) —
+ * see `gateway/src/slack/normalize.ts`. This helper centralizes that
+ * convention so the daemon can route reactions to a dedicated persistence
+ * branch instead of the agent-response pipeline.
+ */
+export function isSlackReactionEvent(body: {
+  sourceChannel?: string;
+  callbackData?: string;
+}): boolean {
+  if (body.sourceChannel !== "slack") return false;
+  const cb = body.callbackData;
+  if (typeof cb !== "string") return false;
+  return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
+}
+
+/**
+ * Parse a reaction `callbackData` string into its op (added/removed) and
+ * emoji name. Returns `null` when the input is not a reaction prefix or
+ * when the emoji portion is empty.
+ */
+export function parseSlackReactionCallbackData(
+  callbackData: string,
+): { op: "added" | "removed"; emoji: string } | null {
+  let op: "added" | "removed";
+  let emoji: string;
+  if (callbackData.startsWith("reaction_removed:")) {
+    op = "removed";
+    emoji = callbackData.slice("reaction_removed:".length);
+  } else if (callbackData.startsWith("reaction:")) {
+    op = "added";
+    emoji = callbackData.slice("reaction:".length);
+  } else {
+    return null;
+  }
+  if (emoji.length === 0) return null;
+  return { op, emoji };
+}
+
+/**
+ * Persist a Slack reaction event as a `messages` row with `slackMeta`
+ * envelope so the renderer can surface it inline in the chronological
+ * transcript. Reactions do not trigger an agent response — the row is
+ * written and the inbound event is linked, but the agent loop is not
+ * dispatched.
+ *
+ * The caller is expected to have run `recordInbound` already so that
+ * deduplication and conversation resolution have happened. Duplicate
+ * inbound events are skipped here to keep persistence idempotent.
+ */
+async function persistSlackReactionAsMessage(params: {
+  conversationId: string;
+  conversationExternalId: string;
+  eventId: string;
+  callbackData: string;
+  actorDisplayName?: string;
+  threadTs?: string;
+  reactedMessageTs: string;
+  duplicate: boolean;
+}): Promise<void> {
+  if (params.duplicate) return;
+
+  const parsed = parseSlackReactionCallbackData(params.callbackData);
+  if (!parsed) {
+    log.debug(
+      { conversationId: params.conversationId, callbackData: params.callbackData },
+      "Skipping reaction persistence: unparseable callbackData",
+    );
+    return;
+  }
+
+  const slackMeta: SlackMessageMetadata = {
+    source: "slack",
+    channelId: params.conversationExternalId,
+    channelTs: params.reactedMessageTs,
+    eventKind: "reaction",
+    ...(params.threadTs ? { threadTs: params.threadTs } : {}),
+    ...(params.actorDisplayName ? { displayName: params.actorDisplayName } : {}),
+    reaction: {
+      emoji: parsed.emoji,
+      targetChannelTs: params.reactedMessageTs,
+      op: parsed.op,
+      ...(params.actorDisplayName
+        ? { actorDisplayName: params.actorDisplayName }
+        : {}),
+    },
+  };
+
+  // Sentinel content — renderers (PR 18) read `slackMeta` to format the
+  // reaction line; the literal text is never displayed to the model.
+  const persisted = await addMessage(
+    params.conversationId,
+    "user",
+    "[reaction]",
+    { slackMeta: writeSlackMetadata(slackMeta) },
+  );
+  deliveryCrud.linkMessage(params.eventId, persisted.id);
+  deliveryStatus.markProcessed(params.eventId);
 }
