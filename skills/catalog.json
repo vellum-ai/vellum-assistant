@@ -412,6 +412,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "slack",
+      "name": "slack",
+      "description": "Read, send, and manage Slack messages via the Web API",
+      "metadata": {
+        "emoji": "💬",
+        "vellum": {
+          "display-name": "Slack"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
       "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and identity verification",
