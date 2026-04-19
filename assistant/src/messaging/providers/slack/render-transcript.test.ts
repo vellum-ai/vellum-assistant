@@ -21,6 +21,7 @@ import {
 
 // Anchor times: 14:25:00 UTC on 2023-11-14 = 1699971900 (Slack ts seconds).
 // We work entirely in UTC because the renderer formats UTC HH:MM.
+const TS_14_24 = "1699971840.000050"; // 14:24 UTC
 const TS_14_25 = "1699971900.000100"; // 14:25 UTC
 const TS_14_26 = "1699971960.000200"; // 14:26 UTC
 const TS_14_28 = "1699972080.000300"; // 14:28 UTC
@@ -696,7 +697,9 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
   // text block.
 
   test("[text, tool_use] assistant row preserves tool_use after tag line", () => {
-    const base: RenderableSlackMessage = {
+    // Assistant tool_use is paired with a follow-up user tool_result so the
+    // PR 4 orphan filter leaves both blocks intact.
+    const assistantRow: RenderableSlackMessage = {
       ...userMsg(TS_14_25, "@assistant", "looking it up", {
         role: "assistant",
       }),
@@ -705,34 +708,46 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
         { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
       ],
     };
-    const out = renderSlackTranscript([base]);
-    expect(out).toEqual([
-      {
-        role: "assistant",
-        content: [
-          { type: "text", text: "[14:25 @assistant]: looking it up" },
-          { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
-        ],
-      },
-    ]);
+    const userRow: RenderableSlackMessage = {
+      ...userMsg(TS_14_26, "@alice", ""),
+      contentBlocks: [
+        { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
+      ],
+    };
+    const out = renderSlackTranscript([assistantRow, userRow]);
+    expect(out[0]).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "[14:25 @assistant]: looking it up" },
+        { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
+      ],
+    });
   });
 
   test("[tool_result] user row emits only tool_result — no tag line", () => {
-    const base: RenderableSlackMessage = {
+    // Pair the user tool_result with a preceding assistant tool_use so the
+    // PR 4 orphan filter leaves the row intact; the assertion still pins
+    // the shape of the user row specifically (no tag line, single block).
+    const assistantRow: RenderableSlackMessage = {
+      ...userMsg(TS_14_24, "@assistant", "", { role: "assistant" }),
+      contentBlocks: [
+        { type: "tool_use", id: "tu_1", name: "search", input: {} },
+      ],
+    };
+    const userRow: RenderableSlackMessage = {
       ...userMsg(TS_14_25, "@alice", ""),
       contentBlocks: [
         { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
       ],
     };
-    const out = renderSlackTranscript([base]);
-    expect(out).toEqual([
-      {
-        role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
-        ],
-      },
-    ]);
+    const out = renderSlackTranscript([assistantRow, userRow]);
+    // Pin the second (user) row's shape — this is what the test is about.
+    expect(out[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "tu_1", content: "result text" },
+      ],
+    });
   });
 
   test("[thinking, text] assistant row preserves thinking before tag line (order preserved)", () => {
@@ -912,6 +927,259 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
       textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
+    ]);
+  });
+});
+
+// ── orphan tool_use / tool_result filter (PR 4) ──────────────────────────────
+
+describe("renderSlackTranscript — orphan tool_use / tool_result filter", () => {
+  // PR 4 adds a final safety pass that strips any tool_use without a
+  // matching tool_result (and vice versa) before returning. Messages that
+  // become empty after filtering are dropped entirely so the caller never
+  // sees `{role, content: []}`.
+
+  test("orphan tool_use is dropped; surrounding tag line survives", () => {
+    // Assistant row has [text, tool_use] but no follower tool_result exists
+    // anywhere in the transcript. The tool_use must be stripped; the tag
+    // line (derived from the text block) stays.
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "looking it up", {
+        role: "assistant",
+      }),
+      contentBlocks: [
+        { type: "text", text: "looking it up" },
+        {
+          type: "tool_use",
+          id: "tu_orphan",
+          name: "search",
+          input: { q: "x" },
+        },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "[14:25 @assistant]: looking it up" },
+        ],
+      },
+    ]);
+  });
+
+  test("orphan tool_result is dropped; other content on the user row survives", () => {
+    // User row with [tool_result (orphan), text]. The orphan tool_result is
+    // stripped and the tag line derived from the text block survives.
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", "follow up"),
+      contentBlocks: [
+        {
+          type: "tool_result",
+          tool_use_id: "tu_missing",
+          content: "stale result",
+        },
+        { type: "text", text: "follow up" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @alice]: follow up" }],
+      },
+    ]);
+  });
+
+  test("fully-paired tool_use/tool_result — both preserved", () => {
+    const assistantRow: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "running op", { role: "assistant" }),
+      contentBlocks: [
+        { type: "text", text: "running op" },
+        { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
+      ],
+    };
+    const userRow: RenderableSlackMessage = {
+      ...userMsg(TS_14_26, "@alice", ""),
+      contentBlocks: [
+        {
+          type: "tool_result",
+          tool_use_id: "tu_paired",
+          content: "ok",
+        },
+      ],
+    };
+    const out = renderSlackTranscript([assistantRow, userRow]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "[14:25 @assistant]: running op" },
+          { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_paired", content: "ok" },
+        ],
+      },
+    ]);
+  });
+
+  test("message that becomes empty after filtering is dropped entirely", () => {
+    // Pure tool-only user row whose tool_result has no matching tool_use.
+    // After filtering the row is empty and must NOT be emitted as
+    // `{role, content: []}` — it must be dropped so downstream consumers
+    // never see an empty-content message.
+    const orphanResultRow: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@alice", ""),
+      contentBlocks: [
+        {
+          type: "tool_result",
+          tool_use_id: "tu_missing",
+          content: "stale",
+        },
+      ],
+    };
+    // A normal neighbour row to confirm we don't accidentally drop it too.
+    const neighbour: RenderableSlackMessage = userMsg(
+      TS_14_26,
+      "@bob",
+      "hi",
+    );
+    const out = renderSlackTranscript([orphanResultRow, neighbour]);
+    expect(out).toEqual([textMsg("user", "[14:26 @bob]: hi")]);
+    // Sanity: the output contains no {role, content: []} placeholder.
+    for (const m of out) {
+      expect(m.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("filter is idempotent: re-rendering the same input yields the same output", () => {
+    // The function signature is `renderSlackTranscript(RenderableSlackMessage[])
+    // -> Message[]`. Idempotence here means: rendering the same input twice
+    // produces the same output. A mixed fixture exercises the paired path,
+    // the orphan-tool_use drop path, and the orphan-tool_result drop path
+    // in a single run.
+    const fixture: RenderableSlackMessage[] = [
+      // Paired tool call.
+      {
+        ...userMsg(TS_14_25, "@assistant", "running op", { role: "assistant" }),
+        contentBlocks: [
+          { type: "text", text: "running op" },
+          { type: "tool_use", id: "tu_paired", name: "op", input: {} },
+        ],
+      },
+      {
+        ...userMsg(TS_14_26, "@alice", ""),
+        contentBlocks: [
+          { type: "tool_result", tool_use_id: "tu_paired", content: "ok" },
+        ],
+      },
+      // Orphan tool_use on the assistant side.
+      {
+        ...userMsg(TS_14_28, "@assistant", "looking", { role: "assistant" }),
+        contentBlocks: [
+          { type: "text", text: "looking" },
+          { type: "tool_use", id: "tu_orphan", name: "op", input: {} },
+        ],
+      },
+      // Orphan tool_result on the user side.
+      {
+        ...userMsg(TS_14_30, "@alice", "stray"),
+        contentBlocks: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_missing",
+            content: "stale",
+          },
+          { type: "text", text: "stray" },
+        ],
+      },
+    ];
+    const a = renderSlackTranscript(fixture);
+    const b = renderSlackTranscript(fixture);
+    expect(a).toEqual(b);
+
+    // And confirm the expected shape explicitly so the idempotence claim is
+    // grounded in the actual filter behaviour (paired kept, orphans stripped).
+    expect(a).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "[14:25 @assistant]: running op" },
+          { type: "tool_use", id: "tu_paired", name: "op", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_paired", content: "ok" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[14:28 @assistant]: looking" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:30 @alice]: stray" }],
+      },
+    ]);
+  });
+
+  test("filter does not touch thinking, image, file, or text blocks", () => {
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, "@assistant", "here you go", { role: "assistant" }),
+      contentBlocks: [
+        { type: "thinking", thinking: "ponder", signature: "sig" },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "b64==",
+          },
+        },
+        {
+          type: "file",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: "pdfbase64==",
+            filename: "doc.pdf",
+          },
+        },
+        { type: "text", text: "here you go" },
+      ],
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "ponder", signature: "sig" },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "b64==",
+            },
+          },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "pdfbase64==",
+              filename: "doc.pdf",
+            },
+          },
+          { type: "text", text: "[14:25 @assistant]: here you go" },
+        ],
+      },
     ]);
   });
 });

@@ -3445,6 +3445,9 @@ describe("assembleSlackChronologicalMessages", () => {
     // PR 3 preserves replayable content blocks (tool_use, tool_result,
     // thinking, etc.) alongside the tag line. A row persisted with
     // `[text, tool_use]` now renders as `[{type:text, tag-line}, {type:tool_use}]`.
+    //
+    // The assistant tool_use is paired with a follow-up user tool_result so
+    // the PR 4 orphan-pair filter leaves both blocks intact.
     const userMeta: SlackMessageMetadata = {
       source: "slack",
       channelId: DM_CHANNEL_ID,
@@ -3461,6 +3464,9 @@ describe("assembleSlackChronologicalMessages", () => {
         input: { q: "weather" },
       },
     ]);
+    const toolResultRowContent = JSON.stringify([
+      { type: "tool_result", tool_use_id: "tu_1", content: "72F sunny" },
+    ]);
     const rows: SlackTranscriptInputRow[] = [
       row("user", "what's the weather?", MS_14_25, metadataEnvelope(userMeta)),
       {
@@ -3469,28 +3475,30 @@ describe("assembleSlackChronologicalMessages", () => {
         createdAt: MS_14_26,
         metadata: metadataEnvelope(null),
       },
-    ];
-    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
-    expect(result).toEqual([
       {
         role: "user",
-        content: [
-          { type: "text", text: "[14:25 @alice]: what's the weather?" },
-        ],
+        content: toolResultRowContent,
+        createdAt: MS_14_28,
+        metadata: metadataEnvelope(null),
       },
-      {
-        role: "assistant",
-        content: [
-          { type: "text", text: "[14:26 @assistant]: looking it up" },
-          {
-            type: "tool_use",
-            id: "tu_1",
-            name: "search",
-            input: { q: "weather" },
-          },
-        ],
-      },
-    ]);
+    ];
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    const rendered = result!;
+    // Pin the assistant row shape — that is what this test is about.
+    expect(rendered.length).toBeGreaterThanOrEqual(2);
+    expect(rendered[1]!).toEqual({
+      role: "assistant",
+      content: [
+        { type: "text", text: "[14:26 @assistant]: looking it up" },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "search",
+          input: { q: "weather" },
+        },
+      ],
+    });
   });
 
   test("post-reconciliation: assistant rows with channelTs participate in thread tagging", () => {

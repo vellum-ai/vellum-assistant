@@ -313,6 +313,45 @@ export function renderSlackTranscript(
     });
   }
 
+  return filterOrphanToolPairs(out);
+}
+
+/**
+ * Final safety pass that drops unpaired `tool_use` / `tool_result` blocks.
+ *
+ * Anthropic's API requires every `tool_use` in an assistant turn to be
+ * matched by a `tool_result` in the following user turn (and vice versa).
+ * In normal operation `renderSlackTranscript` emits fully-paired turns
+ * because the persisted transcript reflects completed tool exchanges, but
+ * edge cases (mid-turn compaction, partial failures, a race between
+ * tool_use persistence and tool_result persistence) can leave an orphan in
+ * the rendered output. Sending an orphan to the provider hard-fails the
+ * entire request, so we defensively prune any unpaired block here.
+ *
+ * A message that becomes empty after filtering (e.g. an assistant row that
+ * carried only an orphaned `tool_use`) is dropped entirely rather than
+ * emitted as `{role, content: []}` — empty-content messages are also
+ * rejected by the provider.
+ */
+function filterOrphanToolPairs(messages: Message[]): Message[] {
+  const produced = new Set<string>();
+  const consumed = new Set<string>();
+  for (const msg of messages) {
+    for (const b of msg.content) {
+      if (b.type === "tool_use") produced.add(b.id);
+      else if (b.type === "tool_result") consumed.add(b.tool_use_id);
+    }
+  }
+  const out: Message[] = [];
+  for (const msg of messages) {
+    const kept: ContentBlock[] = [];
+    for (const b of msg.content) {
+      if (b.type === "tool_use" && !consumed.has(b.id)) continue;
+      if (b.type === "tool_result" && !produced.has(b.tool_use_id)) continue;
+      kept.push(b);
+    }
+    if (kept.length > 0) out.push({ role: msg.role, content: kept });
+  }
   return out;
 }
 
