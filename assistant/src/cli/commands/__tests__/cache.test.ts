@@ -360,6 +360,28 @@ describe("TTL parsing", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --ttl");
   });
+
+  test("rejects empty string TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", ""]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("--json outputs error on empty string TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "set",
+      "--ttl",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('Invalid --ttl value ""');
+  });
 });
 
 // ---------------------------------------------------------------------------
