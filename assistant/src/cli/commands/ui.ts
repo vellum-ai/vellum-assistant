@@ -151,15 +151,24 @@ function readPayload(payloadFlag?: string): Record<string, unknown> {
 
 /**
  * Action IDs reserved for internal surface lifecycle events. These IDs
- * are intercepted by `handleSurfaceAction` in conversation-surfaces.ts
- * as non-terminal events (early return without resolving the pending
- * `ui_request`). If a caller defines one of these as a custom button ID,
- * clicking it would silently return early without resolving.
+ * have special behavior in `handleSurfaceAction` (conversation-surfaces.ts)
+ * and must not be used as custom button IDs:
+ *
+ * - `selection_changed`, `content_changed`, `state_update` — Intercepted
+ *   as non-terminal events (early return without resolving the pending
+ *   `ui_request`). Using one as a button ID would silently swallow the click.
+ *
+ * - `cancel`, `dismiss` — Treated as cancellation signals, resolving the
+ *   `ui_request` with `status: "cancelled"` instead of the expected
+ *   `status: "submitted"`. A caller expecting submission semantics would
+ *   get the wrong status.
  */
 export const RESERVED_ACTION_IDS = new Set([
   "selection_changed",
   "content_changed",
   "state_update",
+  "cancel",
+  "dismiss",
 ]);
 
 /** Valid variant values for action buttons. */
