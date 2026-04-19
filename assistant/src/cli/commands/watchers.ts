@@ -37,16 +37,57 @@ interface WatcherEvent {
 // -- Registration -------------------------------------------------------------
 
 export function registerWatchersCommand(program: Command): void {
-  const watchers = program.command("watchers").description("Manage watchers");
+  const watchers = program
+    .command("watchers")
+    .description("Manage polling watchers that monitor external services");
+
+  watchers.addHelpText(
+    "after",
+    `
+Watchers poll external services (Gmail, Google Calendar, GitHub, Linear,
+Outlook) on a configurable interval and process detected events via an
+action prompt sent to a background conversation. Each watcher targets a
+single provider and is identified by a UUID returned at creation time.
+
+Watchers can be paused/resumed with --enabled/--disabled on update, and
+recent activity is available via the digest subcommand.
+
+Examples:
+  $ assistant watchers create --name "My Gmail" --provider gmail --action-prompt "Summarize new emails"
+  $ assistant watchers list
+  $ assistant watchers list --id <watcherId>
+  $ assistant watchers digest --hours 8`,
+  );
 
   // ── list ────────────────────────────────────────────────────────────
 
   watchers
     .command("list")
     .description("List all watchers or show details for a specific watcher")
-    .option("--id <watcherId>", "Show details for a specific watcher")
+    .option(
+      "--id <watcherId>",
+      "Show details for a specific watcher — run 'assistant watchers list' to find IDs",
+    )
     .option("--enabled-only", "Only show enabled watchers")
     .option("--json", "Output result as machine-readable JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  --id <watcherId>   UUID of the watcher to inspect. Omit to list all
+                     watchers. Run 'assistant watchers list' to discover IDs.
+  --enabled-only     Filter to only enabled watchers.
+
+When --id is provided, returns detailed info including the watcher's
+configuration and its most recent events. Without --id, returns a
+summary table of all watchers.
+
+Examples:
+  $ assistant watchers list
+  $ assistant watchers list --enabled-only
+  $ assistant watchers list --id abc123-def4-5678-abcd-ef1234567890
+  $ assistant watchers list --json`,
+    )
     .action(
       async (opts: { id?: string; enabledOnly?: boolean; json?: boolean }) => {
         const params: Record<string, unknown> = {};
@@ -122,12 +163,42 @@ export function registerWatchersCommand(program: Command): void {
     .command("create")
     .description("Create a new watcher")
     .requiredOption("--name <name>", "Watcher name")
-    .requiredOption("--provider <provider>", "Provider ID")
+    .requiredOption(
+      "--provider <provider>",
+      "Provider ID (gmail, google-calendar, github, linear, outlook, outlook-calendar)",
+    )
     .requiredOption("--action-prompt <prompt>", "Action prompt for the watcher")
-    .option("--poll-interval <ms>", "Poll interval in milliseconds", parseInt)
+    .option(
+      "--poll-interval <ms>",
+      "Poll interval in milliseconds (default: 60000, min: 15000)",
+      parseInt,
+    )
     .option("--config <json>", "Provider-specific config as JSON string")
     .option("--credential-service <service>", "Credential service override")
     .option("--json", "Output result as machine-readable JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  --name <name>                Human-readable label (e.g. "Work Gmail")
+  --provider <provider>        Service to poll: gmail, google-calendar, github,
+                               linear, outlook, outlook-calendar
+  --action-prompt <prompt>     LLM instructions for processing detected events.
+                               Sent with event data to a background conversation.
+  --poll-interval <ms>         Milliseconds between polls. Default 60000 (1 min),
+                               minimum 15000 (15 sec).
+  --config <json>              Provider-specific settings as a JSON string.
+  --credential-service <svc>   Override the default credential service for the
+                               provider. Rarely needed.
+
+The watcher starts polling immediately after creation. Each provider
+requires appropriate OAuth credentials to be configured beforehand.
+
+Examples:
+  $ assistant watchers create --name "My Gmail" --provider gmail --action-prompt "Summarize new emails and notify me if anything is urgent"
+  $ assistant watchers create --name "PR Reviews" --provider github --action-prompt "Notify me of new review requests" --poll-interval 30000
+  $ assistant watchers create --name "Team Linear" --provider linear --action-prompt "Flag high-priority issues" --config '{"teamId":"TEAM-1"}'`,
+    )
     .action(
       async (opts: {
         name: string;
@@ -204,13 +275,29 @@ export function registerWatchersCommand(program: Command): void {
     .option("--action-prompt <prompt>", "New action prompt")
     .option(
       "--poll-interval <ms>",
-      "New poll interval in milliseconds",
+      "New poll interval in milliseconds (min: 15000)",
       parseInt,
     )
     .option("--enabled", "Enable the watcher")
     .option("--disabled", "Disable the watcher")
     .option("--config <json>", "New provider-specific config as JSON string")
     .option("--json", "Output result as machine-readable JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  watcherId              UUID of the watcher to update — run 'assistant
+                         watchers list' to find IDs.
+
+Only the fields you specify are changed; omitted fields keep their
+current values. Use --enabled/--disabled to pause and resume polling
+without deleting the watcher.
+
+Examples:
+  $ assistant watchers update abc123 --action-prompt "Flag urgent emails and ignore newsletters"
+  $ assistant watchers update abc123 --disabled
+  $ assistant watchers update abc123 --enabled --poll-interval 120000`,
+    )
     .action(
       async (
         watcherId: string,
@@ -284,8 +371,23 @@ export function registerWatchersCommand(program: Command): void {
 
   watchers
     .command("delete <watcherId>")
-    .description("Delete a watcher")
+    .description("Delete a watcher and all its event history")
     .option("--json", "Output result as machine-readable JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  watcherId   UUID of the watcher to delete — run 'assistant watchers list'
+              to find IDs.
+
+Permanently removes the watcher and all its stored event history. This
+action is irreversible. Disable the watcher with 'assistant watchers
+update <id> --disabled' if you want to pause it instead.
+
+Examples:
+  $ assistant watchers delete abc123-def4-5678-abcd-ef1234567890
+  $ assistant watchers delete abc123 --json`,
+    )
     .action(async (watcherId: string, opts: { json?: boolean }) => {
       const result = await cliIpcCall<{ deleted: boolean; name: string }>(
         "watcher/delete",
@@ -317,11 +419,33 @@ export function registerWatchersCommand(program: Command): void {
 
   watchers
     .command("digest")
-    .description("Show recent watcher events")
-    .option("--id <watcherId>", "Filter by watcher ID")
+    .description("Show recent watcher events grouped by watcher")
+    .option(
+      "--id <watcherId>",
+      "Filter to a single watcher — run 'assistant watchers list' to find IDs",
+    )
     .option("--hours <n>", "Hours to look back (default: 24)", parseInt)
     .option("--limit <n>", "Maximum events to return (default: 50)", parseInt)
     .option("--json", "Output result as machine-readable JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  --id <watcherId>   UUID of a watcher to filter by. Omit to show events
+                     from all watchers. Run 'assistant watchers list' to
+                     discover IDs.
+  --hours <n>        Lookback window in hours. Defaults to 24.
+  --limit <n>        Maximum number of events returned. Defaults to 50.
+
+Events are grouped by watcher and sorted by creation time (newest first).
+Use this to review what your watchers have detected recently.
+
+Examples:
+  $ assistant watchers digest
+  $ assistant watchers digest --hours 8
+  $ assistant watchers digest --id abc123 --hours 4 --limit 10
+  $ assistant watchers digest --json`,
+    )
     .action(
       async (opts: {
         id?: string;

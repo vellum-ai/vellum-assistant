@@ -38,14 +38,14 @@ assistant watchers create \
   [--credential-service <service>]
 ```
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--name` | Yes | A human-readable name for this watcher (e.g. "My Gmail") |
-| `--provider` | Yes | The provider to poll (see Available Providers below) |
-| `--action-prompt` | Yes | Instructions for the LLM on how to handle detected events |
-| `--poll-interval` | No | How often to poll in milliseconds. Defaults to 60000 (1 minute). Minimum 15000 |
-| `--config` | No | Provider-specific configuration as JSON (e.g. filter criteria) |
-| `--credential-service` | No | Override the credential service to use. Defaults to the provider's required service |
+| Flag                   | Required | Description                                                                         |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `--name`               | Yes      | A human-readable name for this watcher (e.g. "My Gmail")                            |
+| `--provider`           | Yes      | The provider to poll (see Available Providers below)                                |
+| `--action-prompt`      | Yes      | Instructions for the LLM on how to handle detected events                           |
+| `--poll-interval`      | No       | How often to poll in milliseconds. Defaults to 60000 (1 minute). Minimum 15000      |
+| `--config`             | No       | Provider-specific configuration as JSON (e.g. filter criteria)                      |
+| `--credential-service` | No       | Override the credential service to use. Defaults to the provider's required service |
 
 **Example:**
 
@@ -62,10 +62,10 @@ assistant watchers create \
 assistant watchers list [--id <watcherId>] [--enabled-only]
 ```
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--id` | No | Show detailed info for a specific watcher including recent events |
-| `--enabled-only` | No | Only show enabled watchers |
+| Flag             | Required | Description                                                       |
+| ---------------- | -------- | ----------------------------------------------------------------- |
+| `--id`           | No       | Show detailed info for a specific watcher including recent events |
+| `--enabled-only` | No       | Only show enabled watchers                                        |
 
 **Example:**
 
@@ -88,15 +88,15 @@ assistant watchers update <watcherId> \
   [--config <json>]
 ```
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `<watcherId>` | Yes | The ID of the watcher to update (positional argument) |
-| `--name` | No | New name for the watcher |
-| `--action-prompt` | No | New action prompt for event processing |
-| `--poll-interval` | No | New poll interval in milliseconds (minimum 15000) |
-| `--enabled` | No | Enable the watcher |
-| `--disabled` | No | Disable the watcher |
-| `--config` | No | New provider-specific configuration as JSON |
+| Flag              | Required | Description                                           |
+| ----------------- | -------- | ----------------------------------------------------- |
+| `<watcherId>`     | Yes      | The ID of the watcher to update (positional argument) |
+| `--name`          | No       | New name for the watcher                              |
+| `--action-prompt` | No       | New action prompt for event processing                |
+| `--poll-interval` | No       | New poll interval in milliseconds (minimum 15000)     |
+| `--enabled`       | No       | Enable the watcher                                    |
+| `--disabled`      | No       | Disable the watcher                                   |
+| `--config`        | No       | New provider-specific configuration as JSON           |
 
 **Example:**
 
@@ -128,11 +128,11 @@ assistant watchers delete abc123
 assistant watchers digest [--id <watcherId>] [--hours <n>] [--limit <n>]
 ```
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--id` | No | Filter to events from a specific watcher. If omitted, shows events from all watchers |
-| `--hours` | No | How many hours back to look. Defaults to 24 |
-| `--limit` | No | Maximum number of events to return. Defaults to 50 |
+| Flag      | Required | Description                                                                          |
+| --------- | -------- | ------------------------------------------------------------------------------------ |
+| `--id`    | No       | Filter to events from a specific watcher. If omitted, shows events from all watchers |
+| `--hours` | No       | How many hours back to look. Defaults to 24                                          |
+| `--limit` | No       | Maximum number of events to return. Defaults to 50                                   |
 
 **Example:**
 
@@ -146,13 +146,13 @@ assistant watchers digest --id abc123 --hours 8
 
 ## Available Providers
 
-| Provider | Description |
-|----------|-------------|
-| `gmail` | Monitor a Gmail inbox for new emails |
-| `google-calendar` | Monitor Google Calendar for new or updated events |
-| `github` | Monitor GitHub for repository activity |
-| `linear` | Monitor Linear for issue updates |
-| `outlook` | Monitor an Outlook inbox for new emails |
+| Provider           | Description                                        |
+| ------------------ | -------------------------------------------------- |
+| `gmail`            | Monitor a Gmail inbox for new emails               |
+| `google-calendar`  | Monitor Google Calendar for new or updated events  |
+| `github`           | Monitor GitHub for repository activity             |
+| `linear`           | Monitor Linear for issue updates                   |
+| `outlook`          | Monitor an Outlook inbox for new emails            |
 | `outlook-calendar` | Monitor Outlook Calendar for new or updated events |
 
 ## Usage Notes
