@@ -26,6 +26,11 @@ import {
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
+import { getThreadTs } from "../memory/slack-thread-store.js";
+import {
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -761,7 +766,7 @@ export async function handleMessageComplete(
     } as unknown as ContentBlock);
   }
 
-  const assistantChannelMetadata = {
+  const assistantChannelMetadata: Record<string, unknown> = {
     ...provenanceFromTrustContext(deps.ctx.trustContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
@@ -770,6 +775,31 @@ export async function handleMessageComplete(
       deps.turnInterfaceContext.assistantMessageInterface,
     sentAt: state.turnStartedAt,
   };
+
+  // When the assistant is replying through Slack, stamp a `slackMeta`
+  // sub-object so PR 17's transcript-rendering / thread-aware-context
+  // lookup can identify this row's thread without joining tables.
+  // Persistence happens BEFORE the Slack adapter sends the message, so
+  // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
+  // intentionally omitted here. A later PR (PR 21) reconciles `channelTs`
+  // by writing it back once the send response returns.
+  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
+    const channelId = deps.ctx.trustContext?.requesterChatId;
+    if (channelId) {
+      const threadTs = getThreadTs(deps.ctx.conversationId);
+      const partialSlackMeta: Partial<SlackMessageMetadata> = {
+        source: "slack",
+        eventKind: "message",
+        channelId,
+        ...(threadTs ? { threadTs } : {}),
+      };
+      assistantChannelMetadata.slackMeta = writeSlackMetadata(
+        // `channelTs` is filled in by the post-send reconciliation step in a
+        // later PR; cast through the Partial to satisfy the writer's type.
+        partialSlackMeta as SlackMessageMetadata,
+      );
+    }
+  }
   const assistantMsg = await addMessage(
     deps.ctx.conversationId,
     "assistant",
