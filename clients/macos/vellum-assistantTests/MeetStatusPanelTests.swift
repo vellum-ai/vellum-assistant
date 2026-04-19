@@ -155,9 +155,10 @@ final class MeetStatusPanelTests: XCTestCase {
 
     // MARK: - Out-of-order
 
-    /// A `meet.left` arriving while the panel is already idle (e.g. because
-    /// the client reconnected mid-meeting and missed `meet.joining`/
-    /// `meet.joined`) must not throw — and must leave the panel idle.
+    /// A `meet.left` arriving while the panel is already idle must not
+    /// throw — and must leave the panel idle. `meet.left` unambiguously means
+    /// the meeting is over, so there is nothing for the panel to render even
+    /// if we missed the preceding lifecycle events.
     func testLeftBeforeJoinedKeepsPanelIdle() async throws {
         let (vm, continuation) = makeViewModel()
         XCTAssertEqual(vm.state, .idle)
@@ -175,20 +176,33 @@ final class MeetStatusPanelTests: XCTestCase {
         XCTAssertEqual(vm.state, .idle)
     }
 
-    /// A `meet.joined` with no preceding `meet.joining` is stale (likely a
-    /// late event from a previous meeting that the client missed the join
-    /// event for). The state machine should ignore it rather than flip into
-    /// a bogus `.joined` state with a fabricated URL.
-    func testJoinedWithoutJoiningIsIgnored() async throws {
-        let (vm, continuation) = makeViewModel()
+    /// SSE reconnect mid-meeting — the daemon has already published
+    /// `meet.joining` before the client subscribed, so the next `meet.joined`
+    /// arrives with no matching prior state. The panel must still show the
+    /// live meeting (the bot is demonstrably in it), using the meetingId as
+    /// the title fallback until later events populate real data.
+    func testJoinedWithoutJoiningOnReconnectShowsPanel() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_700_777_777)
+        let (vm, continuation) = makeViewModel(fixedNow: fixedNow)
         XCTAssertEqual(vm.state, .idle)
 
         continuation.yield(.meetJoined(
-            MeetJoinedMessage(type: "meet.joined", meetingId: "phantom")
+            MeetJoinedMessage(type: "meet.joined", meetingId: "reconnect-meeting")
         ))
 
-        try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(vm.state, .idle)
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        guard case let .joined(meetingId, title, joinedAt) = vm.state else {
+            return XCTFail("expected .joined state")
+        }
+        XCTAssertEqual(meetingId, "reconnect-meeting")
+        // With no prior `.joining` we fall back to the meetingId as a
+        // placeholder title until a richer event arrives.
+        XCTAssertEqual(title, "reconnect-meeting")
+        XCTAssertEqual(joinedAt, fixedNow)
     }
 
     // MARK: - Error
