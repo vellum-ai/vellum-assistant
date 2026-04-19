@@ -96,7 +96,13 @@ import {
   type InsertMessageFn,
   MeetConversationBridge,
 } from "./conversation-bridge.js";
-import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
+import {
+  DockerRunner,
+  MEET_BOT_LABEL,
+  MEET_BOT_MEETING_ID_LABEL,
+  reapOrphanedMeetBots,
+  type DockerRunResult,
+} from "./docker-runner.js";
 import {
   meetEventDispatcher,
   type MeetEventUnsubscribe,
@@ -437,7 +443,13 @@ export interface MeetSessionManagerDeps {
   /** Factory for the Docker runner — swapped in tests. */
   dockerRunnerFactory?: () => Pick<
     DockerRunner,
-    "run" | "stop" | "remove" | "inspect" | "logs"
+    | "run"
+    | "stop"
+    | "remove"
+    | "inspect"
+    | "logs"
+    | "kill"
+    | "listContainers"
   >;
   /** Override the function that fetches credentials. */
   getProviderKey?: (provider: string) => Promise<string | undefined>;
@@ -544,6 +556,13 @@ export interface MeetSessionManagerDeps {
     hint: string;
     source: string;
   }) => Promise<void>;
+  /**
+   * Disables the one-shot startup orphan-reaper sweep. Only used by unit
+   * tests that don't want a background reaper call polluting docker-client
+   * mocks. Production and integration paths leave this as the default
+   * (sweep enabled).
+   */
+  disableStartupOrphanReaper?: boolean;
 }
 
 class MeetSessionManagerImpl {
@@ -603,6 +622,7 @@ class MeetSessionManagerImpl {
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
+      disableStartupOrphanReaper: deps.disableStartupOrphanReaper ?? false,
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -615,6 +635,24 @@ class MeetSessionManagerImpl {
       if (session) return session.botApiToken;
       return this.pendingBotTokens.get(meetingId) ?? null;
     });
+
+    // One-shot startup orphan sweep. On a fresh boot no sessions exist, so
+    // the active-id set is empty — any `vellum.meet.bot`-labeled container
+    // still running came from a crashed prior daemon run and must be
+    // reaped. Fire-and-forget so construction stays synchronous; the
+    // reaper logs its own outcome and catches per-container errors so a
+    // transient docker-engine hiccup never tears down the session-manager
+    // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
+    if (!this.deps.disableStartupOrphanReaper) {
+      const reaperDocker = this.deps.dockerRunnerFactory();
+      void reapOrphanedMeetBots({
+        docker: reaperDocker,
+        activeMeetingIds: new Set<string>(),
+        logger: log,
+      }).catch((err: unknown) => {
+        log.warn({ err }, "Startup orphan-reaper sweep threw — continuing");
+      });
+    }
   }
 
   /** Reset internal state. Tests only. */
@@ -864,6 +902,13 @@ class MeetSessionManagerImpl {
         ],
         name: `vellum-meet-${meetingId}`,
         network: meet.dockerNetwork,
+        // Labels consumed by the orphan reaper on the next daemon boot.
+        // See {@link reapOrphanedMeetBots} in `docker-runner.ts` for the
+        // full label scheme + reaper contract.
+        labels: {
+          [MEET_BOT_LABEL]: "true",
+          [MEET_BOT_MEETING_ID_LABEL]: meetingId,
+        },
       });
     } catch (err) {
       log.error(
@@ -1699,7 +1744,15 @@ export const MeetSessionManager = new MeetSessionManagerImpl();
 export function _createMeetSessionManagerForTests(
   deps?: MeetSessionManagerDeps,
 ): MeetSessionManagerImpl {
-  return new MeetSessionManagerImpl(deps);
+  // Default to disabling the startup orphan-reaper sweep in tests — most
+  // tests supply a narrow mock runner that only implements the
+  // `run`/`stop`/`remove`/`inspect`/`logs` surface used by the
+  // join/leave path. Tests that want to exercise the reaper can override
+  // by passing `disableStartupOrphanReaper: false`.
+  return new MeetSessionManagerImpl({
+    disableStartupOrphanReaper: true,
+    ...deps,
+  });
 }
 
 // ---------------------------------------------------------------------------

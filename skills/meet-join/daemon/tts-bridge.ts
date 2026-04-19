@@ -32,10 +32,11 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import type {
+  TtsAlignmentEvent,
   TtsProvider,
   TtsSynthesisRequest,
 } from "../../../assistant/src/tts/types.js";
@@ -64,11 +65,98 @@ export const BOT_AUDIO_ENCODING = "pcm_s16le";
  */
 export const CANCEL_DELETE_TIMEOUT_MS = 5_000;
 
+// ---------------------------------------------------------------------------
+// Lip-sync tap — viseme channel and amplitude fallback
+// ---------------------------------------------------------------------------
+
 /**
- * ffmpeg arguments that read whatever format the TTS provider emits on
- * stdin and write raw 48 kHz / mono / s16le PCM on stdout. The decoder is
- * format-agnostic (no `-f` on input) so the same pipeline accepts mp3,
- * wav, or raw provider-native PCM without branching.
+ * Window over which the amplitude-envelope fallback computes RMS. Chosen
+ * to match the ~50ms cadence the avatar consumer expects (PR 4 of the
+ * meet-phase-4 plan). 50ms at 48 kHz mono s16le = 2400 samples = 4800 bytes.
+ */
+export const AMPLITUDE_WINDOW_MS = 50;
+
+/** Sample rate used for the amplitude fallback — matches the bot wire format. */
+const AMPLITUDE_SAMPLE_RATE_HZ = BOT_AUDIO_SAMPLE_RATE_HZ;
+
+/** Bytes per sample for the ffmpeg output (s16le mono = 2 bytes per sample). */
+const AMPLITUDE_BYTES_PER_SAMPLE =
+  (BOT_AUDIO_SAMPLE_BITS / 8) * BOT_AUDIO_CHANNELS;
+
+/** Samples per amplitude window. */
+const AMPLITUDE_SAMPLES_PER_WINDOW = Math.floor(
+  (AMPLITUDE_SAMPLE_RATE_HZ * AMPLITUDE_WINDOW_MS) / 1000,
+);
+
+/** Bytes per amplitude window. */
+const AMPLITUDE_BYTES_PER_WINDOW =
+  AMPLITUDE_SAMPLES_PER_WINDOW * AMPLITUDE_BYTES_PER_SAMPLE;
+
+/**
+ * Maximum absolute sample value for 16-bit signed audio — used to normalize
+ * the RMS into a `[0, 1]` weight for downstream blendshape mapping.
+ */
+const AMPLITUDE_MAX_SAMPLE = 32768;
+
+/**
+ * Viseme event emitted from the bridge's `onViseme` channel.
+ *
+ * TODO: import from `skills/meet-join/bot/src/media/avatar/types.ts` once
+ * PR 1 of the meet-phase-4 plan lands on `main`. The shape is identical
+ * to the `VisemeEvent` declared there — duplicated here to unblock this
+ * PR shipping in Wave 1 alongside PR 1.
+ */
+export interface VisemeEvent {
+  /**
+   * Phoneme or viseme label. Provider-backed events pass through whatever
+   * label the provider emitted (e.g. IPA phoneme, ElevenLabs character).
+   * Amplitude-fallback events emit the literal string `"amp"`.
+   */
+  phoneme: string;
+  /** Normalized intensity in the range [0, 1]. */
+  weight: number;
+  /** Milliseconds from the start of the synthesized utterance. */
+  timestamp: number;
+}
+
+/**
+ * Subscriber callback shape for {@link MeetTtsBridge.onViseme}. Called
+ * synchronously from the bridge's event loop — subscribers must not
+ * block (enqueue work, do not await).
+ */
+export type VisemeListener = (event: VisemeEvent) => void;
+
+/** Clamp a numeric weight into `[0, 1]` — tolerates slightly-out-of-range providers. */
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+/**
+ * ffmpeg arguments that read whatever container-wrapped format the TTS
+ * provider emits on stdin and write raw 48 kHz / mono / s16le PCM on
+ * stdout. The decoder is format-agnostic (no `-f` on input) so the same
+ * pipeline accepts mp3, wav, or opus without branching — ffmpeg sniffs
+ * the container and picks the right decoder.
+ *
+ * Why the explicit output `-ar 48000` matters:
+ *
+ *   Provider voices ship at a variety of native sample rates — ElevenLabs
+ *   mp3 at 22.05 kHz or 44.1 kHz, Fish Audio wav at 44.1 kHz, Deepgram
+ *   opus at 48 kHz, etc. The bot's `/play_audio` endpoint feeds its body
+ *   directly into `pacat --playback --rate=48000 --channels=1 --format=s16le`,
+ *   so any rate mismatch would render as chipmunk/slowed audio in the
+ *   meeting. ffmpeg resamples to the output `-ar` (via libswresample), and
+ *   `-ac 1` downmixes to mono so stereo voices don't get interleaved-
+ *   sample-as-time-domain corruption when pacat reads them as mono.
+ *
+ *   Keeping `-ar 48000 -ac 1` on the OUTPUT side (post `-i`) is what makes
+ *   the resample/downmix happen — if these flags were on the input side,
+ *   they would be interpreted as "assume the input is already this rate"
+ *   (useful only for headerless raw PCM), which is exactly the chipmunk
+ *   bug we're guarding against.
  */
 export const FFMPEG_TRANSCODE_ARGS = [
   "-hide_banner",
@@ -221,6 +309,15 @@ export class MeetTtsBridge {
   private readonly deps: Required<MeetTtsBridgeDeps>;
   private readonly streams = new Map<string, ActiveStream>();
   /**
+   * Subscribers to the per-bridge viseme channel. Populated via
+   * {@link MeetTtsBridge.onViseme}. Events from both the provider
+   * alignment path and the RMS-amplitude fallback fan out to every
+   * subscriber. The set is shared across every `speak` call on this
+   * bridge — the lip-sync forwarder subscribes once at construction,
+   * not per utterance.
+   */
+  private readonly visemeListeners = new Set<VisemeListener>();
+  /**
    * Memoized `ffmpeg -version` probe. Cached after the first `speak` call so
    * subsequent speaks re-use the result without re-spawning ffmpeg. Resolves
    * with `{ available: true }` when ffmpeg is on PATH and exits (regardless
@@ -344,6 +441,22 @@ export class MeetTtsBridge {
       );
     });
 
+    // --- Decide which lip-sync tap to install ------------------------------
+    //
+    // Providers that advertise `capabilities.alignment === true` route their
+    // alignment events through an `onAlignment` callback; we emit those
+    // directly as viseme events. Providers without alignment fall back to
+    // an RMS-amplitude extractor running over the ffmpeg-normalized PCM
+    // stdout stream (guaranteed 48 kHz / mono / s16le, so a simple
+    // byte-windowed RMS is accurate regardless of the provider's native
+    // output format). The amplitude fallback only runs when there is at
+    // least one viseme subscriber — otherwise we skip the extra work.
+    const providerSupportsAlignment =
+      provider.capabilities.alignment === true;
+    const hasVisemeSubscribers = this.visemeListeners.size > 0;
+    const useAmplitudeFallback =
+      !providerSupportsAlignment && hasVisemeSubscribers;
+
     // --- Drive the provider's streaming synthesis into ffmpeg stdin --------
     //
     // We kick off synthesis concurrently with the HTTP POST so the bot
@@ -356,19 +469,33 @@ export class MeetTtsBridge {
       voiceId: input.voice,
       signal: abort.signal,
     };
-    const synthesisPromise = provider
-      .synthesizeStream(synthesisRequest, (chunk) => {
-        if (abort.signal.aborted) return;
-        try {
-          ffmpeg.stdin.write(Buffer.from(chunk));
-        } catch (err) {
-          log.warn(
-            { err, meetingId: this.meetingId, streamId },
-            "ffmpeg stdin write threw — aborting stream",
-          );
-          abort.abort(err);
+    const onAlignment = providerSupportsAlignment && hasVisemeSubscribers
+      ? (event: TtsAlignmentEvent) => {
+          if (abort.signal.aborted) return;
+          this.emitVisemeEvent({
+            phoneme: event.phoneme,
+            weight: clamp01(event.weight),
+            timestamp: event.timestamp,
+          });
         }
-      })
+      : undefined;
+    const synthesisPromise = provider
+      .synthesizeStream(
+        synthesisRequest,
+        (chunk) => {
+          if (abort.signal.aborted) return;
+          try {
+            ffmpeg.stdin.write(Buffer.from(chunk));
+          } catch (err) {
+            log.warn(
+              { err, meetingId: this.meetingId, streamId },
+              "ffmpeg stdin write threw — aborting stream",
+            );
+            abort.abort(err);
+          }
+        },
+        onAlignment,
+      )
       .catch((err) => {
         if (!abort.signal.aborted) {
           log.warn(
@@ -392,9 +519,20 @@ export class MeetTtsBridge {
     //
     // Node's undici-backed fetch accepts a `ReadableStream` body; convert
     // the node-stream `ffmpeg.stdout` into a web stream so we can hand it
-    // off to fetch with `duplex: "half"`.
+    // off to fetch with `duplex: "half"`. When the amplitude fallback is
+    // active we splice a PassThrough into the pipeline so we can observe
+    // every PCM byte without buffering the whole stream ourselves — the
+    // tap runs RMS over 50 ms windows and emits viseme events without
+    // delaying the outbound HTTP body.
+    let httpBodySource: NodeJS.ReadableStream = ffmpeg.stdout;
+    if (useAmplitudeFallback) {
+      const tap = new PassThrough();
+      ffmpeg.stdout.pipe(tap);
+      this.attachAmplitudeTap(tap, abort.signal);
+      httpBodySource = tap;
+    }
     const bodyStream = Readable.toWeb(
-      ffmpeg.stdout,
+      httpBodySource as Readable,
     ) as unknown as ReadableStream<Uint8Array>;
 
     const url = `${this.botBaseUrl}/play_audio?stream_id=${encodeURIComponent(streamId)}`;
@@ -481,9 +619,116 @@ export class MeetTtsBridge {
     await Promise.allSettled(ids.map((id) => this.cancel(id)));
   }
 
+  /**
+   * Subscribe to per-utterance viseme events. When the active TTS provider
+   * advertises `capabilities.alignment === true`, provider-sourced alignment
+   * events are forwarded unchanged. Otherwise, an RMS-amplitude extractor
+   * runs over the ffmpeg-normalized PCM stream and emits fallback events of
+   * the shape `{ phoneme: "amp", weight, timestamp }`.
+   *
+   * Returns an unsubscribe function. Subscribers added before a `speak`
+   * call starts receive events from that call; subscribers added after a
+   * call has started are ignored by that specific in-flight call's tap
+   * (the tap is installed once at the top of `speak`) but will pick up
+   * the next call.
+   *
+   * Subscriber callbacks are invoked synchronously on the bridge's event
+   * loop — they must not block or await.
+   */
+  onViseme(listener: VisemeListener): () => void {
+    this.visemeListeners.add(listener);
+    return () => {
+      this.visemeListeners.delete(listener);
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  /**
+   * Fan out a viseme event to every subscriber. Errors from individual
+   * subscribers are logged and swallowed — a misbehaving consumer must
+   * not tear down the TTS stream.
+   */
+  private emitVisemeEvent(event: VisemeEvent): void {
+    for (const listener of this.visemeListeners) {
+      try {
+        listener(event);
+      } catch (err) {
+        log.warn(
+          { err, meetingId: this.meetingId, phoneme: event.phoneme },
+          "onViseme subscriber threw — dropping event",
+        );
+      }
+    }
+  }
+
+  /**
+   * Wire an amplitude-envelope extractor over a PCM stream. The stream is
+   * expected to be `s16le` mono at {@link BOT_AUDIO_SAMPLE_RATE_HZ}, matching
+   * the ffmpeg transcode pipeline's stdout. For every 50 ms window of bytes
+   * the tap computes a normalized RMS and emits a `{ phoneme: "amp", ... }`
+   * viseme event with the window's start timestamp (milliseconds from the
+   * beginning of this utterance).
+   *
+   * The tap tolerates any amount of trailing bytes that don't fill a full
+   * window — leftover audio under 50 ms just doesn't emit a final event,
+   * which keeps the calculation self-consistent and spares consumers a
+   * ragged-edge weight.
+   */
+  private attachAmplitudeTap(
+    stream: NodeJS.ReadableStream,
+    signal: AbortSignal,
+  ): void {
+    let totalBytesConsumed = 0;
+    let windowBuffer = Buffer.alloc(0);
+
+    const flushWindow = (): void => {
+      while (windowBuffer.length >= AMPLITUDE_BYTES_PER_WINDOW) {
+        const windowBytes = windowBuffer.subarray(
+          0,
+          AMPLITUDE_BYTES_PER_WINDOW,
+        );
+        const windowStartByte = totalBytesConsumed;
+        totalBytesConsumed += AMPLITUDE_BYTES_PER_WINDOW;
+        windowBuffer = windowBuffer.subarray(AMPLITUDE_BYTES_PER_WINDOW);
+
+        // Timestamp is the wall-of-bytes offset at the start of this window,
+        // converted to ms. 2 bytes/sample × 48 samples/ms = 96 bytes/ms.
+        const timestamp = Math.round(
+          windowStartByte /
+            (AMPLITUDE_BYTES_PER_SAMPLE * (AMPLITUDE_SAMPLE_RATE_HZ / 1000)),
+        );
+
+        let sumOfSquares = 0;
+        for (let i = 0; i < windowBytes.length; i += 2) {
+          const sample = windowBytes.readInt16LE(i);
+          sumOfSquares += sample * sample;
+        }
+        const rms = Math.sqrt(sumOfSquares / AMPLITUDE_SAMPLES_PER_WINDOW);
+        const weight = clamp01(rms / AMPLITUDE_MAX_SAMPLE);
+
+        this.emitVisemeEvent({ phoneme: "amp", weight, timestamp });
+      }
+    };
+
+    stream.on("data", (chunk: Buffer) => {
+      if (signal.aborted) return;
+      windowBuffer =
+        windowBuffer.length === 0
+          ? Buffer.from(chunk)
+          : Buffer.concat([windowBuffer, chunk]);
+      try {
+        flushWindow();
+      } catch (err) {
+        log.warn(
+          { err, meetingId: this.meetingId },
+          "amplitude tap window flush threw — suppressing",
+        );
+      }
+    });
+  }
 
   private async runPost(args: {
     url: string;

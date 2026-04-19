@@ -314,7 +314,10 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // most likely failure mode is Meet's chat DOM drifting out from under our
   // selectors.
   try {
-    await postConsentMessage(consentMessage);
+    await postConsentMessage(consentMessage, {
+      onEvent,
+      window: opts.window ?? (doc.defaultView ?? globalThis),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     onEvent({

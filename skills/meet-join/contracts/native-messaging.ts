@@ -150,6 +150,32 @@ export type ExtensionTrustedClickMessage = z.infer<
 >;
 
 /**
+ * Ask the bot to type text into the currently-focused input field via
+ * `xdotool type` inside the bot container. This is the keyboard-input
+ * analogue of {@link ExtensionTrustedClickMessageSchema}: Google Meet may
+ * gate composer input events on `event.isTrusted === true` in addition to
+ * the prejoin admission button, and synthetic `InputEvent`s dispatched from
+ * a content script cannot produce trusted events — only X-server-originated
+ * keystrokes carry that flag.
+ *
+ * The bot performs NO coordinate math and NO element targeting: the
+ * extension is responsible for focusing the correct element (e.g. by
+ * calling `.focus()` on the composer textarea) **before** emitting this
+ * message. The bot simply invokes `xdotool type` against whatever is
+ * currently focused on the Xvfb display.
+ */
+export const ExtensionTrustedTypeMessageSchema = z.object({
+  type: z.literal("trusted_type"),
+  /** Text to type via `xdotool type`. Length-capped to Meet's 2000-char chat limit. */
+  text: z.string().min(1).max(2000),
+  /** Optional per-keystroke delay (ms), passed as `xdotool --delay`. */
+  delayMs: z.number().int().min(0).max(500).optional(),
+});
+export type ExtensionTrustedTypeMessage = z.infer<
+  typeof ExtensionTrustedTypeMessageSchema
+>;
+
+/**
  * Result of a prior `send_chat` command, correlated by `requestId`.
  *
  * `ok: false` payloads should set `error` to a human-readable string so the
@@ -181,6 +207,7 @@ export const ExtensionToBotMessageSchema = z.discriminatedUnion("type", [
   ExtensionInboundChatMessageSchema,
   ExtensionDiagnosticMessageSchema,
   ExtensionTrustedClickMessageSchema,
+  ExtensionTrustedTypeMessageSchema,
   ExtensionSendChatResultMessageSchema,
 ]);
 export type ExtensionToBotMessage = z.infer<typeof ExtensionToBotMessageSchema>;
@@ -194,6 +221,7 @@ export const EXTENSION_TO_BOT_MESSAGE_TYPES = [
   "chat.inbound",
   "diagnostic",
   "trusted_click",
+  "trusted_type",
   "send_chat_result",
 ] as const;
 
