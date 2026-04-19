@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 
+import type { Message } from "../../../providers/types.js";
 import type { SlackMessageMetadata } from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
@@ -34,11 +35,6 @@ export interface RenderOptions {
   now?: Date;
   /** Cap rendered reactions per parent message; default 5. */
   maxReactionsPerMessage?: number;
-}
-
-interface RenderedMessage {
-  role: "user" | "assistant";
-  content: string;
 }
 
 const DEFAULT_MAX_REACTIONS = 5;
@@ -154,7 +150,7 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
 export function renderSlackTranscript(
   messages: RenderableSlackMessage[],
   opts?: RenderOptions,
-): RenderedMessage[] {
+): Message[] {
   if (messages.length === 0) return [];
 
   const maxReactions = Math.max(
@@ -180,7 +176,7 @@ export function renderSlackTranscript(
     { excess: number; role: "user" | "assistant" }
   >();
 
-  const out: RenderedMessage[] = [];
+  const out: Message[] = [];
   for (const m of sorted) {
     const meta = m.metadata;
     if (meta?.eventKind === "reaction" && meta.reaction) {
@@ -189,7 +185,12 @@ export function renderSlackTranscript(
       if (seen < maxReactions) {
         reactionCount.set(target, seen + 1);
         const line = renderReaction(m);
-        if (line !== null) out.push({ role: m.role, content: line });
+        if (line !== null) {
+          out.push({
+            role: m.role,
+            content: [{ type: "text" as const, text: line }],
+          });
+        }
       } else {
         const acc = overflowAccumulator.get(target) ?? {
           excess: 0,
@@ -200,15 +201,37 @@ export function renderSlackTranscript(
       }
       continue;
     }
-    out.push({ role: m.role, content: renderMessage(m) });
+    out.push({
+      role: m.role,
+      content: [{ type: "text" as const, text: renderMessage(m) }],
+    });
   }
 
   for (const [target, acc] of overflowAccumulator) {
     out.push({
       role: acc.role,
-      content: `[…and ${acc.excess} more reactions to ${parentAlias(target)}]`,
+      content: [
+        {
+          type: "text" as const,
+          text: `[…and ${acc.excess} more reactions to ${parentAlias(target)}]`,
+        },
+      ],
     });
   }
 
   return out;
+}
+
+/**
+ * Extract the first text-block text from each rendered message.
+ *
+ * Used by callers (e.g. the active-thread focus block) that need a flat
+ * `string[]` of rendered tag lines rather than the structured `Message[]`
+ * output. Messages with no text block yield an empty string.
+ */
+export function extractTagLineTexts(rendered: Message[]): string[] {
+  return rendered.map((msg) => {
+    const first = msg.content.find((b) => b.type === "text");
+    return first && first.type === "text" ? first.text : "";
+  });
 }

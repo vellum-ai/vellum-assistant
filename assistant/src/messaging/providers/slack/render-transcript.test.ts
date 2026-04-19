@@ -9,7 +9,9 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { Message } from "../../../providers/types.js";
 import {
+  extractTagLineTexts,
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
@@ -95,6 +97,11 @@ function legacyMsg(
   return { role, content, senderLabel: sender, createdAt, metadata: null };
 }
 
+/** Build an expected `Message` fixture with a single text content block. */
+function textMsg(role: "user" | "assistant", text: string): Message {
+  return { role, content: [{ type: "text", text }] };
+}
+
 // ── basics ───────────────────────────────────────────────────────────────────
 
 describe("renderSlackTranscript — basics", () => {
@@ -104,7 +111,7 @@ describe("renderSlackTranscript — basics", () => {
 
   test("renders top-level message with HH:MM tag", () => {
     const out = renderSlackTranscript([userMsg(TS_14_25, "@alice", "hi")]);
-    expect(out).toEqual([{ role: "user", content: "[14:25 @alice]: hi" }]);
+    expect(out).toEqual([textMsg("user", "[14:25 @alice]: hi")]);
   });
 
   test("renders thread reply with parent alias arrow", () => {
@@ -113,7 +120,7 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      { role: "user", content: `[14:28 @bob → ${alias}]: got it` },
+      textMsg("user", `[14:28 @bob → ${alias}]: got it`),
     ]);
   });
 
@@ -122,10 +129,7 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, "@alice", "hi (revised)", { editedAt: MS_14_30 }),
     ]);
     expect(out).toEqual([
-      {
-        role: "user",
-        content: "[14:25 @alice, edited 14:30]: hi (revised)",
-      },
+      textMsg("user", "[14:25 @alice, edited 14:30]: hi (revised)"),
     ]);
   });
 
@@ -136,9 +140,7 @@ describe("renderSlackTranscript — basics", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "v2", { editedAt: MS_14_32 }),
     ]);
-    expect(out).toEqual([
-      { role: "user", content: "[14:25 @alice, edited 14:32]: v2" },
-    ]);
+    expect(out).toEqual([textMsg("user", "[14:25 @alice, edited 14:32]: v2")]);
   });
 
   test("edited message in a thread renders both arrow and edit suffix", () => {
@@ -150,10 +152,7 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      {
-        role: "user",
-        content: `[14:28 @bob → ${alias}, edited 14:30]: got it (edit)`,
-      },
+      textMsg("user", `[14:28 @bob → ${alias}, edited 14:30]: got it (edit)`),
     ]);
   });
 
@@ -162,7 +161,7 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, "@alice", "(removed)", { deletedAt: MS_14_32 }),
     ]);
     expect(out).toEqual([
-      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+      textMsg("user", "[14:25 @alice — deleted 14:32]"),
     ]);
   });
 
@@ -176,12 +175,13 @@ describe("renderSlackTranscript — basics", () => {
       }),
     ]);
     expect(out).toEqual([
-      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+      textMsg("user", "[14:25 @alice — deleted 14:32]"),
     ]);
+    const text0 = extractTagLineTexts(out)[0];
     // No "edited" suffix should leak through.
-    expect(out[0].content.includes("edited")).toBe(false);
+    expect(text0.includes("edited")).toBe(false);
     // Content body must not appear.
-    expect(out[0].content.includes("edited body")).toBe(false);
+    expect(text0.includes("edited body")).toBe(false);
   });
 
   test("deleted message preserves chronological ordering", () => {
@@ -192,7 +192,7 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_28, "@bob", "(removed)", { deletedAt: MS_14_30 }),
       userMsg(TS_14_30, "@carol", "third"),
     ]);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @alice]: first",
       "[14:28 @bob — deleted 14:30]",
       "[14:30 @carol]: third",
@@ -205,7 +205,7 @@ describe("renderSlackTranscript — basics", () => {
       reactionMsg(TS_14_28, "@bob", "👍", TS_14_25, "added"),
     ]);
     expect(out).toEqual([
-      { role: "user", content: `[14:28 @bob reacted 👍 to ${alias}]` },
+      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
     ]);
   });
 
@@ -215,7 +215,7 @@ describe("renderSlackTranscript — basics", () => {
       reactionMsg(TS_14_28, "@bob", "👍", TS_14_25, "removed"),
     ]);
     expect(out).toEqual([
-      { role: "user", content: `[14:28 @bob removed 👍 from ${alias}]` },
+      textMsg("user", `[14:28 @bob removed 👍 from ${alias}]`),
     ]);
   });
 });
@@ -234,9 +234,9 @@ describe("renderSlackTranscript — edited marker", () => {
       }),
     ]);
     expect(out).toEqual([
-      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+      textMsg("user", "[14:25 @alice — deleted 14:32]"),
     ]);
-    expect(out[0].content.includes("edited")).toBe(false);
+    expect(extractTagLineTexts(out)[0].includes("edited")).toBe(false);
   });
 
   test("reaction rows do not render the edited marker even if metadata has editedAt", () => {
@@ -264,9 +264,9 @@ describe("renderSlackTranscript — edited marker", () => {
     const out = renderSlackTranscript([reaction]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      { role: "user", content: `[14:28 @bob reacted 👍 to ${alias}]` },
+      textMsg("user", `[14:28 @bob reacted 👍 to ${alias}]`),
     ]);
-    expect(out[0].content.includes("edited")).toBe(false);
+    expect(extractTagLineTexts(out)[0].includes("edited")).toBe(false);
   });
 
   test("editedAt of 0 (epoch) still renders as 00:00 marker", () => {
@@ -276,7 +276,7 @@ describe("renderSlackTranscript — edited marker", () => {
       userMsg(TS_14_25, "@alice", "v2", { editedAt: 0 }),
     ]);
     expect(out).toEqual([
-      { role: "user", content: "[14:25 @alice, edited 00:00]: v2" },
+      textMsg("user", "[14:25 @alice, edited 00:00]: v2"),
     ]);
   });
 });
@@ -314,7 +314,9 @@ describe("renderSlackTranscript — reaction cap", () => {
     ];
     const out = renderSlackTranscript(messages);
     expect(out.length).toBe(4);
-    expect(out.some((r) => r.content.includes("more reactions"))).toBe(false);
+    expect(
+      extractTagLineTexts(out).some((t) => t.includes("more reactions")),
+    ).toBe(false);
   });
 
   test("collapses excess reactions into a trailer line", () => {
@@ -331,8 +333,8 @@ describe("renderSlackTranscript — reaction cap", () => {
     const out = renderSlackTranscript(messages);
     // 1 message + 5 rendered reactions + 1 trailer.
     expect(out.length).toBe(7);
-    const trailer = out[out.length - 1];
-    expect(trailer.content).toMatch(/…and 2 more reactions to M[0-9a-f]{6}\]/);
+    const trailer = extractTagLineTexts(out)[out.length - 1];
+    expect(trailer).toMatch(/…and 2 more reactions to M[0-9a-f]{6}\]/);
   });
 
   test("respects custom maxReactionsPerMessage", () => {
@@ -345,7 +347,7 @@ describe("renderSlackTranscript — reaction cap", () => {
     const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
     // 1 msg + 2 reactions + 1 trailer for 1 excess.
     expect(out.length).toBe(4);
-    expect(out[out.length - 1].content).toMatch(
+    expect(extractTagLineTexts(out)[out.length - 1]).toMatch(
       /…and 1 more reactions to M[0-9a-f]{6}\]/,
     );
   });
@@ -364,7 +366,9 @@ describe("renderSlackTranscript — reaction cap", () => {
     const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 5 });
     // 2 messages + 4 reactions, no trailers.
     expect(out.length).toBe(6);
-    expect(out.some((r) => r.content.includes("more reactions"))).toBe(false);
+    expect(
+      extractTagLineTexts(out).some((t) => t.includes("more reactions")),
+    ).toBe(false);
   });
 });
 
@@ -385,7 +389,7 @@ describe("renderSlackTranscript — mixed message + reaction chronology", () => 
       userMsg(TS_14_25, "@alice", "lunch?"),
       userMsg(TS_14_26, "@bob", "yes"),
     ]);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @alice]: lunch?",
       "[14:26 @bob]: yes",
       `[14:28 @carol reacted 👍 to ${aliasParent}]`,
@@ -404,7 +408,7 @@ describe("renderSlackTranscript — mixed message + reaction chronology", () => 
       userMsg(TS_14_28, "@bob", "yes"),
       reactionMsg(TS_14_30, "@carol", "👍", TS_14_25, "removed"),
     ]);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @alice]: lunch?",
       `[14:26 @carol reacted 👍 to ${aliasParent}]`,
       "[14:28 @bob]: yes",
@@ -422,7 +426,7 @@ describe("renderSlackTranscript — sort", () => {
       userMsg(TS_14_25, "@early", "earlier"),
       userMsg(TS_14_28, "@mid", "middle"),
     ]);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @early]: earlier",
       "[14:28 @mid]: middle",
       "[14:30 @late]: later",
@@ -436,7 +440,7 @@ describe("renderSlackTranscript — sort", () => {
       userMsg(sameTs, "@second", "2"),
       userMsg(sameTs, "@third", "3"),
     ]);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @first]: 1",
       "[14:25 @second]: 2",
       "[14:25 @third]: 3",
@@ -471,7 +475,7 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     ];
     const out = renderSlackTranscript(messages);
     const aliceAlias = parentAlias(aliceTopTs);
-    expect(out.map((r) => r.content)).toEqual([
+    expect(extractTagLineTexts(out)).toEqual([
       "[14:25 @alice]: lunch?",
       `[14:26 @bob → ${aliceAlias}]: yes!`,
       `[14:27 @alice → ${aliceAlias}]: 12:30 ok?`,
@@ -489,11 +493,12 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     ];
     const out = renderSlackTranscript(messages);
     const carolAlias = parentAlias(carolTopTs);
+    const texts = extractTagLineTexts(out);
     // The reply tag points at carol's alias; carol's top stays untagged.
-    expect(out[out.length - 1].content).toBe(
+    expect(texts[texts.length - 1]).toBe(
       `[14:28 @ed → ${carolAlias}]: joining now`,
     );
-    expect(out[3].content).toBe("[14:28 @carol]: standup soon");
+    expect(texts[3]).toBe("[14:28 @carol]: standup soon");
   });
 
   test("scenario: reply to the most recent top-level message", () => {
@@ -505,9 +510,8 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     ];
     const out = renderSlackTranscript(messages);
     const carolAlias = parentAlias(carolTopTs);
-    expect(out[out.length - 1].content).toBe(
-      `[14:28 @frank → ${carolAlias}]: +1`,
-    );
+    const texts = extractTagLineTexts(out);
+    expect(texts[texts.length - 1]).toBe(`[14:28 @frank → ${carolAlias}]: +1`);
   });
 
   test("scenario: new top-level message (no threadTs)", () => {
@@ -516,10 +520,9 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg("1699972260.000800", "@gina", "anyone in office?"), // 14:31
     ];
     const out = renderSlackTranscript(messages);
+    const texts = extractTagLineTexts(out);
     // No arrow on the new top-level row.
-    expect(out[out.length - 1].content).toBe(
-      "[14:31 @gina]: anyone in office?",
-    );
+    expect(texts[texts.length - 1]).toBe("[14:31 @gina]: anyone in office?");
   });
 });
 
@@ -539,20 +542,21 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
     const out = renderSlackTranscript(messages);
     const alias = parentAlias(TS_14_25);
 
-    expect(out.map((r) => r.content)).toEqual([
+    const texts = extractTagLineTexts(out);
+    expect(texts).toEqual([
       "[14:25 @alice]: lunch?",
       "[14:26 @dana]: drive-by note",
       `[14:28 @bob → ${alias}]: yes!`,
     ]);
     // Ensure the legacy row has no arrow.
-    expect(out[1].content.includes("→")).toBe(false);
+    expect(texts[1].includes("→")).toBe(false);
   });
 
   test("legacy assistant row carries assistant role", () => {
     const out = renderSlackTranscript([
       legacyMsg(MS_14_25, "@bot", "ack", "assistant"),
     ]);
-    expect(out).toEqual([{ role: "assistant", content: "[14:25 @bot]: ack" }]);
+    expect(out).toEqual([textMsg("assistant", "[14:25 @bot]: ack")]);
   });
 
   test("preserves message role faithfully across mixed inputs", () => {
@@ -592,5 +596,90 @@ describe("renderSlackTranscript — purity", () => {
     const a = renderSlackTranscript(fixture);
     const b = renderSlackTranscript(fixture);
     expect(a).toEqual(b);
+  });
+});
+
+// ── shape: Message[] / content-block structure ───────────────────────────────
+
+describe("renderSlackTranscript — Message[] shape", () => {
+  test("empty input returns an empty array", () => {
+    expect(renderSlackTranscript([])).toEqual([]);
+  });
+
+  test("single text message returns one Message with one text content block", () => {
+    const out = renderSlackTranscript([userMsg(TS_14_25, "@alice", "hi")]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @alice]: hi" }],
+      },
+    ]);
+  });
+
+  test("stable sort: messages with identical channelTs preserve input order", () => {
+    const sameTs = TS_14_25;
+    const out = renderSlackTranscript([
+      userMsg(sameTs, "@first", "1"),
+      userMsg(sameTs, "@second", "2"),
+    ]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @first]: 1" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "[14:25 @second]: 2" }],
+      },
+    ]);
+  });
+});
+
+// ── extractTagLineTexts helper ───────────────────────────────────────────────
+
+describe("extractTagLineTexts", () => {
+  test("returns first text block text per message", () => {
+    const rendered: Message[] = [
+      { role: "user", content: [{ type: "text", text: "line-a" }] },
+      { role: "assistant", content: [{ type: "text", text: "line-b" }] },
+    ];
+    expect(extractTagLineTexts(rendered)).toEqual(["line-a", "line-b"]);
+  });
+
+  test("returns empty string for a message with no text block", () => {
+    const rendered: Message[] = [
+      { role: "user", content: [{ type: "text", text: "only text" }] },
+      // A message whose content has no text block at all (e.g. solely a
+      // tool_use/tool_result). The helper must emit "" rather than throw.
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "noop",
+            input: {},
+          },
+        ],
+      },
+    ];
+    expect(extractTagLineTexts(rendered)).toEqual(["only text", ""]);
+  });
+
+  test("picks the first text block when multiple text blocks are present", () => {
+    const rendered: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "first" },
+          { type: "text", text: "second" },
+        ],
+      },
+    ];
+    expect(extractTagLineTexts(rendered)).toEqual(["first"]);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(extractTagLineTexts([])).toEqual([]);
   });
 });

@@ -18,6 +18,7 @@ import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
+  extractTagLineTexts,
   type RenderableSlackMessage,
   renderSlackTranscript,
 } from "../messaging/providers/slack/render-transcript.js";
@@ -1294,11 +1295,7 @@ export function assembleSlackChronologicalMessages(
     return null;
   }
   const renderable = rows.map(rowToRenderable);
-  const rendered = renderSlackTranscript(renderable);
-  return rendered.map((r) => ({
-    role: r.role,
-    content: [{ type: "text" as const, text: r.content }],
-  }));
+  return renderSlackTranscript(renderable);
 }
 
 /**
@@ -1429,7 +1426,7 @@ function buildActiveThreadBlockFromRenderable(
 
   const rendered = renderSlackTranscript(members);
   if (rendered.length === 0) return null;
-  const lines = rendered.map((r) => r.content).join("\n");
+  const lines = extractTagLineTexts(rendered).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 
