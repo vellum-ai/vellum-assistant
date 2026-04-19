@@ -10,6 +10,7 @@ import {
   normalizeSlackMessageDelete,
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  normalizeSlackReactionRemoved,
   resolveSlackUser,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
@@ -18,6 +19,7 @@ import {
   type SlackMessageDeletedEvent,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
+  type SlackReactionRemovedEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
 
@@ -251,6 +253,22 @@ export class SlackSocketModeClient {
     this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
   }
 
+  /**
+   * Returns true when the gateway has a configured `conversation_id` routing
+   * entry for the given channel — i.e. the bot is subscribed to that channel.
+   *
+   * Used by the reaction filter to admit reactions on any subscribed channel,
+   * not just those in tracked bot threads.
+   */
+  private isChannelSubscribed(channel: string): boolean {
+    for (const entry of this.config.gatewayConfig.routingEntries) {
+      if (entry.type === "conversation_id" && entry.key === channel) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private async connect(): Promise<void> {
     if (!this.running) return;
     if (this.connecting) return;
@@ -352,7 +370,8 @@ export class SlackSocketModeClient {
           | SlackChannelMessageEvent
           | SlackMessageChangedEvent
           | SlackMessageDeletedEvent
-          | SlackReactionAddedEvent;
+          | SlackReactionAddedEvent
+          | SlackReactionRemovedEvent;
         // Interactive payloads are delivered directly as the payload
         type?: string;
         trigger_id?: string;
@@ -483,12 +502,31 @@ export class SlackSocketModeClient {
       !!channelEvent.thread_ts &&
       this.store.hasThread(channelEvent.thread_ts);
 
-    // Only forward reaction_added events on messages in tracked bot threads
-    const reactionEvent = event as SlackReactionAddedEvent;
+    // Forward reaction events on:
+    //   1. messages in tracked bot threads (preserves original behavior), or
+    //   2. messages in any channel the bot is subscribed to (a configured
+    //      conversation_id routing entry, or any DM channel since DMs always
+    //      route to the default assistant).
+    // Both reaction_added and reaction_removed are admitted under the same
+    // filter; the daemon dispatches by callbackData prefix.
+    const reactionEvent = event as
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent;
+    const reactionTargetChannel = reactionEvent.item?.channel;
+    const reactionAdmitChannel =
+      !!reactionTargetChannel &&
+      (reactionTargetChannel.startsWith("D") ||
+        this.isChannelSubscribed(reactionTargetChannel) ||
+        (!!reactionEvent.item?.ts &&
+          this.store.hasThread(reactionEvent.item.ts)));
     const isReactionAdded =
       event.type === "reaction_added" &&
       !!reactionEvent.item?.ts &&
-      this.store.hasThread(reactionEvent.item.ts);
+      reactionAdmitChannel;
+    const isReactionRemoved =
+      event.type === "reaction_removed" &&
+      !!reactionEvent.item?.ts &&
+      reactionAdmitChannel;
 
     // Process app_mention events, DMs, message edits, message deletes, scoped reactions, and replies in active bot threads
     const matchedFilter = isAppMention
@@ -501,9 +539,11 @@ export class SlackSocketModeClient {
             ? "message_deleted"
             : isReactionAdded
               ? "reaction_added"
-              : isActiveThreadReply
-                ? "active_thread_reply"
-                : null;
+              : isReactionRemoved
+                ? "reaction_removed"
+                : isActiveThreadReply
+                  ? "active_thread_reply"
+                  : null;
 
     if (!matchedFilter) {
       log.debug(
@@ -552,6 +592,7 @@ export class SlackSocketModeClient {
       isAppMention,
       isActiveThreadReply,
       isReactionAdded,
+      isReactionRemoved,
       isMessageChanged,
       isMessageDeleted,
       isDm,
@@ -565,11 +606,13 @@ export class SlackSocketModeClient {
       | SlackChannelMessageEvent
       | SlackMessageChangedEvent
       | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent,
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
     eventId: string,
     isAppMention: boolean,
     isActiveThreadReply: boolean,
     isReactionAdded: boolean,
+    isReactionRemoved: boolean,
     isMessageChanged: boolean,
     isMessageDeleted: boolean,
     isDm: boolean,
@@ -578,6 +621,13 @@ export class SlackSocketModeClient {
     if (isReactionAdded) {
       normalized = normalizeSlackReactionAdded(
         event as SlackReactionAddedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
+      );
+    } else if (isReactionRemoved) {
+      normalized = normalizeSlackReactionRemoved(
+        event as SlackReactionRemovedEvent,
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,

@@ -584,6 +584,23 @@ export interface SlackReactionAddedEvent {
 }
 
 /**
+ * Slack `reaction_removed` event shape — same payload as `reaction_added`,
+ * differentiated only by the `type` discriminator.
+ */
+export interface SlackReactionRemovedEvent {
+  type: "reaction_removed";
+  user: string;
+  reaction: string;
+  item: {
+    type: string;
+    channel: string;
+    ts: string;
+  };
+  item_user?: string;
+  event_ts?: string;
+}
+
+/**
  * Normalize a Slack `block_actions` interactive payload into the gateway's
  * canonical inbound event shape, matching Telegram's `callback_query` pattern.
  *
@@ -649,16 +666,15 @@ export function normalizeSlackBlockActions(
 }
 
 /**
- * Normalize a Slack `reaction_added` event into the gateway's canonical
- * inbound event shape. The reaction emoji name is placed in `callbackData`
- * so downstream handlers can process it like a callback action.
- *
- * Returns null if the event is missing required fields or cannot be routed.
+ * Shared normalizer for Slack reaction events. Both `reaction_added` and
+ * `reaction_removed` carry the same payload shape and differ only in the
+ * downstream callback prefix and externalMessageId suffix.
  */
-export function normalizeSlackReactionAdded(
-  event: SlackReactionAddedEvent,
+function normalizeSlackReaction(
+  event: SlackReactionAddedEvent | SlackReactionRemovedEvent,
   eventId: string,
   config: GatewayConfig,
+  op: "added" | "removed",
   botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.user || !event.item?.channel || !event.item?.ts) return null;
@@ -683,7 +699,16 @@ export function normalizeSlackReactionAdded(
   }
   if (isRejection(routing)) return null;
 
-  const callbackData = `reaction:${event.reaction}`;
+  const prefix = op === "added" ? "reaction" : "reaction_removed";
+  const callbackData = `${prefix}:${event.reaction}`;
+  // Include reactor user ID to prevent dedup collisions when multiple
+  // users react with the same emoji on the same message. Append the op
+  // suffix so an add and a subsequent remove of the same emoji by the
+  // same user produce distinct externalMessageIds.
+  const externalMessageId =
+    op === "added"
+      ? `${channel}:${event.item.ts}:${event.reaction}:${event.user}`
+      : `${channel}:${event.item.ts}:${event.reaction}:${event.user}:removed`;
 
   return {
     event: {
@@ -693,9 +718,7 @@ export function normalizeSlackReactionAdded(
       message: {
         content: callbackData,
         conversationExternalId: channel,
-        // Include reactor user ID to prevent dedup collisions when multiple
-        // users react with the same emoji on the same message.
-        externalMessageId: `${channel}:${event.item.ts}:${event.reaction}:${event.user}`,
+        externalMessageId,
         callbackData,
       },
       actor: {
@@ -712,6 +735,40 @@ export function normalizeSlackReactionAdded(
     threadTs: event.item.ts,
     channel,
   };
+}
+
+/**
+ * Normalize a Slack `reaction_added` event into the gateway's canonical
+ * inbound event shape. The reaction emoji name is placed in `callbackData`
+ * (prefixed with `reaction:`) so downstream handlers can process it like a
+ * callback action.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionAdded(
+  event: SlackReactionAddedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  return normalizeSlackReaction(event, eventId, config, "added", botUserId);
+}
+
+/**
+ * Normalize a Slack `reaction_removed` event into the gateway's canonical
+ * inbound event shape. The emoji name is placed in `callbackData` with a
+ * `reaction_removed:` prefix so downstream handlers can distinguish removals
+ * from additions.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionRemoved(
+  event: SlackReactionRemovedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  return normalizeSlackReaction(event, eventId, config, "removed", botUserId);
 }
 
 /**
