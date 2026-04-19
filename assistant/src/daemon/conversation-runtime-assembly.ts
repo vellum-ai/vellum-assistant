@@ -1475,6 +1475,12 @@ export async function applyRuntimeInjections(
 ): Promise<Message[]> {
   const mode = options.mode ?? "full";
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
+  // Slack DMs and channels both assemble context from persisted message
+  // rows now (PR 25 removed the gateway-side `fetchThreadContext` /
+  // `fetchDmContext` helpers that produced `<transport_hints>` entries),
+  // so suppress hint injection for any Slack conversation. Other channels
+  // (telegram, email, etc.) keep the generic hint pipeline.
+  const slackConversation = options.channelCapabilities?.channel === "slack";
   let result = runMessages;
   if (
     slackChannel &&
@@ -1653,15 +1659,15 @@ export async function applyRuntimeInjections(
     }
   }
 
-  // Slack channel conversations build their own chronological transcript
-  // (see `applySlackChannelChronologicalRender` above) and intentionally
-  // do not receive the per-turn `<transport_hints>` block — the rendered
-  // history already covers the active thread, so duplicating it would
-  // confuse the model. Other channels (DMs, telegram, email, etc.) keep
+  // Slack conversations (both channels and DMs) build their own
+  // chronological transcript from persisted messages and intentionally do
+  // not receive the per-turn `<transport_hints>` block — the rendered
+  // history already covers the active thread / DM, so duplicating it
+  // would confuse the model. Other channels (telegram, email, etc.) keep
   // the existing injection.
   if (
     mode === "full" &&
-    !slackChannel &&
+    !slackConversation &&
     options.transportHints &&
     options.transportHints.length > 0
   ) {

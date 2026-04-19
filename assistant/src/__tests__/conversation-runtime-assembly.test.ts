@@ -2518,6 +2518,36 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("<transport_hints>");
   });
 
+  // ── transport_hints suppression for slack DMs ─────────────────────────
+  // PR 25 removed the gateway-side `fetchDmContext` helper that produced
+  // DM hints; defensively suppress on the daemon side too so any stale
+  // hint forwarded from older paths cannot leak into the LLM input.
+  test("slack DM conversations skip <transport_hints> injection", async () => {
+    const slackDmCaps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    };
+
+    const result = await applyRuntimeInjections(
+      [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
+      {
+        channelCapabilities: slackDmCaps,
+        transportHints: ["dm context: ..."],
+      },
+    );
+
+    const allText = result
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("<transport_hints>");
+    expect(allText).not.toContain("dm context");
+  });
+
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
     const result = await applyRuntimeInjections(
