@@ -71,7 +71,9 @@ bash {
 
 Replace `<user_name>` and `<user_description>` with the user's chosen values inside the single quotes. If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
 
-The command outputs a ready-to-click URL. Present it to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
+The command outputs a ready-to-click URL. **Present it as a markdown link** so the full URL renders as a single clickable element — e.g. `[Click here to create your Slack app](URL)`. Do NOT paste the raw URL as plain text — it is too long and will break across lines, preventing the user from clicking it. Tell them: "It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace (Vellum) and click **Create**."
+
+**Important:** Use `JSON.stringify(manifest)` with no extra arguments — do NOT pass indentation (`JSON.stringify(manifest, null, 2)`) as that adds newlines and spaces that bloat the encoded URL.
 
 Wait for the user to confirm they've created the app before proceeding.
 
