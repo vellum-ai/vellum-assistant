@@ -38,13 +38,13 @@ function parseTtl(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   if (!raw.trim()) {
     throw new Error(
-      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "30s", "5m", "2h").`,
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: s, m, or h (e.g. "30s", "5m", "2h").`,
     );
   }
   const match = TTL_PATTERN.exec(raw.trim());
   if (!match) {
     throw new Error(
-      `Invalid --ttl value "${raw}". Expected a number followed by a unit: ms, s, m, or h (e.g. "30s", "5m", "2h").`,
+      `Invalid --ttl value "${raw}". Expected a number followed by a unit: s, m, or h (e.g. "30s", "5m", "2h").`,
     );
   }
   const value = Number(match[1]);
