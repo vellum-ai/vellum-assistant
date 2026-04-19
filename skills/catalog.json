@@ -152,6 +152,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "google-calendar",
+      "name": "google-calendar",
+      "description": "View, create, and manage Google Calendar events and check availability",
+      "metadata": {
+        "emoji": "📅",
+        "vellum": {
+          "display-name": "Google Calendar",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
@@ -296,6 +309,19 @@
         "emoji": "📧",
         "vellum": {
           "display-name": "Outlook",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "outlook-calendar",
+      "name": "outlook-calendar",
+      "description": "View, create, and manage Outlook Calendar events and check availability",
+      "metadata": {
+        "emoji": "📅",
+        "vellum": {
+          "display-name": "Outlook Calendar",
           "user-invocable": "true"
         }
       },
