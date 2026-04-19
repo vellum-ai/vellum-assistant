@@ -32,11 +32,16 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
+import {
+  type SlackMessageMetadata,
+  writeSlackMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
+import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
@@ -210,6 +215,53 @@ function extractTurnInterfaceContext(
   return { userMessageInterface, assistantMessageInterface };
 }
 
+/**
+ * Build the Slack metadata envelope persisted under the `slackMeta` key on a
+ * user message's `metadata` JSON. Returns `null` (do not include the key) when
+ * the turn is not Slack-originated or the channel ingress did not supply
+ * Slack-specific metadata.
+ *
+ * The conversation is the source of truth for the inbound channel for this
+ * turn — `userMessageChannel` is set by `Server.processMessage` from
+ * `transport.channelId`. Guarding on this ensures non-Slack flows (telegram,
+ * voice, etc.) never get a `slackMeta` key even if a stale plumbing field
+ * leaks through.
+ */
+function buildSlackMetaForPersistence(params: {
+  slackInbound: unknown;
+  turnChannel: string | undefined;
+}): string | null {
+  if (params.turnChannel !== "slack") {
+    return null;
+  }
+  const inbound = params.slackInbound;
+  if (
+    inbound === null ||
+    typeof inbound !== "object" ||
+    Array.isArray(inbound)
+  ) {
+    return null;
+  }
+  const candidate = inbound as Partial<SlackInboundMessageMetadata>;
+  if (
+    typeof candidate.channelId !== "string" ||
+    !candidate.channelId ||
+    typeof candidate.channelTs !== "string" ||
+    !candidate.channelTs
+  ) {
+    return null;
+  }
+  const slackMeta: SlackMessageMetadata = {
+    source: "slack",
+    channelId: candidate.channelId,
+    channelTs: candidate.channelTs,
+    eventKind: "message",
+    ...(candidate.threadTs ? { threadTs: candidate.threadTs } : {}),
+    ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
+  };
+  return writeSlackMetadata(slackMeta);
+}
+
 // ── enqueueMessage ───────────────────────────────────────────────────
 
 export function enqueueMessage(
@@ -362,8 +414,22 @@ export async function persistQueuedMessageBody(
       }
     }
 
+    // Strip the transient `slackInbound` carrier key from the persisted
+    // metadata — it's an in-memory plumbing field, not a stored column value.
+    // The caller-supplied metadata may include it (channel ingress threads it
+    // through `Server.processMessage`); we materialize it into the typed
+    // `slackMeta` sub-key below when the turn channel is Slack.
+    const { slackInbound: rawSlackInbound, ...metadataWithoutSlackInbound } =
+      (metadata ?? {}) as Record<string, unknown> & {
+        slackInbound?: SlackInboundMessageMetadata;
+      };
+    const slackMeta = buildSlackMetaForPersistence({
+      slackInbound: rawSlackInbound,
+      turnChannel: turnCtx?.userMessageChannel,
+    });
+
     const mergedMetadata = {
-      ...(metadata ?? {}),
+      ...metadataWithoutSlackInbound,
       ...provenance,
       ...(turnCtx
         ? {
@@ -378,6 +444,7 @@ export async function persistQueuedMessageBody(
           }
         : {}),
       ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
+      ...(slackMeta ? { slackMeta } : {}),
     };
 
     // When displayContent is provided (e.g. original text before recording

@@ -103,6 +103,22 @@ export interface RenderedHistoryContent {
 }
 
 /**
+ * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
+ * through to user-message persistence so the row can be tagged with a
+ * `slackMeta` envelope (consumed by the chronological renderer in later PRs).
+ */
+export interface SlackInboundMessageMetadata {
+  /** Slack channel id (conversation external id) — recorded as `channelId`. */
+  channelId: string;
+  /** Slack `ts` for this message — required so persistence can record `channelTs`. */
+  channelTs: string;
+  /** Parent `thread_ts` when the message lives inside a thread; absent for top-level. */
+  threadTs?: string;
+  /** Resolved sender label (display name preferred, username fallback). */
+  displayName?: string;
+}
+
+/**
  * Optional overrides for conversation creation (e.g. interview mode).
  */
 export interface ConversationCreateOptions {
@@ -141,6 +157,13 @@ export interface ConversationCreateOptions {
    * `resolveCallSiteConfig` instead of the global default.
    */
   callSite?: LLMCallSite;
+  /**
+   * Slack inbound metadata captured at the channel ingress boundary. When
+   * present (and the turn channel resolves to Slack), persistence writes a
+   * `slackMeta` sub-object into the message's `metadata` JSON for the
+   * chronological renderer to consume.
+   */
+  slackInbound?: SlackInboundMessageMetadata;
 }
 
 /**
