@@ -6,7 +6,7 @@ export const FilingConfigSchema = z
       .boolean({ error: "filing.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Whether periodic PKB filing is enabled — processes buffer.md into topic files and reviews knowledge base organization",
+        "Whether periodic Personal Knowledge Base filing is enabled — processes buffer.md into topic files and reviews knowledge base organization",
       ),
     intervalMs: z
       .number({ error: "filing.intervalMs must be a number" })
@@ -36,7 +36,7 @@ export const FilingConfigSchema = z
       ),
   })
   .describe(
-    "Periodic PKB (personal knowledge base) filing — processes the buffer into topic files and maintains knowledge organization",
+    "Periodic Personal Knowledge Base filing — processes the buffer into topic files and maintains knowledge organization",
   )
   .superRefine((config, ctx) => {
     const startNull = config.activeHoursStart == null;
