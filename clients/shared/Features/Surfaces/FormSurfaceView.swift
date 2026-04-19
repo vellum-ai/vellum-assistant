@@ -382,8 +382,19 @@ public struct FormSurfaceView: View {
         }
         for field in allFields {
             switch field.type {
-            case .text, .textarea, .number, .password:
+            case .text, .textarea, .password:
                 values[field.id] = textValues[field.id] ?? ""
+            case .number:
+                let raw = textValues[field.id] ?? ""
+                if raw.isEmpty {
+                    values[field.id] = NSNull()
+                } else if let intVal = Int(raw) {
+                    values[field.id] = intVal
+                } else if let doubleVal = Double(raw) {
+                    values[field.id] = doubleVal
+                } else {
+                    values[field.id] = raw  // fallback: unparseable string passes through
+                }
             case .toggle:
                 values[field.id] = toggleValues[field.id] ?? false
             case .select:
