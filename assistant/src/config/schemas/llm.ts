@@ -198,6 +198,28 @@ const ContextWindowDeepPartialSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// OpenRouter provider-routing preferences
+//
+// OpenRouter's `/v1/chat/completions` and `/v1/messages` endpoints both accept
+// a `provider: { only: [...] }` body field that restricts which upstream
+// providers (Anthropic, Google, etc.) may fulfill a request. Exposed here so
+// users can pin routing via config without touching the wire-format knobs
+// directly. Nested shape keeps room for sibling OpenRouter knobs (`order`,
+// `allow_fallbacks`, …) to be added later without another schema reshape.
+// ---------------------------------------------------------------------------
+
+const OpenRouterOnlyItemSchema = z.string().min(1);
+
+export const OpenRouterSchema = z.object({
+  only: z.array(OpenRouterOnlyItemSchema).default([]),
+});
+export type OpenRouter = z.infer<typeof OpenRouterSchema>;
+
+const OpenRouterDeepPartialSchema = z.object({
+  only: z.array(OpenRouterOnlyItemSchema).optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
@@ -228,6 +250,7 @@ export const LLMConfigBase = z.object({
   temperature: TemperatureSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
+  openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
 });
 export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
 
@@ -246,6 +269,7 @@ export const LLMConfigFragment = z.object({
   temperature: TemperatureSchema.optional(),
   thinking: ThinkingFragmentSchema.optional(),
   contextWindow: ContextWindowDeepPartialSchema.optional(),
+  openrouter: OpenRouterDeepPartialSchema.optional(),
 });
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 

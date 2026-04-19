@@ -127,7 +127,7 @@ describe("ui_request IPC route", () => {
 
   // ── Unknown conversation (resolver throws) ────────────────────────
 
-  test("returns cancelled when resolver throws for unknown conversation", async () => {
+  test("returns cancelled with resolver_error reason when resolver throws for unknown conversation", async () => {
     registerInteractiveUiResolver(async (_req: InteractiveUiRequest) => {
       throw new Error("Unknown conversation: conv-nonexistent");
     });
@@ -141,12 +141,13 @@ describe("ui_request IPC route", () => {
     expect(result.ok).toBe(true);
     expect(result.result).toBeDefined();
     expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("resolver_error");
     expect(result.result!.surfaceId).toBeDefined();
   });
 
   // ── Non-interactive failure (no resolver registered) ──────────────
 
-  test("returns cancelled when no resolver is registered", async () => {
+  test("returns cancelled with no_interactive_surface reason when no resolver is registered", async () => {
     // No resolver registered — resetInteractiveUiResolverForTests()
     // was called in beforeEach, so the module-level resolver is null.
 
@@ -158,6 +159,7 @@ describe("ui_request IPC route", () => {
     expect(result.ok).toBe(true);
     expect(result.result).toBeDefined();
     expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("no_interactive_surface");
     expect(result.result!.surfaceId).toBeDefined();
   });
 
@@ -253,6 +255,77 @@ describe("ui_request IPC route", () => {
     expect(result.error).toBeDefined();
   });
 
+  // ── Reserved action IDs ──────────────────────────────────────────
+
+  test("rejects action with reserved id 'selection_changed'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "selection_changed", label: "Select" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'content_changed'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "content_changed", label: "Change" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'state_update'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "state_update", label: "Update" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'cancel'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "cancel", label: "Cancel" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects action with reserved id 'dismiss'", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [{ id: "dismiss", label: "Dismiss" }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
+  test("rejects when any action in the array uses a reserved id", async () => {
+    const result = await cliIpcCall("ui_request", {
+      ...baseParams(),
+      actions: [
+        { id: "approve", label: "Approve" },
+        { id: "state_update", label: "Bad Action" },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("reserved");
+  });
+
   // ── Optional fields ───────────────────────────────────────────────
 
   test("accepts request with optional title", async () => {
@@ -274,6 +347,128 @@ describe("ui_request IPC route", () => {
     expect(result.result!.status).toBe("submitted");
     expect(result.result!.summary).toBe("Confirm Action");
   });
+
+  // ── Cancellation reason round-trip ────────────────────────────────
+
+  test("round-trips user_dismissed cancellation reason from resolver", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: "mock-surface-dismissed",
+        cancellationReason: "user_dismissed",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams(),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("user_dismissed");
+  });
+
+  test("round-trips conversation_not_found cancellation reason from resolver", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: "mock-surface-not-found",
+        cancellationReason: "conversation_not_found",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: "conv-missing" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("conversation_not_found");
+  });
+
+  test("submitted result does not carry cancellationReason through IPC", async () => {
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "submitted",
+        actionId: "confirm",
+        surfaceId: "mock-surface-submitted",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams(),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("submitted");
+    expect(result.result!.cancellationReason).toBeUndefined();
+  });
+
+  // ── Persisted-but-not-loaded conversation (hydration path) ─────────
+
+  test("succeeds for a valid persisted-but-not-loaded conversation ID", async () => {
+    // Simulates the daemon resolver's Step B: the conversation was
+    // evicted from memory but still exists in persistent storage.
+    // The resolver hydrates it and delegates to the surface lifecycle.
+    const hydratedConversationId = "conv-persisted-not-loaded";
+    registerInteractiveUiResolver(
+      async (req: InteractiveUiRequest): Promise<InteractiveUiResult> => {
+        // Simulate successful hydration: the resolver found the
+        // conversation in storage and reconstituted it.
+        expect(req.conversationId).toBe(hydratedConversationId);
+        return {
+          status: "submitted",
+          actionId: "confirm",
+          surfaceId: `hydrated-surface-${req.conversationId}`,
+        };
+      },
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: hydratedConversationId }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("submitted");
+    expect(result.result!.actionId).toBe("confirm");
+    expect(result.result!.surfaceId).toContain(hydratedConversationId);
+  });
+
+  // ── Truly unknown conversation ID ─────────────────────────────────
+
+  test("returns cancelled with conversation_not_found for truly unknown conversation ID", async () => {
+    // Simulates the daemon resolver when the conversation does not
+    // exist in memory OR in persistent storage — the resolver returns
+    // conversation_not_found without throwing.
+    registerInteractiveUiResolver(
+      async (_req: InteractiveUiRequest): Promise<InteractiveUiResult> => ({
+        status: "cancelled",
+        surfaceId: `ui-resolver-not-found`,
+        cancellationReason: "conversation_not_found",
+      }),
+    );
+
+    const result = await cliIpcCall<InteractiveUiResult>(
+      "ui_request",
+      baseParams({ conversationId: "conv-truly-unknown-xyz" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toBeDefined();
+    expect(result.result!.status).toBe("cancelled");
+    expect(result.result!.cancellationReason).toBe("conversation_not_found");
+    expect(result.result!.surfaceId).toBeDefined();
+  });
+
+  // ── Optional fields (continued) ────────────────────────────────────
 
   test("accepts form surfaceType with submittedData", async () => {
     registerInteractiveUiResolver(

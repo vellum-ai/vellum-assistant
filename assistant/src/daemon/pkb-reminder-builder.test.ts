@@ -7,7 +7,7 @@ import { buildPkbReminder } from "./pkb-reminder-builder.js";
 // matching string in conversation-runtime-assembly.ts must change too.
 const ORIGINAL_REMINDER =
   "<system_reminder>" +
-  "\nRead any unread PKB files that might be even partially relevant to this conversation" +
+  "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation" +
   "\nUse `remember` for anything you learn immediately" +
   "\n</system_reminder>";
 
@@ -20,7 +20,7 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(["projects/alpha.md"]);
     const expected =
       "<system_reminder>" +
-      "\nRead any unread PKB files that might be even partially relevant to this conversation." +
+      "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- projects/alpha.md" +
       "\nUse `remember` for anything you learn immediately" +
@@ -40,7 +40,7 @@ describe("buildPkbReminder", () => {
     const out = buildPkbReminder(hints);
     const expected =
       "<system_reminder>" +
-      "\nRead any unread PKB files that might be even partially relevant to this conversation." +
+      "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation." +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- a.md" +
       "\n- sub/b.md" +

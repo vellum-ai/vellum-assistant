@@ -120,17 +120,111 @@
   fi
   ```
 
-  ### Status branching reference
+  ### `--actions` — custom action buttons
 
-  Every `assistant ui` response includes a `status` field. Handle all three terminal states:
+  Use `--actions` to define custom buttons on a `ui request` surface. Each action has an `id`, `label`, and optional `variant` (`"primary"`, `"danger"`, or `"secondary"`). The user's chosen action is returned in `actionId`.
+
+  ```bash
+  # Present a multi-option surface with custom actions
+  RESULT=$(assistant ui request \
+    --payload '{"message":"The staging deploy found 3 failing tests."}' \
+    --title "Deploy decision" \
+    --actions '[
+      {"id":"deploy_anyway","label":"Deploy Anyway","variant":"danger"},
+      {"id":"fix_first","label":"Fix Tests First","variant":"primary"},
+      {"id":"skip","label":"Skip This Deploy","variant":"secondary"}
+    ]' \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  ACTION=$(echo "$RESULT" | jq -r '.actionId')
+
+  if [ "$STATUS" = "submitted" ]; then
+    case "$ACTION" in
+      deploy_anyway)
+        run_deploy --force
+        ;;
+      fix_first)
+        echo "Aborting deploy. Fix the tests and re-run."
+        exit 0
+        ;;
+      skip)
+        echo "Deploy skipped."
+        exit 0
+        ;;
+    esac
+  elif [ "$STATUS" = "cancelled" ]; then
+    REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+    if [ "$REASON" = "user_dismissed" ]; then
+      echo "User dismissed the prompt."
+    else
+      echo "Surface cancelled (reason: $REASON). No action taken."
+    fi
+  else
+    echo "Timed out. No action taken."
+  fi
+  ```
+
+  Reserved action IDs are used internally and are rejected by `--actions` validation. There are two categories:
+
+  - **Lifecycle events** (`selection_changed`, `content_changed`, `state_update`) — non-terminal events that are silently swallowed without resolving the pending request.
+  - **Cancellation triggers** (`cancel`, `dismiss`) — resolve the pending request as `cancelled` (instead of `submitted`).
+
+  ### Status and cancellation reason branching reference
+
+  Both `ui confirm` and `ui request` return a `status` field in `--json` mode. However, the `cancellationReason` field is only available in `ui request --json` output. The `ui confirm` command uses the simpler exit-code pattern (0 = confirmed, 1 = denied/cancelled/timed out) and its `--json` output includes `ok`, `confirmed`, `status`, `actionId`, `surfaceId`, and optional `decisionToken`/`summary` — but not `cancellationReason`.
 
   | Status | Meaning | Typical action |
   |--------|---------|----------------|
-  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | Check `actionId` to determine the action taken — e.g. `"confirm"` or `"deny"` for confirmations. For `ui confirm`, exit code 0 = confirmed, 1 = denied. |
-  | `cancelled` | User dismissed the surface without choosing an action (e.g. closed the dialog) | Abort gracefully. Inform the user the action was skipped. |
+  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | For `ui confirm`: exit code 0 = confirmed, 1 = denied. For `ui request`: check `actionId` or `submittedData`. |
+  | `cancelled` | Surface was cancelled | For `ui confirm`: exit code 1 — abort gracefully. For `ui request`: check `cancellationReason` to determine why. |
   | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
 
-  **Cancellation vs. failure**: A `cancelled` status means the user made a deliberate choice not to proceed — this is a normal outcome, not an error. Operational failures (IPC unavailable, invalid payload, no conversation context) surface as `ok: false` in JSON mode or a non-zero exit with an error message. Scripts should distinguish the two: cancellation is graceful, failure is exceptional.
+  **Cancellation reasons** (`ui request` only): The `cancellationReason` field distinguishes user-driven from operational cancellations. This field is only present in `ui request --json` output.
+
+  | `cancellationReason` | Category | Meaning |
+  |----------------------|----------|---------|
+  | `user_dismissed` | User-driven | User explicitly closed the surface. Treat as a deliberate "no." |
+  | `no_interactive_surface` | Operational | No interactive UI is available (headless/API channel). Consider a fallback. |
+  | `conversation_not_found` | Operational | Target conversation could not be located. Check the conversation ID. |
+  | `resolver_unavailable` | Operational | UI transport is disconnected (e.g. desktop client dropped). May be transient. |
+  | `resolver_error` | Operational | UI resolver threw an unexpected error. Log for investigation. |
+
+  **Canonical branching pattern for `ui request`** — for scripts that need to distinguish user dismissal from operational failures:
+
+  ```bash
+  RESULT=$(assistant ui request \
+    --payload '{"message":"Confirm the operation"}' \
+    --title "Operation" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  case "$STATUS" in
+    submitted)
+      # Handle based on actionId or submittedData
+      ;;
+    cancelled)
+      REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+      if [ "$REASON" = "user_dismissed" ]; then
+        echo "User chose not to proceed."
+        exit 0
+      fi
+      # Operational cancellation — log and decide on recovery
+      echo "Surface cancelled: $REASON" >&2
+      exit 1
+      ;;
+    timed_out)
+      echo "Timed out — aborting."
+      exit 1
+      ;;
+    *)
+      echo "Unexpected status: $STATUS" >&2
+      exit 1
+      ;;
+  esac
+  ```
+
+  For `ui confirm`, use the simpler exit-code pattern (see the `ui confirm` section above) or check `status` and `confirmed` fields in `--json` mode. Do not branch on `cancellationReason` with `ui confirm` — it is not included in the output.
 
   **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
 

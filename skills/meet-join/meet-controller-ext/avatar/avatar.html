@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vellum Avatar</title>
+    <style>
+      /* The avatar tab is never visible to a user — it lives on Xvfb's
+         virtual display inside the bot container. These styles exist to
+         give three.js a clean canvas to render into and to keep the
+         document viewport at a predictable size so the capture
+         pipeline doesn't deal with dynamic resizing. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 1280px;
+        height: 720px;
+        background: #1a1a2e;
+        overflow: hidden;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+      }
+      #avatar-root {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      /* Friendly placeholder the renderer uses when the GLB hasn't
+         loaded yet or TalkingHead.js fails to initialize. Never
+         visible to a real end-user. */
+      #avatar-status {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="avatar-root"></div>
+    <div id="avatar-status">Loading avatar…</div>
+    <!-- The actual renderer logic lives in avatar.js (bundled from
+         src/avatar/avatar.ts by scripts/build.ts). Load it as a
+         module so modern ESM imports resolve cleanly. -->
+    <script type="module" src="./avatar.js"></script>
+  </body>
+</html>

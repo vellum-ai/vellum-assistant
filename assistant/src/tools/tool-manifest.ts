@@ -109,9 +109,14 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
-  // Meet tools are registered via registerExternalTools() during skill
-  // initialization — the assistant never imports directly from skills/.
-  ...getExternalTools(),
+  // NOTE: external skill tools (registered via registerExternalTools) are
+  // intentionally NOT spread into this array. `explicitTools` is a module-
+  // level const whose value is fixed at the first evaluation of this file,
+  // so spreading `getExternalTools()` here would bake in whatever was
+  // registered at that moment (usually an empty list, because skill
+  // bootstrap modules haven't loaded yet). `initializeTools()` in
+  // `registry.ts` calls `getExternalTools()` separately at runtime so
+  // skills registered between module-load and tool-init are picked up.
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

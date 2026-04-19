@@ -836,23 +836,30 @@ export class DaemonServer {
 
     // Install the interactive UI resolver so skills and IPC handlers can
     // present ad-hoc UI surfaces (confirmations, forms) to the user via
-    // `requestInteractiveUi()`. The resolver verifies the target
-    // conversation exists and is live, then delegates to the
-    // conversation-level standalone surface lifecycle which blocks until
-    // the user responds or the timeout elapses.
+    // `requestInteractiveUi()`. Interactive UI requires a client to be
+    // actively connected to the conversation (via SSE), which means the
+    // conversation must be in the in-memory map. If the conversation was
+    // evicted from memory the client is definitely disconnected, so
+    // hydration from persistent storage is pointless — the hydrated
+    // conversation would have hasNoClient=true, causing
+    // canShowInteractiveUi() to return false and the surface to be
+    // cancelled with no_interactive_surface. We skip that wasted work
+    // and return conversation_not_found directly.
     registerInteractiveUiResolver(async (request) => {
       const conversation = this.conversations.get(request.conversationId);
+
       if (!conversation) {
         log.warn(
           {
             conversationId: request.conversationId,
             surfaceType: request.surfaceType,
           },
-          "interactive-ui resolver: conversation not found; failing closed",
+          "interactive-ui resolver: conversation not in memory (client not connected); failing closed",
         );
         return {
           status: "cancelled" as const,
           surfaceId: `ui-resolver-${Date.now()}`,
+          cancellationReason: "conversation_not_found" as const,
         };
       }
 
@@ -1642,10 +1649,17 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
+    // Slack inbound metadata captured at the channel ingress boundary is
+    // forwarded into the persistence call so `persistQueuedMessageBody` can
+    // emit a `slackMeta` envelope on the row's metadata column.
+    const persistMetadata = options?.slackInbound
+      ? { slackInbound: options.slackInbound }
+      : undefined;
     const messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
+      persistMetadata,
     );
 
     // Register pending interactions so channel approval interception can

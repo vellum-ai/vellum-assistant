@@ -90,6 +90,7 @@ describe("LLMSchema", () => {
           nonInteractiveLatestTurnCompression: "truncate",
         },
       },
+      openrouter: { only: [] },
     });
     expect(parsed.profiles).toEqual({});
     expect(parsed.callSites).toEqual({});
@@ -173,6 +174,31 @@ describe("LLMSchema", () => {
         enabled: false,
       });
     }
+  });
+
+  test("openrouter.only accepts a list of provider names in default/profile/callSite", () => {
+    const parsed = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        openrouter: { only: ["Anthropic", "Google"] },
+      },
+      profiles: {
+        pinned: { openrouter: { only: ["Anthropic"] } },
+      },
+      callSites: {
+        mainAgent: { openrouter: { only: ["Google"] } },
+      },
+    });
+    expect(parsed.default.openrouter.only).toEqual(["Anthropic", "Google"]);
+    expect(parsed.profiles["pinned"]?.openrouter?.only).toEqual(["Anthropic"]);
+    expect(parsed.callSites.mainAgent?.openrouter?.only).toEqual(["Google"]);
+  });
+
+  test("openrouter.only rejects empty string entries", () => {
+    const result = LLMSchema.safeParse({
+      default: { ...fullDefault, openrouter: { only: [""] } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("contextWindow deep-partial override accepted (nested overflowRecovery only)", () => {

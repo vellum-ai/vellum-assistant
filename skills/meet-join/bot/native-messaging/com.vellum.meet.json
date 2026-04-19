@@ -1,0 +1,7 @@
+{
+  "name": "com.vellum.meet",
+  "description": "Vellum Meet Controller native host",
+  "path": "/app/bot/src/native-messaging/nmh-shim.ts",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://{{EXT_ID}}/"]
+}

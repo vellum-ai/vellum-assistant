@@ -3,6 +3,10 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
+#if canImport(SwiftMath)
+import SwiftMath
+#endif
+
 private final class AttributedStringCacheEntry: NSObject {
     let attributedString: AttributedString
     init(_ attributedString: AttributedString) { self.attributedString = attributedString }
@@ -121,6 +125,28 @@ struct MarkdownSegmentView: View, Equatable {
                         .frame(height: 1)
                         .optionalMaxWidth(maxContentWidth)
                         .padding(.vertical, VSpacing.xs)
+
+                case .math(let latex, let display):
+                    #if canImport(SwiftMath)
+                    MathBlockView(
+                        latex: latex,
+                        display: display,
+                        textColor: textColor,
+                        codeBackgroundColor: codeBackgroundColor,
+                        maxContentWidth: maxContentWidth
+                    )
+                    #else
+                    // SwiftMath not available — raw LaTeX fallback.
+                    // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+                    HStack(spacing: 0) {
+                        Text(latex)
+                            .font(.custom("DMMono-Regular", size: 13))
+                            .foregroundStyle(textColor)
+                            .textSelection(.enabled)
+                            .lineLimit(nil)
+                        Spacer(minLength: 0)
+                    }
+                    #endif
                 }
             }
         }
@@ -131,7 +157,7 @@ struct MarkdownSegmentView: View, Equatable {
             switch groups[index] {
             case .selectableRun, .table:
                 return index
-            case .codeBlock, .image, .horizontalRule:
+            case .codeBlock, .image, .horizontalRule, .math:
                 continue
             }
         }
@@ -149,6 +175,7 @@ struct MarkdownSegmentView: View, Equatable {
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
         case horizontalRule
+        case math(latex: String, display: Bool)
     }
 
     #if os(macOS)
@@ -244,6 +271,9 @@ struct MarkdownSegmentView: View, Equatable {
             case .horizontalRule:
                 flushRun()
                 groups.append(.horizontalRule)
+            case .math(let latex, let display):
+                flushRun()
+                groups.append(.math(latex: latex, display: display))
             }
         }
 
@@ -305,6 +335,9 @@ struct MarkdownSegmentView: View, Equatable {
         prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
+        #if canImport(SwiftMath)
+        clearMathImageCache()
+        #endif
         #if os(macOS)
         measuredTextCache.removeAllObjects()
         typographyRetryScheduled = false
@@ -326,6 +359,7 @@ struct MarkdownSegmentView: View, Equatable {
             case .codeBlock(_, let c): return total + c.count
             case .list(let items): return total + items.reduce(0) { $0 + $1.text.count }
             case .table(let h, let r): return total + h.joined().count + r.flatMap { $0 }.joined().count
+            case .math(let latex, _): return total + latex.count
             case .image, .horizontalRule: return total
             }
         }
@@ -841,6 +875,175 @@ struct MarkdownSegmentView: View, Equatable {
     }
     #endif
 }
+
+// MARK: - Math Block View
+
+#if canImport(SwiftMath)
+
+/// Cache entry for a rendered math image. Stored in `mathImageCache`.
+private final class MathImageCacheEntry: NSObject {
+    let image: NSImage
+    let intrinsicSize: CGSize
+    init(image: NSImage, intrinsicSize: CGSize) {
+        self.image = image
+        self.intrinsicSize = intrinsicSize
+    }
+}
+
+/// File-private cache of rasterized math images keyed by
+/// `"latex|display|hexColor|fontSize"`. Sized to match `measuredTextCache`'s
+/// ~20 MB budget so a busy conversation doesn't blow past the text cache.
+private let mathImageCache: NSCache<NSString, MathImageCacheEntry> = {
+    let cache = NSCache<NSString, MathImageCacheEntry>()
+    cache.countLimit = 256
+    cache.totalCostLimit = 20_000_000
+    return cache
+}()
+
+/// Drops every entry in `mathImageCache`. Invoked from
+/// `MarkdownSegmentView.clearAttributedStringCache()` so the math render cache
+/// participates in the same lifecycle reset as the other render caches.
+func clearMathImageCache() {
+    mathImageCache.removeAllObjects()
+}
+
+/// Converts an `NSColor` to a stable hex cache-key component. Uses the
+/// sRGB-calibrated components so color-space shifts don't cause cache misses
+/// on logically identical colors. Returns a sentinel when the color cannot be
+/// bridged into sRGB (e.g. an asset-catalog pattern or named color whose
+/// component accessors would throw) so the caller falls back to a stable but
+/// non-RGB-derived key instead of crashing.
+private func mathCacheColorKey(_ color: NSColor) -> String {
+    guard let rgb = color.usingColorSpace(.sRGB) else {
+        return "unresolved"
+    }
+    let r = Int((rgb.redComponent * 255).rounded())
+    let g = Int((rgb.greenComponent * 255).rounded())
+    let b = Int((rgb.blueComponent * 255).rounded())
+    let a = Int((rgb.alphaComponent * 255).rounded())
+    return String(format: "%02X%02X%02X%02X", r, g, b, a)
+}
+
+/// Renders a LaTeX block via `SwiftMath.MathImage`. Results are cached per
+/// (latex, display, color, fontSize) so re-renders during SwiftUI body
+/// evaluation don't retrigger the typesetter.
+private struct MathBlockView: View {
+    let latex: String
+    let display: Bool
+    let textColor: Color
+    let codeBackgroundColor: Color
+    let maxContentWidth: CGFloat?
+
+    private enum RenderResult {
+        case image(NSImage, CGSize)
+        case failure(String)
+    }
+
+    private func resolveRender() -> RenderResult {
+        // Font size matches the resolved chat markdown font so inline math
+        // visually aligns with surrounding body text. `.regular.pointSize`
+        // resolves against the current DM Sans font set (16pt at rest).
+        let fontSize = VFont.resolvedChatMarkdownFontSet().regular.pointSize
+        let nsTextColor = NSColor(textColor)
+        let labelMode: MTMathUILabelMode = display ? .display : .text
+        let cacheKey = "\(latex)|\(display)|\(mathCacheColorKey(nsTextColor))|\(fontSize)" as NSString
+
+        if let cached = mathImageCache.object(forKey: cacheKey) {
+            return .image(cached.image, cached.intrinsicSize)
+        }
+
+        var mathImage = MathImage(
+            latex: latex,
+            fontSize: fontSize,
+            textColor: nsTextColor,
+            labelMode: labelMode
+        )
+        let (error, image) = mathImage.asImage()
+        if let error = error {
+            return .failure(error.localizedDescription)
+        }
+        guard let image = image else {
+            return .failure("unknown error")
+        }
+        let intrinsic = image.size
+        // Prefer the actual bitmap pixel dimensions for the NSCache cost so
+        // the `totalCostLimit` reflects real memory pressure. Falling back to
+        // `image.size * 4` under-counts by ~4x on 2x Retina (points vs pixels),
+        // which would let the cache hold ~4x more bytes than intended.
+        let cost: Int = {
+            if let bitmapRep = image.representations.lazy
+                .compactMap({ $0 as? NSBitmapImageRep }).first {
+                return bitmapRep.pixelsWide * bitmapRep.pixelsHigh * 4
+            }
+            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            return Int(intrinsic.width * scale * intrinsic.height * scale * 4)
+        }()
+        mathImageCache.setObject(
+            MathImageCacheEntry(image: image, intrinsicSize: intrinsic),
+            forKey: cacheKey,
+            cost: max(cost, 1)
+        )
+        return .image(image, intrinsic)
+    }
+
+    var body: some View {
+        switch resolveRender() {
+        case .image(let image, let intrinsicSize):
+            rendered(image: image, intrinsicSize: intrinsicSize)
+        case .failure(let message):
+            errorFallback(message: message)
+        }
+    }
+
+    @ViewBuilder
+    private func rendered(image: NSImage, intrinsicSize: CGSize) -> some View {
+        let limit = maxContentWidth ?? intrinsicSize.width
+        let needsScroll = intrinsicSize.width > limit && intrinsicSize.width > 0
+        let renderedWidth: CGFloat = needsScroll
+            ? intrinsicSize.width
+            : min(intrinsicSize.width, limit)
+        let renderedHeight: CGFloat = intrinsicSize.width > 0
+            ? intrinsicSize.height * (renderedWidth / intrinsicSize.width)
+            : intrinsicSize.height
+
+        if needsScroll {
+            // Mirror CodeBlockView's horizontal-scroll pattern so long
+            // equations scroll rather than clip or force the lazy cell wider.
+            ScrollView(.horizontal, showsIndicators: false) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: intrinsicSize.width, height: intrinsicSize.height)
+            }
+            .frame(height: intrinsicSize.height)
+        } else {
+            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: renderedWidth, height: renderedHeight)
+        }
+    }
+
+    @ViewBuilder
+    private func errorFallback(message: String) -> some View {
+        // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
+        HStack(spacing: 0) {
+            Text("⚠️ \(latex)")
+                .font(.custom("DMMono-Regular", size: 13))
+                .foregroundStyle(textColor)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+                .padding(VSpacing.sm)
+                .background(codeBackgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .accessibilityLabel("LaTeX rendering failed: \(message)")
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+#endif
 
 // MARK: - Code Block View
 

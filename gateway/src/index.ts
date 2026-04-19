@@ -100,8 +100,6 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
-import { fetchThreadContext } from "./slack/thread-context.js";
-import { fetchDmContext } from "./slack/dm-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
@@ -781,6 +779,12 @@ async function main() {
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
     },
+    {
+      path: "/v1/integrations/slack/channel/oauth-install",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleSlackOAuthInstall(req),
+    },
 
     // ── OAuth providers ──
     {
@@ -1437,17 +1441,11 @@ async function main() {
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
-        // Check if this is a regular thread reply (not an edit or callback action).
-        // Edits and callbacks don't benefit from thread context and would just add
-        // unnecessary Slack API traffic + latency.
+        // Whether this event represents an edit or callback action — these
+        // never carry attachments to upload.
         const messageTs = normalized.event.source.messageId;
         const isEdit = !!normalized.event.message.isEdit;
         const isCallback = !!normalized.event.message.callbackData;
-        const isThreadReply =
-          messageTs !== undefined &&
-          threadTs !== messageTs &&
-          !isEdit &&
-          !isCallback;
 
         // Handle /new command — reset conversation before it reaches the runtime
         if (isNewCommand(normalized.event.message.content)) {
@@ -1474,11 +1472,8 @@ async function main() {
           return;
         }
 
-        const forward = async (threadContextHint?: string) => {
+        const forward = async () => {
           try {
-            const hints: string[] = [];
-            if (threadContextHint) hints.push(threadContextHint);
-
             // Download and upload attachments if present (skip for edits and
             // callback actions — edits only update text, callbacks have no media)
             let attachmentIds: string[] | undefined;
@@ -1580,7 +1575,6 @@ async function main() {
               ...(attachmentIds && attachmentIds.length > 0
                 ? { attachmentIds }
                 : {}),
-              ...(hints.length > 0 ? { transportMetadata: { hints } } : {}),
             }).catch((err) => {
               log.error(
                 { err, channel, threadTs },
@@ -1595,9 +1589,6 @@ async function main() {
             handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
-              ...(threadContextHint
-                ? { transportMetadata: { hints: [threadContextHint] } }
-                : {}),
             }).catch((fwdErr) => {
               log.error(
                 { err: fwdErr, channel, threadTs },
@@ -1607,42 +1598,16 @@ async function main() {
           }
         };
 
-        if (isThreadReply && botToken && threadTs) {
-          fetchThreadContext(channel, threadTs, messageTs, botToken)
-            .then((context) => context ?? undefined)
-            .catch(() => undefined)
-            .then((context) => forward(context))
-            .catch((err) => {
-              log.error(
-                { err, channel, threadTs },
-                "Unhandled error in Slack forward (thread reply)",
-              );
-            });
-        } else if (
-          channel.startsWith("D") &&
-          botToken &&
-          messageTs &&
-          !isEdit &&
-          !isCallback
-        ) {
-          fetchDmContext(channel, messageTs, botToken)
-            .then((context) => context ?? undefined)
-            .catch(() => undefined)
-            .then((context) => forward(context))
-            .catch((err) => {
-              log.error(
-                { err, channel },
-                "Unhandled error in Slack forward (DM context)",
-              );
-            });
-        } else {
-          forward().catch((err) => {
-            log.error(
-              { err, channel, threadTs },
-              "Unhandled error in Slack forward",
-            );
-          });
-        }
+        // Slack thread/DM context is now assembled on the daemon from
+        // persisted message rows (see `assembleSlackChronologicalMessages`
+        // in the assistant), so the gateway no longer fetches per-turn
+        // thread/DM context to inject as transport hints.
+        forward().catch((err) => {
+          log.error(
+            { err, channel, threadTs },
+            "Unhandled error in Slack forward",
+          );
+        });
 
         // When an approval button is clicked, store the approval message ts
         // so the next outbound delivery to this thread replaces the approval

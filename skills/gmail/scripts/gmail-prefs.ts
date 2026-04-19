@@ -22,9 +22,16 @@ const PREFS_PATH = path.join(SKILL_ROOT, "data", "gmail-preferences.json");
 // Types
 // ---------------------------------------------------------------------------
 
+interface InboxManagementConfig {
+  stage: 0 | 1 | 2;
+  "interrupt-threshold": "default" | "high" | "low";
+  "last-run": string | null;
+}
+
 interface GmailPreferences {
   blocklist: string[];
   safelist: string[];
+  "inbox-management"?: InboxManagementConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +111,28 @@ function removeFromSafelist(emails: string[]): void {
 }
 
 // ---------------------------------------------------------------------------
+// Inbox management config
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MANAGEMENT_CONFIG: InboxManagementConfig = {
+  stage: 0,
+  "interrupt-threshold": "default",
+  "last-run": null,
+};
+
+function getManagementConfig(): InboxManagementConfig {
+  const prefs = loadPreferences();
+  return { ...DEFAULT_MANAGEMENT_CONFIG, ...prefs["inbox-management"] };
+}
+
+function setManagementConfig(updates: Partial<InboxManagementConfig>): void {
+  const prefs = loadPreferences();
+  const current = { ...DEFAULT_MANAGEMENT_CONFIG, ...prefs["inbox-management"] };
+  prefs["inbox-management"] = { ...current, ...updates };
+  savePreferences(prefs);
+}
+
+// ---------------------------------------------------------------------------
 // CLI dispatcher
 // ---------------------------------------------------------------------------
 
@@ -113,7 +142,7 @@ function main(): void {
 
   if (!action || typeof action !== "string") {
     printError(
-      "Missing required argument: --action (list, add-blocklist, add-safelist, remove-blocklist, remove-safelist)",
+      "Missing required argument: --action (list, add-blocklist, add-safelist, remove-blocklist, remove-safelist, get-management-config, set-management-config)",
     );
   }
 
@@ -193,9 +222,38 @@ function main(): void {
       break;
     }
 
+    case "get-management-config": {
+      ok(getManagementConfig());
+      break;
+    }
+
+    case "set-management-config": {
+      const updates: Partial<InboxManagementConfig> = {};
+      if (args["stage"] != null) {
+        const stage = Number(args["stage"]);
+        if (stage !== 0 && stage !== 1 && stage !== 2) {
+          printError("--stage must be 0, 1, or 2");
+        }
+        updates.stage = stage as 0 | 1 | 2;
+      }
+      if (args["interrupt-threshold"] != null) {
+        const threshold = args["interrupt-threshold"] as string;
+        if (threshold !== "default" && threshold !== "high" && threshold !== "low") {
+          printError('--interrupt-threshold must be "default", "high", or "low"');
+        }
+        updates["interrupt-threshold"] = threshold as "default" | "high" | "low";
+      }
+      if (args["last-run"] != null) {
+        updates["last-run"] = args["last-run"] as string;
+      }
+      setManagementConfig(updates);
+      ok(getManagementConfig());
+      break;
+    }
+
     default:
       printError(
-        `Unknown action "${action}". Use list, add-blocklist, add-safelist, remove-blocklist, or remove-safelist.`,
+        `Unknown action "${action}". Use list, add-blocklist, add-safelist, remove-blocklist, remove-safelist, get-management-config, or set-management-config.`,
       );
   }
 }

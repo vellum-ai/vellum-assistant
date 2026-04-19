@@ -133,6 +133,35 @@ export interface DockerRunOptions {
   ports?: PortMapping[];
   name?: string;
   network?: string;
+  /**
+   * Optional virtual-camera (`v4l2loopback`) device path to pass through to
+   * the bot container. When set (e.g. `/dev/video10`), the runner adds a
+   * device entry to `HostConfig.Devices` so the bot can open the node as a
+   * character device and push avatar frames into it. Leave unset to skip
+   * avatar passthrough entirely — callers that don't enable the avatar
+   * feature don't need to touch this.
+   *
+   * Behavior is identical in bare-metal and Docker (DinD) modes: the Docker
+   * Engine API's `Devices` field has the same semantics whether the target
+   * is the host's engine or an inner nested `dockerd`. In Docker mode the
+   * device must also be bind-mounted into the assistant container
+   * (`cli/src/lib/docker.ts` handles that when `VELLUM_MEET_AVATAR=1` is
+   * set in the environment) so inner `dockerd` can see the node.
+   *
+   * Intentionally a run-time argument rather than a config-schema field:
+   * the avatar config schema lands in a later PR, and threading it through
+   * here now would force a forward dependency. The session-manager wires
+   * this up once the config is available.
+   */
+  avatarDevicePath?: string;
+  /**
+   * Docker labels applied at container-create time. Meet-bot containers
+   * are tagged with `vellum.meet.bot=true` and
+   * `vellum.meet.meetingId=<id>` so the orphan reaper (see
+   * {@link reapOrphanedMeetBots}) can discover and clean them up after a
+   * crashed prior run without misidentifying unrelated containers.
+   */
+  labels?: Record<string, string>;
 }
 
 /** Minimal shape of the Docker `containers/<id>/json` response we rely on. */
@@ -149,6 +178,20 @@ export interface ContainerInspect {
       Array<{ HostIp?: string; HostPort?: string }> | null
     >;
   };
+  [key: string]: unknown;
+}
+
+/**
+ * Minimal shape of a single entry in Docker's `GET /containers/json`
+ * response body. We only rely on the id + labels for the orphan-reaper
+ * sweep; everything else is optional.
+ */
+export interface ContainerListEntry {
+  Id: string;
+  Names?: string[];
+  Labels?: Record<string, string>;
+  State?: string;
+  Status?: string;
   [key: string]: unknown;
 }
 
@@ -475,6 +518,65 @@ export class DockerRunner {
     }
   }
 
+  /**
+   * Send a signal to a running container. Wraps
+   * `POST /containers/<id>/kill?signal=<sig>`. Defaults to `SIGKILL`.
+   * 404 / 409 ("container is not running") are swallowed — the caller's
+   * intent ("make sure this container is dead") is already satisfied.
+   */
+  async kill(containerId: string, signal: string = "SIGKILL"): Promise<void> {
+    const path = `/${DOCKER_API_VERSION}/containers/${containerId}/kill?signal=${encodeURIComponent(signal)}`;
+    try {
+      await this.request<void>("POST", path, null);
+    } catch (err) {
+      if (
+        err instanceof DockerApiError &&
+        (err.status === 404 || err.status === 409)
+      ) {
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * List containers, optionally filtered by labels. Wraps
+   * `GET /containers/json?filters=...`. Docker's filter syntax is a JSON
+   * map of filter-name → array of filter values; for labels the value is
+   * either `"<key>"` (any value) or `"<key>=<value>"` (exact match).
+   *
+   * @param opts.labels Label filters. Array values are exact-match
+   *   (`<key>=<value>`); pass just a key (via `{ "<key>": null }` –style
+   *   contract) to filter on label presence. Here we only need equality
+   *   matches so the input is `Record<string, string>`.
+   * @param opts.all When true, includes non-running containers (matches
+   *   Docker's `all=true` query param). Defaults to false (running only).
+   */
+  async listContainers(
+    opts: {
+      labels?: Record<string, string>;
+      all?: boolean;
+    } = {},
+  ): Promise<ContainerListEntry[]> {
+    const params: string[] = [];
+    if (opts.all) params.push("all=true");
+    if (opts.labels && Object.keys(opts.labels).length > 0) {
+      const labelFilters = Object.entries(opts.labels).map(
+        ([k, v]) => `${k}=${v}`,
+      );
+      const filters = { label: labelFilters };
+      params.push(`filters=${encodeURIComponent(JSON.stringify(filters))}`);
+    }
+    const query = params.length > 0 ? `?${params.join("&")}` : "";
+    const path = `/${DOCKER_API_VERSION}/containers/json${query}`;
+    const entries = await this.request<ContainerListEntry[]>(
+      "GET",
+      path,
+      null,
+    );
+    return entries ?? [];
+  }
+
   /** Force-remove a container. Wraps `DELETE /containers/<id>?force=true`. */
   async remove(containerId: string): Promise<void> {
     const path = `/${DOCKER_API_VERSION}/containers/${containerId}?force=true&v=true`;
@@ -625,6 +727,22 @@ export interface ResolvedMounts {
 export const HOST_GATEWAY_ALIAS = "host.docker.internal:host-gateway";
 
 /**
+ * Docker-label key applied to every meet-bot container at create time. Set
+ * to the literal string `"true"`. Used together with
+ * {@link MEET_BOT_MEETING_ID_LABEL} for orphan discovery in
+ * {@link reapOrphanedMeetBots}.
+ */
+export const MEET_BOT_LABEL = "vellum.meet.bot";
+
+/**
+ * Docker-label key that carries the meeting ID for the running bot. Pairs
+ * with {@link MEET_BOT_LABEL} so the reaper can compare each labeled
+ * container's meeting ID against the currently-active session set and only
+ * kill the ones that belong to no live session.
+ */
+export const MEET_BOT_MEETING_ID_LABEL = "vellum.meet.meetingId";
+
+/**
  * Resolve a workspace-relative `subpath` against the absolute `workspaceDir`
  * using POSIX join semantics. Leading slashes in `subpath` are tolerated;
  * POSIX rules are used so the result is portable across test platforms.
@@ -682,6 +800,21 @@ export function buildCreateBody(
     ];
   }
 
+  // Avatar device passthrough. The Docker Engine `Devices` field maps to
+  // `--device=<host>:<container>:<cgroup-perms>`; we use `rwm` (read/write/
+  // mknod) to match the CLI default. Only emitted when the caller opts in
+  // via `avatarDevicePath` — callers without the avatar feature enabled
+  // don't need to touch this.
+  const devices = opts.avatarDevicePath
+    ? [
+        {
+          PathOnHost: opts.avatarDevicePath,
+          PathInContainer: opts.avatarDevicePath,
+          CgroupPermissions: "rwm",
+        },
+      ]
+    : [];
+
   const hostConfig: Record<string, unknown> = {
     Binds: binds,
     PortBindings: portBindings,
@@ -691,22 +824,27 @@ export function buildCreateBody(
     // `host-gateway` value is required. Applied unconditionally because
     // the resolution is identical either way on modern engines.
     ExtraHosts: [HOST_GATEWAY_ALIAS],
-    // Docker's default `/dev/shm` is 64 MiB, which Chromium exhausts when
+    // Docker's default `/dev/shm` is 64 MiB, which Chrome exhausts when
     // loading a JS-heavy page like Google Meet — the renderer then crashes
     // with a cryptic "Target page, context or browser has been closed". 2 GiB
-    // is the commonly-cited safe default for Puppeteer/Playwright in Docker.
-    // (`--disable-dev-shm-usage` in the Chromium launch args routes shared
+    // is the commonly-cited safe default for Chrome automation in Docker.
+    // (`--disable-dev-shm-usage` in the Chrome launch args routes shared
     // memory to `/tmp` as a separate belt-and-suspenders hedge.)
     ShmSize: 2 * 1024 * 1024 * 1024,
+    ...(devices.length > 0 ? { Devices: devices } : {}),
     ...(opts.network ? { NetworkMode: opts.network } : {}),
   };
 
-  return {
+  const body: Record<string, unknown> = {
     Image: opts.image,
     Env: env,
     ExposedPorts: exposedPorts,
     HostConfig: hostConfig,
   };
+  if (opts.labels && Object.keys(opts.labels).length > 0) {
+    body.Labels = { ...opts.labels };
+  }
+  return body;
 }
 
 /**
@@ -737,4 +875,128 @@ export function extractBoundPorts(inspection: ContainerInspect): BoundPort[] {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Orphan reaper
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal subset of {@link DockerRunner} that {@link reapOrphanedMeetBots}
+ * depends on. Isolated as a structural type so tests can pass a hand-rolled
+ * fake without instantiating the full runner.
+ */
+export interface DockerClientForReaper {
+  listContainers(opts: {
+    labels?: Record<string, string>;
+    all?: boolean;
+  }): Promise<ContainerListEntry[]>;
+  kill(containerId: string, signal?: string): Promise<void>;
+}
+
+/** Grace window (ms) between SIGTERM and SIGKILL during the reaper sweep. */
+export const REAPER_TERM_KILL_GRACE_MS = 10_000;
+
+/**
+ * Sweep orphaned meet-bot containers left behind by a crashed prior run.
+ *
+ * **Label scheme.** Every meet-bot container created by this daemon is
+ * tagged at `/containers/create` time with two Docker labels:
+ *
+ *   - `vellum.meet.bot=true` — identifies the container as a meet-bot
+ *     managed by this codebase (distinguishes from any other containers
+ *     the user might be running).
+ *   - `vellum.meet.meetingId=<id>` — carries the originating meeting ID
+ *     so the reaper can match each labeled container against the currently-
+ *     active in-process session set and only kill the ones that belong to
+ *     no live session.
+ *
+ * **Kill protocol.** Each orphan receives a `SIGTERM`, then after a
+ * {@link REAPER_TERM_KILL_GRACE_MS}-ms grace window the reaper issues a
+ * `SIGKILL` as the hard fallback. Both calls go through the docker client's
+ * `/kill` endpoint so the container's exit is recorded in the engine's
+ * state table; the subsequent `docker events` stream fires normally and
+ * downstream consumers (monitoring, log retention) see a clean shutdown
+ * rather than a disappearing container. Per-container errors are caught and
+ * logged so one misbehaving container can't abort the sweep.
+ *
+ * @param opts.docker Docker client — typically a {@link DockerRunner}.
+ * @param opts.activeMeetingIds Meeting IDs that currently map to a live
+ *   in-process session. On boot this is an empty set (no sessions yet),
+ *   but the signature accepts any set so the same helper can be called
+ *   from a later "cleanup unexpected orphans" sweep during runtime.
+ * @param opts.logger Structured logger — one INFO line per kill.
+ * @returns Summary of which container ids were killed vs kept.
+ */
+/**
+ * Structural subset of a pino-style structured logger — the reaper only
+ * emits info/warn/debug lines and doesn't want a hard dep on pino's type
+ * export from this module. The daemon's real logger (`pino.Logger`) is
+ * assignable to this shape.
+ */
+export interface ReaperLogger {
+  info(obj: Record<string, unknown>, msg?: string): void;
+  warn(obj: Record<string, unknown>, msg?: string): void;
+  error?(obj: Record<string, unknown>, msg?: string): void;
+  debug(obj: Record<string, unknown>, msg?: string): void;
+}
+
+export async function reapOrphanedMeetBots(opts: {
+  docker: DockerClientForReaper;
+  activeMeetingIds: ReadonlySet<string>;
+  logger: ReaperLogger;
+}): Promise<{ killed: string[]; kept: string[] }> {
+  const { docker, activeMeetingIds, logger } = opts;
+  const killed: string[] = [];
+  const kept: string[] = [];
+
+  let containers: ContainerListEntry[];
+  try {
+    containers = await docker.listContainers({
+      labels: { [MEET_BOT_LABEL]: "true" },
+      all: false,
+    });
+  } catch (err) {
+    logger.warn({ err }, "reapOrphanedMeetBots: listContainers failed");
+    return { killed, kept };
+  }
+
+  for (const container of containers) {
+    const containerId = container.Id;
+    const labels = container.Labels ?? {};
+    const meetingId = labels[MEET_BOT_MEETING_ID_LABEL];
+
+    if (meetingId && activeMeetingIds.has(meetingId)) {
+      kept.push(containerId);
+      continue;
+    }
+
+    try {
+      await docker.kill(containerId, "SIGTERM");
+      // Best-effort grace window: schedule a SIGKILL after the grace
+      // period, in case the bot ignores SIGTERM. We don't await the
+      // timeout — reaper callers want a bounded sweep duration, not an
+      // extra 10s per orphan.
+      setTimeout(() => {
+        docker.kill(containerId, "SIGKILL").catch((err: unknown) => {
+          logger.debug(
+            { err, containerId, meetingId },
+            "reapOrphanedMeetBots: delayed SIGKILL failed (container likely already dead)",
+          );
+        });
+      }, REAPER_TERM_KILL_GRACE_MS).unref?.();
+      logger.info(
+        { containerId, meetingId, reason: "orphan" },
+        "orphan meet-bot reaped",
+      );
+      killed.push(containerId);
+    } catch (err) {
+      logger.warn(
+        { err, containerId, meetingId },
+        "reapOrphanedMeetBots: kill failed — continuing sweep",
+      );
+    }
+  }
+
+  return { killed, kept };
 }

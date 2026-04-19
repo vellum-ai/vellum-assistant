@@ -13,7 +13,7 @@ export function buildPkbReminder(hints: ReadonlyArray<string>): string {
   if (hints.length === 0) {
     return (
       "<system_reminder>" +
-      "\nRead any unread PKB files that might be even partially relevant to this conversation" +
+      "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation" +
       "\nUse `remember` for anything you learn immediately" +
       "\n</system_reminder>"
     );
@@ -22,7 +22,7 @@ export function buildPkbReminder(hints: ReadonlyArray<string>): string {
   const bullets = hints.map((h) => `- ${h}`).join("\n");
   return (
     "<system_reminder>" +
-    "\nRead any unread PKB files that might be even partially relevant to this conversation." +
+    "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation." +
     "\nBased on the current context, these files look especially relevant:" +
     `\n${bullets}` +
     "\nUse `remember` for anything you learn immediately" +
