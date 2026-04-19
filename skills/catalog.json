@@ -463,6 +463,25 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "tasks",
+      "name": "tasks",
+      "description": "Two-layer task system with reusable templates and a prioritized work queue",
+      "metadata": {
+        "emoji": "✅",
+        "vellum": {
+          "display-name": "Tasks",
+          "activation-hints": [
+            "User wants to add, check, or manage items on their to-do list or task queue",
+            "For one-off action items, not recurring automations (use schedule for those)"
+          ],
+          "avoid-when": [
+            "User wants recurring/scheduled automation — use the schedule skill instead"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "telegram-setup",
       "name": "telegram-setup",
       "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
