@@ -908,6 +908,7 @@ export function normalizeSlackMessageDelete(
         // the stored row to mark deleted.
         messageId: event.deleted_ts,
         ...(isDm ? {} : { chatType: "channel" }),
+        ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },

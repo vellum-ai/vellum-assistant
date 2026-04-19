@@ -1232,4 +1232,31 @@ describe("source.threadId propagation", () => {
       expect(result!.event.source.threadId).toBeUndefined();
     });
   });
+
+  describe("normalizeSlackMessageDelete", () => {
+    it("populates source.threadId for deletes of threaded messages", () => {
+      const config = makeConfig();
+      const event = makeMessageDeletedEvent({
+        previous_message: {
+          user: "U123",
+          text: "thread reply",
+          ts: "1700000000.000100",
+          thread_ts: "parent_ts",
+        },
+      });
+      const result = normalizeSlackMessageDelete(event, "evt-tid-11", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("parent_ts");
+    });
+
+    it("omits source.threadId for deletes of top-level messages", () => {
+      const config = makeConfig();
+      const event = makeMessageDeletedEvent();
+      const result = normalizeSlackMessageDelete(event, "evt-tid-12", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
 });
