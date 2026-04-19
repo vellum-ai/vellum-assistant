@@ -138,6 +138,39 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
+  test("delete takes precedence over edit (delete wins)", () => {
+    // A message that was edited at 14:30 and then deleted at 14:32
+    // should render as deleted, not edited — and content must be elided.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "edited body", {
+        editedAt: MS_14_30,
+        deletedAt: MS_14_32,
+      }),
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[14:25 @alice — deleted 14:32]" },
+    ]);
+    // No "edited" suffix should leak through.
+    expect(out[0].content.includes("edited")).toBe(false);
+    // Content body must not appear.
+    expect(out[0].content.includes("edited body")).toBe(false);
+  });
+
+  test("deleted message preserves chronological ordering", () => {
+    // A deleted message in the middle of a transcript should still occupy
+    // its chronological slot — only the body is elided.
+    const out = renderSlackTranscript([
+      userMsg(TS_14_25, "@alice", "first"),
+      userMsg(TS_14_28, "@bob", "(removed)", { deletedAt: MS_14_30 }),
+      userMsg(TS_14_30, "@carol", "third"),
+    ]);
+    expect(out.map((r) => r.content)).toEqual([
+      "[14:25 @alice]: first",
+      "[14:28 @bob — deleted 14:30]",
+      "[14:30 @carol]: third",
+    ]);
+  });
+
   test("renders reaction added", () => {
     const alias = parentAlias(TS_14_25);
     const out = renderSlackTranscript([
