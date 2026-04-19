@@ -22,6 +22,7 @@ import {
   gmailPost,
   gmailPut,
   gmailDelete,
+  gmailRequest,
   batchFetchMessages,
   type GmailMessage,
   type GmailMessagePart,
@@ -98,11 +99,7 @@ interface LabelsListResponse {
 const FOLLOW_UP_LABEL_NAME = "Follow-up";
 
 async function getOrCreateFollowUpLabel(account?: string): Promise<string> {
-  const res = await gmailGet<LabelsListResponse>(
-    "/labels",
-    undefined,
-    account,
-  );
+  const res = await gmailGet<LabelsListResponse>("/labels", undefined, account);
   if (!res.ok) {
     printError(`Failed to list labels (HTTP ${res.status})`);
   }
@@ -182,6 +179,8 @@ async function handleFollowUp(
         "metadata",
         ["From", "Subject", "Date"],
         account,
+        undefined,
+        "id,threadId,payload/headers",
       );
       const items = messages.map((m) => {
         const headers = m.payload?.headers ?? [];
@@ -392,10 +391,7 @@ async function handleFilters(
     }
     case "delete": {
       const filterId = requireArg(args, "filter-id");
-      const res = await gmailDelete(
-        `/settings/filters/${filterId}`,
-        account,
-      );
+      const res = await gmailDelete(`/settings/filters/${filterId}`, account);
       if (!res.ok) {
         printError(`Failed to delete filter (HTTP ${res.status})`);
       }
@@ -466,9 +462,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to enable vacation responder (HTTP ${res.status})`,
-        );
+        printError(`Failed to enable vacation responder (HTTP ${res.status})`);
       }
       ok(res.data);
       break;
@@ -480,9 +474,7 @@ async function handleVacation(
         account,
       );
       if (!res.ok) {
-        printError(
-          `Failed to disable vacation responder (HTTP ${res.status})`,
-        );
+        printError(`Failed to disable vacation responder (HTTP ${res.status})`);
       }
       ok({ disabled: true });
       break;
@@ -656,15 +648,22 @@ async function handleUnsubscribe(
   const account = optionalArg(args, "account");
   const skipConfirm = args["skip-confirm"] === true;
 
-  // Fetch message metadata with unsubscribe headers and sender info
-  const res = await gmailGet<GmailMessage>(
-    `/messages/${messageId}`,
-    {
-      format: "metadata",
-      metadataHeaders: "List-Unsubscribe,List-Unsubscribe-Post,From",
-    },
+  // Fetch message metadata with unsubscribe headers and sender info.
+  // metadataHeaders must be sent as repeated query params, not comma-separated.
+  const unsubMetadataHeaders = [
+    "List-Unsubscribe",
+    "List-Unsubscribe-Post",
+    "From",
+  ];
+  const res = await gmailRequest<GmailMessage>({
+    method: "GET",
+    path: `/messages/${messageId}`,
+    query: { format: "metadata" },
     account,
-  );
+    pathSuffix: unsubMetadataHeaders
+      .map((h) => `&metadataHeaders=${encodeURIComponent(h)}`)
+      .join(""),
+  });
   if (!res.ok) {
     printError(`Failed to get message headers (HTTP ${res.status})`);
   }
@@ -805,11 +804,7 @@ async function handleUnsubscribe(
       .replace(/\//g, "_")
       .replace(/=+$/, "");
 
-    const sendRes = await gmailPost(
-      "/messages/send",
-      { raw },
-      account,
-    );
+    const sendRes = await gmailPost("/messages/send", { raw }, account);
 
     if (sendRes.ok) {
       ok({

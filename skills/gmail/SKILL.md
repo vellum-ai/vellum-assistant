@@ -18,26 +18,26 @@ All operations use CLI scripts that return JSON:
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script            | Operation       | Description                                                              |
-| ----------------- | --------------- | ------------------------------------------------------------------------ |
-| `gmail-email.ts`  | `draft`         | Create email drafts in the Drafts folder (including reply drafts)        |
-| `gmail-email.ts`  | `send-draft`    | Send an existing draft (**requires explicit user confirmation**)         |
-| `gmail-email.ts`  | `forward`       | Create forward drafts, preserving attachments                            |
-| `gmail-email.ts`  | `trash`         | Move messages to Trash                                                   |
-| `gmail-manage.ts` | `label`         | Add or remove labels on messages                                         |
-| `gmail-manage.ts` | `follow-up`     | Track/untrack messages for follow-up using a dedicated "Follow-up" label |
-| `gmail-manage.ts` | `attachments`   | List and download email attachments                                      |
-| `gmail-manage.ts` | `filters`       | Create, list, and delete Gmail filters                                   |
-| `gmail-manage.ts` | `vacation`      | Get, enable, or disable the vacation auto-responder                      |
-| `gmail-manage.ts` | `unsubscribe`   | Unsubscribe from mailing lists (**requires explicit user confirmation**) |
-| `gmail-scan.ts`   | `sender-digest` | Scan inbox and group messages by sender for declutter workflows          |
-| `gmail-scan.ts`   | `outreach-scan` | Identify cold outreach senders (no List-Unsubscribe header)              |
-| `gmail-archive.ts`| `archive`       | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
-| `gmail-prefs.ts`  | `list`          | List blocklist and safelist preferences                                  |
-| `gmail-prefs.ts`  | `add-blocklist` | Add sender emails to the blocklist                                       |
-| `gmail-prefs.ts`  | `add-safelist`  | Add sender emails to the safelist                                        |
-| `gmail-prefs.ts`  | `remove-blocklist` | Remove sender emails from the blocklist                               |
-| `gmail-prefs.ts`  | `remove-safelist`  | Remove sender emails from the safelist                                |
+| Script             | Operation          | Description                                                                  |
+| ------------------ | ------------------ | ---------------------------------------------------------------------------- |
+| `gmail-email.ts`   | `draft`            | Create email drafts in the Drafts folder (including reply drafts)            |
+| `gmail-email.ts`   | `send-draft`       | Send an existing draft (**requires explicit user confirmation**)             |
+| `gmail-email.ts`   | `forward`          | Create forward drafts, preserving attachments                                |
+| `gmail-email.ts`   | `trash`            | Move messages to Trash                                                       |
+| `gmail-manage.ts`  | `label`            | Add or remove labels on messages                                             |
+| `gmail-manage.ts`  | `follow-up`        | Track/untrack messages for follow-up using a dedicated "Follow-up" label     |
+| `gmail-manage.ts`  | `attachments`      | List and download email attachments                                          |
+| `gmail-manage.ts`  | `filters`          | Create, list, and delete Gmail filters                                       |
+| `gmail-manage.ts`  | `vacation`         | Get, enable, or disable the vacation auto-responder                          |
+| `gmail-manage.ts`  | `unsubscribe`      | Unsubscribe from mailing lists (**requires explicit user confirmation**)     |
+| `gmail-scan.ts`    | `sender-digest`    | Scan inbox and group messages by sender for declutter workflows              |
+| `gmail-scan.ts`    | `outreach-scan`    | Identify cold outreach senders (no List-Unsubscribe header)                  |
+| `gmail-archive.ts` | `archive`          | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
+| `gmail-prefs.ts`   | `list`             | List blocklist and safelist preferences                                      |
+| `gmail-prefs.ts`   | `add-blocklist`    | Add sender emails to the blocklist                                           |
+| `gmail-prefs.ts`   | `add-safelist`     | Add sender emails to the safelist                                            |
+| `gmail-prefs.ts`   | `remove-blocklist` | Remove sender emails from the blocklist                                      |
+| `gmail-prefs.ts`   | `remove-safelist`  | Remove sender emails from the safelist                                       |
 
 ### Email Operations
 
@@ -204,7 +204,7 @@ When searching Gmail, the query uses Gmail's search operators:
 | `newer_than:`    | `newer_than:7d`          | Messages from the last 7 days       |
 | `older_than:`    | `older_than:30d`         | Messages older than 30 days         |
 | `is:unread`      | `is:unread`              | Unread messages                     |
-| `has:attachment`  | `has:attachment`         | Messages with attachments           |
+| `has:attachment` | `has:attachment`         | Messages with attachments           |
 | `label:`         | `label:work`             | Messages with a specific label      |
 
 ## Email Decluttering
@@ -224,7 +224,12 @@ When a user asks to declutter, clean up, or organize their email - start scannin
    - **Action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
 3. **Embed cache_key in button data**: When constructing the action buttons, include the `cache_key` from the scan result in each button's `data` field. This ensures `cache_key` is forwarded automatically when the user clicks — the LLM does not need to recall it from earlier context:
    ```json
-   { "id": "archive_unsubscribe", "label": "Archive & Unsubscribe", "style": "primary", "data": { "cache_key": "<cache_key value here>" } }
+   {
+     "id": "archive_unsubscribe",
+     "label": "Archive & Unsubscribe",
+     "style": "primary",
+     "data": { "cache_key": "<cache_key value here>" }
+   }
    ```
 4. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user explicitly confirms which senders to clean up and which action to take. When the user clicks an action button you will receive an action message containing `action data: { cache_key, selectedIds }`:
    - `selectedIds` are **sender IDs** (base64-encoded email addresses) — NOT Gmail message IDs. Always use them as sender emails with `cache_key`, never as `message_ids`.

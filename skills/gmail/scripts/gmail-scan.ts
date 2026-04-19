@@ -198,11 +198,15 @@ async function senderDigest(args: Record<string, string | boolean>) {
       const pageSize = Math.min(500, maxMessages - allMessageIds.length);
       let listResp;
       try {
-        listResp = await gmailGet<ListMessagesResponse>("/messages", {
-          q: query,
-          maxResults: String(pageSize),
-          ...(pageToken ? { pageToken } : {}),
-        }, account);
+        listResp = await gmailGet<ListMessagesResponse>(
+          "/messages",
+          {
+            q: query,
+            maxResults: String(pageSize),
+            ...(pageToken ? { pageToken } : {}),
+          },
+          account,
+        );
       } catch (e) {
         if (isRateLimitError(e)) {
           rateLimited = true;
@@ -236,6 +240,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
           metadataHeaders,
           account,
           fetchAbort.signal,
+          "id,internalDate,payload/headers",
         ),
       );
 
@@ -455,11 +460,15 @@ async function outreachScan(args: Record<string, string | boolean>) {
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
       let listResp;
       try {
-        listResp = await gmailGet<ListMessagesResponse>("/messages", {
-          q: query,
-          maxResults: String(pageSize),
-          ...(pageToken ? { pageToken } : {}),
-        }, account);
+        listResp = await gmailGet<ListMessagesResponse>(
+          "/messages",
+          {
+            q: query,
+            maxResults: String(pageSize),
+            ...(pageToken ? { pageToken } : {}),
+          },
+          account,
+        );
       } catch (e) {
         if (isRateLimitError(e)) {
           rateLimited = true;
@@ -493,6 +502,7 @@ async function outreachScan(args: Record<string, string | boolean>) {
           metadataHeaders,
           account,
           fetchAbort.signal,
+          "id,internalDate,payload/headers",
         ),
       );
 

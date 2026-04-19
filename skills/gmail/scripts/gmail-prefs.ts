@@ -113,7 +113,7 @@ function main(): void {
 
   if (!action || typeof action !== "string") {
     printError(
-      'Missing required argument: --action (list, add-blocklist, add-safelist, remove-blocklist, remove-safelist)',
+      "Missing required argument: --action (list, add-blocklist, add-safelist, remove-blocklist, remove-safelist)",
     );
   }
 

@@ -12,6 +12,8 @@ export interface GmailRequestOptions {
   body?: unknown;
   account?: string;
   headers?: Record<string, string>;
+  /** Raw query string to append after the standard query params (e.g. repeated params). */
+  pathSuffix?: string;
 }
 
 export interface GmailResponse<T = unknown> {
@@ -92,6 +94,11 @@ export async function gmailRequest<T = unknown>(
     if (opts.query && Object.keys(opts.query).length > 0) {
       const qs = new URLSearchParams(opts.query).toString();
       path += "?" + qs;
+    }
+    if (opts.pathSuffix) {
+      path += path.includes("?")
+        ? opts.pathSuffix
+        : "?" + opts.pathSuffix.replace(/^&/, "");
     }
 
     args.push(path);
@@ -198,6 +205,7 @@ export async function batchFetchMessages(
   metadataHeaders?: string[],
   account?: string,
   signal?: AbortSignal,
+  fields?: string,
 ): Promise<GmailMessage[]> {
   const results: GmailMessage[] = [];
 
@@ -208,14 +216,28 @@ export async function batchFetchMessages(
     const waveResults = await Promise.all(
       wave.map(async (id) => {
         const query: Record<string, string> = { format };
-        if (metadataHeaders && metadataHeaders.length > 0) {
-          query.metadataHeaders = metadataHeaders.join(",");
+        if (fields) {
+          query.fields = fields;
         }
-        const response = await gmailGet<GmailMessage>(
-          `/messages/${id}`,
+
+        // Build metadataHeaders as repeated query params to avoid
+        // URL-encoding issues with comma-separated values.
+        // Gmail API expects: metadataHeaders=From&metadataHeaders=Subject
+        // NOT: metadataHeaders=From%2CSubject
+        let pathSuffix = "";
+        if (metadataHeaders && metadataHeaders.length > 0) {
+          pathSuffix = metadataHeaders
+            .map((h) => `&metadataHeaders=${encodeURIComponent(h)}`)
+            .join("");
+        }
+
+        const response = await gmailRequest<GmailMessage>({
+          method: "GET",
+          path: `/messages/${id}`,
           query,
           account,
-        );
+          pathSuffix,
+        });
         return response.ok ? response.data : null;
       }),
     );
