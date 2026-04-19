@@ -89,24 +89,24 @@ async function list(argv: string[]): Promise<void> {
     console.log(`Usage: outlook-cal.ts list [options]
 
 Options:
-  --calendar-id  Calendar ID (default: primary calendar)
-  --time-min     Start of time range (ISO 8601, default: now)
-  --time-max     End of time range (ISO 8601)
-  --max-results  Maximum number of events to return (default: 25, max: 250)
-  --query        OData $filter expression to append
-  --order-by     OData $orderby expression
-  --account      Outlook account to use`);
+  --calendar-id      Calendar ID (default: primary calendar)
+  --start-date-time  Start of time range (ISO 8601, default: now)
+  --end-date-time    End of time range (ISO 8601)
+  --max-results      Maximum number of events to return (default: 25, max: 250)
+  --filter           OData $filter expression to append
+  --order-by         OData $orderby expression
+  --account          Outlook account to use`);
     return;
   }
 
   const calendarId = optionalArg(args, "calendar-id");
-  const timeMin = optionalArg(args, "time-min") ?? new Date().toISOString();
-  const timeMax = optionalArg(args, "time-max");
+  const timeMin = optionalArg(args, "start-date-time") ?? new Date().toISOString();
+  const timeMax = optionalArg(args, "end-date-time");
   const maxResults = Math.min(
     parseInt(optionalArg(args, "max-results") ?? "25", 10),
     250,
   );
-  const query = optionalArg(args, "query");
+  const query = optionalArg(args, "filter");
   const orderBy = optionalArg(args, "order-by");
   const account = optionalArg(args, "account");
 
@@ -180,10 +180,10 @@ async function create(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
 
   if (args["help"]) {
-    console.log(`Usage: outlook-cal.ts create --summary <text> --start <datetime> --end <datetime>
+    console.log(`Usage: outlook-cal.ts create --subject <text> --start <datetime> --end <datetime>
 
 Options:
-  --summary       Event title (required)
+  --subject       Event title (required)
   --start         Start date/time in ISO 8601 (required)
   --end           End date/time in ISO 8601 (required)
   --description   Event description
@@ -196,7 +196,7 @@ Options:
     return;
   }
 
-  const summary = requireArg(args, "summary");
+  const summary = requireArg(args, "subject");
   const startRaw = requireArg(args, "start");
   const endRaw = requireArg(args, "end");
   const description = optionalArg(args, "description");
@@ -304,19 +304,19 @@ async function availability(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
 
   if (args["help"]) {
-    console.log(`Usage: outlook-cal.ts availability --time-min <datetime> --time-max <datetime>
+    console.log(`Usage: outlook-cal.ts availability --start <datetime> --end <datetime>
 
 Options:
-  --time-min   Start of time range (ISO 8601, required)
-  --time-max   End of time range (ISO 8601, required)
+  --start      Start of time range (ISO 8601, required)
+  --end        End of time range (ISO 8601, required)
   --schedules  Comma-separated list of email addresses to check
   --timezone   IANA timezone (default: UTC)
   --account    Outlook account to use`);
     return;
   }
 
-  const timeMin = requireArg(args, "time-min");
-  const timeMax = requireArg(args, "time-max");
+  const timeMin = requireArg(args, "start");
+  const timeMax = requireArg(args, "end");
   const schedulesRaw = optionalArg(args, "schedules");
   const timezone = optionalArg(args, "timezone") ?? "UTC";
   const account = optionalArg(args, "account");
@@ -369,15 +369,17 @@ async function rsvp(argv: string[]): Promise<void> {
     console.log(`Usage: outlook-cal.ts rsvp --event-id <id> --response <accepted|declined|tentative>
 
 Options:
-  --event-id   Event ID (required)
-  --response   One of: accepted, declined, tentative (required)
-  --account    Outlook account to use`);
+  --event-id      Event ID (required)
+  --response      One of: accepted, declined, tentative (required)
+  --account       Outlook account to use
+  --skip-confirm  Skip the interactive confirmation prompt`);
     return;
   }
 
   const eventId = requireArg(args, "event-id");
   const response = requireArg(args, "response");
   const account = optionalArg(args, "account");
+  const skipConfirm = args["skip-confirm"] === true;
 
   // Validate response value
   const validResponses = ["accepted", "declined", "tentative"];
@@ -402,6 +404,34 @@ Options:
   if (event.responseStatus?.response === "organizer") {
     ok("You are the organizer of this event. No RSVP needed.");
     return;
+  }
+
+  // Gate on user confirmation unless explicitly skipped
+  if (!skipConfirm) {
+    const currentResponse = event.responseStatus?.response ?? "unknown";
+    const responseLabel =
+      response === "accepted"
+        ? "Accept"
+        : response === "declined"
+          ? "Decline"
+          : "Tentatively accept";
+
+    const messageParts = [
+      `Event: ${event.subject ?? eventId}`,
+      `Current response: ${currentResponse}`,
+      `New response: ${response}`,
+    ];
+
+    const confirmed = await requestConfirmation({
+      title: `${responseLabel} event invitation`,
+      message: messageParts.join("\n"),
+      confirmLabel: responseLabel,
+    });
+
+    if (!confirmed) {
+      ok({ rsvped: false, reason: "User did not confirm" });
+      return;
+    }
   }
 
   // Send RSVP via the dedicated Microsoft Graph endpoint with sendResponse: true
