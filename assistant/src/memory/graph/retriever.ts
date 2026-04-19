@@ -413,12 +413,14 @@ export async function loadContextMemory(
   let embeddingProvider: string | null = null;
   let embeddingModel: string | null = null;
   let contextQueryText: string | null = null;
+  let truncatedSummaryLength = 0;
   if (opts.recentSummaries.length > 0) {
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
         queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
       contextQueryText = truncated;
+      truncatedSummaryLength = truncated.length;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,
       });
@@ -427,6 +429,37 @@ export async function loadContextMemory(
       embeddingModel = result.model;
     } catch (err) {
       log.warn({ err }, "Failed to embed summaries for context load");
+    }
+  }
+
+  // 1b. (PR 3) Dedicated user-query embedding. When `opts.userQuery` is
+  //     provided and materially shorter than the summary query, embed it
+  //     independently and use the resulting vector for capability-reserve
+  //     ranking + as a merged candidate pool. Skipped when the user query
+  //     already dominates the summary text to avoid paying for a redundant
+  //     embed call.
+  let userQueryVector: number[] | null = null;
+  const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
+  const trimmedUserQuery = opts.userQuery?.trim() ?? "";
+  const shouldEmbedUserQuery =
+    trimmedUserQuery.length > 0 &&
+    // Short-circuit: when there is a summary query, only embed user query if
+    // it's less than half the summary length (otherwise it already dominates).
+    // If there's no summary query, always embed the user query on its own.
+    (truncatedSummaryLength === 0 ||
+      trimmedUserQuery.length < truncatedSummaryLength / 2);
+  if (shouldEmbedUserQuery) {
+    try {
+      const result = await embedWithRetry(opts.config, [trimmedUserQuery], {
+        signal: opts.signal,
+      });
+      userQueryVector = result.vectors[0] ?? null;
+      if (!embeddingProvider) {
+        embeddingProvider = result.provider;
+        embeddingModel = result.model;
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to embed userQuery for context load");
     }
   }
 
@@ -452,6 +485,31 @@ export async function loadContextMemory(
     }
   }
   const pureSemanticHits = semanticCandidateIds.size;
+
+  // 2b. (PR 3) Run a parallel Qdrant search against the user-query vector and
+  //     merge the results into the organic scoring pool (max-score union).
+  //     This keeps PR 3 strictly additive: candidates that only match the
+  //     user-query vector still participate in downstream scoring, and
+  //     candidates that match both vectors retain the higher score.
+  if (userQueryVector) {
+    try {
+      const results = await searchGraphNodes(
+        userQueryVector,
+        maxNodes * 3,
+        [opts.scopeId],
+        undefined,
+      );
+      for (const r of results) {
+        userQueryCandidateIds.set(r.nodeId, r.score);
+        const existing = semanticCandidateIds.get(r.nodeId);
+        if (existing === undefined || r.score > existing) {
+          semanticCandidateIds.set(r.nodeId, r.score);
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "Qdrant search failed for userQuery vector");
+    }
+  }
 
   // Also include top-significance nodes as a fallback
   const topSignificance = queryNodes({
@@ -614,9 +672,25 @@ export async function loadContextMemory(
       return true;
     });
 
-  // Rank by semantic similarity when a query vector exists
+  // Rank by semantic similarity when a query vector exists.
+  // (PR 3) When a dedicated user-query vector is available, prefer its
+  // scores over the summary vector's for capability-reserve ranking —
+  // capability picks should align with the user's current intent, not
+  // the conversation-summary topic.
   let selectedCapabilities: MemoryNode[];
-  if (queryVector && capabilityNodes.length > capabilityReserve) {
+  if (userQueryCandidateIds.size > 0 && capabilityNodes.length > capabilityReserve) {
+    selectedCapabilities = capabilityNodes
+      .map((node) => ({
+        node,
+        sim:
+          userQueryCandidateIds.get(node.id) ??
+          semanticCandidateIds.get(node.id) ??
+          0,
+      }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, capabilityReserve)
+      .map((e) => e.node);
+  } else if (queryVector && capabilityNodes.length > capabilityReserve) {
     selectedCapabilities = capabilityNodes
       .map((node) => ({ node, sim: semanticCandidateIds.get(node.id) ?? 0 }))
       .sort((a, b) => b.sim - a.sim)
@@ -732,6 +806,7 @@ export async function loadContextMemory(
     },
     queryVector: queryVector ?? undefined,
     sparseVector,
+    userQueryVector: userQueryVector ?? undefined,
   };
 }
 
